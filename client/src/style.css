@@ -1,0 +1,48 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color: #eee;
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overscroll-behavior: none; }
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#crosshair { position: fixed; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border: 2px solid #fff; border-radius: 50%; mix-blend-mode: difference; pointer-events: none; }
+#panel { position: fixed; top: 12px; left: 12px; width: 300px; max-height: calc(100% - 24px); overflow: auto;
+  background: rgba(20,20,20,.88); border: 1px solid #333; border-radius: 14px; padding: 14px 16px;
+  backdrop-filter: blur(6px); display: flex; flex-direction: column; gap: 10px; z-index: 5; }
+#panel.hidden { display: none; }
+h1 { font-size: 20px; margin: 0; letter-spacing: .5px; }
+h1 small { font-weight: 400; color: #999; font-size: 13px; }
+.room { margin: 0; color: #aaa; font-size: 13px; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+label.check { flex-direction: row; align-items: center; gap: 8px; }
+input[type=range] { width: 100%; accent-color: #ffd400; }
+input[type=text] { background: #222; color: #eee; border: 1px solid #444; border-radius: 8px; padding: 8px; font-size: 16px; }
+.upload input { display: none; }
+.upload span, button { display: block; text-align: center; padding: 10px 12px; border-radius: 10px; border: 1px solid #555;
+  background: #2a2a2a; color: #eee; font: inherit; cursor: pointer; }
+.upload span { background: #ffd400; color: #111; font-weight: 700; border-color: #ffd400; }
+button.primary { background: #fff; color: #111; font-weight: 700; }
+button.danger { background: #b3261e; border-color: #b3261e; }
+.hint { margin: -4px 0 0; font-size: 12px; color: #888; }
+.help { font-size: 12.5px; color: #bbb; }
+#tray { display: flex; flex-wrap: wrap; gap: 6px; }
+#tray:empty::before { content: "Ingen klibba vald än."; font-size: 12px; color: #777; }
+#tray button { width: 54px; height: 54px; padding: 3px; border-radius: 8px; background: #333 repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 50%/12px 12px; }
+#tray button.sel { outline: 3px solid #ffd400; }
+#tray img { width: 100%; height: 100%; object-fit: contain; display: block; }
+#panel-toggle { position: fixed; top: 12px; right: 12px; z-index: 6; display: none; }
+#joystick { position: fixed; left: 24px; bottom: calc(24px + env(safe-area-inset-bottom)); width: 120px; height: 120px;
+  border-radius: 50%; background: rgba(255,255,255,.12); border: 2px solid rgba(255,255,255,.35); z-index: 4; touch-action: none; display: none; }
+#stick { position: absolute; left: 50%; top: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px; border-radius: 50%; background: rgba(255,255,255,.6); }
+#admin-banner { position: fixed; bottom: 0; left: 0; right: 0; background: #b3261e; color: #fff; text-align: center; padding: 6px; font-weight: 700; z-index: 7; }
+#toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); background: #ffd400; color: #111; padding: 8px 14px;
+  border-radius: 10px; font-weight: 600; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 8; max-width: 80vw; text-align: center; }
+#toast.show { opacity: 1; }
+dialog { background: #1d1d1d; color: #eee; border: 1px solid #555; border-radius: 14px; max-width: 360px; }
+dialog img { max-width: 120px; max-height: 120px; display: block; margin: 8px auto; }
+dialog .row { display: flex; flex-direction: column; gap: 8px; }
+.touch-only { display: none; }
+body.touch .touch-only { display: block; }
+body.touch #joystick { display: block; }
+body.touch .desktop-only { display: none; }
+body.touch #panel-toggle { display: block; }
+body.touch #panel { width: min(300px, calc(100% - 24px)); max-height: 62%; }
+body.locked #panel { display: none; }

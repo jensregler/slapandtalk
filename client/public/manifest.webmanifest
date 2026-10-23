@@ -1,0 +1,17 @@
+{
+  "name": "Slap and Talk",
+  "short_name": "Slap&Talk",
+  "description": "Virtuellt utställningsrum för klistermärken – sätt upp klibbor och snacka",
+  "lang": "sv",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#111111",
+  "theme_color": "#151515",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
