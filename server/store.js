@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ROOMS_DIR = path.join(DATA_DIR, 'rooms');
 const IMAGES_FILE = path.join(DATA_DIR, 'images.json');
 fs.mkdirSync(ROOMS_DIR, { recursive: true });

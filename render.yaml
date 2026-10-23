@@ -1,0 +1,14 @@
+# Render-konfiguration (https://render.com) – gratisnivån.
+# OBS: på gratisnivån är disken tillfällig, så stämplar kan försvinna vid omstart.
+services:
+  - type: web
+    name: slapandtalk
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "1"
