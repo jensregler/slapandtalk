@@ -2,7 +2,7 @@
 // rummet (room.js), styrningen (controls.js), stämplarna (stamps.js) och servern (api.js).
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
-import { FirstPersonControls } from './controls.js';
+import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { api } from './api.js';
 import { foldStamp } from './fold.js';
@@ -47,6 +47,7 @@ const state = {
   selected: null, // vald bild { id, url, width, height }
   mine: readMine(),
   size: 0.3, rotation: 0, jitter: false,
+  mode: 'slap', // 'slap' = Klibbläge (pekaren syns, klick stämplar), 'view' = Tittläge (bara titta)
   artist: localStorage.getItem('klibb.artist') || '',
   adminToken: '',
 };
@@ -286,7 +287,31 @@ function adminPick(ndc) {
   dlg.showModal();
 }
 
-function action(ndc) { return state.adminToken ? adminPick(ndc) : stampAt(ndc); }
+function action(ndc) {
+  if (state.mode === 'view') return null; // Tittläge: klick och tryck gör ingenting
+  return state.adminToken ? adminPick(ndc) : stampAt(ndc);
+}
+
+// ---------- Klibbläge / Tittläge (V, eller ögat på mobilen) ----------
+// Tittläge: ingen pekare och inget sikte, klick stämplar inte, scroll och Q/E gör ingenting.
+// R byter fortfarande design (man stannar i Tittläge), så man kan förbereda nästa klibba.
+function setMode(mode, { quiet = false } = {}) {
+  state.mode = mode === 'view' ? 'view' : 'slap';
+  const view = state.mode === 'view';
+  document.body.classList.toggle('view-mode', view);
+  if (view) preview.hide();
+  $('mode-hud').textContent = (view ? 'Tittläge' : 'Klibbläge') + (isTouch ? '' : ' · V');
+  $('mode-btn').setAttribute('aria-pressed', String(view));
+  $('mode-btn').title = view ? 'Tillbaka till klibbläge' : 'Tittläge: dölj pekaren och titta';
+  if (!quiet) {
+    toast(view ? (isTouch ? 'Tittläge: titta i lugn och ro. Tryck på 👁 för att klibba igen.' : 'Tittläge: titta i lugn och ro. V = klibba igen.')
+      : (isTouch ? 'Klibbläge: tryck där du vill stämpla.' : 'Klibbläge: klicka för att stämpla.'), 1600);
+  }
+  return state.mode;
+}
+const toggleMode = () => setMode(state.mode === 'view' ? 'slap' : 'view');
+setMode('slap', { quiet: true });
+$('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); };
 
 // ---------- Inmatning ----------
 const CENTER = new THREE.Vector2(0, 0);
@@ -302,11 +327,12 @@ if (!isTouch) {
     if (e.button !== 0) return;
     if (!controls.locked) controls.lock(); else action(CENTER);
   });
-  addEventListener('wheel', (e) => { if (controls.locked) setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
+  addEventListener('wheel', (e) => { if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
   addEventListener('keydown', (e) => {
-    if (e.target.closest('input')) return;
-    if (e.code === 'KeyQ') setRot(state.rotation - 15);
-    if (e.code === 'KeyE') setRot(state.rotation + 15);
+    if (isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return; // inte medan man skriver, inte Ctrl+V
+    if (e.code === 'KeyV' && !e.repeat) toggleMode();
+    if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
+    if (state.mode === 'slap' && e.code === 'KeyE') setRot(state.rotation + 15);
     if (e.code === 'KeyR' && !e.repeat && !e.ctrlKey && !e.metaKey) nextDesign();
   });
 } else {
@@ -392,7 +418,7 @@ const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   controls.update(dt);
-  if (controls.locked && state.selected && !state.adminToken) {
+  if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
     if (h) {
       const [w, hh] = StampLayer.dims(state.selected, state.size);
@@ -426,5 +452,5 @@ window.klibb = {
   look(yaw, pitch) { controls.yaw = yaw; controls.pitch = pitch; controls.apply(); },
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
-  nextDesign, designs, validateDesigns,
+  nextDesign, designs, validateDesigns, setMode, toggleMode,
 };

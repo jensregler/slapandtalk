@@ -325,6 +325,19 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const s2 = await sel();
     assert(s1[0] !== s0[0] && s2[0] === s0[0] && s1[1] === '2/2', 'mobil: tryck på designknappen byter design och börjar om');
     assert((await m.evaluate(() => window.klibb.stamps.count)) === mBefore + 1, 'mobil: knappen stämplar inte av misstag');
+    // Mobil: ögat växlar Tittläge, tryck stämplar inte då
+    assert(await m.isVisible('#mode-btn'), 'mobil: ögonknappen syns');
+    await m.tap('#mode-btn'); await m.waitForTimeout(200);
+    const mv = await m.evaluate(() => [window.klibb.state.mode, getComputedStyle(document.getElementById('design-btn')).opacity, window.klibb.stamps.count]);
+    await m.touchscreen.tap(vp.width * 0.4, vp.height * 0.3); await m.waitForTimeout(700);
+    const mvc = await m.evaluate(() => window.klibb.stamps.count);
+    assert(mv[0] === 'view' && Number(mv[1]) < 0.6 && mvc === mv[2], 'mobil: 👁 ger Tittläge, designknappen dämpas och tryck stämplar inte');
+    await m.waitForFunction(() => !document.getElementById('toast').classList.contains('show'), null, { timeout: 5000 });
+    await m.screenshot({ path: path.join(SHOTS, '14-tittlage-mobil.png') });
+    await m.tap('#mode-btn'); await m.waitForTimeout(200);
+    await m.touchscreen.tap(vp.width * 0.4, vp.height * 0.3);
+    await m.waitForFunction((n) => window.klibb.stamps.count === n + 1, mvc, { timeout: 5000 });
+    assert((await m.evaluate(() => window.klibb.state.mode)) === 'slap', 'mobil: 👁 igen ger Klibbläge och tryck stämplar');
     await m.waitForTimeout(300);
     await m.screenshot({ path: path.join(SHOTS, '06-mobil-rum.png') });
     await m.tap('#design-btn'); await m.waitForTimeout(300);
@@ -413,6 +426,44 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.evaluate((id) => { const k = window.klibb; k.state.selected = k.state.mine.find((m) => m.id === id); const p = k.stampAt(0, 0); k.nextDesign(); return p; }, two[0]);
     await d.waitForTimeout(500);
     assert((await mineIds()).join() === five.join(), 'ett 410-svar för en design tar inte bort någon annan design');
+
+    // ---------- Klibbläge / Tittläge (V) ----------
+    const modeInfo = () => d.evaluate(() => ({ mode: window.klibb.state.mode, hud: document.getElementById('mode-hud').textContent,
+      preview: window.klibb.preview.mesh.visible, count: window.klibb.stamps.count, size: window.klibb.state.size,
+      rot: window.klibb.state.rotation, sel: window.klibb.state.selected && window.klibb.state.selected.id, locked: window.klibb.controls.locked }));
+    await d.evaluate(() => { window.klibb.moveTo(1, 0); window.klibb.look(0, 0.05); });
+    await d.mouse.click(900, 400); // första klicket låser musen (stämplar inte)
+    await d.waitForTimeout(300);
+    const m0 = await modeInfo();
+    assert(m0.locked && m0.mode === 'slap' && m0.hud === 'Klibbläge · V' && m0.preview, 'Klibbläge från början: pekaren syns');
+    await d.keyboard.press('v'); await d.waitForTimeout(200);
+    const m1 = await modeInfo();
+    assert(m1.mode === 'view' && m1.hud === 'Tittläge · V' && !m1.preview, 'V slår på Tittläge och döljer pekaren');
+    await d.mouse.click(900, 400); await d.waitForTimeout(400);
+    await d.mouse.wheel(0, 300); await d.keyboard.press('q'); await d.keyboard.press('e'); await d.keyboard.press('q');
+    await d.waitForTimeout(200);
+    const m2 = await modeInfo();
+    assert(m2.count === m1.count && m2.size === m1.size && m2.rot === m1.rot && !m2.preview, 'Tittläge: klick stämplar inte, scroll och Q/E ändrar inget');
+    await d.keyboard.press('r'); await d.waitForTimeout(200);
+    const m3 = await modeInfo();
+    assert(m3.sel !== m2.sel && m3.mode === 'view' && !m3.preview, 'R byter design men man stannar i Tittläge');
+    await d.evaluate(() => { window.klibb.moveTo(0, 2.5); window.klibb.look(0.15, 0.05); });
+    await d.waitForFunction(() => !document.getElementById('toast').classList.contains('show'), null, { timeout: 5000 });
+    await d.waitForTimeout(300);
+    await d.screenshot({ path: path.join(SHOTS, '13-tittlage-dator.png') });
+    await d.keyboard.press('v'); await d.waitForTimeout(200);
+    await d.mouse.click(900, 400);
+    await d.waitForFunction((n) => window.klibb.stamps.count === n + 1, m3.count, { timeout: 5000 });
+    const m4 = await modeInfo();
+    assert(m4.mode === 'slap' && m4.preview && m4.count === m3.count + 1, 'V igen: Klibbläge, pekaren syns och klick stämplar igen');
+    await d.evaluate(() => window.klibb.controls.unlock()); // som Esc
+    await d.waitForFunction(() => !window.klibb.controls.locked);
+    await d.fill('#artist', ''); await d.type('#artist', 'Viva');
+    const typed = await d.evaluate(() => [window.klibb.state.mode, document.getElementById('artist').value]);
+    assert(typed[0] === 'slap' && typed[1] === 'Viva', 'V gör ingenting medan man skriver i ett textfält');
+    await d.keyboard.press('Control+v'); // klistra in: ska inte heller växla
+    assert((await d.evaluate(() => window.klibb.state.mode)) === 'slap', 'Ctrl+V växlar inte läge');
+    await d.fill('#artist', 'Testaren');
     await dctx.close();
   } finally {
     // Städa: ta bort testbilderna (och därmed alla teststämplar) via admin-API:t

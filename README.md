@@ -16,7 +16,15 @@ All kod är öppen källkod under MIT-licensen (se `LICENSE`).
 
 **På datorn:** klicka på *Ladda upp klibba*, välj en bild och klicka på *Gå in i rummet*.
 Gå med **W A S D**, titta med musen och **klicka** för att stämpla. Scrollhjulet ändrar storlek,
-**Q/E** vrider klibban, **R** byter design och **Esc** tar dig tillbaka till menyn.
+**Q/E** vrider klibban, **R** byter design, **V** växlar mellan Klibbläge och Tittläge och
+**Esc** tar dig tillbaka till menyn.
+
+**Klibbläge och Tittläge (V):** du börjar i *Klibbläge*: den genomskinliga pekaren visar var
+klibban hamnar och ett klick stämplar. Tryck **V** för *Tittläge* när du vill kliva tillbaka och
+beundra väggen: pekaren och siktet försvinner (kvar är bara en liten prick), klick stämplar inte
+och scroll/Q/E gör ingenting. Gå och titta som vanligt. **R** byter fortfarande design i Tittläge,
+men du stannar kvar där tills du trycker **V** igen. Längst ner i bild står vilket läge du är i.
+V fungerar inte medan du skriver i ett textfält, och Ctrl+V (klistra in) växlar inte läge.
 
 **Byta design med R:** har du laddat upp flera klibbor växlar **R** till nästa (efter den sista
 börjar det om på den första). Rutan längst ner i mitten visar vilken design som är vald, till
@@ -27,6 +35,8 @@ servern har kvar bilderna. Designs som har försvunnit från servern tas bort ur
 **På mobilen:** ladda upp en bild i menyn och fäll ihop menyn med **☰**. Styrspaken nere till
 vänster tar dig framåt, **dra med fingret** för att titta och **tryck** där du vill stämpla.
 Den **runda knappen nere till höger** visar vald design: tryck på den för att byta till nästa.
+**Ögat 👁** bredvid slår på Tittläge (pekaren försvinner och tryck stämplar inte, designknappen
+dämpas); tryck på ögat igen för att klibba.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.
 
 **Rum:** i menyn finns **＋ Nytt snabbrum** (skapar ett eget rum med en kort kod, t.ex.

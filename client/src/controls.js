@@ -3,6 +3,15 @@
 // Mobil: styrspak nere till vänster för att gå, dra med fingret för att titta.
 import * as THREE from 'three';
 
+// Skriver man i ett textfält (artistnamn, rumskod …)? Då ska tangenterna inte styra spelet.
+export function isTyping(e) {
+  const t = e.target;
+  if (!t || !t.closest) return false;
+  if (t.closest('textarea, select, [contenteditable=""], [contenteditable="true"]')) return true;
+  const inp = t.closest('input');
+  return !!inp && !['range', 'checkbox', 'radio', 'button', 'file'].includes(inp.type);
+}
+
 export class FirstPersonControls {
   constructor(camera, canvas, bounds) {
     this.camera = camera;
@@ -15,7 +24,7 @@ export class FirstPersonControls {
     this.locked = false;
     this.onLockChange = () => {};
 
-    addEventListener('keydown', (e) => { if (!e.target.closest('input')) this.keys.add(e.code); });
+    addEventListener('keydown', (e) => { if (!isTyping(e)) this.keys.add(e.code); });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
     document.addEventListener('pointerlockchange', () => {
