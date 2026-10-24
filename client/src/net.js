@@ -3,7 +3,7 @@
 // vaknar eller startar om): först efter en halv sekund, sedan längre och längre (max 10 s).
 //
 // handlers: {
-//   hello()            → { name, look, p, y }   (skickas varje gång vi ansluter)
+//   hello()            → { name, look, p, y, pi }   (pi = blicken upp/ner)   (skickas varje gång vi ansluter)
 //   onWelcome(m)       → vi är inne (m.full = rummet var fullt, vi tittar bara på)
 //   onJoin(player), onLeave(id), onMove(id, p, y), onLook(id, name, look)
 //   onChat(msg), onEvent(e)  (stamp:add, stamp:remove, image:remove, room:style)
@@ -87,7 +87,7 @@ export function connect(roomId, handlers) {
   return {
     get id() { return myId; },
     get status() { return status; },
-    sendMove: (p, y) => send({ t: 'move', p, y }),
+    sendMove: (p, y, pi = 0) => send({ t: 'move', p, y, pi }),
     sendLook: (name, look) => send({ t: 'look', name, look }),
     sendChat: (text) => send({ t: 'chat', text }),
     sendSignal: (to, data) => send({ t: 'signal', to, data }), // röstchatt (nästa steg)

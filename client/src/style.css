@@ -199,3 +199,61 @@ body.touch #avatar-panel { top: auto; bottom: 0; left: 0; right: 0; width: auto;
   padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
 body.touch #avatar-preview { height: 150px; }
 body.touch #avatar-panel .swatches.colors button { width: 32px; height: 32px; }
+
+/* ---------- Inspelning och kameror ---------- */
+#rec-box { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #333; padding-top: 8px; }
+#rec-box[hidden] { display: none; }
+#rec-time { color: #ff4d4d; font-weight: 700; font-variant-numeric: tabular-nums; }
+#rec-toggle { border-color: #b3261e; }
+#rec-toggle.on { background: #b3261e; color: #fff; font-weight: 700; }
+#cam-list, #rec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+#cam-list:empty::before { content: "Inga kameror än."; font-size: 12px; color: #777; }
+#cam-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; background: #222; border-radius: 8px; padding: 4px; }
+#cam-list .cam-name { flex: 1 1 100%; min-width: 0; padding: 4px 6px; font-size: 13px; }
+#cam-list .cam-look { margin-left: auto; }
+#cam-list select { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 6px; font-size: 12px; padding: 3px 2px; }
+#cam-list button { padding: 3px 7px; border-radius: 7px; font-size: 13px; }
+#rec-list li { font-size: 12.5px; background: #222; border-radius: 8px; padding: 4px 6px; }
+#rec-list a { color: #ffd400; text-decoration: none; font-weight: 600; }
+#rec-list .t { color: #999; }
+#rec-list-box summary { cursor: pointer; font-size: 13px; color: #ccc; }
+#rec-badge { position: fixed; top: 10px; right: 14px; z-index: 9; background: #d0101c; color: #fff; font-weight: 800; letter-spacing: 1px;
+  padding: 4px 11px; border-radius: 8px; box-shadow: 0 0 0 2px rgba(255,255,255,.85); pointer-events: none; animation: recblink 1.6s infinite; }
+#rec-badge[hidden] { display: none; }
+@keyframes recblink { 50% { opacity: .55; } }
+body.touch #rec-badge { top: 56px; }
+#rec-notice { position: fixed; top: 50px; left: 50%; transform: translateX(-50%); z-index: 9; background: #1d1d1d; border: 2px solid #d0101c; border-radius: 12px;
+  padding: 10px 14px; max-width: min(460px, 92vw); display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+#rec-notice b { color: #ff5a5a; font-size: 15px; }
+#rec-notice button { align-self: flex-end; padding: 5px 14px; }
+#rec-notice[hidden] { display: none; }
+#camview-hud { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 9; background: rgba(0,0,0,.75); color: #fff;
+  padding: 6px 8px 6px 14px; border-radius: 10px; display: flex; align-items: center; gap: 8px; border: 1px solid #d0101c; }
+#camview-hud[hidden] { display: none; }
+#camview-hud button { padding: 4px 10px; }
+body.camview #panel, body.camview #panel-toggle, body.camview #chat, body.camview #chat-btn, body.camview #design-hud,
+body.camview #mode-hud, body.camview #room-hud, body.camview #crosshair, body.camview #joystick, body.camview #mode-btn,
+body.camview #peel-btn, body.camview #design-btn { display: none !important; }
+
+/* ---------- Uppspelaren (?replay=) ---------- */
+body.replay #panel, body.replay #panel-toggle, body.replay #chat, body.replay #chat-btn, body.replay #design-hud, body.replay #mode-hud,
+body.replay #room-hud, body.replay #crosshair, body.replay #joystick, body.replay #mode-btn, body.replay #peel-btn, body.replay #design-btn,
+body.replay #full-banner, body.replay #admin-banner { display: none !important; }
+#replay-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; background: rgba(18,18,18,.9); border-top: 1px solid #333;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; }
+#replay-bar[hidden] { display: none; }
+.rp-top { font-size: 13px; color: #bbb; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.rp-top a { color: #ffd400; text-decoration: none; font-weight: 600; }
+#rp-viewlabel { color: #ff8a8a; font-weight: 600; }
+.rp-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rp-controls button { padding: 6px 12px; }
+#rp-play { min-width: 46px; font-size: 18px; padding: 4px 10px; }
+#rp-seek { flex: 1 1 200px; }
+#rp-time { font-variant-numeric: tabular-nums; color: #ccc; min-width: 90px; }
+.rp-controls select { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 8px; padding: 6px; font: inherit; max-width: 100%; }
+#rp-video.on { background: #b3261e; border-color: #b3261e; color: #fff; }
+#rp-download { color: #ffd400; font-weight: 600; }
+#rp-chat { position: fixed; left: 12px; bottom: 130px; margin: 0; padding: 0; list-style: none; max-width: min(420px, 80vw); display: flex; flex-direction: column; gap: 3px; z-index: 8; pointer-events: none; }
+#rp-chat li { background: rgba(0,0,0,.6); border-radius: 8px; padding: 3px 8px; font-size: 13px; }
+#rp-chat .tm { color: #888; margin-right: 6px; font-size: 11px; }
+#rp-chat .n { font-weight: 700; color: #ffd400; margin-right: 6px; }

@@ -7,7 +7,7 @@ import { Players, Avatar, loadAvatarModel, loadMyAvatar, saveMyAvatar, normalize
 const SEND_HZ = 12;
 const CHAT_FADE_MS = 15_000;
 
-export function initTogether({ room, scene, camera, controls, isTouch, toast, artist, onEvent, onReconnect, onBusyChange = () => {} }) {
+export function initTogether({ room, scene, camera, controls, isTouch, toast, artist, onEvent, onReconnect, onWelcome = () => {}, onBusyChange = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const me = loadMyAvatar();
   if (!me.saved) saveMyAvatar(me.name, me.look); // en slumpad gubbe ska se likadan ut nästa gång
@@ -17,7 +17,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
 
   // ---------- Anslutningen ----------
   const net = connect(room, {
-    hello: () => ({ name: myName(), look: me.look, p: camera.position.toArray(), y: controls.yaw }),
+    hello: () => ({ name: myName(), look: me.look, p: camera.position.toArray(), y: controls.yaw, pi: controls.pitch }),
     onYou(name) { serverName = name; renderPeople(); },
     onWelcome(m) {
       serverName = m.you?.name || '';
@@ -26,6 +26,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       full = !!m.full; $('full-banner').hidden = !full;
       setChatHistory(m.chat || []);
       last = null; renderPeople(); renderChatInput();
+      onWelcome(m);
     },
     onJoin(p, rejoin) { players.upsert(p); if (!rejoin) sys(`${p.name} kom in`); renderPeople(); },
     onLeave(id, rejoin) {
@@ -50,10 +51,11 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   function sendMove(dt) {
     acc += dt; if (acc < 1 / SEND_HZ) return; acc = 0;
     if (net.status !== 'online') return;
-    const p = camera.position, y = controls.yaw;
-    if (last && Math.abs(p.x - last.x) < 0.01 && Math.abs(p.z - last.z) < 0.01 && Math.abs(y - last.y) < 0.01) return;
-    last = { x: p.x, z: p.z, y };
-    net.sendMove([+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)], +y.toFixed(3));
+    // Blickriktningen upp/ner (pitch) skickas också, så en inspelning kan visas med någons ögon.
+    const p = camera.position, y = controls.yaw, pi = controls.pitch;
+    if (last && Math.abs(p.x - last.x) < 0.01 && Math.abs(p.z - last.z) < 0.01 && Math.abs(y - last.y) < 0.01 && Math.abs(pi - last.pi) < 0.02) return;
+    last = { x: p.x, z: p.z, y, pi };
+    net.sendMove([+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)], +y.toFixed(3), +pi.toFixed(3));
   }
 
   // ---------- Vem är här ----------
@@ -217,9 +219,10 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   renderPeople(); renderChatInput();
   return {
     net, players,
-    update(dt) { sendMove(dt); players.update(dt, camera.position); },
+    update(dt, eye = camera.position) { sendMove(dt); players.update(dt, eye); },
     busy: () => av.open,
     chatOpen, openChat, closeChat, openAvatarPanel, closeAvatarPanel,
+    sys,
     me: () => ({ name: myName(), shownAs: serverName, look: { ...me.look } }),
   };
 }

@@ -9,6 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
 const WebSocket = require('ws');
+const { recordingE2E } = require('./e2e-recording');
 
 const BASE = process.env.BASE_URL || 'http://localhost:8787';
 const ROOM = 'e2e-test';
@@ -795,6 +796,9 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await B.waitForFunction(() => window.klibb.players().length === 0, null, { timeout: 8000 });
     assert([...(await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent)))].some((t) => /Ulla <3 gick/.test(t)), 'när A stänger sidan försvinner gubben för B ("Ulla <3 gick")');
     await bctx.close();
+
+    // Inspelning, kameror och uppspelning (tests/e2e-recording.js)
+    await recordingE2E({ browser, BASE, SHOTS, assert, waitReady, testPng });
 
     // Fullt rum: 10 är max. Den elfte får titta, och kommer in när någon går.
     const fullRoom = (await (await fetch(`${BASE}/api/rooms`, { method: 'POST' })).json()).room.id;

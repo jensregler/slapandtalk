@@ -10,7 +10,8 @@
 //            städjobbet. (Konton finns inte än; senare: påminnelse innan arkivering.)
 //
 // Ett rum sparas som "rooms/<id>.json":
-//   { id, type, owner, createdAt, lastVisitAt, stamps: [...] }
+//   { id, type, owner, createdAt, lastVisitAt, style, stamps: [...], cameras: [...] }
+//   cameras = virtuella kameror för inspelning: { id, name, p, yaw, pitch, fov, aspect, createdAt }
 //   owner = null, eller { id, name } när konton finns.
 //
 // Bilder (designs) sparas EN gång och stämplarna pekar på dem med imageId.
@@ -87,6 +88,21 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
       room.style = style;
       await saveRoom(room);
       return 'ok';
+    });
+  }
+
+  // Ändra rummets kameror. fn(cameras, room) ändrar listan och returnerar svaret.
+  // Svar: fn:s svar, 'notfound' eller 'forbidden'. Staden skapas om admin lägger en kamera där.
+  async function editCameras(id, canEdit, fn) {
+    return withLock(id, async () => {
+      let room = await getRoom(id);
+      if (!room && id === PUBLIC_ROOM) room = normalize(id, { createdAt: iso() });
+      if (!room) return 'notfound';
+      if (!canEdit(room)) return 'forbidden';
+      room.cameras = Array.isArray(room.cameras) ? room.cameras : [];
+      const res = fn(room.cameras, room);
+      if (res && res.save !== false) await saveRoom(room);
+      return res;
     });
   }
 
@@ -193,7 +209,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   }
 
   return {
-    adapter, clock, getRoom, roomOrEmpty, createRoom, setRoomStyle, touchRoom, addStamp, deleteStamp, peelStamps, listRooms, deleteRoom,
+    adapter, clock, getRoom, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, listRooms, deleteRoom,
     deleteStampsWithImage, cleanupRooms, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, migrate,
   };

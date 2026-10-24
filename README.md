@@ -103,6 +103,36 @@ har besökt på `QUICK_ROOM_TTL_HOURS` timmar. Ett besök räknas när någon ö
 stämplar där, eller har sidan öppen (appen säger till var tionde minut). Designs (bilderna)
 tas inte bort, de kan finnas i andras menyer och rum.
 
+### Inspelning och kameror (för poddar och filmer)
+Den som skapade rummet (eller admin; i Staden bara admin) ser **🎬 Inspelning** i menyn.
+
+- **● Starta inspelning / ■ Stoppa:** servern spelar in allt som händer i rummet: utseendet,
+  klibborna (även de som sätts och peelas), kamerorna, vilka som är där, hur deras gubbar ser ut,
+  var de står och åt vilket håll de tittar (även upp och ner), och chatten. **Röst spelas inte in**
+  (rösten kommer i nästa steg, och då med ett eget ljudspår per person).
+- **● REC** syns uppe till höger för **alla** i rummet så länge det spelas in, och chatten säger
+  när inspelningen startar och stoppas. Den som kommer in mitt i en inspelning får en ruta:
+  *Det här rummet spelas in*. (Ett riktigt samtycke, där var och en godkänner, kommer med kontona.)
+- **Gränser:** högst 2 timmar och 32 MB per inspelning (stoppas av sig själv), högst 4 rum
+  samtidigt, och står rummet tomt i 5 minuter stoppas inspelningen. Se `REC_MAX_*` nedan.
+- **🎥 Placera kamera här:** ställer en virtuell kamera där du står, åt det håll du tittar
+  (*Kamera 1, 2 …*). I listan kan du byta namn, bildvinkel (35–90°) och format (fritt, 16:9
+  liggande eller 9:16 stående för Reels), **⤓** flyttar kameran dit du står nu, **✕** tar bort den.
+  Kamerorna sparas med rummet och syns för alla som små röda kameror (inte i Tittläge; kan
+  stängas av med *Visa kamerorna i rummet*).
+- **👁 Titta genom kameran:** skärmen visar exakt det kameran ser, med svarta kanter för 16:9
+  och 9:16, så att du kan ställa in bilden. **Esc** (eller *Tillbaka*) = tillbaka.
+- **Inspelningar:** under *Inspelningar* i menyn finns de som gjorts i rummet. **▶** öppnar
+  uppspelaren (`/?room=<rum>&replay=<id>`): spela/pausa (mellanslag), spola (←/→ = 5 s),
+  hastighet 0,5–4×, och välj vy: **fri kamera** (dra för att titta, WASD = gå), **en placerad
+  kamera** eller **någons ögon** (POV). **⏺ Spela in video** spelar in det du ser till en
+  `.webm`-fil (ett första test; riktig export av råfiler och klippta filmer kommer senare).
+  Länken till en uppspelning kan delas: id:t är slumpat och går inte att gissa.
+- Formatet på inspelningarna (versionerat, förberett för ljudspår och rendering) beskrivs i
+  [`docs/recording-format.md`](docs/recording-format.md).
+- **OBS på Render (gratisnivån):** disken är tillfällig, så inspelningarna försvinner när
+  servern startas om (precis som klibborna), tills beständig lagring (R2) är påslagen.
+
 ### Rummets utseende (golv, väggar, tak)
 
 När du klickar **＋ Nytt snabbrum** öppnas en panel där du väljer hur rummet ska se ut.
@@ -148,6 +178,9 @@ klibbrum/
 │       ├── net.js          ← WebSocket till servern (kopplar upp sig igen själv)
 │       ├── together.js     ← andra spelare, chatten och Min gubbe
 │       ├── avatars.js      ← gubbarna: modellen, kläder/färger, namnskylt, gå/stå
+│       ├── cameras.js      ← virtuella kameror: modellen i rummet, titta genom, 16:9/9:16-ram
+│       ├── replay.js       ← uppspelaren (?replay=): spela, spola, vy, spela in video
+│       ├── boot.js         ← väljer uppspelaren eller själva rummet
 
 │       └── style.css       ← utseendet på menyn
 ├── server/                 ← det som körs på servern (Node.js)
@@ -155,8 +188,10 @@ klibbrum/
 │   ├── app.js              ← webbservern: rum, bilder och stämplar (alla adresser /api/...)
 │   ├── store.js            ← rummen, stämplarna och bilderna (rumstyper, städning)
 │   ├── storage/            ← VAR det sparas: local.js (disk) eller s3.js (t.ex. Cloudflare R2)
-│   └── realtime.js         ← flerspelarläget: WebSocket /ws, vem är här, chatten, live-händelser
-├── shared/                 ← delas av webbläsaren och servern (rummets mått, utseendekatalogen, gubbarna)
+│   ├── realtime.js         ← flerspelarläget: WebSocket /ws, vem är här, chatten, live-händelser
+│   └── recorder.js         ← sessionsinspelning: loggen recordings/<rum>/<id>.jsonl (+ .meta.json)
+├── shared/                 ← delas av webbläsaren och servern (rummets mått, utseendekatalogen, gubbarna, replay.mjs = uppspelningen)
+├── docs/                   ← recording-format.md: inspelningsformatet
 ├── data/                   ← skapas automatiskt: uppladdade bilder och rummen
 ├── tests/e2e.js            ← automatiskt test i en osynlig webbläsare
 ├── tests/rooms.test.js     ← test av rum, städning och lagring (utan webbläsare)
@@ -253,13 +288,20 @@ startar om servern.
 ## Gränser i version 1
 - Högst 10 gubbar per rum (fler kan titta). Chatten finns bara i minnet och försvinner när
   rummet blir tomt eller servern startar om.
-- Ingen röst än, och man ser inte vart de andra tittar upp/ner (gubben vrider sig bara åt sidan).
+- Ingen röst än, och man ser inte vart de andra tittar upp/ner (gubben vrider sig bara åt sidan;
+  blicken upp/ner skickas och spelas in, så den syns med någons ögon i uppspelningen).
+- Inspelning: inget riktigt samtycke än (bara ● REC och en ruta till den som kommer in). Det kommer
+  med kontona, liksom behörigheter för vem som får se en inspelning (nu: alla med länken).
 - Inga konton. Artistnamnet sparas bara i din egen webbläsare och följer med dina stämplar.
 - Klibbor som du lagt upp syns i menyn bara i den webbläsare där du laddade upp dem.
 - Du kan peela (ta bort) dina egna klibbor från samma webbläsare. Andras kan bara admin ta bort.
 - Texturerna har inga normal maps (ingen djupverkan i fogar och tegel), för att hålla nere storleken.
 
 ## Nästa steg (förberett, inte byggt)
+- **Inspelning, steg 2–5:** röst via LiveKit med ett ljudspår per person (så att varje talare
+  hamnar i en egen fil och i synk med loggen, se `docs/recording-format.md`), export av råfiler
+  (en video per kamera och per persons ögon + ljud), automatklippning efter vem som pratar och
+  9:16-Reels, och till sist livesändning, konton och betalning.
 - **Röstsamtal:** WebRTC direkt mellan besökarna, med ljud i 3D (rösten kommer från gubben och
   blir svagare på avstånd, Web Audio `PannerNode`). Servern är redan klar: meddelandet
   `signal {to, data}` skickas vidare till en annan spelare i samma rum (för offer/answer/ICE), och
@@ -298,6 +340,9 @@ Id:t räknas fram ur bildens innehåll, så laddar två personer upp exakt samma
 | `S3_REGION` | `auto` | Region (R2 använder `auto`) |
 | `S3_PREFIX` | tomt | Lägger allt under en "mapp" i bucketen, t.ex. `slapandtalk/` |
 | `QUICK_ROOM_TTL_HOURS` | `24` | Hur länge ett tomt snabbrum får stå kvar |
+| `REC_MAX_MINUTES` | `120` | Längsta inspelning (minuter) |
+| `REC_MAX_MB` | `32` | Största inspelning (MB logg) |
+| `REC_MAX_ACTIVE` | `4` | Hur många rum som kan spelas in samtidigt |
 | `ROOM_CLEANUP_INTERVAL_MINUTES` | `60` | Hur ofta städningen körs |
 | `MAX_PLAYERS_PER_ROOM` | `10` | Hur många gubbar som får vara i ett rum samtidigt (fler kan titta) |
 

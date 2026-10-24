@@ -47,3 +47,19 @@ export const api = {
     method: 'DELETE', headers: { 'x-admin-token': token },
   }).then(json),
 };
+
+// ---------- Inspelning och kameror (rättighet: rumsnyckel eller admin, Staden bara admin) ----------
+const rights = ({ key, admin } = {}) => ({ ...(key ? { 'x-room-key': key } : {}), ...(admin ? { 'x-admin-token': admin } : {}) });
+const send = (method, url, body, auth) => fetch(url, {
+  method, headers: { 'Content-Type': 'application/json', ...rights(auth) }, body: body === undefined ? undefined : JSON.stringify(body),
+}).then(json);
+Object.assign(api, {
+  recStatus: (room) => fetch(`/api/rooms/${room}/recording`).then(json),
+  startRec: (room, auth) => send('POST', `/api/rooms/${room}/recording/start`, {}, auth),
+  stopRec: (room, auth) => send('POST', `/api/rooms/${room}/recording/stop`, {}, auth),
+  listRecs: (room, auth) => fetch(`/api/rooms/${room}/recordings`, { headers: rights(auth) }).then(json),
+  deleteRec: (room, id, auth) => send('DELETE', `/api/rooms/${room}/recordings/${id}`, undefined, auth),
+  addCamera: (room, cam, auth) => send('POST', `/api/rooms/${room}/cameras`, cam, auth),
+  updateCamera: (room, id, patch, auth) => send('PUT', `/api/rooms/${room}/cameras/${id}`, patch, auth),
+  removeCamera: (room, id, auth) => send('DELETE', `/api/rooms/${room}/cameras/${id}`, undefined, auth),
+});

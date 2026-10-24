@@ -9,7 +9,7 @@ const express = require('express');
 const multer = require('multer');
 const sharp = require('sharp');
 const { contentId } = require('./store');
-const { broadcast } = require('./realtime');
+const { broadcast, cleanName } = require('./realtime');
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
@@ -18,7 +18,7 @@ const MAX_STAMP_SIZE = require('../shared/room.json').height;
 // Större stämplar krymps (i stället för att nekas), så äldre appar inte får fel.
 const clampSize = (s) => Math.min(s, MAX_STAMP_SIZE);
 
-function createApp(store, { adminToken = '', quickTtlHours = 24 } = {}) {
+function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
@@ -189,7 +189,7 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
     if (m) images[s.imageId] = m;
     return !!m;
   }).map((s) => publicStamp(isNum(s.size) && s.size > MAX_STAMP_SIZE ? { ...s, size: MAX_STAMP_SIZE } : s)); // gamla för stora stämplar
-  res.json({ room: id, info: roomPublic(room), stamps, images });
+  res.json({ room: id, info: roomPublic(room), stamps, images, cameras: room.cameras || [] });
 }));
 
 const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
@@ -237,6 +237,149 @@ app.delete('/api/rooms/:room/stamps/:id/peel', rateLimit(60), wrap(async (req, r
   if (r === 'ok') { broadcast(room, { type: 'stamp:remove', id }); return res.json({ ok: true }); }
   if (r === 'notfound') return res.status(404).json({ error: 'Klibban finns inte längre', gone: true });
   res.status(403).json({ error: 'Du kan bara peela dina egna klibbor' });
+}));
+
+// ---------- Rättigheter för inspelning och kameror ----------
+// Samma regel som för rummets utseende: den som skapade rummet (rumsnyckeln i x-room-key)
+// eller admin. Staden: bara admin.
+const canEditRoom = (req) => { const admin = isAdmin(req), key = String(req.get('x-room-key') || ''); return (room) => admin || (room.type !== 'stad' && tokenMatches(key, room.keyHash)); };
+async function rightsTo(req, res, id) {
+  let room = await store.getRoom(id);
+  if (!room && id === 'stad') room = { id, type: 'stad' };
+  if (!room) { res.status(404).json({ error: 'Rummet finns inte' }); return null; }
+  if (!canEditRoom(req)(room)) { res.status(403).json({ error: id === 'stad' ? 'Bara admin kan spela in och placera kameror i Staden' : 'Bara den som skapade rummet kan spela in och placera kameror' }); return null; }
+  return room;
+}
+
+// ---------- Virtuella kameror ----------
+// { name, p: [x,y,z] (kamerans position), yaw, pitch (radianer), fov (lodrät bildvinkel, grader), aspect: '' | '16:9' | '9:16' }
+const ROOM_SIZE = require('../shared/room.json');
+const MAX_CAMERAS = 12;
+const CAM_ID_RE = /^[a-f0-9]{10}$/;
+const ASPECTS = ['', '16:9', '9:16'];
+const wrapAngle = (a) => Math.round(Math.atan2(Math.sin(a), Math.cos(a)) * 1e4) / 1e4;
+function cleanCamera(b, old = null) {
+  b = b && typeof b === 'object' ? b : {};
+  const c = old ? { ...old } : { fov: 60, aspect: '', yaw: 0, pitch: 0 };
+  if (b.p !== undefined || !old) {
+    if (!isVec(b.p, 3)) return null;
+    const hw = ROOM_SIZE.width / 2 - 0.05, hd = ROOM_SIZE.depth / 2 - 0.05;
+    const r = (n) => Math.round(n * 1000) / 1000;
+    c.p = [r(Math.min(hw, Math.max(-hw, b.p[0]))), r(Math.min(ROOM_SIZE.height - 0.05, Math.max(0.05, b.p[1]))), r(Math.min(hd, Math.max(-hd, b.p[2])))];
+  }
+  if (b.yaw !== undefined) { if (!isNum(b.yaw)) return null; c.yaw = wrapAngle(b.yaw); }
+  if (b.pitch !== undefined) { if (!isNum(b.pitch)) return null; c.pitch = Math.round(Math.min(1.55, Math.max(-1.55, b.pitch)) * 1e4) / 1e4; }
+  if (b.fov !== undefined) { if (!isNum(b.fov)) return null; c.fov = Math.round(Math.min(120, Math.max(15, b.fov))); }
+  if (b.aspect !== undefined) { const a = b.aspect === null ? '' : String(b.aspect); if (!ASPECTS.includes(a)) return null; c.aspect = a; }
+  if (b.name !== undefined) { const n = cleanName(b.name); if (n) c.name = n; }
+  return c;
+}
+app.post('/api/rooms/:room/cameras', rateLimit(60), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  const cam = cleanCamera(req.body); if (!cam) return res.status(400).json({ error: 'Felaktig kamera' });
+  const r = await store.editCameras(id, canEditRoom(req), (list) => {
+    if (list.length >= MAX_CAMERAS) return { error: `Högst ${MAX_CAMERAS} kameror per rum`, save: false };
+    // Kamera 1, 2, 3 … (det lägsta lediga numret)
+    const used = new Set(list.map((c) => /^Kamera (\d+)$/.exec(c.name)?.[1]).filter(Boolean).map(Number));
+    let n = 1; while (used.has(n)) n++;
+    const c = { id: crypto.randomBytes(5).toString('hex'), name: cam.name || `Kamera ${n}`, p: cam.p, yaw: cam.yaw, pitch: cam.pitch, fov: cam.fov, aspect: cam.aspect, createdAt: new Date().toISOString() };
+    list.push(c);
+    return { camera: c };
+  });
+  if (r === 'notfound') return res.status(404).json({ error: 'Rummet finns inte' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Bara den som skapade rummet kan placera kameror' });
+  if (r.error) return res.status(400).json({ error: r.error });
+  broadcast(id, { type: 'camera:add', camera: r.camera });
+  res.json(r);
+}));
+app.put('/api/rooms/:room/cameras/:id', rateLimit(120), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  const camId = String(req.params.id); if (!CAM_ID_RE.test(camId)) return res.status(400).json({ error: 'Ogiltig kamera' });
+  const r = await store.editCameras(id, canEditRoom(req), (list) => {
+    const i = list.findIndex((c) => c.id === camId); if (i < 0) return { missing: true, save: false };
+    const c = cleanCamera(req.body, list[i]); if (!c) return { bad: true, save: false };
+    list[i] = c; return { camera: c };
+  });
+  if (r === 'notfound' || r.missing) return res.status(404).json({ error: 'Kameran finns inte' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Bara den som skapade rummet kan ändra kamerorna' });
+  if (r.bad) return res.status(400).json({ error: 'Felaktig kamera' });
+  broadcast(id, { type: 'camera:update', camera: r.camera });
+  res.json(r);
+}));
+app.delete('/api/rooms/:room/cameras/:id', rateLimit(60), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  const camId = String(req.params.id);
+  const r = await store.editCameras(id, canEditRoom(req), (list) => {
+    const i = list.findIndex((c) => c.id === camId); if (i < 0) return { missing: true, save: false };
+    list.splice(i, 1); return { ok: true };
+  });
+  if (r === 'notfound' || r.missing) return res.status(404).json({ error: 'Kameran finns inte' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Bara den som skapade rummet kan ta bort kameror' });
+  broadcast(id, { type: 'camera:remove', id: camId });
+  res.json({ ok: true });
+}));
+
+// ---------- Sessionsinspelning (se recorder.js och docs/recording-format.md) ----------
+const needRecorder = (res) => { if (!recorder) { res.status(503).json({ error: 'Inspelning är inte påslaget på den här servern' }); return false; } return true; };
+// Pågår en inspelning? (alla får fråga: alla i rummet ser ju ● REC)
+app.get('/api/rooms/:room/recording', wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  res.json({ recording: recorder ? recorder.status(id) : null });
+}));
+app.post('/api/rooms/:room/recording/start', rateLimit(20), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
+  if (!(await rightsTo(req, res, id))) return;
+  try {
+    const r = await recorder.start(id, {
+      by: isAdmin(req) ? 'admin' : 'rummets skapare',
+      // Startläget: rummets utseende, klibbor (med bilder) och kameror just nu.
+      snapshot: async () => {
+        const room = await store.roomOrEmpty(id);
+        const images = {}, stamps = [];
+        for (const s of room.stamps) {
+          if (!(s.imageId in images)) images[s.imageId] = await imageAvailable(s.imageId);
+          if (images[s.imageId]) stamps.push(publicStamp(isNum(s.size) && s.size > MAX_STAMP_SIZE ? { ...s, size: MAX_STAMP_SIZE } : s));
+        }
+        for (const k of Object.keys(images)) if (!images[k]) delete images[k];
+        return { style: styleOf(room), stamps, images, cameras: room.cameras || [] };
+      },
+    });
+    res.json({ ok: true, already: r.already, recording: recorder.status(id) });
+  } catch (e) {
+    if (e.code === 'BUSY') return res.status(429).json({ error: e.message });
+    throw e;
+  }
+}));
+app.post('/api/rooms/:room/recording/stop', rateLimit(20), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
+  if (!(await rightsTo(req, res, id))) return;
+  const meta = await recorder.stop(id, 'stop');
+  if (!meta) return res.status(409).json({ error: 'Ingen inspelning pågår' });
+  res.json({ ok: true, recording: meta });
+}));
+// Lista: bara den som får spela in. En enskild inspelning kan alla med länken spela upp
+// (inspelnings-id:t är slumpat och går inte att gissa). Riktiga behörigheter kommer med konton.
+app.get('/api/rooms/:room/recordings', wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
+  if (!(await rightsTo(req, res, id))) return;
+  res.json({ recordings: await recorder.list(id) });
+}));
+app.get('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
+  const m = await recorder.meta(id, String(req.params.rec));
+  if (!m) return res.status(404).json({ error: 'Inspelningen finns inte' });
+  res.json(m);
+}));
+app.get('/api/rooms/:room/recordings/:rec/log', wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
+  const buf = await recorder.read(id, String(req.params.rec));
+  if (!buf) return res.status(404).json({ error: 'Inspelningen finns inte' });
+  res.set({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache' }).send(buf);
+}));
+app.delete('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
+  if (!(await rightsTo(req, res, id))) return;
+  res.json({ ok: await recorder.remove(id, String(req.params.rec)) });
 }));
 
 // ---------- Admin (dold) ----------

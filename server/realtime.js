@@ -8,11 +8,16 @@
 //     hur deras gubbe ser ut och chatten (de senaste 50 meddelandena, bara i minnet).
 //
 // Meddelanden är JSON med fältet t (typ):
-//   klient → server: hello {name, look, p, y} · move {p, y} · look {name, look} · chat {text}
+//   klient → server: hello {name, look, p, y, pi} · move {p, y, pi} · look {name, look} · chat {text}
 //                    ping · signal {to, data}  (signal = för röstchatt via WebRTC, se nedan)
-//   server → klient: welcome {id, players, chat, max, full} · join {player} · leave {id}
-//                    move {id, p, y} · look {id, name, look} · chat {msg} · event {e} · signal {from, data}
-//                    pong · error {error}
+//   server → klient: welcome {id, you, players, chat, max, full, rec} · join {player} · leave {id}
+//                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
+//                    event {e} · signal {from, data} · pong · error {error}
+//   p = ögats position [x, y, z], y = vridning (yaw), pi = blicken upp/ner (pitch), i radianer.
+//   rec = pågående inspelning { recId, startedAt } eller null (event rec:start / rec:stop när det ändras).
+//
+// Inspelning (recorder.js): när en inspelning pågår i rummet skickas join/leave/look/move/chat
+// även till inspelningen. Signal-meddelanden (röst) spelas aldrig in.
 //
 // Röstchatt (nästa steg): ljudet går direkt mellan webbläsarna (WebRTC). Servern skickar
 // bara vidare "signal"-meddelanden (offer/answer/ice) till en annan spelare i samma rum.
@@ -56,6 +61,7 @@ function cleanLook(l) {
     hatColor: pick(l.hatColor, AV.colors.hat, d.hatColor),
   };
 }
+const cleanPitch = (n) => (isNum(n) ? round(clampN(n, -1.57, 1.57)) : 0);
 function cleanPos(p, bounds) {
   if (!Array.isArray(p) || p.length !== 3 || !p.every(isNum)) return null;
   return [round(clampN(p[0], -bounds.x, bounds.x)), round(clampN(p[1], 0, bounds.y)), round(clampN(p[2], -bounds.z, bounds.z))];
@@ -73,7 +79,7 @@ function bucket(rate, burst) {
 
 function attachRealtime(server, {
   maxPlayers = 10, path = '/ws', heartbeatMs = 15_000, maxPerIp = 30, clock = () => Date.now(),
-  roomSize = require('../shared/room.json'),
+  roomSize = require('../shared/room.json'), recorder = null,
 } = {}) {
   const bounds = { x: roomSize.width / 2, y: roomSize.height, z: roomSize.depth / 2 };
   const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
@@ -84,7 +90,10 @@ function attachRealtime(server, {
     if (!rooms.has(id)) rooms.set(id, { id, players: new Map(), watchers: [], chat: [] });
     return rooms.get(id);
   };
-  const pub = (c) => ({ id: c.id, name: c.name, look: c.look, p: c.p, y: c.y });
+  const pub = (c) => ({ id: c.id, name: c.name, look: c.look, p: c.p, y: c.y, pi: c.pi || 0 });
+  const rec = (roomId, e, data) => { if (recorder) recorder.log(roomId, e, data); };
+  // Inspelningen frågar vilka som är i rummet när den startar (och om rummet står tomt).
+  if (recorder) recorder.setPresence((id) => { const r = rooms.get(id); return r ? [...r.players.values()].map(pub) : []; });
   // Den som inte valt något namn heter "Gäst N", med det lägsta lediga N i rummet.
   // Två i samma rum får därför aldrig samma gästnamn.
   function setName(c, r, wanted) {
@@ -108,7 +117,7 @@ function attachRealtime(server, {
 
   function welcome(c, r) {
     send(c, { t: 'welcome', id: c.id, you: { id: c.id, name: c.name }, full: !c.player, max: maxPlayers, count: r.players.size,
-      players: [...r.players.values()].filter((p) => p !== c).map(pub), chat: r.chat });
+      players: [...r.players.values()].filter((p) => p !== c).map(pub), chat: r.chat, rec: recorder ? recorder.status(r.id) : null });
   }
   // Någon gick: släpp in den som väntat längst (om rummet var fullt).
   function promote(r) {
@@ -118,11 +127,12 @@ function attachRealtime(server, {
       c.player = true; r.players.set(c.id, c);
       welcome(c, r);
       toRoom(r, { t: 'join', player: pub(c) }, c);
+      rec(r.id, 'join', pub(c));
     }
   }
   function leave(c) {
     const r = rooms.get(c.room); if (!r) return;
-    if (r.players.get(c.id) === c) { r.players.delete(c.id); toRoom(r, { t: 'leave', id: c.id, ...(c.replaced ? { rejoin: true } : {}) }); if (!c.replaced) promote(r); }
+    if (r.players.get(c.id) === c) { r.players.delete(c.id); rec(r.id, 'leave', { id: c.id }); toRoom(r, { t: 'leave', id: c.id, ...(c.replaced ? { rejoin: true } : {}) }); if (!c.replaced) promote(r); }
     r.watchers = r.watchers.filter((w) => w !== c);
     if (!r.players.size && !r.watchers.length) rooms.delete(c.room); // chatten glöms när rummet är tomt
   }
@@ -147,24 +157,25 @@ function attachRealtime(server, {
       }
       setName(c, r, m.name);
       c.look = cleanLook(m.look);
-      c.p = cleanPos(m.p, bounds) || [0, 1.6, 3.5]; c.y = isNum(m.y) ? round(m.y) : 0;
+      c.p = cleanPos(m.p, bounds) || [0, 1.6, 3.5]; c.y = isNum(m.y) ? round(m.y) : 0; c.pi = cleanPitch(m.pi);
       if (r.players.size < maxPlayers) { c.player = true; r.players.set(c.id, c); } else r.watchers.push(c);
       welcome(c, r);
-      if (c.player) toRoom(r, { t: 'join', player: pub(c), ...(old ? { rejoin: true } : {}) }, c);
+      if (c.player) { toRoom(r, { t: 'join', player: pub(c), ...(old ? { rejoin: true } : {}) }, c); rec(r.id, 'join', pub(c)); }
       return;
     }
     if (!c.joined) return;
     if (m.t === 'move') {
       if (!c.player || !c.moveLimit()) return;
       const p = cleanPos(m.p, bounds); if (!p) return;
-      c.p = p; c.y = isNum(m.y) ? round(m.y) : c.y;
-      return toRoom(r, { t: 'move', id: c.id, p: c.p, y: c.y }, c);
+      c.p = p; c.y = isNum(m.y) ? round(m.y) : c.y; c.pi = m.pi === undefined ? c.pi : cleanPitch(m.pi);
+      rec(r.id, 'move', { id: c.id, p: c.p, y: c.y, pi: c.pi });
+      return toRoom(r, { t: 'move', id: c.id, p: c.p, y: c.y, pi: c.pi }, c);
     }
     if (m.t === 'look') {
       if (!c.lookLimit()) return send(c, { t: 'error', error: 'Lugn i stormen – vänta lite innan du byter igen.' });
       c.look = cleanLook(m.look); setName(c, r, m.name);
       send(c, { t: 'you', id: c.id, name: c.name }); // så jag vet vad de andra ser
-      if (c.player) toRoom(r, { t: 'look', id: c.id, name: c.name, look: c.look }, c);
+      if (c.player) { toRoom(r, { t: 'look', id: c.id, name: c.name, look: c.look }, c); rec(r.id, 'look', { id: c.id, name: c.name, look: c.look }); }
       return;
     }
     if (m.t === 'chat') {
@@ -174,6 +185,7 @@ function attachRealtime(server, {
       if (!c.chatLimit()) return send(c, { t: 'error', error: 'Du skriver för snabbt – vänta några sekunder.' });
       const msg = { id: crypto.randomBytes(6).toString('hex'), from: c.id, name: c.name, text, time: new Date(clock()).toISOString() };
       r.chat.push(msg); if (r.chat.length > CHAT_KEEP) r.chat.splice(0, r.chat.length - CHAT_KEEP);
+      rec(r.id, 'chat', { id: c.id, name: c.name, text, mid: msg.id });
       return toRoom(r, { t: 'chat', msg });
     }
     if (m.t === 'signal') {

@@ -10,6 +10,7 @@ import { foldStamp } from './fold.js';
 import { readHistory, addHistory, removeHistory, roomHistory, HISTORY_KEY } from './history.js';
 import { readMine, addMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob } from './designs.js';
 import { initTogether } from './together.js';
+import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed } from './cameras.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -37,6 +38,8 @@ const controls = new FirstPersonControls(camera, canvas, room.bounds);
 controls.attachJoystick($('joystick'), $('stick'));
 const stamps = new StampLayer(scene, room.surfaces);
 const preview = new StampPreview(scene, stamps.faces);
+const cams = new CameraLayer(scene); // virtuella kameror (för inspelning)
+const viewCam = new THREE.PerspectiveCamera(60, 1, 0.05, 100); // "Titta genom kamera"
 const raycaster = new THREE.Raycaster();
 
 function resize() {
@@ -283,7 +286,7 @@ async function initAdmin() {
   if (!ok) { sessionStorage.removeItem('klibb.admin'); toast('Fel admin-nyckel.'); return; }
   state.adminToken = token;
   $('admin-banner').hidden = false;
-  updateStyleUi();
+  updateStyleUi(); renderRecs();
 }
 
 function adminPick(ndc) {
@@ -311,6 +314,7 @@ function adminPick(ndc) {
 function action(ndc) {
   if (state.mode === 'view') return null; // Tittläge: klick och tryck gör ingenting
   if (sp.open || together.busy()) return null; // en panel är öppen: titta, men stämpla inte
+  if (camView) return null; // tittar genom en kamera
   return state.adminToken ? adminPick(ndc) : stampAt(ndc);
 }
 
@@ -322,6 +326,7 @@ function setMode(mode, { quiet = false } = {}) {
   const view = state.mode === 'view';
   document.body.classList.toggle('view-mode', view);
   if (view) preview.hide();
+  cams.setVisible(!view && camShow);
   $('mode-hud').textContent = (view ? 'Tittläge' : 'Klibbläge') + (isTouch ? '' : ' · V');
   $('mode-btn').setAttribute('aria-pressed', String(view));
   $('mode-btn').title = view ? 'Tillbaka till klibbläge' : 'Tittläge: dölj pekaren och titta';
@@ -332,6 +337,8 @@ function setMode(mode, { quiet = false } = {}) {
   return state.mode;
 }
 const toggleMode = () => setMode(state.mode === 'view' ? 'slap' : 'view');
+// var: setMode längre ner använder den innan raden här har körts.
+var camShow = localStorage.getItem('klibb.camShow') !== '0'; // eslint-disable-line no-var
 setMode('slap', { quiet: true });
 $('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); };
 
@@ -522,6 +529,7 @@ var roomType = ROOM === 'stad' ? 'stad' : 'quick'; // eslint-disable-line no-var
 const canEditStyle = () => !!state.adminToken || (roomType !== 'stad' && !!roomKeys()[ROOM]);
 function updateStyleUi() {
   $('edit-style').hidden = !canEditStyle();
+  $('rec-box').hidden = !canEditStyle();
   const s = currentStyle;
   $('room-style').textContent = `Utseende: ${styleName(s)}${s.seed ? ` · kod ${s.seed}` : ''}`;
 }
@@ -607,8 +615,9 @@ setInterval(() => { if (document.visibilityState === 'visible') api.visit(ROOM).
 // ---------- Ladda rummet ----------
 async function loadRoom() {
   try {
-    const { stamps: list, images, info } = await api.loadRoom(ROOM);
+    const { stamps: list, images, info, cameras } = await api.loadRoom(ROOM);
     showRoomInfo(info);
+    cams.set(cameras || []); renderCams();
     if (!sp.open) await showStyle(currentStyle);
     pruneHistory(list.map((s) => s.id));
     // allSettled: en enda trasig stämpel ska inte hindra resten av rummet från att laddas.
@@ -629,12 +638,16 @@ function onRoomEvent(e) {
   else if (e.type === 'room:style' && e.style) {
     currentStyle = normalizeStyle(e.style); updateStyleUi();
     if (!sp.open) { showStyle(currentStyle); toast('Rummets utseende ändrades.', 1800); }
-  }
+  } else if ((e.type === 'camera:add' || e.type === 'camera:update') && e.camera) { cams.upsert(e.camera); renderCams(); }
+  else if (e.type === 'camera:remove') { cams.remove(e.id); if (camView === e.id) exitCamView(); renderCams(); }
+  else if (e.type === 'rec:start') setRec({ recId: e.recId, startedAt: e.startedAt }, { announce: 'start' });
+  else if (e.type === 'rec:stop') setRec(null, { announce: 'stop', reason: e.reason });
 }
 // Efter ett avbrott (t.ex. servern startade om): hämta rummet igen och visa det vi missat.
 async function resyncRoom() {
   try {
-    const { stamps: list, images, info } = await api.loadRoom(ROOM);
+    const { stamps: list, images, info, cameras } = await api.loadRoom(ROOM);
+    cams.set(cameras || []); renderCams();
     const alive = new Set(list.map((s) => s.id));
     for (const id of [...stamps.meshes.keys()]) if (!alive.has(id)) stamps.remove(id);
     await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
@@ -645,14 +658,127 @@ async function resyncRoom() {
 const together = initTogether({
   room: ROOM, scene, camera, controls, isTouch, toast, artist: () => state.artist,
   onEvent: onRoomEvent, onReconnect: resyncRoom,
+  onWelcome: (m) => setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }),
 });
+
+// ---------- Inspelning ('sessionsinspelning') och virtuella kameror ----------
+// Den som skapade rummet (rumsnyckeln) eller admin kan starta och stoppa en inspelning och
+// placera kameror. Alla i rummet ser ● REC medan det spelas in, och den som kommer in under
+// en inspelning får veta det direkt.
+// var: setRec kan anropas av anslutningen innan raden här har körts.
+var rec = null; // eslint-disable-line no-var
+const auth = () => ({ key: roomKeys()[ROOM], admin: state.adminToken });
+const REASONS = { time: 'maxlängden (2 timmar) nåddes', size: 'maxstorleken nåddes', empty: 'rummet var tomt', shutdown: 'servern startade om' };
+function setRec(status, { announce = null, reason = null } = {}) {
+  rec = status;
+  $('rec-badge').hidden = !rec;
+  document.body.classList.toggle('recording', !!rec);
+  $('rec-toggle').textContent = rec ? '■ Stoppa inspelningen' : '● Starta inspelning';
+  $('rec-toggle').classList.toggle('on', !!rec);
+  if (announce === 'start') { together.sys('● Inspelningen startade – det här rummet spelas in'); toast('● Inspelningen startade. Det här rummet spelas in.', 3000); }
+  if (announce === 'stop') {
+    together.sys(`■ Inspelningen stoppades${REASONS[reason] ? ' (' + REASONS[reason] + ')' : ''}`);
+    toast('■ Inspelningen stoppades.', 2500); if (canEditStyle()) renderRecs();
+  }
+  if (announce === 'joined') {
+    together.sys('● Det här rummet spelas in');
+    const n = $('rec-notice'); n.hidden = false; clearTimeout(setRec.t); setRec.t = setTimeout(() => { n.hidden = true; }, 7000);
+  }
+  renderRecTime();
+}
+function renderRecTime() {
+  const el = $('rec-time');
+  if (!rec) { el.textContent = ''; return; }
+  const s = Math.max(0, Math.floor((Date.now() - Date.parse(rec.startedAt)) / 1000));
+  el.textContent = `● ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+setInterval(renderRecTime, 1000);
+$('rec-notice-ok').onclick = () => { $('rec-notice').hidden = true; };
+$('rec-toggle').onclick = async () => {
+  const b = $('rec-toggle'); b.disabled = true;
+  try {
+    if (rec) await api.stopRec(ROOM, auth()); else { const r = await api.startRec(ROOM, auth()); if (!rec) setRec(r.recording, { announce: null }); }
+  } catch (err) { toast(err.message, 3500); } finally { b.disabled = false; }
+};
+const fmtLen = (ms) => { const s = Math.round(ms / 1000); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`; };
+async function renderRecs() {
+  let list = [];
+  try { ({ recordings: list } = await api.listRecs(ROOM, auth())); } catch { return; }
+  $('rec-count').textContent = String(list.length);
+  const ul = $('rec-list'); ul.innerHTML = '';
+  for (const r of list) {
+    const li = document.createElement('li');
+    const a = document.createElement('a'); a.href = `/?room=${ROOM}&replay=${r.recId}`; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = `▶ ${new Date(r.startedAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })} · ${fmtLen(r.durationMs)}`;
+    const info = document.createElement('span'); info.className = 't';
+    info.textContent = ` ${r.participants.length} pers · ${(r.bytes / 1024).toFixed(0)} kB${r.status === 'recording' ? ' · pågår' : r.status === 'interrupted' ? ' · avbruten' : ''}`;
+    li.append(a, info); ul.appendChild(li);
+  }
+}
+
+// Kameror: "🎥 Placera kamera här" ställer en kamera där jag står, åt det håll jag tittar.
+function renderCams() {
+  const ul = $('cam-list'); ul.innerHTML = '';
+  for (const c of cams.list()) {
+    const li = document.createElement('li'); li.dataset.id = c.id;
+    const name = document.createElement('input'); name.type = 'text'; name.maxLength = 24; name.value = c.name; name.className = 'cam-name'; name.setAttribute('aria-label', 'Kamerans namn');
+    name.onchange = () => updateCam(c.id, { name: name.value });
+    const fov = document.createElement('select'); fov.className = 'cam-fov'; fov.title = 'Bildvinkel';
+    for (const f of new Set([...CAMERA_FOVS, c.fov])) { const o = document.createElement('option'); o.value = f; o.textContent = `${f}°`; fov.appendChild(o); }
+    fov.value = String(c.fov); fov.onchange = () => updateCam(c.id, { fov: Number(fov.value) });
+    const asp = document.createElement('select'); asp.className = 'cam-aspect'; asp.title = 'Bildformat';
+    for (const [v, t] of Object.entries(CAMERA_ASPECTS)) { const o = document.createElement('option'); o.value = v; o.textContent = v || 'Fritt'; o.title = t; asp.appendChild(o); }
+    asp.value = c.aspect || ''; asp.onchange = () => updateCam(c.id, { aspect: asp.value });
+    const btn = (txt, title, fn, cls = '') => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.title = title; b.className = cls; b.onclick = fn; return b; };
+    li.append(name, fov, asp,
+      btn('👁', 'Titta genom kameran (Esc = tillbaka)', () => enterCamView(c.id), 'cam-look'),
+      btn('⤓', 'Flytta kameran hit (där du står, åt det håll du tittar)', () => updateCam(c.id, here()), 'cam-move'),
+      btn('✕', 'Ta bort kameran', () => removeCam(c.id), 'cam-del'));
+    ul.appendChild(li);
+  }
+  $('cam-count').textContent = cams.map.size ? String(cams.map.size) : '';
+}
+const here = () => ({ p: camera.position.toArray().map((n) => +n.toFixed(3)), yaw: +controls.yaw.toFixed(4), pitch: +controls.pitch.toFixed(4) });
+async function addCam() {
+  try { const { camera: c } = await api.addCamera(ROOM, { ...here(), fov: 60 }, auth()); cams.upsert(c); renderCams(); toast(`${c.name} placerad. 👁 = titta genom den.`, 2200); return c; }
+  catch (err) { toast(err.message, 3000); return null; }
+}
+async function updateCam(id, patch) {
+  try { const { camera: c } = await api.updateCamera(ROOM, id, patch, auth()); cams.upsert(c); renderCams(); return c; } catch (err) { toast(err.message, 3000); renderCams(); return null; }
+}
+async function removeCam(id) {
+  try { await api.removeCamera(ROOM, id, auth()); cams.remove(id); if (camView === id) exitCamView(); renderCams(); return true; } catch (err) { toast(err.message, 3000); return false; }
+}
+$('cam-add').onclick = () => addCam();
+$('cam-show').checked = camShow;
+$('cam-show').onchange = (e) => { camShow = e.target.checked; localStorage.setItem('klibb.camShow', camShow ? '1' : '0'); cams.setVisible(state.mode !== 'view' && camShow); };
+
+// "Titta genom kamera": skärmen visar exakt det kameran ser (med svarta kanter för 16:9 / 9:16).
+// var: används i action() och frame() som kan köras innan den här raden.
+var camView = null; // eslint-disable-line no-var
+function enterCamView(id) {
+  const c = cams.get(id); if (!c) return false;
+  camView = id; controls.unlock(); preview.hide(); cams.setHideAll(true);
+  document.body.classList.add('camview');
+  $('camview-hud').hidden = false; $('camview-name').textContent = `📷 ${c.name}${c.aspect ? ' · ' + c.aspect : ''} · ${c.fov}°`;
+  return true;
+}
+function exitCamView() {
+  camView = null; cams.setHideAll(false); document.body.classList.remove('camview'); $('camview-hud').hidden = true;
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+}
+$('camview-exit').onclick = () => exitCamView();
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && camView) { e.preventDefault(); exitCamView(); } });
 
 // ---------- Huvudloopen ----------
 const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
-  controls.update(dt);
-  together.update(dt);
+  if (!camView) controls.update(dt);
+  const cv = camView && cams.get(camView);
+  if (cv) poseCamera(viewCam, { p: cv.p, yaw: cv.yaw, pitch: cv.pitch, fov: cv.fov });
+  together.update(dt, cv ? viewCam.position : camera.position); // gubbar precis vid kameran döljs
+  cams.update(cv ? null : camera.position);
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
     if (h) {
@@ -660,7 +786,8 @@ function frame() {
       preview.show(h.point, h.normal, StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh, h.surface);
     } else preview.hide();
   }
-  renderer.render(scene, camera);
+  if (cv) renderFramed(renderer, scene, viewCam, cv.aspect || '');
+  else { if (camView) exitCamView(); renderer.render(scene, camera); }
   requestAnimationFrame(frame);
 }
 
@@ -668,7 +795,7 @@ renderTray();
 renderHistory();
 if (state.mine.length) select(state.mine.at(-1));
 initAdmin();
-Promise.all([loadRoom(), validateDesigns()]).then(() => { window.klibb.ready = true; });
+Promise.all([loadRoom(), validateDesigns()]).then(() => { window.klibb.ready = true; if (canEditStyle()) renderRecs(); });
 frame();
 
 // updateViaCache: 'none' = webbläsaren kollar alltid efter en ny sw.js, så appen inte fastnar på en gammal version.
@@ -691,5 +818,7 @@ window.klibb = {
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
   net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
   openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
+  cameras: () => cams.list(), camerasVisible: () => [...cams.map.values()].some((e) => e.obj.visible), addCamera: addCam, updateCamera: updateCam, removeCamera: removeCam,
+  enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => roomHistory(ROOM), setSize, maxSizeCm: MAX_SIZE_CM,
 };

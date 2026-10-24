@@ -7,15 +7,21 @@ const { createAdapter } = require('./storage');
 const { createStore } = require('./store');
 const { createApp } = require('./app');
 const { attachRealtime } = require('./realtime');
+const { createRecorder } = require('./recorder');
 
 const PORT = Number(process.env.PORT || 8787);
 const QUICK_TTL_HOURS = Number(process.env.QUICK_ROOM_TTL_HOURS || 24);
 const CLEANUP_MINUTES = Number(process.env.ROOM_CLEANUP_INTERVAL_MINUTES || 60);
 const MAX_PLAYERS = Number(process.env.MAX_PLAYERS_PER_ROOM || 10);
+// Sessionsinspelning: max längd (minuter) och storlek (MB) per inspelning, och hur många samtidigt.
+const REC_MAX_MINUTES = Number(process.env.REC_MAX_MINUTES || 120);
+const REC_MAX_MB = Number(process.env.REC_MAX_MB || 32);
+const REC_MAX_ACTIVE = Number(process.env.REC_MAX_ACTIVE || 4);
 
 const adapter = createAdapter();
 const store = createStore(adapter);
-const app = createApp(store, { adminToken: process.env.ADMIN_TOKEN || '', quickTtlHours: QUICK_TTL_HOURS });
+const recorder = createRecorder(store, { maxMs: REC_MAX_MINUTES * 60_000, maxBytes: REC_MAX_MB * 1024 * 1024, maxActive: REC_MAX_ACTIVE });
+const app = createApp(store, { adminToken: process.env.ADMIN_TOKEN || '', quickTtlHours: QUICK_TTL_HOURS, recorder });
 
 // Städjobbet: tar bort snabbrum som stått tomma längre än QUICK_ROOM_TTL_HOURS.
 async function cleanup() {
@@ -28,10 +34,14 @@ async function cleanup() {
 store.migrate().then((n) => { if (n) console.log(`Flyttade ${n} bilder från images.json till images/`); }).finally(() => {
   const server = app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind}, max ${MAX_PLAYERS} per rum)`));
   // Flerspelarläget (WebSocket på /ws) går på samma port som webbappen.
-  const realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS });
+  const realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder });
   // Vid omstart (pm2, Render): säg till alla anslutna att servern startar om, så kopplar
   // deras webbläsare upp sig igen av sig själva när den nya servern är igång.
-  const stop = () => { realtime.close(); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 1500).unref(); };
+  // Pågående inspelningar avslutas och sparas först (stoppskäl "shutdown").
+  const stop = () => {
+    setTimeout(() => process.exit(0), 3000).unref();
+    recorder.close().catch(() => {}).finally(() => { realtime.close(); server.close(() => process.exit(0)); });
+  };
   process.once('SIGTERM', stop); process.once('SIGINT', stop);
   cleanup();
   setInterval(cleanup, CLEANUP_MINUTES * 60_000).unref();
