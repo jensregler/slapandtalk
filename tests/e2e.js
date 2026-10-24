@@ -330,6 +330,90 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await m.tap('#design-btn'); await m.waitForTimeout(300);
     await m.screenshot({ path: path.join(SHOTS, '10-design-mobil.png') });
     await mctx.close();
+
+    // ---------- Designs ska inte försvinna (Jens: "laddade upp 4 men 2 försvann") ----------
+    const dctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const d = await dctx.newPage();
+    d.on('pageerror', (e) => console.log('sidfel (designs):', e.message));
+    await d.goto(`${BASE}/?room=${ROOM}`); await waitReady(d);
+    const colors = ['#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00897b'];
+    const pngs = [];
+    for (const [i, c] of colors.entries()) {
+      const f = path.join(require('os').tmpdir(), `klibb-design-${i}.png`);
+      await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" rx="40" fill="${c}"/>
+        <text x="150" y="190" font-family="DejaVu Sans" font-weight="900" font-size="150" text-anchor="middle" fill="#fff">${i + 1}</text></svg>`)).png().toFile(f);
+      pngs.push(f);
+    }
+    const mineIds = () => d.evaluate(() => window.klibb.state.mine.map((m) => m.id).sort());
+    for (const f of pngs.slice(0, 4)) {
+      const n = (await mineIds()).length;
+      await d.setInputFiles('#file', f);
+      await d.waitForFunction((n) => window.klibb.state.mine.length === n + 1, n);
+    }
+    const four = await mineIds();
+    four.forEach((id) => created.add(id));
+    assert(four.length === 4, '4 olika designs uppladdade');
+    // Stämpla om och om igen och tryck R mitt i (även innan servern hunnit svara).
+    await d.evaluate(async () => {
+      const k = window.klibb, jobs = [];
+      for (let i = 0; i < 12; i++) {
+        k.look(-0.6 + i * 0.1, -0.1 + (i % 3) * 0.1);
+        jobs.push(k.stampAt(0, 0));
+        k.nextDesign();
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      await Promise.all(jobs);
+    });
+    await d.reload(); await waitReady(d);
+    assert((await mineIds()).join() === four.join(), 'efter 12 stämplar med R och omladdning finns alla 4 kvar');
+
+    // Kontrollen mot servern går fel på olika sätt: ingen design får försvinna.
+    const failures = [
+      ['serverfel 500', (r) => r.fulfill({ status: 500, body: '{"error":"x"}', contentType: 'application/json' })],
+      ['för många förfrågningar 429', (r) => r.fulfill({ status: 429, body: '{"error":"Lugn i stormen"}', contentType: 'application/json' })],
+      ['nätverksfel', (r) => r.abort('failed')],
+      ['svar utan "missing" (gammal server)', (r) => r.fulfill({ status: 200, body: '{"images":{}}', contentType: 'application/json' })],
+      ['trasigt svar (kallstart)', (r) => r.fulfill({ status: 200, body: '<html>Service waking up</html>', contentType: 'text/html' })],
+    ];
+    for (const [name, handler] of failures) {
+      await d.route('**/api/stickers?ids=*', handler);
+      await d.reload(); await waitReady(d);
+      await d.unroute('**/api/stickers?ids=*');
+      assert((await mineIds()).join() === four.join(), `kontrollen misslyckas (${name}): alla 4 finns kvar`);
+    }
+    // Långsam kontroll medan man laddar upp en femte design.
+    await d.route('**/api/stickers?ids=*', async (r) => { await new Promise((ok) => setTimeout(ok, 2500)); await r.continue(); });
+    await d.reload();
+    await d.waitForFunction(() => window.klibb && window.klibb.state);
+    await d.setInputFiles('#file', pngs[4]);
+    await d.waitForFunction(() => window.klibb.state.mine.length === 5);
+    await waitReady(d);
+    await d.unroute('**/api/stickers?ids=*');
+    const five = await mineIds();
+    five.forEach((id) => created.add(id));
+    assert(five.length === 5 && four.every((id) => five.includes(id)), 'en uppladdning under en långsam kontroll tas inte bort (5 kvar)');
+
+    // Servern tappar 2 designs (som efter en omstart på Render): de laddas upp igen från enheten.
+    const del = (id) => fetch(`${BASE}/api/stickers/${id}`, { method: 'DELETE', headers: { 'x-admin-token': TOKEN } });
+    await del(five[0]); await del(five[1]);
+    await d.reload(); await waitReady(d);
+    await d.waitForFunction(() => /laddades upp igen/.test(document.getElementById('toast').textContent), null, { timeout: 8000 });
+    const onServer = await (await fetch(`${BASE}/api/stickers?ids=${five.join(',')}`)).json();
+    assert((await mineIds()).join() === five.join() && Object.keys(onServer.images).length === 5,
+      'designs som servern tappat laddas upp igen automatiskt, alla 5 kvar med samma id');
+    // Servern tappar designen mitt under stämplingen (svar 410): den återställs och stämpeln sätts ändå.
+    const selId = await d.evaluate(() => window.klibb.state.selected.id);
+    await del(selId);
+    const stamped = await d.evaluate(() => { window.klibb.look(0.2, 0); return window.klibb.stampAt(0, 0).then((s) => s && s.imageId); });
+    assert(stamped === selId && (await mineIds()).join() === five.join(), 'stämpling när servern tappat designen: återställs och stämplas, inget försvinner');
+    // En 410 för en design rör inte de andra, även om man hunnit trycka R.
+    const two = await d.evaluate(() => window.klibb.designs().slice(0, 2).map((x) => x.id));
+    await d.route('**/api/rooms/*/stamps', (r) => (r.request().method() === 'POST' && JSON.parse(r.request().postData()).imageId === two[0]
+      ? r.fulfill({ status: 410, body: '{"error":"borta","gone":true}', contentType: 'application/json' }) : r.continue()), { times: 1 });
+    await d.evaluate((id) => { const k = window.klibb; k.state.selected = k.state.mine.find((m) => m.id === id); const p = k.stampAt(0, 0); k.nextDesign(); return p; }, two[0]);
+    await d.waitForTimeout(500);
+    assert((await mineIds()).join() === five.join(), 'ett 410-svar för en design tar inte bort någon annan design');
+    await dctx.close();
   } finally {
     // Städa: ta bort testbilderna (och därmed alla teststämplar) via admin-API:t
     for (const id of created) {

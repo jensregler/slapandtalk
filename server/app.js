@@ -94,9 +94,9 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 // Vilka av de här bilderna finns kvar? ?ids=a,b,c  ->  { images: { a: {...}, c: {...} } }
 app.get('/api/stickers', wrap(async (req, res) => {
   const ids = String(req.query.ids || '').split(',').filter((id) => /^[a-f0-9]{16}$/.test(id)).slice(0, 100);
-  const images = {};
-  await Promise.all(ids.map(async (id) => { const m = await imageAvailable(id); if (m) images[id] = m; }));
-  res.json({ images });
+  const images = {}, missing = [];
+  await Promise.all(ids.map(async (id) => { const m = await imageAvailable(id); if (m) images[id] = m; else missing.push(id); }));
+  res.json({ images, missing });
 }));
 
 // ---------- Rum ----------

@@ -6,6 +6,7 @@ import { FirstPersonControls } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { api } from './api.js';
 import { foldStamp } from './fold.js';
+import { readMine, addMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob } from './designs.js';
 import { connect } from './net.js';
 
 const $ = (id) => document.getElementById(id);
@@ -44,7 +45,7 @@ addEventListener('resize', resize); resize();
 // ---------- Tillstånd ----------
 const state = {
   selected: null, // vald bild { id, url, width, height }
-  mine: JSON.parse(localStorage.getItem('klibb.mine') || '[]'),
+  mine: readMine(),
   size: 0.3, rotation: 0, jitter: false,
   artist: localStorage.getItem('klibb.artist') || '',
   adminToken: '',
@@ -71,7 +72,13 @@ function renderTray() {
 }
 // Mina designs i samma ordning som i menyn (nyaste först). R växlar mellan dem.
 function designs() { return state.mine.slice().reverse(); }
-function saveMine() { localStorage.setItem('klibb.mine', JSON.stringify(state.mine)); }
+// En annan flik ändrade listan: hämta den nya.
+addEventListener('storage', (e) => {
+  if (e.key !== 'klibb.mine') return;
+  state.mine = readMine();
+  if (state.selected && !state.mine.some((m) => m.id === state.selected.id)) select(state.mine.at(-1));
+  else { renderTray(); renderDesignHud(); }
+});
 
 async function select(img) {
   state.selected = img || null; renderTray(); renderDesignHud();
@@ -106,29 +113,60 @@ function renderDesignHud() {
   $('design-btn-num').textContent = list.length > 1 ? `${i + 1}/${list.length}` : '';
 }
 
-// Designs som inte längre finns på servern tas bort ur listan (och väljs bort).
+// Designs som säkert inte finns på servern och inte gick att återställa tas bort ur listan.
 function dropDesigns(ids) {
   if (!ids.length) return;
-  state.mine = state.mine.filter((m) => !ids.includes(m.id));
-  saveMine();
+  state.mine = removeMine(ids);
+  ids.forEach(deleteBlob);
   if (!state.selected || ids.includes(state.selected.id)) select(state.mine.at(-1));
   else { renderTray(); renderDesignHud(); }
 }
 
-// Kolla mot servern att mina sparade designs finns kvar. Tar bort de som är borta.
+// Servern har tappat designen (t.ex. omstart på Render): ladda upp den igen från den här
+// enheten. Returnerar den nya posten, eller null om bilden inte finns sparad här.
+const restoring = new Map();
+function restoreDesign(img) {
+  if (!restoring.has(img.id)) {
+    restoring.set(img.id, (async () => {
+      const blob = await getBlob(img);
+      if (!blob) return null;
+      const fresh = await api.uploadSticker(blob, img.artist || state.artist);
+      if (fresh.id !== img.id) { await saveBlob(fresh.id, blob); deleteBlob(img.id); }
+      state.mine = addMine(fresh, img.id);
+      stamps.textures.delete(img.id);
+      if (state.selected?.id === img.id) await select(fresh); else { renderTray(); renderDesignHud(); }
+      return fresh;
+    })().finally(() => restoring.delete(img.id)));
+  }
+  return restoring.get(img.id);
+}
+
+// Servern har sagt säkert (404/410) att de här designs saknas. Försök återställa varje,
+// ta bort bara de som inte går, och berätta vad som hände.
+async function handleMissing(list) {
+  if (!list.length) return;
+  const results = await Promise.all(list.map((img) => restoreDesign(img).catch(() => undefined)));
+  const lost = list.filter((img, i) => results[i] === null).map((m) => m.id); // null = ingen lokal kopia
+  const restored = results.filter(Boolean).length;
+  if (lost.length) dropDesigns(lost);
+  if (lost.length) {
+    toast(lost.length === 1 ? 'En gammal design fanns inte kvar på servern och kunde inte återställas. Ladda upp den igen.'
+      : `${lost.length} gamla designs fanns inte kvar på servern och kunde inte återställas. Ladda upp dem igen.`, 5000);
+  } else if (restored) toast(restored === 1 ? 'En design hade försvunnit från servern och laddades upp igen.' : `${restored} designs hade försvunnit från servern och laddades upp igen.`, 3500);
+}
+
+// Kolla mot servern att mina sparade designs finns kvar. Bara id:n som servern säkert
+// säger saknas räknas (inte fel, timeout eller "för många förfrågningar").
 async function validateDesigns() {
-  if (!state.mine.length) return;
-  try {
-    const { images } = await api.checkStickers(state.mine.map((m) => m.id));
-    const dead = state.mine.filter((m) => !images[m.id]).map((m) => m.id);
-    // uppdatera metadata (t.ex. storlek) från servern för de som finns
-    state.mine = state.mine.map((m) => images[m.id] || m);
-    if (dead.length) {
-      dropDesigns(dead);
-      toast(dead.length === 1 ? 'En gammal design fanns inte kvar på servern och togs bort. Ladda upp den igen.'
-        : `${dead.length} gamla designs fanns inte kvar på servern och togs bort. Ladda upp dem igen.`, 4500);
-    } else saveMine();
-  } catch { /* offline: behåll listan */ }
+  const checked = readMine();
+  if (!checked.length) return;
+  let res;
+  try { res = await api.checkStickers(checked.map((m) => m.id)); } catch { return; /* offline/fel: behåll allt */ }
+  if (!res || typeof res.images !== 'object' || !Array.isArray(res.missing)) return; // okänt svar: rör inget
+  state.mine = updateMine(res.images);
+  renderTray(); renderDesignHud();
+  const missing = checked.filter((m) => res.missing.includes(m.id) && !res.images[m.id]);
+  await handleMissing(missing);
 }
 
 $('size').oninput = (e) => { state.size = e.target.value / 100; $('size-val').textContent = `${e.target.value} cm`; };
@@ -158,9 +196,10 @@ $('file').onchange = async (e) => {
   if (file.size > 20 * 1024 * 1024) return toast('Filen är för stor (max 5 MB efter förminskning).');
   try {
     toast('Laddar upp…', 10000);
-    const img = await api.uploadSticker(await shrink(file), state.artist);
-    state.mine = [...state.mine.filter((m) => m.id !== img.id), img].slice(-30);
-    saveMine();
+    const blob = await shrink(file);
+    const img = await api.uploadSticker(blob, state.artist);
+    await saveBlob(img.id, blob); // lokal kopia, så designen kan återställas om servern tappar den
+    state.mine = addMine(img);
     await select(img);
     toast(isTouch ? 'Klar! Tryck på en yta för att stämpla.' : 'Klar! Gå in i rummet och klicka för att stämpla.');
   } catch (err) { toast(err.message); }
@@ -185,17 +224,26 @@ async function stampAt(ndc) {
   const h = hitSurface(ndc); if (!h) return null;
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
   pendingJitter = (Math.random() - 0.5) * 30;
+  // Kom ihåg exakt vilken design som stämplas: användaren kan hinna trycka R innan svaret kommer.
+  const design = state.selected;
+  const body = {
+    imageId: design.id,
+    position: h.point.toArray(), normal: h.normal.toArray(), quaternion: q.toArray(),
+    size: state.size, rotation: state.rotation, surface: h.surface, artist: state.artist,
+  };
   try {
-    const { stamp, image } = await api.addStamp(ROOM, {
-      imageId: state.selected.id,
-      position: h.point.toArray(), normal: h.normal.toArray(), quaternion: q.toArray(),
-      size: state.size, rotation: state.rotation, surface: h.surface, artist: state.artist,
-    });
-    await stamps.add(stamp, image); updateCount();
-    return stamp;
+    let res;
+    try { res = await api.addStamp(ROOM, body); } catch (err) {
+      if (!err.gone) throw err;
+      // Servern har tappat just den här designen: ladda upp den igen och stämpla en gång till.
+      const fresh = await restoreDesign(design).catch(() => undefined);
+      if (!fresh) { if (fresh === null) await handleMissing([design]); else toast('Kunde inte stämpla just nu, försök igen.'); return null; }
+      res = await api.addStamp(ROOM, { ...body, imageId: fresh.id });
+    }
+    await stamps.add(res.stamp, res.image); updateCount();
+    return res.stamp;
   } catch (err) {
-    toast(err.message, err.gone ? 4500 : 2200);
-    if (err.gone) dropDesigns([state.selected.id]);
+    toast(err.message);
     return null;
   }
 }
@@ -378,5 +426,5 @@ window.klibb = {
   look(yaw, pitch) { controls.yaw = yaw; controls.pitch = pitch; controls.apply(); },
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
-  nextDesign, designs,
+  nextDesign, designs, validateDesigns,
 };
