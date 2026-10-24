@@ -129,6 +129,28 @@ async function roomLifecycle(name, adapter) {
       const loaded = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
       assert(loaded.stamps.length === 3 && loaded.stamps.every((x) => x.size <= 4) && loaded.stamps[2].size === 4, 'gamla sparade stämplar större än väggen krymps när rummet laddas');
       room.stamps = loaded.stamps.slice(0, 1);
+
+      // ---------- Peel: bara egna stämplar, nyckeln läcker aldrig ----------
+      const post = (body) => fetch(`${base}/api/rooms/${r.room.id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageId: i1.id, position: [1, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', ...body }) }).then((x) => x.json());
+      const mine1 = await post({}), mine2 = await post({});
+      assert(typeof mine1.peelToken === 'string' && mine1.peelToken.length >= 30 && !('peelHash' in mine1.stamp), 'ny stämpel ger en hemlig peel-nyckel (bara till den som stämplade)');
+      const listing = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).text();
+      const raw = (await store.adapter.get(`rooms/${r.room.id}.json`)).toString();
+      assert(!listing.includes(mine1.peelToken) && !listing.includes('peelHash') && !raw.includes(mine1.peelToken) && raw.includes('peelHash'),
+        'nyckeln syns aldrig i rummets lista, och servern sparar bara en hash');
+      const del1 = (id, token) => fetch(`${base}/api/rooms/${r.room.id}/stamps/${id}/peel`, { method: 'DELETE', headers: token ? { 'x-peel-token': token } : {} });
+      const wrong = await del1(mine1.stamp.id, mine2.peelToken), none = await del1(mine1.stamp.id, ''), old = await del1(loaded.stamps[0].id, mine1.peelToken);
+      assert(wrong.status === 403 && none.status === 403 && old.status === 403, 'fel eller ingen nyckel nekas (403), även för stämplar utan nyckel');
+      const ok1 = await del1(mine1.stamp.id, mine1.peelToken), again = await del1(mine1.stamp.id, mine1.peelToken);
+      assert(ok1.status === 200 && again.status === 404, 'rätt nyckel peelar (200), en gång till ger 404');
+      const batch = await (await fetch(`${base}/api/rooms/${r.room.id}/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: [{ id: mine2.stamp.id, token: 'fel' }, { id: 'ffffffffffffffff', token: 'x' }] }) })).json();
+      const batch2 = await (await fetch(`${base}/api/rooms/${r.room.id}/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: [{ id: mine2.stamp.id, token: mine2.peelToken }] }) })).json();
+      const after = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
+      assert(batch.results[mine2.stamp.id] === 'forbidden' && batch.results.ffffffffffffffff === 'notfound' && batch2.results[mine2.stamp.id] === 'ok'
+        && !after.stamps.some((x) => x.id === mine1.stamp.id || x.id === mine2.stamp.id) && after.stamps.length === 3, 'flera på en gång (Peela alla): bara rätt nyckel räknas');
       assert(st.status === 200 && room.stamps.length === 1 && room.stamps[0].imageId === i1.id && room.images[i1.id], 'stämplar pekar på designen med imageId');
     } finally { server.close(); }
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }

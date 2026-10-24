@@ -338,6 +338,12 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await m.touchscreen.tap(vp.width * 0.4, vp.height * 0.3);
     await m.waitForFunction((n) => window.klibb.stamps.count === n + 1, mvc, { timeout: 5000 });
     assert((await m.evaluate(() => window.klibb.state.mode)) === 'slap', 'mobil: 👁 igen ger Klibbläge och tryck stämplar');
+    // Mobil: ↩ peelar min senaste
+    const pc = await m.evaluate(() => [window.klibb.stamps.count, window.klibb.roomHistory().length]);
+    await m.screenshot({ path: path.join(SHOTS, '16-peel-mobil.png') });
+    await m.tap('#peel-btn'); await m.waitForTimeout(500);
+    const pc2 = await m.evaluate(() => [window.klibb.stamps.count, window.klibb.roomHistory().length]);
+    assert(await m.isVisible('#peel-btn') && pc[1] >= 1 && pc2[0] === pc[0] - 1 && pc2[1] === pc[1] - 1, 'mobil: ↩ peelar min senaste klibba');
     await m.waitForTimeout(300);
     await m.screenshot({ path: path.join(SHOTS, '06-mobil-rum.png') });
     await m.tap('#design-btn'); await m.waitForTimeout(300);
@@ -447,13 +453,82 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.evaluate(() => { const k = window.klibb; k.state.size = 9; k.state.rotation = 0; });
     const wideStamp = await d.evaluate(() => window.klibb.stampAt(0, 0).then((s) => s && { id: s.id, size: s.size }));
     const wide = wideStamp && wideStamp.size;
-    const dimsOk = await d.evaluate((id) => { const m = window.klibb.stamps.meshes.get(id); m.geometry.computeBoundingBox();
-      const b = m.geometry.boundingBox; return Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z); }, wideStamp.id);
+    // Klibbans längsta sida räknas i dess eget plan (bildkoordinater × mått), oberoende av hur den är vriden i rummet.
+    const dimsOk = await d.evaluate((id) => { const k = window.klibb, m = k.stamps.meshes.get(id);
+      return Math.max(...k.stamps.constructor.dims(m.userData.image, m.userData.stamp.size)); }, wideStamp.id);
     // En mycket bred design (10:1): längsta sidan, bredden, blir också högst väggens höjd.
     const wideDims = await d.evaluate(() => { const k = window.klibb; return k.stamps.constructor.dims({ width: 1000, height: 100 }, Math.min(9, k.maxSizeCm / 100)); });
     await d.evaluate(() => { const k = window.klibb; k.setSize(30); k.controls.unlock(); });
     assert(wheelSize === 4 && wide === 4 && dimsOk <= 4 + 1e-3 && wideDims[0] === 4 && Math.abs(wideDims[1] - 0.4) < 1e-9,
       `scroll stannar vid 4 m, en stämpel blir högst 4 m (${dimsOk.toFixed(2)} m) och en bred design högst 4 m bred`);
+
+    // ---------- Peel (ångra) och historik ----------
+    const hist = () => d.evaluate(() => ({ n: window.klibb.roomHistory().length, count: window.klibb.stamps.count,
+      items: document.querySelectorAll('#history-list li').length, toast: document.getElementById('toast').textContent }));
+    const stampN = (n) => d.evaluate(async (n) => { const k = window.klibb; const out = [];
+      for (let i = 0; i < n; i++) { k.look(-0.4 + i * 0.2, 0.15); out.push((await k.stampAt(0, 0)).id); k.nextDesign(); } return out; }, n);
+    await d.evaluate(() => { const k = window.klibb; k.moveTo(0, -1); k.setSize(40); k.state.rotation = 0; localStorage.removeItem('klibb.history'); });
+    await d.reload(); await waitReady(d);
+    await d.evaluate(() => { const k = window.klibb; k.moveTo(0, -1); k.setSize(40); });
+    const h0 = await hist();
+    await stampN(3);
+    const h1 = await hist();
+    assert(h1.n === 3 && h1.items === 3 && h1.count === h0.count + 3, 'tre egna klibbor syns i historiken');
+    await d.evaluate(() => document.activeElement && document.activeElement.blur());
+    await d.keyboard.press('z'); await d.waitForTimeout(400);
+    const h2 = await hist();
+    await d.evaluate(() => window.klibb.setMode('view', { quiet: true }));
+    await d.keyboard.press('Control+z'); await d.waitForTimeout(400);
+    const h3 = await hist();
+    // Cmd+Z (Mac): Linux-webbläsaren i testet skickar inte Cmd-kombinationer, så händelsen skickas direkt.
+    await d.evaluate(() => dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', metaKey: true, bubbles: true })));
+    await d.waitForTimeout(400);
+    const h4 = await hist();
+    await d.keyboard.press('z'); await d.waitForTimeout(400);
+    const h5 = await hist();
+    await d.evaluate(() => window.klibb.setMode('slap', { quiet: true }));
+    assert(h2.count === h1.count - 1 && /Peelad/.test(h2.toast) && h3.count === h1.count - 2 && h4.count === h1.count - 3 && h4.n === 0,
+      'Z, Ctrl+Z och Cmd+Z peelar senaste klibban en i taget (även i Tittläge)');
+    assert(h5.count === h4.count && /Inga fler egna klibbor här/.test(h5.toast), 'när inga egna finns kvar: "Inga fler egna klibbor här"');
+    // Z medan man skriver: ingen peel
+    await stampN(1);
+    await d.fill('#artist', ''); await d.type('#artist', 'Zorro');
+    const hz = await hist();
+    assert(hz.n === 1 && hz.count === h5.count + 1, 'Z gör ingenting medan man skriver');
+    await d.fill('#artist', 'Testaren'); await d.evaluate(() => document.activeElement.blur());
+    // Någon annans stämpel: finns inte i min historik, och fel nyckel nekas
+    const otherStamp = await (await fetch(`${BASE}/api/rooms/${ROOM}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageId: four[0], position: [3, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.5, surface: 'vägg-norr' }) })).json();
+    const steal = await d.evaluate((id) => fetch(`/api/rooms/e2e-test/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [{ id, token: 'gissning' }] }) }).then((r) => r.json()), otherStamp.stamp.id);
+    const listing = await (await fetch(`${BASE}/api/rooms/${ROOM}/stamps`)).text();
+    assert(steal.results[otherStamp.stamp.id] === 'forbidden' && !listing.includes(otherStamp.peelToken) && !listing.includes('peelHash'),
+      'man kan inte peela någon annans klibba, och nycklarna syns inte i rummets data');
+    // Historiklistan: ✕ på en post, sedan "Peela alla" med bekräftelse
+    await stampN(3);
+    const hBefore = await hist();
+    const secondId = await d.evaluate(() => document.querySelectorAll('#history-list li')[1].dataset.id);
+    await d.click('#history-list li:nth-child(2) button'); await d.waitForTimeout(500);
+    const afterX = await d.evaluate((id) => ({ gone: !window.klibb.stamps.meshes.has(id), n: window.klibb.roomHistory().length }), secondId);
+    assert(afterX.gone && afterX.n === hBefore.n - 1, '✕ i historiken peelar just den klibban');
+    await stampN(2);
+    await d.evaluate(() => { const k = window.klibb; k.moveTo(0, 2.5); k.look(0, 0.12); });
+    await d.hover('#history-list li:nth-child(2)'); await d.waitForTimeout(300);
+    await d.screenshot({ path: path.join(SHOTS, '15-historik-dator.png') });
+    const pre = await hist();
+    await d.click('#peel-all'); await d.waitForTimeout(300);
+    const ask = await d.evaluate(() => [document.getElementById('peel-all').textContent, window.klibb.stamps.count]);
+    assert(/Säker/.test(ask[0]) && ask[1] === pre.count, '"Peela alla" frågar först och tar inte bort något');
+    await d.click('#peel-all'); await d.waitForTimeout(800);
+    const allGone = await hist();
+    assert(allGone.n === 0 && allGone.items === 0 && allGone.count === pre.count - pre.n && /Peelade/.test(allGone.toast),
+      `"Peela alla" (andra trycket) tar bort alla mina ${pre.n} men inga andras`);
+    // Historik för stämplar som inte finns längre rensas tyst bort
+    await d.evaluate(() => { const h = JSON.parse(localStorage.getItem('klibb.history') || '[]');
+      h.push({ room: 'e2e-test', stampId: 'aaaaaaaaaaaaaaaa', token: 'x', designId: 'x', url: '', time: new Date().toISOString() });
+      localStorage.setItem('klibb.history', JSON.stringify(h)); });
+    await d.reload(); await waitReady(d);
+    assert((await hist()).n === 0, 'historik för stämplar som inte finns längre rensas bort');
 
     // ---------- Klibbläge / Tittläge (V) ----------
     const modeInfo = () => d.evaluate(() => ({ mode: window.klibb.state.mode, hud: document.getElementById('mode-hud').textContent,

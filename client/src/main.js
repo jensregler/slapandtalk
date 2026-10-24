@@ -6,6 +6,7 @@ import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { api } from './api.js';
 import { foldStamp } from './fold.js';
+import { readHistory, addHistory, removeHistory, roomHistory, HISTORY_KEY } from './history.js';
 import { readMine, addMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob } from './designs.js';
 import { connect } from './net.js';
 
@@ -254,7 +255,10 @@ async function stampAt(ndc) {
       if (!fresh) { if (fresh === null) await handleMissing([design]); else toast('Kunde inte stämpla just nu, försök igen.'); return null; }
       res = await api.addStamp(ROOM, { ...body, imageId: fresh.id });
     }
-    await stamps.add(res.stamp, res.image); updateCount();
+    if (res.peelToken) {
+      addHistory({ room: ROOM, stampId: res.stamp.id, token: res.peelToken, designId: res.image.id, url: res.image.url, time: res.stamp.createdAt || new Date().toISOString() });
+    }
+    await stamps.add(res.stamp, res.image); updateCount(); renderHistory();
     return res.stamp;
   } catch (err) {
     toast(err.message);
@@ -326,6 +330,103 @@ const toggleMode = () => setMode(state.mode === 'view' ? 'slap' : 'view');
 setMode('slap', { quiet: true });
 $('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); };
 
+// ---------- Peel (ångra) och historik ----------
+// Peel tar bort en av MINA stämplar: servern kräver den hemliga nyckeln som bara den här
+// enheten fick när stämpeln sattes. Upprepade peel går bakåt i historiken.
+let peelQueue = Promise.resolve();
+const queuePeel = (fn) => (peelQueue = peelQueue.then(fn, fn));
+
+// Peela de här posterna. Returnerar antal som togs bort. Stämplar som inte finns längre
+// (eller vars nyckel inte stämmer) tas tyst bort ur historiken.
+async function peelEntries(entries) {
+  if (!entries.length) return 0;
+  let results;
+  try { ({ results } = await api.peel(ROOM, entries.map((h) => ({ id: h.stampId, token: h.token })))); } catch (err) {
+    toast(err.status === 429 ? 'Lugn i stormen – vänta en liten stund.' : 'Kunde inte peela just nu, försök igen.'); return -1;
+  }
+  const done = entries.filter((h) => results[h.stampId] === 'ok');
+  removeHistory(entries.filter((h) => results[h.stampId]).map((h) => h.stampId));
+  await Promise.all(done.map((h) => stamps.peelAway(h.stampId)));
+  updateCount(); renderHistory();
+  return done.length;
+}
+
+function peelLast() {
+  return queuePeel(async () => {
+    // Gå bakåt tills något faktiskt peelas (hoppa över sådant som redan är borta).
+    for (let tries = 0; tries < 20; tries++) {
+      const next = roomHistory(ROOM)[0];
+      if (!next) { toast('Inga fler egna klibbor här'); return false; }
+      const n = await peelEntries([next]);
+      if (n < 0) return false;
+      if (n > 0) { toast('Peelad', 900); return true; }
+    }
+    return false;
+  });
+}
+
+function peelAll() {
+  return queuePeel(async () => {
+    const all = roomHistory(ROOM);
+    if (!all.length) { toast('Inga fler egna klibbor här'); return 0; }
+    let total = 0;
+    for (let i = 0; i < all.length; i += 200) { const n = await peelEntries(all.slice(i, i + 200)); if (n < 0) return total; total += n; }
+    toast(total ? `Peelade ${total} klibb${total === 1 ? 'a' : 'or'}` : 'Inga fler egna klibbor här');
+    return total;
+  });
+}
+
+function fmtTime(iso) {
+  const d = new Date(iso), now = new Date();
+  const t = d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === now.toDateString() ? t : `${d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })} ${t}`;
+}
+function renderHistory() {
+  const list = roomHistory(ROOM);
+  const ul = $('history-list'); ul.innerHTML = '';
+  $('history-count').textContent = list.length ? String(list.length) : '';
+  $('peel-last').disabled = $('peel-all').disabled = !list.length;
+  for (const h of list.slice(0, 200)) {
+    const li = document.createElement('li');
+    li.dataset.id = h.stampId;
+    li.title = 'Peka eller tryck för att se var den sitter';
+    li.innerHTML = `<img alt="" src="${h.url || ''}"><span class="t">${fmtTime(h.time)}</span><button type="button" title="Peela den här" aria-label="Peela den här klibban">✕</button>`;
+    const hl = (on) => { li.classList.toggle('hl', on); stamps.highlight(h.stampId, on); };
+    li.onmouseenter = () => hl(true);
+    li.onmouseleave = () => hl(false);
+    li.onclick = (e) => { if (e.target.closest('button')) return; hl(true); setTimeout(() => hl(false), 1200); };
+    li.querySelector('button').onclick = () => queuePeel(async () => {
+      hl(false);
+      const n = await peelEntries([h]);
+      if (n > 0) toast('Peelad', 900); else if (n === 0) renderHistory();
+    });
+    ul.appendChild(li);
+  }
+}
+// "Peela alla" kräver två tryck: första gången frågar knappen "Säker?".
+let peelAllTimer;
+$('peel-all').onclick = () => {
+  const b = $('peel-all');
+  if (!b.classList.contains('confirm')) {
+    b.classList.add('confirm'); b.textContent = `Säker? Tryck igen (${roomHistory(ROOM).length})`;
+    clearTimeout(peelAllTimer);
+    peelAllTimer = setTimeout(() => { b.classList.remove('confirm'); b.textContent = 'Peela alla'; }, 4000);
+    return;
+  }
+  clearTimeout(peelAllTimer); b.classList.remove('confirm'); b.textContent = 'Peela alla';
+  peelAll();
+};
+$('peel-last').onclick = () => peelLast();
+$('peel-btn').onclick = (e) => { e.preventDefault(); peelLast(); };
+addEventListener('storage', (e) => { if (e.key === HISTORY_KEY) renderHistory(); });
+// Efter att rummet laddats: glöm stämplar som inte finns kvar på servern (raderade, städade).
+function pruneHistory(stampIds) {
+  const alive = new Set(stampIds);
+  const dead = readHistory().filter((h) => h.room === ROOM && !alive.has(h.stampId)).map((h) => h.stampId);
+  if (dead.length) removeHistory(dead);
+  renderHistory();
+}
+
 // ---------- Inmatning ----------
 const CENTER = new THREE.Vector2(0, 0);
 $('enter').onclick = () => controls.lock();
@@ -342,7 +443,14 @@ if (!isTouch) {
   });
   addEventListener('wheel', (e) => { if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
   addEventListener('keydown', (e) => {
-    if (isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return; // inte medan man skriver, inte Ctrl+V
+    if (isTyping(e)) return; // inte medan man skriver
+    // Z eller Ctrl+Z / Cmd+Z = peela senaste (i både Klibbläge och Tittläge)
+    if ((e.key === 'z' || e.key === 'Z' || e.code === 'KeyZ') && !e.altKey && !e.shiftKey) {
+      if (e.ctrlKey || e.metaKey) e.preventDefault();
+      if (!e.repeat) peelLast();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return; // inte Ctrl+V osv.
     if (e.code === 'KeyV' && !e.repeat) toggleMode();
     if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
     if (state.mode === 'slap' && e.code === 'KeyE') setRot(state.rotation + 15);
@@ -414,6 +522,7 @@ async function loadRoom() {
   try {
     const { stamps: list, images, info } = await api.loadRoom(ROOM);
     showRoomInfo(info);
+    pruneHistory(list.map((s) => s.id));
     // allSettled: en enda trasig stämpel ska inte hindra resten av rummet från att laddas.
     await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
     updateCount();
@@ -443,6 +552,7 @@ function frame() {
 }
 
 renderTray();
+renderHistory();
 if (state.mine.length) select(state.mine.at(-1));
 initAdmin();
 Promise.all([loadRoom(), validateDesigns()]).then(() => { window.klibb.ready = true; });
@@ -465,5 +575,5 @@ window.klibb = {
   look(yaw, pitch) { controls.yaw = yaw; controls.pitch = pitch; controls.apply(); },
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
-  nextDesign, designs, validateDesigns, setMode, toggleMode, setSize, maxSizeCm: MAX_SIZE_CM,
+  nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => roomHistory(ROOM), setSize, maxSizeCm: MAX_SIZE_CM,
 };

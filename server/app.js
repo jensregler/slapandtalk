@@ -93,6 +93,15 @@ async function imageAvailable(id) {
   if (!meta || !(await store.hasImageFile(id))) return null;
   return meta;
 }
+// Peel-nycklar: sparas bara som SHA-256, jämförs i konstant tid.
+const hashToken = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+function tokenMatches(token, hash) {
+  if (!token || typeof hash !== 'string' || hash.length !== 64) return false;
+  const a = Buffer.from(hashToken(token), 'hex'), b = Buffer.from(hash, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+// Det som visas för alla: aldrig peel-hashen.
+const publicStamp = ({ peelHash, ...s }) => s;
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // Vilka av de här bilderna finns kvar? ?ids=a,b,c  ->  { images: { a: {...}, c: {...} } }
@@ -149,7 +158,7 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
     const m = ok.get(s.imageId);
     if (m) images[s.imageId] = m;
     return !!m;
-  }).map((s) => (isNum(s.size) && s.size > MAX_STAMP_SIZE ? { ...s, size: MAX_STAMP_SIZE } : s)); // gamla för stora stämplar
+  }).map((s) => publicStamp(isNum(s.size) && s.size > MAX_STAMP_SIZE ? { ...s, size: MAX_STAMP_SIZE } : s)); // gamla för stora stämplar
   res.json({ room: id, info: roomPublic(room), stamps, images });
 }));
 
@@ -163,15 +172,41 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   if (!image) return res.status(410).json({ error: 'Designen finns inte längre på servern. Ladda upp den igen.', gone: true });
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Felaktig placering' });
   if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Felaktig storlek' });
-  const stamp = await store.addStamp(room, {
+  // Peel-nyckel: bara den som stämplade får den. Servern sparar bara en hash av den.
+  const peelToken = crypto.randomBytes(24).toString('base64url');
+  const saved = await store.addStamp(room, {
+    peelHash: hashToken(peelToken),
     imageId: image.id,
     position: b.position, normal: b.normal, quaternion: b.quaternion,
     size: clampSize(b.size), rotation: isNum(b.rotation) ? b.rotation : 0,
     surface: String(b.surface || '').slice(0, 40),
     artist: String(b.artist || '').slice(0, 60),
   });
+  const stamp = publicStamp(saved);
   broadcast(room, { type: 'stamp:add', stamp });
-  res.json({ stamp, image });
+  res.json({ stamp, image, peelToken });
+}));
+
+// Peela egna stämplar: { items: [{ id, token }, ...] } (högst 200 åt gången, t.ex. "Peela alla").
+// Svar: { results: { <id>: 'ok' | 'notfound' | 'forbidden' } }
+app.post('/api/rooms/:room/peel', rateLimit(60), wrap(async (req, res) => {
+  const room = roomParam(req, res); if (!room) return;
+  const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200)
+    .filter((x) => x && typeof x.id === 'string' && /^[a-f0-9]{16}$/.test(x.id)).map((x) => ({ id: x.id, token: String(x.token || '') })) : [];
+  if (!items.length) return res.status(400).json({ error: 'Inga klibbor att peela' });
+  const results = await store.peelStamps(room, items, (s, token) => tokenMatches(token, s.peelHash));
+  for (const [id, r] of Object.entries(results)) if (r === 'ok') broadcast(room, { type: 'stamp:remove', id });
+  res.json({ results });
+}));
+// En enda stämpel: 200 om den peelades, 404 om den inte finns, 403 om nyckeln är fel.
+app.delete('/api/rooms/:room/stamps/:id/peel', rateLimit(60), wrap(async (req, res) => {
+  const room = roomParam(req, res); if (!room) return;
+  const id = String(req.params.id);
+  const token = String(req.get('x-peel-token') || '');
+  const r = (await store.peelStamps(room, [{ id, token }], (s, t) => tokenMatches(t, s.peelHash)))[id];
+  if (r === 'ok') { broadcast(room, { type: 'stamp:remove', id }); return res.json({ ok: true }); }
+  if (r === 'notfound') return res.status(404).json({ error: 'Klibban finns inte längre', gone: true });
+  res.status(403).json({ error: 'Du kan bara peela dina egna klibbor' });
 }));
 
 // ---------- Admin (dold) ----------

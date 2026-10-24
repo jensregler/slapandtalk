@@ -88,3 +88,23 @@ body.view-mode #design-btn { opacity: .45; }
 body.view-mode #design-hud { opacity: .5; }
 /* I Tittläge: bara en liten prick i stället för siktet */
 body.view-mode #crosshair { width: 4px; height: 4px; margin: -2px 0 0 -2px; border: 0; background: rgba(255,255,255,.55); }
+
+/* Peel och historik */
+#peel-btn { position: fixed; right: 176px; bottom: calc(38px + env(safe-area-inset-bottom)); width: 56px; height: 56px; padding: 0;
+  border-radius: 50%; font-size: 26px; line-height: 1; background: rgba(20,20,20,.75); border: 2px solid rgba(255,255,255,.5);
+  z-index: 4; touch-action: manipulation; color: #fff; }
+#history { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #333; padding-top: 8px; }
+.history-head { font-size: 13px; display: flex; justify-content: space-between; }
+#history-count { color: #999; }
+#history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow: auto; }
+#history-list:empty::before { content: "Inga egna klibbor här än."; font-size: 12px; color: #777; }
+#history-list li { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 8px; background: #222; cursor: pointer; font-size: 13px; }
+#history-list li:hover, #history-list li.hl { background: #3a3520; }
+#history-list img { width: 34px; height: 34px; object-fit: contain; border-radius: 6px; background: #333 repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 50%/8px 8px; }
+#history-list .t { flex: 1; color: #ccc; }
+#history-list button { padding: 2px 9px; border-radius: 8px; font-size: 14px; }
+.history-btns { display: flex; gap: 6px; }
+.history-btns button { flex: 1; padding: 7px 8px; font-size: 13px; }
+.history-btns button:disabled { opacity: .4; cursor: default; }
+button.danger-soft { border-color: #8a3a35; }
+button.danger-soft.confirm { background: #b3261e; border-color: #b3261e; color: #fff; font-weight: 700; }

@@ -36,6 +36,15 @@
     <p class="hint">PNG, JPG eller WebP, max 5 MB. Genomskinlighet behålls.</p>
     <div id="tray" aria-label="Dina klibbor"></div>
 
+    <section id="history" aria-label="Mina klibbor i det här rummet">
+      <div class="history-head"><b>Mina klibbor i det här rummet</b> <span id="history-count">0</span></div>
+      <ul id="history-list"></ul>
+      <div class="history-btns">
+        <button id="peel-last" type="button" title="Ta bort din senaste klibba (Z)">↩ Peela senaste</button>
+        <button id="peel-all" type="button" class="danger-soft">Peela alla</button>
+      </div>
+    </section>
+
     <label>Storlek: <b id="size-val">30 cm</b>
       <input id="size" type="range" min="5" max="400" step="1" value="30" />
     </label>
@@ -50,7 +59,8 @@
     <button id="enter" type="button" class="primary desktop-only">Gå in i rummet</button>
     <div class="help desktop-only">
       <b>Dator:</b> klicka för att gå in. WASD = gå, musen = titta, klick = stämpla,
-      scrollhjul = storlek, Q/E = vrid, R = byt design (växlar mellan dina uppladdade), V = Tittläge av/på (dölj pekaren
+      scrollhjul = storlek, Q/E = vrid, R = byt design (växlar mellan dina uppladdade), Z (eller Ctrl+Z) = peela/ångra din senaste klibba,
+      V = Tittläge av/på (dölj pekaren
       och bara titta, klick stämplar inte; V igen = Klibbläge),
       Esc = tillbaka till menyn. <b>Rum:</b> ＋ Nytt snabbrum ger ett eget rum med en kort kod,
       🔗 Dela länk skickar den till kompisar, 🏙 Till Staden tar dig tillbaka.
@@ -59,7 +69,8 @@
       <b>Mobil:</b> styrspaken nere till vänster = gå, dra med fingret = titta,
       tryck = stämpla. Den runda knappen nere till höger visar vald design: tryck på den
       för att byta till nästa. Ögat 👁 bredvid slår på Tittläge (pekaren döljs och tryck
-      stämplar inte), tryck igen för att klibba. Fäll ihop menyn med ☰. <b>Rum:</b> ＋ Nytt snabbrum ger ett eget rum,
+      stämplar inte), tryck igen för att klibba. ↩ peelar (ångrar) din senaste klibba.
+      Under "Mina klibbor" i menyn kan du ta bort vilken av dina egna som helst. Fäll ihop menyn med ☰. <b>Rum:</b> ＋ Nytt snabbrum ger ett eget rum,
       🔗 Dela länk skickar det till kompisar, 🏙 Till Staden tar dig tillbaka.
     </div>
   </aside>
@@ -70,6 +81,7 @@
     <img id="design-hud-img" alt="Vald design" /><span><b id="design-hud-num">1/1</b><br />R: byt design</span>
   </div>
   <div id="mode-hud" aria-live="polite"></div>
+  <button id="peel-btn" class="touch-only" type="button" aria-label="Peela min senaste klibba" title="Peela (ångra) min senaste klibba">↩</button>
   <button id="mode-btn" class="touch-only" type="button" aria-label="Tittläge av/på" aria-pressed="false">👁</button>
   <button id="design-btn" class="touch-only" type="button" title="Byt design" aria-label="Byt design" hidden>
     <img id="design-btn-img" alt="" /><span id="design-btn-num"></span>

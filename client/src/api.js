@@ -19,6 +19,11 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(stamp),
   }).then(json),
 
+  // Peela egna stämplar: items = [{ id, token }]. Svar: { results: { id: 'ok'|'notfound'|'forbidden' } }
+  peel: (room, items) => fetch(`/api/rooms/${room}/peel`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
+  }).then(json),
+
   createRoom: () => fetch('/api/rooms', { method: 'POST' }).then(json),
   visit: (room) => fetch(`/api/rooms/${room}/visit`, { method: 'POST' }).then(json),
 

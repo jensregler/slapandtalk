@@ -21,6 +21,16 @@ Gå med **W A S D**, titta med musen och **klicka** för att stämpla. Scrollhju
 **Q/E** vrider klibban, **R** byter design, **V** växlar mellan Klibbläge och Tittläge och
 **Esc** tar dig tillbaka till menyn.
 
+**Peel (ångra) med Z:** satt en klibba lite fel? Tryck **Z** (eller **Ctrl+Z** / **Cmd+Z**) så
+peelas din senaste klibba i rummet. Tryck igen för att gå bakåt, tills det står *Inga fler egna
+klibbor här*. Det fungerar i både Klibbläge och Tittläge. I menyn finns **Mina klibbor i det här
+rummet**: dina klibbor med bild och tid, nyast först. Peka på en (eller tryck) så lyser den upp i
+rummet, **✕** tar bort just den, och **Peela alla** tar bort alla dina (tryck två gånger för att
+bekräfta). Du kan bara peela dina egna: när du stämplar får din enhet en hemlig nyckel för just den
+klibban (servern sparar bara en hash av den, och den syns aldrig för andra). Nycklarna sparas i
+webbläsaren, så byter du enhet eller rensar webbläsaren kan du inte längre peela de gamla.
+Admin kan fortfarande ta bort allt. Andra som är i rummet ser att klibban försvunnit när de laddar om.
+
 **Klibbläge och Tittläge (V):** du börjar i *Klibbläge*: den genomskinliga pekaren visar var
 klibban hamnar och ett klick stämplar. Tryck **V** för *Tittläge* när du vill kliva tillbaka och
 beundra väggen: pekaren och siktet försvinner (kvar är bara en liten prick), klick stämplar inte
@@ -37,7 +47,7 @@ servern har kvar bilderna. Designs som har försvunnit från servern tas bort ur
 **På mobilen:** ladda upp en bild i menyn och fäll ihop menyn med **☰**. Styrspaken nere till
 vänster tar dig framåt, **dra med fingret** för att titta och **tryck** där du vill stämpla.
 Den **runda knappen nere till höger** visar vald design: tryck på den för att byta till nästa.
-**Ögat 👁** bredvid slår på Tittläge (pekaren försvinner och tryck stämplar inte, designknappen
+**↩** peelar (ångrar) din senaste klibba. **Ögat 👁** bredvid slår på Tittläge (pekaren försvinner och tryck stämplar inte, designknappen
 dämpas); tryck på ögat igen för att klibba.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.
 

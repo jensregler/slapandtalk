@@ -105,6 +105,23 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
       return before !== room.stamps.length;
     });
   }
+  // Peela (ta bort) egna stämplar. check(stamp) avgör om nyckeln stämmer.
+  // Allt sker i rummets skrivkö. Svar per stämpel: 'ok', 'notfound' eller 'forbidden'.
+  async function peelStamps(roomId, items, check) {
+    return withLock(roomId, async () => {
+      const room = await getRoom(roomId);
+      const result = {};
+      const remove = new Set();
+      for (const { id, token } of items) {
+        const s = room?.stamps.find((x) => x.id === id);
+        if (!s) result[id] = 'notfound';
+        else if (!check(s, token)) result[id] = 'forbidden';
+        else { result[id] = 'ok'; remove.add(id); }
+      }
+      if (remove.size) { room.stamps = room.stamps.filter((x) => !remove.has(x.id)); await saveRoom(room); }
+      return result;
+    });
+  }
   async function listRooms() {
     return (await adapter.list('rooms/')).filter((k) => k.endsWith('.json')).map((k) => k.slice(6, -5));
   }
@@ -159,7 +176,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   }
 
   return {
-    adapter, clock, getRoom, roomOrEmpty, createRoom, touchRoom, addStamp, deleteStamp, listRooms, deleteRoom,
+    adapter, clock, getRoom, roomOrEmpty, createRoom, touchRoom, addStamp, deleteStamp, peelStamps, listRooms, deleteRoom,
     deleteStampsWithImage, cleanupRooms, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, migrate,
   };

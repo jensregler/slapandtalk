@@ -114,7 +114,45 @@ export class StampLayer {
     if (!m) return;
     this.scene.remove(m);
     m.geometry.dispose();
+    if (m.userData.ownMaterial) m.material.dispose();
     this.meshes.delete(stampId);
+  }
+
+  // Peel: klibban tonar bort och krymper lite (200 ms) och tas sedan bort.
+  peelAway(stampId, ms = 200) {
+    const m = this.meshes.get(stampId);
+    if (!m) return Promise.resolve();
+    this.meshes.delete(stampId); // syns inte längre i räkning/val
+    const base = m.material;
+    m.material = base.clone(); m.userData.ownMaterial = true;
+    m.geometry.computeBoundingSphere();
+    const c = m.geometry.boundingSphere.center.clone();
+    const t0 = performance.now();
+    return new Promise((resolve) => {
+      const step = () => {
+        const k = Math.min(1, (performance.now() - t0) / ms);
+        m.material.opacity = 1 - k;
+        const s = 1 - 0.25 * k; // krymp mot mitten
+        m.scale.setScalar(s); m.position.copy(c).multiplyScalar(1 - s);
+        if (k < 1) requestAnimationFrame(step);
+        else { this.scene.remove(m); m.geometry.dispose(); m.material.dispose(); resolve(); }
+      };
+      requestAnimationFrame(step);
+    });
+  }
+
+  // Markera en stämpel (t.ex. när man pekar på den i historiken).
+  highlight(stampId, on) {
+    const m = this.meshes.get(stampId);
+    if (!m) return;
+    if (on && !m.userData.hl) {
+      m.userData.hl = m.material;
+      m.material = m.material.clone();
+      m.material.emissive = new THREE.Color(0x665500); m.material.color = new THREE.Color(1, 1, 0.55);
+      m.renderOrder += 1e5;
+    } else if (!on && m.userData.hl) {
+      m.material.dispose(); m.material = m.userData.hl; m.userData.hl = null; m.renderOrder -= 1e5;
+    }
   }
 
   removeImage(imageId) {
