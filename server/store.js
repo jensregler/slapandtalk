@@ -59,7 +59,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   async function roomOrEmpty(id) { return (await getRoom(id)) || { ...normalize(id, null), exists: false }; }
   async function saveRoom(room) { const { exists, ...data } = room; await writeJson(roomKey(room.id), data); return data; }
 
-  async function createRoom({ id, type = 'quick', owner = null } = {}) {
+  async function createRoom({ id, type = 'quick', owner = null, style = null, keyHash = null } = {}) {
     if (!ROOM_TYPES.includes(type)) throw new Error('Okänd rumstyp');
     for (let tries = 0; !id && tries < 20; tries++) {
       const c = roomCode();
@@ -69,7 +69,24 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
     return withLock(id, async () => {
       if (await getRoom(id)) throw Object.assign(new Error('Rummet finns redan'), { code: 'EXISTS' });
       const now = iso();
-      return saveRoom(normalize(id, { type: id === PUBLIC_ROOM ? 'stad' : type, owner, createdAt: now, lastVisitAt: now, stamps: [] }));
+      const extra = {};
+      if (style) extra.style = style;
+      if (keyHash) extra.keyHash = keyHash;
+      return saveRoom(normalize(id, { type: id === PUBLIC_ROOM ? 'stad' : type, owner, createdAt: now, lastVisitAt: now, ...extra, stamps: [] }));
+    });
+  }
+
+  // Byt rummets utseende. canEdit(room) avgör om den som frågar får (rumsnyckel eller admin).
+  // Svar: 'ok', 'forbidden' (eller rummet skapas om det är staden och admin frågar).
+  async function setRoomStyle(id, style, canEdit) {
+    return withLock(id, async () => {
+      let room = await getRoom(id);
+      if (!room && id === PUBLIC_ROOM) room = normalize(id, { createdAt: iso() });
+      if (!room) return 'notfound';
+      if (!canEdit(room)) return 'forbidden';
+      room.style = style;
+      await saveRoom(room);
+      return 'ok';
     });
   }
 
@@ -176,7 +193,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   }
 
   return {
-    adapter, clock, getRoom, roomOrEmpty, createRoom, touchRoom, addStamp, deleteStamp, peelStamps, listRooms, deleteRoom,
+    adapter, clock, getRoom, roomOrEmpty, createRoom, setRoomStyle, touchRoom, addStamp, deleteStamp, peelStamps, listRooms, deleteRoom,
     deleteStampsWithImage, cleanupRooms, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, migrate,
   };

@@ -2,6 +2,7 @@
 // rummet (room.js), styrningen (controls.js), stämplarna (stamps.js) och servern (api.js).
 import * as THREE from 'three';
 import { buildBoxRoom, wallHeight } from './room.js';
+import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl } from './roomstyle.js';
 import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { api } from './api.js';
@@ -280,6 +281,7 @@ async function initAdmin() {
   if (!ok) { sessionStorage.removeItem('klibb.admin'); toast('Fel admin-nyckel.'); return; }
   state.adminToken = token;
   $('admin-banner').hidden = false;
+  updateStyleUi();
 }
 
 function adminPick(ndc) {
@@ -306,6 +308,7 @@ function adminPick(ndc) {
 
 function action(ndc) {
   if (state.mode === 'view') return null; // Tittläge: klick och tryck gör ingenting
+  if (sp.open) return null; // utseendepanelen är öppen: titta, men stämpla inte
   return state.adminToken ? adminPick(ndc) : stampAt(ndc);
 }
 
@@ -439,6 +442,7 @@ controls.onLockChange = (locked) => {
 if (!isTouch) {
   canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
+    if (sp.open) return; // panelen för rummets utseende är öppen
     if (!controls.locked) controls.lock(); else action(CENTER);
   });
   addEventListener('wheel', (e) => { if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
@@ -497,14 +501,94 @@ function showRoomInfo(info) {
     ? `Ditt eget rum. Dela länken så kan andra komma in. Det raderas när ingen har varit här på ${info?.quickTtlHours ?? 24} timmar.`
     : type === 'profile' ? `Sparat rum${info.owner?.name ? ' som tillhör ' + info.owner.name : ''}.` : '';
   $('room-hud').textContent = type === 'stad' ? 'Staden' : `${TYPE_NAMES[type] || type} · ${ROOM}`;
+  roomType = type;
+  if (info) currentStyle = normalizeStyle(info.style);
+  if (info) updateStyleUi();
   window.klibb && (window.klibb.roomInfo = { ...info, type });
 }
 showRoomInfo(null);
-$('new-room').onclick = async () => {
+// ---------- Rummets utseende ----------
+// Skaparen av ett snabbrum får en hemlig rumsnyckel (sparas på enheten). Med den, eller som
+// admin, kan utseendet ändras. Staden kan bara admin ändra.
+const ROOM_KEYS = 'klibb.roomKeys';
+const roomKeys = () => { try { return JSON.parse(localStorage.getItem(ROOM_KEYS) || '{}') || {}; } catch { return {}; } };
+function saveRoomKey(id, key) { const k = roomKeys(); k[id] = key; localStorage.setItem(ROOM_KEYS, JSON.stringify(k)); }
+// var (inte let): showRoomInfo längre upp kan köras innan den här raden.
+var currentStyle = normalizeStyle(DEFAULT_STYLE); // eslint-disable-line no-var
+var roomType = ROOM === 'stad' ? 'stad' : 'quick'; // eslint-disable-line no-var
+const canEditStyle = () => !!state.adminToken || (roomType !== 'stad' && !!roomKeys()[ROOM]);
+function updateStyleUi() {
+  $('edit-style').hidden = !canEditStyle();
+  const s = currentStyle;
+  $('room-style').textContent = `Utseende: ${styleName(s)}${s.seed ? ` · kod ${s.seed}` : ''}`;
+}
+async function showStyle(s) {
+  try { return await applyStyle(room.surfaces, s); } catch { toast('Kunde inte ladda rummets texturer.'); return null; }
+}
+showStyle(DEFAULT_STYLE);
+
+const sp = { open: false, mode: 'create', style: null };
+function swatchButtons(el, kind, items, selected, onPick, color) {
+  el.innerHTML = '';
+  for (const [id, spec] of Object.entries(items)) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.id = id; b.title = spec.name;
+    if (kind === 'color') { b.style.background = spec.hex; b.setAttribute('aria-label', spec.name); }
+    else b.innerHTML = `<img alt="" loading="lazy" src="${swatchUrl(kind, id, color)}"><span>${spec.name}</span>`;
+    if (id === selected) b.classList.add('sel');
+    b.onclick = () => onPick(id);
+    el.appendChild(b);
+  }
+}
+function renderStylePanel() {
+  const s = sp.style;
+  const color = s.wallColor ? CATALOG.wallColors[s.wallColor].hex : null;
+  const custom = (patch) => { sp.style = normalizeStyle({ ...sp.style, ...patch, seed: undefined }); delete sp.style.seed; previewStyle(); };
+  swatchButtons($('sw-floor'), 'floor', CATALOG.floors, s.floor, (id) => custom({ floor: id }));
+  swatchButtons($('sw-wall'), 'wall', CATALOG.walls, s.wall, (id) => custom({ wall: id }), color);
+  swatchButtons($('sw-color'), 'color', CATALOG.wallColors, s.wallColor, (id) => custom({ wallColor: id }));
+  swatchButtons($('sw-ceiling'), 'ceiling', CATALOG.ceilings, s.ceiling, (id) => custom({ ceiling: id }));
+  $('sp-color-row').hidden = !CATALOG.walls[s.wall].colored;
+  if (document.activeElement !== $('style-seed')) $('style-seed').value = s.seed || '';
+  $('style-name').textContent = styleName(s);
+}
+function previewStyle() { renderStylePanel(); showStyle(sp.style); }
+function openStylePanel(mode) {
+  sp.open = true; sp.mode = mode;
+  sp.style = mode === 'create' ? styleFromSeed(randomSeed()) : { ...currentStyle };
+  $('style-title').textContent = mode === 'create' ? 'Nytt snabbrum' : 'Ändra rummets utseende';
+  $('style-ok').textContent = mode === 'create' ? 'Skapa rum' : 'Spara';
+  $('style-panel').hidden = false;
+  if (isTouch) { $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false'); }
+  previewStyle();
+}
+function closeStylePanel(revert = true) {
+  sp.open = false; $('style-panel').hidden = true;
+  if (revert) showStyle(currentStyle);
+}
+$('new-room').onclick = () => openStylePanel('create');
+$('edit-style').onclick = () => openStylePanel('edit');
+$('style-cancel').onclick = () => closeStylePanel(true);
+$('style-random').onclick = () => { sp.style = styleFromSeed(randomSeed()); previewStyle(); };
+$('style-seed').oninput = (e) => {
+  const v = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
+  if (v !== e.target.value) e.target.value = v;
+  if (v) { sp.style = styleFromSeed(v); previewStyle(); }
+};
+$('style-ok').onclick = async () => {
+  const b = $('style-ok'); b.disabled = true;
   try {
-    const { room } = await api.createRoom();
-    location.href = roomUrl(room.id);
-  } catch (err) { toast(err.message); }
+    if (sp.mode === 'create') {
+      const { room: r, roomKey } = await api.createRoom(sp.style);
+      if (roomKey) saveRoomKey(r.id, roomKey);
+      location.href = roomUrl(r.id);
+      return;
+    }
+    const res = await api.setStyle(ROOM, sp.style, { key: roomKeys()[ROOM], admin: state.adminToken });
+    currentStyle = normalizeStyle(res.style);
+    closeStylePanel(false); showStyle(currentStyle); updateStyleUi();
+    toast('Rummets utseende är sparat.');
+  } catch (err) { toast(err.message); } finally { b.disabled = false; }
 };
 $('to-stad').onclick = () => { location.href = roomUrl('stad'); };
 $('share-room').onclick = async () => {
@@ -522,6 +606,7 @@ async function loadRoom() {
   try {
     const { stamps: list, images, info } = await api.loadRoom(ROOM);
     showRoomInfo(info);
+    if (!sp.open) await showStyle(currentStyle);
     pruneHistory(list.map((s) => s.id));
     // allSettled: en enda trasig stämpel ska inte hindra resten av rummet från att laddas.
     await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
@@ -575,5 +660,6 @@ window.klibb = {
   look(yaw, pitch) { controls.yaw = yaw; controls.pitch = pitch; controls.apply(); },
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
+  styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
   nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => roomHistory(ROOM), setSize, maxSizeCm: MAX_SIZE_CM,
 };

@@ -70,6 +70,31 @@ har besökt på `QUICK_ROOM_TTL_HOURS` timmar. Ett besök räknas när någon ö
 stämplar där, eller har sidan öppen (appen säger till var tionde minut). Designs (bilderna)
 tas inte bort, de kan finnas i andras menyer och rum.
 
+### Rummets utseende (golv, väggar, tak)
+
+När du klickar **＋ Nytt snabbrum** öppnas en panel där du väljer hur rummet ska se ut.
+Rummet bakom panelen ändras direkt, så du ser resultatet innan du skapar det.
+
+- **Golv:** klassisk, parkett, betong, linoleum (schackrutigt), klinker, asfalt, heltäckningsmatta.
+- **Väggar:** klassisk, målad, kaklad, tegel, betong, träpanel, puts. Målad och kaklad
+  får en färg ur en liten palett. Alla fyra väggarna blir likadana.
+- **Tak:** klassisk, vitt, betong, mörkt.
+- **🎲 Slumpa** ger en kod på fem tecken, t.ex. `k7m2q`. Samma kod ger alltid samma rum, så du
+  kan skriva in en kod du sett hos någon annan. Väljer du själv en ruta blir det ett eget val
+  utan kod.
+
+Utseendet sparas i rummet (`style` i rummets JSON-fil, via lagrings-adaptern), så alla som
+går in i rummet ser samma sak. Rum som skapades innan det här fanns får det klassiska utseendet.
+
+**Vem får ändra?** När du skapar ett rum får din webbläsare en hemlig rumsnyckel (servern
+sparar bara en hash av den). Då syns **🎨 Ändra rummets utseende** i menyn, bara för dig.
+Admin kan ändra alla rum. Stadens utseende kan bara admin ändra.
+
+Texturerna är små WebP-bilder i `client/public/textures/` (ca 470 kB totalt, ett rum laddar
+bara de 1–3 som det använder). Målad vägg, kakel, linoleum och klinker ritas i koden i stället
+för att laddas ner. Katalogen över alla val finns i `shared/styles.json`. Var bilderna kommer
+ifrån och deras licens står i [CREDITS.md](CREDITS.md).
+
 ---
 
 ## Hur koden hänger ihop
@@ -78,10 +103,11 @@ tas inte bort, de kan finnas i andras menyer och rum.
 klibbrum/
 ├── client/                 ← det som körs i webbläsaren
 │   ├── index.html          ← sidan: menyn, styrspaken och 3D-ytan
-│   ├── public/             ← filer som skickas som de är (appikoner, manifest, sw.js)
+│   ├── public/             ← filer som skickas som de är (appikoner, manifest, sw.js, textures/)
 │   └── src/
 │       ├── main.js         ← startpunkten som kopplar ihop allt (läs den först!)
 │       ├── room.js         ← själva rummet (lådan på 10 x 4 x 10 m och ljuset)
+│       ├── roomstyle.js    ← rummets utseende: texturer, slumpkoder
 │       ├── controls.js     ← gå och titta (tangentbord, mus, styrspak, finger)
 │       ├── stamps.js       ← stämplarna (bilden på ytan)
 │       ├── fold.js         ← viker klibbor över kanter och hörn
@@ -94,10 +120,12 @@ klibbrum/
 │   ├── store.js            ← rummen, stämplarna och bilderna (rumstyper, städning)
 │   ├── storage/            ← VAR det sparas: local.js (disk) eller s3.js (t.ex. Cloudflare R2)
 │   └── realtime.js         ← tom förberedelse för flerspelarläge
+├── shared/                 ← delas av webbläsaren och servern (rummets mått, utseendekatalogen)
 ├── data/                   ← skapas automatiskt: uppladdade bilder och rummen
 ├── tests/e2e.js            ← automatiskt test i en osynlig webbläsare
 ├── tests/rooms.test.js     ← test av rum, städning och lagring (utan webbläsare)
 ├── tools/make-icons.js     ← ritar appikonen och testbilden demo-klibba.png (används bara i testerna)
+├── tools/make-textures.js  ← gör om texturerna från ambientCG till små WebP-filer
 ├── screenshots/            ← skärmdumpar från testet
 ├── ecosystem.config.js     ← säger till pm2 vilka program som ska hållas igång
 └── .env                    ← hemligheter (admin-nyckeln). Läggs ALDRIG upp på GitHub.
@@ -175,9 +203,9 @@ startar om servern.
 - En användare i taget. Två personer kan vara inne samtidigt, men de ser inte varandras
   nya klibbor förrän de laddar om sidan.
 - Inga konton. Artistnamnet sparas bara i din egen webbläsare och följer med dina stämplar.
-- En klibba hamnar bara på den yta du träffar och viker sig inte runt hörn.
 - Klibbor som du lagt upp syns i menyn bara i den webbläsare där du laddade upp dem.
-- Det finns ingen ångra-knapp. Bara admin kan ta bort.
+- Du kan peela (ta bort) dina egna klibbor från samma webbläsare. Andras kan bara admin ta bort.
+- Texturerna har inga normal maps (ingen djupverkan i fogar och tegel), för att hålla nere storleken.
 
 ## Nästa steg (förberett, inte byggt)
 - **Flerspelarläge (6–8 personer):** WebSocket-server i `server/realtime.js`, klient i

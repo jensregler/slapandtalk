@@ -26,7 +26,9 @@
         <button id="new-room" type="button" title="Skapa ett eget rum med en kort kod som du kan dela">＋ Nytt snabbrum</button>
         <button id="share-room" type="button" title="Kopiera eller dela länken till det här rummet">🔗 Dela länk</button>
         <button id="to-stad" type="button" title="Tillbaka till det gemensamma rummet">🏙 Till Staden</button>
+        <button id="edit-style" type="button" hidden>🎨 Ändra rummets utseende</button>
       </div>
+      <p id="room-style" class="hint"></p>
     </section>
 
     <label class="upload">
@@ -64,6 +66,7 @@
       och bara titta, klick stämplar inte; V igen = Klibbläge),
       Esc = tillbaka till menyn. <b>Rum:</b> ＋ Nytt snabbrum ger ett eget rum med en kort kod,
       🔗 Dela länk skickar den till kompisar, 🏙 Till Staden tar dig tillbaka.
+      När du skapar ett rum väljer du golv och väggar (eller 🎲 Slumpa en kod).
     </div>
     <div class="help touch-only">
       <b>Mobil:</b> styrspaken nere till vänster = gå, dra med fingret = titta,
@@ -72,6 +75,7 @@
       stämplar inte), tryck igen för att klibba. ↩ peelar (ångrar) din senaste klibba.
       Under "Mina klibbor" i menyn kan du ta bort vilken av dina egna som helst. Fäll ihop menyn med ☰. <b>Rum:</b> ＋ Nytt snabbrum ger ett eget rum,
       🔗 Dela länk skickar det till kompisar, 🏙 Till Staden tar dig tillbaka.
+      När du skapar ett rum väljer du golv och väggar (eller 🎲 Slumpa en kod).
     </div>
   </aside>
 
@@ -87,6 +91,25 @@
     <img id="design-btn-img" alt="" /><span id="design-btn-num"></span>
   </button>
   <div id="admin-banner" hidden>ADMIN-LÄGE – klicka/tryck på en klibba för att ta bort den</div>
+  <!-- Rummets utseende: väljs när man skapar ett snabbrum (eller ändras av skaparen/admin). -->
+  <aside id="style-panel" hidden aria-label="Rummets utseende">
+    <h2 id="style-title">Nytt snabbrum</h2>
+    <p class="hint">Välj golv och väggar. Rummet bakom ändras direkt. Alla väggar blir likadana.</p>
+    <div class="sp-row"><b>Golv</b><div id="sw-floor" class="swatches"></div></div>
+    <div class="sp-row"><b>Väggar</b><div id="sw-wall" class="swatches"></div></div>
+    <div class="sp-row" id="sp-color-row"><b>Väggfärg</b><div id="sw-color" class="swatches colors"></div></div>
+    <div class="sp-row"><b>Tak</b><div id="sw-ceiling" class="swatches"></div></div>
+    <div class="sp-seed">
+      <label for="style-seed">Kod</label>
+      <input id="style-seed" type="text" maxlength="12" autocomplete="off" spellcheck="false" placeholder="egen" />
+      <button id="style-random" type="button" title="Slumpa fram ett rum">🎲 Slumpa</button>
+    </div>
+    <p id="style-name" class="hint"></p>
+    <div class="sp-btns">
+      <button id="style-cancel" type="button">Avbryt</button>
+      <button id="style-ok" type="button" class="primary">Skapa rum</button>
+    </div>
+  </aside>
   <div id="room-hud" aria-hidden="true"></div>
   <div id="toast" role="status" aria-live="polite"></div>
   <dialog id="admin-dialog">

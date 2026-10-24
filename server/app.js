@@ -113,13 +113,43 @@ app.get('/api/stickers', wrap(async (req, res) => {
 }));
 
 // ---------- Rum ----------
-const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt,
+// Rummets utseende kontrolleras mot samma katalog som webbappen använder.
+const STYLES = require('../shared/styles.json');
+function cleanStyle(s) {
+  if (!s || typeof s !== 'object') return null;
+  if (!STYLES.floors[s.floor] || !STYLES.walls[s.wall] || !STYLES.ceilings[s.ceiling || STYLES.default.ceiling]) return null;
+  const out = { floor: s.floor, wall: s.wall, ceiling: STYLES.ceilings[s.ceiling] ? s.ceiling : STYLES.default.ceiling };
+  if (STYLES.walls[s.wall].colored) { if (!STYLES.wallColors[s.wallColor]) return null; out.wallColor = s.wallColor; }
+  if (s.seed !== undefined && s.seed !== null && s.seed !== '') { if (typeof s.seed !== 'string' || !/^[a-z0-9]{1,12}$/.test(s.seed)) return null; out.seed = s.seed; }
+  return out;
+}
+const styleOf = (r) => r.style || { ...STYLES.default }; // äldre rum: dagens utseende
+const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt, style: styleOf(r),
   quickTtlHours: r.type === 'quick' ? quickTtlHours : null });
 
 // Skapa ett nytt snabbrum (inget konto behövs). Svarar med en kort kod, t.ex. "k7m2qx".
+// Body (valfritt): { style: { floor, wall, wallColor?, ceiling?, seed? } }
+// Svaret innehåller roomKey: en hemlig nyckel som bara skaparen får. Med den kan
+// rummets utseende ändras senare. Servern sparar bara en hash av nyckeln.
 app.post('/api/rooms', rateLimit(10), wrap(async (req, res) => {
-  const room = await store.createRoom({ type: 'quick' });
-  res.json({ room: roomPublic(room) });
+  let style = null;
+  if (req.body && req.body.style !== undefined) { style = cleanStyle(req.body.style); if (!style) return res.status(400).json({ error: 'Okänt utseende' }); }
+  const roomKey = crypto.randomBytes(24).toString('base64url');
+  const room = await store.createRoom({ type: 'quick', style, keyHash: hashToken(roomKey) });
+  res.json({ room: roomPublic(room), roomKey });
+}));
+
+// Byt utseende: rummets skapare (nyckeln i x-room-key) eller admin. Staden: bara admin.
+app.put('/api/rooms/:room/style', rateLimit(30), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  const style = cleanStyle(req.body && req.body.style);
+  if (!style) return res.status(400).json({ error: 'Okänt utseende' });
+  const admin = isAdmin(req), key = String(req.get('x-room-key') || '');
+  const r = await store.setRoomStyle(id, style, (room) => admin || (room.type !== 'stad' && tokenMatches(key, room.keyHash)));
+  if (r === 'notfound') return res.status(404).json({ error: 'Rummet finns inte' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Bara den som skapade rummet kan ändra utseendet' });
+  broadcast(id, { type: 'room:style', style });
+  res.json({ ok: true, style });
 }));
 
 // Profilrum: förberett för konton. Tills inloggning finns kan bara admin skapa dem.

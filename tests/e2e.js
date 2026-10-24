@@ -256,6 +256,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       hud: document.getElementById('room-hud').textContent, note: document.getElementById('room-note').textContent,
       toStad: !document.getElementById('to-stad').hidden }));
     await page.click('#new-room');
+    await page.waitForSelector('#style-panel', { state: 'visible' });
+    await page.click('#style-ok');
     await page.waitForURL(/\?room=[a-z2-9]{6}$/); await waitReady(page);
     const q = await roomUi();
     assert(q.badge === 'Snabbrum' && q.hud === `Snabbrum · ${q.room}` && q.toStad && /24 timmar/.test(q.note) && (await count(page)) === 0,
@@ -294,6 +296,15 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await m.waitForFunction(() => !document.getElementById('toast').classList.contains('show'), null, { timeout: 5000 });
     await m.waitForTimeout(300);
     await m.screenshot({ path: path.join(SHOTS, '12-rum-meny-mobil.png') });
+    await m.tap('#new-room'); await m.waitForSelector('#style-panel', { state: 'visible' });
+    await m.tap('#sw-floor button[data-id="betong"]'); await m.tap('#sw-wall button[data-id="tegel"]'); await m.waitForTimeout(900);
+    await m.screenshot({ path: path.join(SHOTS, '22-utseende-mobil.png') });
+    const mBox = await m.locator('#style-panel').boundingBox();
+    const mColorHidden = await m.isHidden('#sp-color-row');
+    await m.tap('#style-cancel'); await m.waitForTimeout(300);
+    assert(mBox.width <= m.viewportSize().width && mColorHidden && (await m.isHidden('#style-panel')) && (await m.evaluate(() => window.klibb.currentStyle().floor)) === 'klassisk',
+      'mobil: utseendepanelen får plats och Avbryt återställer rummet');
+    await m.tap('#panel-toggle');
     await m.tap('#panel-toggle');
     await m.evaluate(() => { window.klibb.moveTo(0, 1.5); window.klibb.look(0, 0); });
     const vp = m.viewportSize();
@@ -434,6 +445,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     assert((await mineIds()).join() === five.join(), 'ett 410-svar för en design tar inte bort någon annan design');
 
     // ---------- Största storlek = väggens höjd ----------
+    await d.waitForTimeout(1600); // meddelandet visas högst var 1,5 s
     const cap = await d.evaluate(() => {
       const k = window.klibb;
       const r = { max: k.maxSizeCm, sliderMax: document.getElementById('size').max };
@@ -475,20 +487,22 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const h1 = await hist();
     assert(h1.n === 3 && h1.items === 3 && h1.count === h0.count + 3, 'tre egna klibbor syns i historiken');
     await d.evaluate(() => document.activeElement && document.activeElement.blur());
-    await d.keyboard.press('z'); await d.waitForTimeout(400);
+    // Vänta tills peelen gått klart (servern + omritning), högst 4 s
+    const peelBy = async (fn) => { const before = (await hist()).count; await fn();
+      await d.waitForFunction((b) => window.klibb.stamps.count < b, before, { timeout: 4000 }).catch(() => {}); await d.waitForTimeout(700); };
+    await peelBy(() => d.keyboard.press('z'));
     const h2 = await hist();
     await d.evaluate(() => window.klibb.setMode('view', { quiet: true }));
-    await d.keyboard.press('Control+z'); await d.waitForTimeout(400);
+    await peelBy(() => d.keyboard.press('Control+z'));
     const h3 = await hist();
     // Cmd+Z (Mac): Linux-webbläsaren i testet skickar inte Cmd-kombinationer, så händelsen skickas direkt.
-    await d.evaluate(() => dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', metaKey: true, bubbles: true })));
-    await d.waitForTimeout(400);
+    await peelBy(() => d.evaluate(() => dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', metaKey: true, bubbles: true }))));
     const h4 = await hist();
-    await d.keyboard.press('z'); await d.waitForTimeout(400);
+    await peelBy(() => d.keyboard.press('z'));
     const h5 = await hist();
     await d.evaluate(() => window.klibb.setMode('slap', { quiet: true }));
     assert(h2.count === h1.count - 1 && /Peelad/.test(h2.toast) && h3.count === h1.count - 2 && h4.count === h1.count - 3 && h4.n === 0,
-      'Z, Ctrl+Z och Cmd+Z peelar senaste klibban en i taget (även i Tittläge)');
+      `Z, Ctrl+Z och Cmd+Z peelar senaste klibban en i taget (även i Tittläge)`);
     assert(h5.count === h4.count && /Inga fler egna klibbor här/.test(h5.toast), 'när inga egna finns kvar: "Inga fler egna klibbor här"');
     // Z medan man skriver: ingen peel
     await stampN(1);
@@ -568,6 +582,99 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     assert((await d.evaluate(() => window.klibb.state.mode)) === 'slap', 'Ctrl+V växlar inte läge');
     await d.fill('#artist', 'Testaren');
     await dctx.close();
+
+    // ---------- Rummets utseende ----------
+    const sctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const sp = await sctx.newPage();
+    const texResponses = [];
+    sp.on('response', (r) => { if (r.url().includes('/textures/')) texResponses.push([r.url().split('/textures/')[1], r.status()]); });
+    sp.on('pageerror', (e) => console.log('sidfel (utseende):', e.message));
+    await sp.goto(`${BASE}/?room=${ROOM}`); await waitReady(sp);
+    const surfMap = async () => {
+      const o = await sp.evaluate(() => Object.fromEntries(window.klibb.surfaces.map((m) => { const im = m.material.map && m.material.map.image; return [m.name, im ? (im.currentSrc || im.src || 'canvas') : '']; })));
+      return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v === 'canvas' || v.startsWith('data:') ? 'canvas' : v.split('/').pop()]));
+    };
+    const def = await sp.evaluate(() => window.klibb.currentStyle());
+    assert(def.floor === 'klassisk' && def.wall === 'klassisk' && !(await sp.isVisible('#edit-style')), 'äldre rum utan utseende får standardutseendet, och bara skaparen/admin kan ändra');
+    await sp.click('#new-room');
+    await sp.waitForSelector('#style-panel', { state: 'visible' });
+    const seeded = await sp.evaluate(() => [document.getElementById('style-seed').value, window.klibb.styleFromSeed(document.getElementById('style-seed').value)]);
+    assert(/^[a-z2-9]{5}$/.test(seeded[0]), `panelen öppnas med en slumpad kod (${seeded[0]})`);
+    // Klicka igenom alla golv och väggar (alla texturer ska gå att ladda)
+    for (const id of await sp.$$eval('#sw-floor button', (bs) => bs.map((b) => b.dataset.id))) { await sp.click(`#sw-floor button[data-id="${id}"]`); await sp.waitForTimeout(250); }
+    for (const id of await sp.$$eval('#sw-wall button', (bs) => bs.map((b) => b.dataset.id))) { await sp.click(`#sw-wall button[data-id="${id}"]`); await sp.waitForTimeout(250); }
+    await sp.click('#sw-floor button[data-id="parkett"]'); await sp.click('#sw-wall button[data-id="malad"]');
+    await sp.click('#sw-color button[data-id="gron"]'); await sp.click('#sw-ceiling button[data-id="vit"]');
+    await sp.waitForTimeout(800);
+    const live = await surfMap();
+    assert(live.golv === 'parkett.webp' && live['vägg-norr'] === 'canvas' && (await sp.inputValue('#style-seed')) === '' && /Parkett golv · Målad grön vägg/.test(await sp.textContent('#style-name')),
+      'valen syns direkt i rummet bakom panelen (förhandsvisning), egen stil = ingen kod');
+    await sp.evaluate(() => window.klibb.moveTo(-1, 2)); await sp.waitForTimeout(300);
+    await sp.screenshot({ path: path.join(SHOTS, '21-utseende-dator.png') });
+    await sp.click('#style-ok');
+    await sp.waitForURL(/\?room=[a-z2-9]{6}$/); await waitReady(sp);
+    const styled = await sp.evaluate(() => [window.klibb.room, window.klibb.currentStyle()]);
+    const styledApi = await (await fetch(`${BASE}/api/rooms/${styled[0]}`)).json();
+    assert(styled[1].floor === 'parkett' && styled[1].wall === 'malad' && styled[1].wallColor === 'gron' && styledApi.room.style.floor === 'parkett'
+      && !JSON.stringify(styledApi).includes('keyHash') && (await sp.isVisible('#edit-style')), `rummet ${styled[0]} skapas med valt utseende och sparas, skaparen kan ändra det`);
+    // En annan besökare ser samma rum men kan inte ändra det
+    const octx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const op = await octx.newPage();
+    await op.goto(`${BASE}/?room=${styled[0]}`); await waitReady(op);
+    const other = await op.evaluate(() => [window.klibb.currentStyle(), document.getElementById('edit-style').hidden, document.getElementById('room-style').textContent]);
+    const hack = await op.evaluate((id) => fetch(`/api/rooms/${id}/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': 'gissning' },
+      body: JSON.stringify({ style: { floor: 'asfalt', wall: 'tegel', ceiling: 'vit' } }) }).then((r) => r.status), styled[0]);
+    assert(JSON.stringify(other[0]) === JSON.stringify(styled[1]) && other[1] && /Parkett/.test(other[2]) && hack === 403,
+      'andra ser samma utseende, har ingen ändra-knapp och nekas (403) om de försöker');
+    // Slump-kod: samma kod ger samma rum, i olika webbläsare
+    const seedsA = await sp.evaluate(() => ['k7m2q', 'jens', 'sylvester', 'abc12'].map((s) => window.klibb.styleFromSeed(s)));
+    const seedsB = await op.evaluate(() => ['k7m2q', 'jens', 'sylvester', 'abc12'].map((s) => window.klibb.styleFromSeed(s)));
+    assert(JSON.stringify(seedsA) === JSON.stringify(seedsB) && new Set(seedsA.map((s) => s.floor + s.wall)).size > 1, 'samma kod ger samma rum i olika webbläsare');
+    const randoms = await sp.evaluate(() => [...Array(40)].map(() => { const k = window.klibb, s = k.styleFromSeed(k.randomSeed()); return [s, JSON.stringify(k.normalizeStyle(s)) === JSON.stringify(s)]; }));
+    const accepted = await Promise.all(randoms.slice(0, 5).map(([s]) => fetch(`${BASE}/api/rooms/${styled[0]}/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-admin-token': TOKEN }, body: JSON.stringify({ style: s }) }).then((r) => r.status)));
+    assert(randoms.every((r) => r[1]) && accepted.every((x) => x === 200) && new Set(randoms.map((r) => r[0].floor)).size >= 4, 'slumpade rum är alltid giltiga (och servern godtar dem)');
+    // Skaparen ändrar: 🎲 Slumpa och Spara
+    await sp.click('#edit-style'); await sp.waitForSelector('#style-panel', { state: 'visible' });
+    await sp.click('#style-random'); await sp.waitForTimeout(300);
+    const rseed = await sp.inputValue('#style-seed');
+    await sp.click('#style-ok'); await sp.waitForTimeout(600);
+    const afterEdit = await (await fetch(`${BASE}/api/rooms/${styled[0]}`)).json();
+    const expect = await sp.evaluate((s) => window.klibb.styleFromSeed(s), rseed);
+    assert(afterEdit.room.style.seed === rseed && Object.keys(expect).every((k) => afterEdit.room.style[k] === expect[k]), `skaparen kan ändra utseendet (🎲 kod ${rseed}) och det sparas`);
+    // Staden: bara admin
+    const stadNo = await fetch(`${BASE}/api/rooms/stad/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style: { floor: 'asfalt', wall: 'tegel', ceiling: 'vit' } }) });
+    assert(stadNo.status === 403, 'Stadens utseende kan bara admin ändra');
+    assert(texResponses.length >= 7 && texResponses.every(([, st]) => st === 200 || st === 304), `alla texturer laddas utan fel (${texResponses.length} hämtningar)`);
+    await octx.close();
+
+    // Fyra olika rum med klibbor på (kolla att klibborna syns ovanpå och att skalan ser rimlig ut)
+    const looks = [
+      ['17-rum-parkett-malad.png', { floor: 'parkett', wall: 'malad', wallColor: 'bla', ceiling: 'vit' }],
+      ['18-rum-betong-tegel.png', { floor: 'betong', wall: 'tegel', ceiling: 'betong' }],
+      ['19-rum-linoleum-kakel.png', { floor: 'linoleum', wall: 'kakel', wallColor: 'vit', ceiling: 'vit' }],
+      ['20-rum-klinker-trapanel.png', { floor: 'klinker', wall: 'trapanel', ceiling: 'mork' }],
+    ];
+    await sp.setInputFiles('#file', demoPng); await sp.waitForFunction(() => window.klibb.state.selected);
+    await sp.setInputFiles('#file', testPng); await sp.waitForFunction(() => window.klibb.state.mine.length >= 2);
+    for (const [file, style] of looks) {
+
+      const r = await (await fetch(`${BASE}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style }) })).json();
+      await sp.goto(`${BASE}/?room=${r.room.id}`); await waitReady(sp);
+      await sp.evaluate(async () => {
+        const k = window.klibb; k.moveTo(0, 0.5); k.setSize(70);
+        for (const [yaw, pitch] of [[0.25, 0.05], [-0.2, 0.15], [0, -0.75], [0.55, 0.1]]) { k.look(yaw, pitch); await k.stampAt(0, 0); k.nextDesign(); }
+        k.moveTo(-2.2, 3.4); k.look(0.32, -0.12);
+      });
+      await sp.evaluate(() => { document.getElementById('panel').style.visibility = 'hidden'; });
+      await sp.waitForTimeout(700);
+      await sp.screenshot({ path: path.join(SHOTS, file) });
+    }
+    await sctx.close();
+    // Texturfilerna är lätta (mobilen laddar bara de som rummet använder)
+    const TEX = path.join(__dirname, '..', 'client', 'public', 'textures');
+    const sizes = fs.readdirSync(TEX).filter((f) => f.endsWith('.webp')).map((f) => fs.statSync(path.join(TEX, f)).size);
+    const total = sizes.reduce((a, b) => a + b, 0);
+    assert(sizes.length === 7 && sizes.every((x) => x <= 300 * 1024) && total < 600 * 1024, `texturerna är små: högst ${Math.round(Math.max(...sizes) / 1024)} kB styck, ${Math.round(total / 1024)} kB totalt`);
   } finally {
     // Städa: ta bort testbilderna (och därmed alla teststämplar) via admin-API:t
     for (const id of created) {

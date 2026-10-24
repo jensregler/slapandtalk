@@ -7,33 +7,13 @@
 import * as THREE from 'three';
 import ROOM_SIZE from '../../shared/room.json';
 
-function noiseTexture(base, spread, size = 256) {
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const g = c.getContext('2d');
-  const img = g.createImageData(size, size);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const v = base + (Math.random() - 0.5) * spread;
-    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
-    img.data[i + 3] = 255;
-  }
-  g.putImageData(img, 0, 0);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
 export function buildBoxRoom({ width = ROOM_SIZE.width, height = ROOM_SIZE.height, depth = ROOM_SIZE.depth } = {}) {
   const group = new THREE.Group();
   const surfaces = [];
 
-  const wallTex = noiseTexture(232, 14); wallTex.repeat.set(3, 1.5);
-  const floorTex = noiseTexture(150, 40); floorTex.repeat.set(6, 6);
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95 });
-  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 });
-  const ceilMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 1 });
-
+  // Varje yta får ett eget material, så texturen kan upprepas rätt för just den ytans mått.
+  // Själva utseendet (golv, väggar, tak) läggs på av roomstyle.js (applyStyle).
+  const mat = () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
   const add = (name, w, h, mat, pos, rot) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
     m.name = name;
@@ -43,12 +23,12 @@ export function buildBoxRoom({ width = ROOM_SIZE.width, height = ROOM_SIZE.heigh
     group.add(m); surfaces.push(m);
   };
   const hw = width / 2, hd = depth / 2;
-  add('golv', width, depth, floorMat, [0, 0, 0], [-Math.PI / 2, 0, 0]);
-  add('tak', width, depth, ceilMat, [0, height, 0], [Math.PI / 2, 0, 0]);
-  add('vägg-norr', width, height, wallMat, [0, height / 2, -hd], [0, 0, 0]);
-  add('vägg-söder', width, height, wallMat, [0, height / 2, hd], [0, Math.PI, 0]);
-  add('vägg-väster', depth, height, wallMat, [-hw, height / 2, 0], [0, Math.PI / 2, 0]);
-  add('vägg-öster', depth, height, wallMat, [hw, height / 2, 0], [0, -Math.PI / 2, 0]);
+  add('golv', width, depth, mat(), [0, 0, 0], [-Math.PI / 2, 0, 0]);
+  add('tak', width, depth, mat(), [0, height, 0], [Math.PI / 2, 0, 0]);
+  add('vägg-norr', width, height, mat(), [0, height / 2, -hd], [0, 0, 0]);
+  add('vägg-söder', width, height, mat(), [0, height / 2, hd], [0, Math.PI, 0]);
+  add('vägg-väster', depth, height, mat(), [-hw, height / 2, 0], [0, Math.PI / 2, 0]);
+  add('vägg-öster', depth, height, mat(), [hw, height / 2, 0], [0, -Math.PI / 2, 0]);
 
   // Ljus: ett mjukt allmänljus + några lampor i taket.
   group.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 1.6));

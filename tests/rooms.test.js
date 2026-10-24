@@ -97,7 +97,8 @@ async function roomLifecycle(name, adapter) {
     assert((await ls.migrate()) === 1 && (await ls.getImage('aaaaaaaaaaaaaaaa')) && !(await legacy.exists('images.json')), 'gamla images.json flyttas automatiskt');
 
     // HTTP: skapa snabbrum, profilrum (bara admin), samma bild = samma design, bilder via adaptern
-    const store = createStore(new S3Adapter({ bucket: 'test', client: fakeS3() }));
+    const s3a = new S3Adapter({ bucket: 'test', client: fakeS3() });
+    const store = createStore(s3a);
     const app = createApp(store, { adminToken: 'hemligt-test', quickTtlHours: 24 });
     const server = app.listen(0);
     const base = `http://127.0.0.1:${server.address().port}`;
@@ -130,13 +131,36 @@ async function roomLifecycle(name, adapter) {
       assert(loaded.stamps.length === 3 && loaded.stamps.every((x) => x.size <= 4) && loaded.stamps[2].size === 4, 'gamla sparade stämplar större än väggen krymps när rummet laddas');
       room.stamps = loaded.stamps.slice(0, 1);
 
+      // ---------- Rummets utseende ----------
+      const mk = (body) => fetch(`${base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const sty = { floor: 'parkett', wall: 'malad', wallColor: 'bla', ceiling: 'vit', seed: 'abc12' };
+      const made = await (await mk({ style: sty })).json();
+      const seen = await (await fetch(`${base}/api/rooms/${made.room.id}`)).json();
+      const rawRoom = (await s3a.get(`rooms/${made.room.id}.json`)).toString();
+      assert(made.roomKey && Object.keys(sty).every((k) => seen.room.style[k] === sty[k]) && !JSON.stringify(seen).includes('keyHash') && !rawRoom.includes(made.roomKey) && rawRoom.includes('keyHash'),
+        'rum skapas med utseende och en hemlig rumsnyckel (bara hash sparas)');
+      const bad1 = await mk({ style: { floor: 'lava', wall: 'malad', wallColor: 'bla' } }), bad2 = await mk({ style: { floor: 'parkett', wall: 'malad' } });
+      const plain = await (await fetch(`${base}/api/rooms`, { method: 'POST' })).json();
+      assert(bad1.status === 400 && bad2.status === 400 && plain.room.style.floor === 'klassisk', 'okänt utseende nekas; äldre appar utan utseende får standard');
+      const put = (id, style, headers = {}) => fetch(`${base}/api/rooms/${id}/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ style }) });
+      const ns = { floor: 'betong', wall: 'tegel', ceiling: 'betong' };
+      const s1 = await put(made.room.id, ns), s2 = await put(made.room.id, ns, { 'x-room-key': plain.roomKey }), s3 = await put(made.room.id, ns, { 'x-room-key': made.roomKey });
+      const afterSty = await (await fetch(`${base}/api/rooms/${made.room.id}`)).json();
+      assert(s1.status === 403 && s2.status === 403 && s3.status === 200 && afterSty.room.style.wall === 'tegel', 'bara skaparen (rätt rumsnyckel) kan ändra utseendet');
+      const st1 = await put('stad', ns, { 'x-room-key': made.roomKey }), st2 = await put('stad', ns, { 'x-admin-token': 'hemligt-test' });
+      const stadNow = await (await fetch(`${base}/api/rooms/stad`)).json();
+      assert(st1.status === 403 && st2.status === 200 && stadNow.room.style.floor === 'betong', 'Stadens utseende kan bara admin ändra');
+      await s3a.put('rooms/gammalt2.json', Buffer.from(JSON.stringify({ id: 'gammalt2', stamps: [] })));
+      const oldRoom = await (await fetch(`${base}/api/rooms/gammalt2`)).json();
+      assert(oldRoom.room.style.floor === 'klassisk' && oldRoom.room.style.wall === 'klassisk', 'äldre rum utan utseende får dagens standardutseende');
+
       // ---------- Peel: bara egna stämplar, nyckeln läcker aldrig ----------
       const post = (body) => fetch(`${base}/api/rooms/${r.room.id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageId: i1.id, position: [1, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', ...body }) }).then((x) => x.json());
       const mine1 = await post({}), mine2 = await post({});
       assert(typeof mine1.peelToken === 'string' && mine1.peelToken.length >= 30 && !('peelHash' in mine1.stamp), 'ny stämpel ger en hemlig peel-nyckel (bara till den som stämplade)');
       const listing = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).text();
-      const raw = (await store.adapter.get(`rooms/${r.room.id}.json`)).toString();
+      const raw = (await s3a.get(`rooms/${r.room.id}.json`)).toString();
       assert(!listing.includes(mine1.peelToken) && !listing.includes('peelHash') && !raw.includes(mine1.peelToken) && raw.includes('peelHash'),
         'nyckeln syns aldrig i rummets lista, och servern sparar bara en hash');
       const del1 = (id, token) => fetch(`${base}/api/rooms/${r.room.id}/stamps/${id}/peel`, { method: 'DELETE', headers: token ? { 'x-peel-token': token } : {} });

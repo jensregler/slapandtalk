@@ -1,0 +1,38 @@
+{
+  "_om": "Rummens utseende. Används av webbappen (client/src/roomstyle.js) och servern (kontroll). scale = hur många meter en textur täcker innan den upprepas. Bildtexturerna kommer från ambientCG (CC0), se CREDITS.md.",
+  "floors": {
+    "klassisk": { "name": "Klassisk (grå)", "kind": "noise", "base": 150, "spread": 40, "scale": 1.67 },
+    "parkett": { "name": "Parkett", "kind": "image", "file": "parkett", "scale": 1.2, "roughness": 0.6 },
+    "betong": { "name": "Betong", "kind": "image", "file": "betong", "scale": 2.5, "roughness": 0.9 },
+    "linoleum": { "name": "Linoleum (schack)", "kind": "checker", "tile": 0.3, "colors": ["#1d1d1d", "#ece8df"], "scale": 0.6, "roughness": 0.45 },
+    "klinker": { "name": "Klinker", "kind": "tiles", "tile": 0.2, "color": "#b5603c", "grout": "#6b5a4e", "scale": 0.8, "roughness": 0.7 },
+    "asfalt": { "name": "Asfalt", "kind": "image", "file": "asfalt", "scale": 1.5, "roughness": 0.95 },
+    "matta": { "name": "Heltäckningsmatta", "kind": "image", "file": "matta", "scale": 1.0, "roughness": 1 }
+  },
+  "walls": {
+    "klassisk": { "name": "Klassisk (ljusgrå)", "kind": "noise", "base": 232, "spread": 14, "scale": 3.33 },
+    "malad": { "name": "Målad", "kind": "paint", "colored": true, "scale": 1.5, "roughness": 0.9 },
+    "kakel": { "name": "Kaklad", "kind": "tiles", "colored": true, "tile": 0.15, "grout": "#c9c6c0", "scale": 0.6, "roughness": 0.35 },
+    "tegel": { "name": "Tegel", "kind": "image", "file": "tegel", "scale": 1.0, "roughness": 0.95 },
+    "betong": { "name": "Betong", "kind": "image", "file": "betong", "scale": 2.5, "roughness": 0.9 },
+    "trapanel": { "name": "Träpanel", "kind": "image", "file": "trapanel", "scale": 1.25, "roughness": 0.8 },
+    "puts": { "name": "Puts", "kind": "image", "file": "puts", "scale": 2.0, "roughness": 1 }
+  },
+  "wallColors": {
+    "vit": { "name": "Vit", "hex": "#f1eee7" },
+    "gradde": { "name": "Gräddvit", "hex": "#e8dcc2" },
+    "gra": { "name": "Grå", "hex": "#9ba1a6" },
+    "bla": { "name": "Blå", "hex": "#4b78b3" },
+    "gron": { "name": "Grön", "hex": "#5e8d69" },
+    "rosa": { "name": "Rosa", "hex": "#e6a3b4" },
+    "rod": { "name": "Röd", "hex": "#b4413a" },
+    "svart": { "name": "Svart", "hex": "#2a2a2c" }
+  },
+  "ceilings": {
+    "klassisk": { "name": "Klassisk", "kind": "noise", "base": 232, "spread": 14, "scale": 3.33 },
+    "vit": { "name": "Vitt", "kind": "paint", "color": "#f4f2ee", "scale": 1.5 },
+    "betong": { "name": "Betong", "kind": "image", "file": "betong", "scale": 2.5 },
+    "mork": { "name": "Mörkt", "kind": "paint", "color": "#2b2b2e", "scale": 1.5 }
+  },
+  "default": { "floor": "klassisk", "wall": "klassisk", "ceiling": "klassisk" }
+}

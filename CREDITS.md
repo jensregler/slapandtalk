@@ -1,0 +1,18 @@
+# Texturer och licenser
+
+Bildtexturerna i `client/public/textures/` kommer från [ambientCG](https://ambientcg.com) och är
+licensierade under **CC0 1.0** (public domain, inget krav på attribution). De har skalats ner och
+gjorts om till WebP med `tools/make-textures.js`.
+
+| Fil | Används till | Källa |
+|---|---|---|
+| `parkett.webp` | Golv: parkett | [WoodFloor051](https://ambientcg.com/view?id=WoodFloor051) |
+| `betong.webp` | Golv, vägg och tak: betong | [Concrete034](https://ambientcg.com/view?id=Concrete034) |
+| `asfalt.webp` | Golv: asfalt | [Asphalt031](https://ambientcg.com/view?id=Asphalt031) |
+| `matta.webp` | Golv: heltäckningsmatta | [Carpet012](https://ambientcg.com/view?id=Carpet012) |
+| `tegel.webp` | Vägg: tegel | [Bricks059](https://ambientcg.com/view?id=Bricks059) |
+| `trapanel.webp` | Vägg: träpanel | [WoodSiding005](https://ambientcg.com/view?id=WoodSiding005) |
+| `puts.webp` | Vägg: puts | [Plaster001](https://ambientcg.com/view?id=Plaster001) |
+
+Klassisk, målad, kaklad, linoleum och klinker ritas i koden (`client/src/roomstyle.js`) och har
+inga externa källor.
