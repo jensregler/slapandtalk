@@ -1,12 +1,93 @@
-// FÖRBEREDELSE FÖR FLERSPELARLÄGE (inte byggt i v1).
-// I v2 öppnar connect() en WebSocket mot servern (se server/realtime.js).
-// Då skickas våra stämplar, position och chatt ut, och vi tar emot andras.
-// main.js anropar redan de här funktionerna, så v2 behöver bara fylla i dem.
+// Flerspelarläget i webbläsaren: en WebSocket till servern (/ws?room=<rum>, se server/realtime.js).
+// Den kopplar upp sig igen av sig själv om anslutningen bryts (t.ex. när servern på Render
+// vaknar eller startar om): först efter en halv sekund, sedan längre och längre (max 10 s).
+//
+// handlers: {
+//   hello()            → { name, look, p, y }   (skickas varje gång vi ansluter)
+//   onWelcome(m)       → vi är inne (m.full = rummet var fullt, vi tittar bara på)
+//   onJoin(player), onLeave(id), onMove(id, p, y), onLook(id, name, look)
+//   onChat(msg), onEvent(e)  (stamp:add, stamp:remove, image:remove, room:style)
+//   onSignal(from, data)     (för röstchatt, nästa steg)
+//   onStatus(status)   → 'connecting' | 'online' | 'full' | 'offline'
+//   onReconnect()      → anslutningen kom tillbaka efter ett avbrott (hämta det vi missat)
+//   onError(text)
+// }
 export function connect(roomId, handlers) {
-  // handlers: { onStampAdd(stamp, image), onStampRemove(id), onPlayer(p), onChat(msg) }
+  const h = { hello: () => ({}), ...handlers };
+  const noop = () => {};
+  for (const k of ['onWelcome', 'onJoin', 'onLeave', 'onMove', 'onLook', 'onChat', 'onEvent', 'onSignal', 'onStatus', 'onReconnect', 'onError']) h[k] = h[k] || noop;
+  let ws = null, closed = false, attempt = 0, timer = null, lastMsg = 0, everOnline = false, status = 'offline', myId = null;
+  const setStatus = (s) => { if (s !== status) { status = s; h.onStatus(s); } };
+  const url = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?room=${encodeURIComponent(roomId)}`;
+  const send = (m) => { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(m)); return true; } return false; };
+
+  function open() {
+    clearTimeout(timer); timer = null;
+    if (closed || (ws && ws.readyState <= 1)) return;
+    setStatus('connecting');
+    let sock;
+    try { sock = new WebSocket(url()); } catch { schedule(); return; }
+    ws = sock;
+    sock.onopen = () => { lastMsg = Date.now(); send({ t: 'hello', ...h.hello() }); };
+    sock.onmessage = (ev) => {
+      lastMsg = Date.now();
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      switch (m.t) {
+        case 'welcome': {
+          attempt = 0; myId = m.id;
+          const again = everOnline; everOnline = true;
+          setStatus(m.full ? 'full' : 'online');
+          h.onWelcome(m);
+          if (again) h.onReconnect();
+          break;
+        }
+        case 'join': h.onJoin(m.player); break;
+        case 'leave': h.onLeave(m.id); break;
+        case 'move': h.onMove(m.id, m.p, m.y); break;
+        case 'look': h.onLook(m.id, m.name, m.look); break;
+        case 'chat': h.onChat(m.msg); break;
+        case 'event': h.onEvent(m.e); break;
+        case 'signal': h.onSignal(m.from, m.data); break;
+        case 'error': h.onError(m.error); break;
+        default: break; // pong m.m.
+      }
+    };
+    sock.onclose = () => {
+      if (ws !== sock) return;
+      ws = null; myId = null;
+      if (closed) return;
+      setStatus('offline'); h.onLeave('*'); // alla andra försvinner tills vi är tillbaka
+      schedule();
+    };
+    sock.onerror = () => {};
+  }
+  function schedule() {
+    if (closed || timer) return;
+    const d = Math.min(10_000, 500 * 2 ** attempt) * (0.75 + Math.random() * 0.5);
+    attempt = Math.min(attempt + 1, 6);
+    timer = setTimeout(open, d);
+  }
+  // Hjärtslag: vi pingar var 15:e sekund. Har vi inte hört något på 40 s är anslutningen
+  // död (fast webbläsaren inte märkt det), så vi stänger och kopplar upp oss igen.
+  const hb = setInterval(() => {
+    if (!ws || ws.readyState !== 1) return;
+    send({ t: 'ping' });
+    if (Date.now() - lastMsg > 40_000) ws.close();
+  }, 15_000);
+  // Kommer nätet tillbaka, eller blir fliken synlig igen: försök direkt.
+  const now = () => { if (!closed && (!ws || ws.readyState > 1)) { attempt = 0; open(); } };
+  addEventListener('online', now);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') now(); });
+  setTimeout(open, 0); // först när den som anropade är klar med sin egen start
+
   return {
-    sendMove(/* position, yaw */) {},
-    sendChat(/* text */) {},
-    close() {},
+    get id() { return myId; },
+    get status() { return status; },
+    sendMove: (p, y) => send({ t: 'move', p, y }),
+    sendLook: (name, look) => send({ t: 'look', name, look }),
+    sendChat: (text) => send({ t: 'chat', text }),
+    sendSignal: (to, data) => send({ t: 'signal', to, data }), // röstchatt (nästa steg)
+    reconnectNow: now,
+    close() { closed = true; clearInterval(hb); clearTimeout(timer); if (ws) ws.close(); },
   };
 }

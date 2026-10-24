@@ -29,6 +29,9 @@
         <button id="edit-style" type="button" hidden>🎨 Ändra rummets utseende</button>
       </div>
       <p id="room-style" class="hint"></p>
+      <p id="presence"><span id="net-dot" class="dot connecting"></span> <span id="presence-text">Ansluter…</span></p>
+      <ul id="people" aria-label="I rummet nu"></ul>
+      <button id="my-avatar" type="button" title="Välj hur du ser ut för de andra i rummet">🧍 Min gubbe</button>
     </section>
 
     <label class="upload">
@@ -67,6 +70,8 @@
       Esc = tillbaka till menyn. <b>Rum:</b> ＋ Nytt snabbrum ger ett eget rum med en kort kod,
       🔗 Dela länk skickar den till kompisar, 🏙 Till Staden tar dig tillbaka.
       När du skapar ett rum väljer du golv och väggar (eller 🎲 Slumpa en kod).
+      <b>Tillsammans:</b> alla i samma rum ser varandra och varandras klibbor direkt.
+      T eller Enter = chatta (Enter skickar, Esc stänger). 🧍 Min gubbe = välj kläder, frisyr och färger.
     </div>
     <div class="help touch-only">
       <b>Mobil:</b> styrspaken nere till vänster = gå, dra med fingret = titta,
@@ -76,6 +81,8 @@
       Under "Mina klibbor" i menyn kan du ta bort vilken av dina egna som helst. Fäll ihop menyn med ☰. <b>Rum:</b> ＋ Nytt snabbrum ger ett eget rum,
       🔗 Dela länk skickar det till kompisar, 🏙 Till Staden tar dig tillbaka.
       När du skapar ett rum väljer du golv och väggar (eller 🎲 Slumpa en kod).
+      <b>Tillsammans:</b> alla i samma rum ser varandra och varandras klibbor direkt.
+      💬 = chatta. 🧍 Min gubbe i menyn = välj kläder, frisyr och färger.
     </div>
   </aside>
 
@@ -111,6 +118,39 @@
     </div>
   </aside>
   <div id="room-hud" aria-hidden="true"></div>
+  <div id="full-banner" hidden>Rummet är fullt just nu. Du kan titta och läsa chatten – du kommer in automatiskt när någon går.</div>
+  <!-- Chatten: de senaste meddelandena syns alltid en stund. T/Enter (dator) eller 💬 (mobil) för att skriva. -->
+  <section id="chat" aria-label="Chatt">
+    <ol id="chat-log" aria-live="polite"></ol>
+    <form id="chat-form" hidden autocomplete="off">
+      <input id="chat-input" type="text" maxlength="300" enterkeyhint="send" placeholder="Skriv något… (Enter skickar, Esc stänger)" aria-label="Chattmeddelande" />
+      <button type="submit">Skicka</button>
+      <button id="chat-close" type="button" class="touch-only" aria-label="Stäng chatten">✕</button>
+    </form>
+    <div id="chat-hint" class="desktop-only">T = chatta</div>
+  </section>
+  <button id="chat-btn" class="touch-only" type="button" aria-label="Chatt" title="Chatt">💬<span id="chat-unread"></span></button>
+  <!-- Min gubbe: hur du ser ut för de andra. Sparas bara på den här enheten. -->
+  <aside id="avatar-panel" hidden aria-label="Min gubbe">
+    <h2>Min gubbe</h2>
+    <canvas id="avatar-preview" aria-label="Förhandsvisning av din gubbe"></canvas>
+    <label>Namn (syns ovanför huvudet)
+      <input id="av-name" type="text" maxlength="24" autocomplete="nickname" placeholder="t.ex. Jens" />
+    </label>
+    <div class="sp-row"><b>Kläder</b><div id="av-outfit" class="chips"></div></div>
+    <div class="sp-row"><b>Frisyr</b><div id="av-hair" class="chips"></div></div>
+    <div class="sp-row"><b>Tröja</b><div id="av-shirt" class="swatches colors"></div></div>
+    <div class="sp-row"><b>Byxor</b><div id="av-pants" class="swatches colors"></div></div>
+    <div class="sp-row"><b>Hår</b><div id="av-haircolor" class="swatches colors"></div></div>
+    <div class="sp-row"><b>Hud</b><div id="av-skin" class="swatches colors"></div></div>
+    <label class="check"><input id="av-hat" type="checkbox" /> Keps</label>
+    <div class="sp-row" id="av-hat-row"><div id="av-hatcolor" class="swatches colors"></div></div>
+    <div class="sp-btns">
+      <button id="av-random" type="button">🎲 Slumpa</button>
+      <button id="av-cancel" type="button">Avbryt</button>
+      <button id="av-ok" type="button" class="primary">Spara</button>
+    </div>
+  </aside>
   <div id="toast" role="status" aria-live="polite"></div>
   <dialog id="admin-dialog">
     <p id="admin-info"></p>

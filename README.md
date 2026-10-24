@@ -5,8 +5,8 @@ i förstapersonsvy, laddar upp din egen klibba och stämplar den på väggar, go
 Allt sparas, så nästa besökare ser vad du har satt upp. Precis som på en riktig lyktstolpe
 får man sätta över andras klibbor, och den senaste hamnar alltid överst.
 
-Det här är **version 1**: en person i taget, inga konton. Koden är redan förberedd för
-flera besökare samtidigt, chatt, röstsamtal och egna rum (se *Nästa steg* längst ner).
+Alla som är i samma rum ser varandra som små gubbar, ser varandras klibbor dyka upp direkt och
+kan chatta. Inga konton behövs. Röstsamtal är nästa steg (se *Nästa steg* längst ner).
 
 All kod är öppen källkod under MIT-licensen (se `LICENSE`).
 
@@ -29,7 +29,7 @@ rummet, **✕** tar bort just den, och **Peela alla** tar bort alla dina (tryck 
 bekräfta). Du kan bara peela dina egna: när du stämplar får din enhet en hemlig nyckel för just den
 klibban (servern sparar bara en hash av den, och den syns aldrig för andra). Nycklarna sparas i
 webbläsaren, så byter du enhet eller rensar webbläsaren kan du inte längre peela de gamla.
-Admin kan fortfarande ta bort allt. Andra som är i rummet ser att klibban försvunnit när de laddar om.
+Admin kan fortfarande ta bort allt. Andra som är i rummet ser att klibban försvinner direkt.
 
 **Klibbläge och Tittläge (V):** du börjar i *Klibbläge*: den genomskinliga pekaren visar var
 klibban hamnar och ett klick stämplar. Tryck **V** för *Tittläge* när du vill kliva tillbaka och
@@ -50,6 +50,33 @@ Den **runda knappen nere till höger** visar vald design: tryck på den för att
 **↩** peelar (ångrar) din senaste klibba. **Ögat 👁** bredvid slår på Tittläge (pekaren försvinner och tryck stämplar inte, designknappen
 dämpas); tryck på ögat igen för att klibba.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.
+
+### Tillsammans: gubbar, chatt och live-klibbor
+
+Alla som är i samma rum ser varandra. Varje besökare är en liten gubbe med namnskylt ovanför
+huvudet; den går när personen går och står och väger när den står still. Du ser dig själv bara
+inifrån (förstapersonsvy), men i **🧍 Min gubbe** finns en förhandsvisning.
+
+- **Klibbor syns direkt:** när någon stämplar, peelar eller när admin tar bort något ser alla i
+  rummet det på en gång, utan att ladda om. Samma sak när rummets utseende ändras.
+- **Vem är här:** i menyn står *3 här just nu* och en lista med namnen (grön prick = ansluten).
+- **Chatt:** på datorn trycker du **T** eller **Enter**, skriver och trycker **Enter** för att
+  skicka (**Esc** stänger). På mobilen trycker du på **💬**. Meddelandet syns i chatten med namn och
+  tid, och en stund som en pratbubbla ovanför din gubbe. Medan du skriver går det inte att gå
+  eller stämpla med tangenterna (WASD, V, R, Z, Q och E skrivs bara in i texten).
+  De senaste 50 meddelandena finns kvar så länge någon är i rummet; de sparas aldrig på disk.
+  Max 300 tecken per meddelande och en spärr mot spam (ungefär ett meddelande varannan sekund).
+  Inget filter: det är fritt fram.
+- **🧍 Min gubbe:** välj namn, kläder (huvtröja, t-shirt, kostym, väst), frisyr (kort, lugg,
+  långt, bakåtkammat, tupp), färg på tröja, byxor och hår, hudton och keps. Gubben snurrar i en
+  förhandsvisning medan du väljer (dra för att vrida). **Spara** sparar den på den här enheten och
+  de andra ser den direkt. **🎲 Slumpa** ger en slumpad gubbe. Första gången får du en slumpad.
+- **Fullt rum:** högst 10 gubbar per rum (`MAX_PLAYERS_PER_ROOM`). Den elfte ser rummet, alla
+  gubbar och chatten, men kan inte skriva och syns inte, och kommer in automatiskt när någon går.
+- **Tappar du anslutningen** (mobilen byter nät, servern startar om eller Render vaknar) kopplar
+  appen upp sig igen av sig själv: först efter en halv sekund, sedan längre och längre, som mest
+  10 sekunder. När den är tillbaka hämtar den rummet igen så att du ser det du missat.
+- Gubbarna stör aldrig stämplandet: klibbor hamnar på väggen bakom en person, inte på personen.
 
 **Rum:** i menyn finns **＋ Nytt snabbrum** (skapar ett eget rum med en kort kod, t.ex.
 `/?room=k7m2qx`), **🔗 Dela länk** (kopierar länken, eller öppnar dela-menyn på mobilen) och
@@ -103,7 +130,7 @@ ifrån och deras licens står i [CREDITS.md](CREDITS.md).
 klibbrum/
 ├── client/                 ← det som körs i webbläsaren
 │   ├── index.html          ← sidan: menyn, styrspaken och 3D-ytan
-│   ├── public/             ← filer som skickas som de är (appikoner, manifest, sw.js, textures/)
+│   ├── public/             ← filer som skickas som de är (appikoner, manifest, sw.js, textures/, avatars/gubbe.glb)
 │   └── src/
 │       ├── main.js         ← startpunkten som kopplar ihop allt (läs den först!)
 │       ├── room.js         ← själva rummet (lådan på 10 x 4 x 10 m och ljuset)
@@ -112,20 +139,25 @@ klibbrum/
 │       ├── stamps.js       ← stämplarna (bilden på ytan)
 │       ├── fold.js         ← viker klibbor över kanter och hörn
 │       ├── api.js          ← alla anrop till servern
-│       ├── net.js          ← tom förberedelse för flerspelarläge
+│       ├── net.js          ← WebSocket till servern (kopplar upp sig igen själv)
+│       ├── together.js     ← andra spelare, chatten och Min gubbe
+│       ├── avatars.js      ← gubbarna: modellen, kläder/färger, namnskylt, gå/stå
+
 │       └── style.css       ← utseendet på menyn
 ├── server/                 ← det som körs på servern (Node.js)
 │   ├── index.js            ← startar servern och städjobbet
 │   ├── app.js              ← webbservern: rum, bilder och stämplar (alla adresser /api/...)
 │   ├── store.js            ← rummen, stämplarna och bilderna (rumstyper, städning)
 │   ├── storage/            ← VAR det sparas: local.js (disk) eller s3.js (t.ex. Cloudflare R2)
-│   └── realtime.js         ← tom förberedelse för flerspelarläge
-├── shared/                 ← delas av webbläsaren och servern (rummets mått, utseendekatalogen)
+│   └── realtime.js         ← flerspelarläget: WebSocket /ws, vem är här, chatten, live-händelser
+├── shared/                 ← delas av webbläsaren och servern (rummets mått, utseendekatalogen, gubbarna)
 ├── data/                   ← skapas automatiskt: uppladdade bilder och rummen
 ├── tests/e2e.js            ← automatiskt test i en osynlig webbläsare
 ├── tests/rooms.test.js     ← test av rum, städning och lagring (utan webbläsare)
+├── tests/realtime.test.js  ← test av flerspelarläget på servern (utan webbläsare)
 ├── tools/make-icons.js     ← ritar appikonen och testbilden demo-klibba.png (används bara i testerna)
 ├── tools/make-textures.js  ← gör om texturerna från ambientCG till små WebP-filer
+├── tools/make-avatar.mjs   ← bygger gubbe.glb av Quaternius-modellerna
 ├── screenshots/            ← skärmdumpar från testet
 ├── ecosystem.config.js     ← säger till pm2 vilka program som ska hållas igång
 └── .env                    ← hemligheter (admin-nyckeln). Läggs ALDRIG upp på GitHub.
@@ -146,6 +178,19 @@ klibbrum/
 som syns. Det kallas *z-fighting*. Därför flyttas varje klibba en aning framåt
 (`polygonOffset`), och varje stämpel får ett löpnummer (`renderOrder`), så att den nyaste
 alltid ritas sist och hamnar överst.
+
+### Flerspelarläget
+Webbläsaren öppnar en WebSocket till samma server: `/ws?room=<rum>` (samma port som webbappen,
+så det fungerar på Render utan extra inställningar). HTTP-API:t är fortfarande det som gäller för
+klibbor och rummets utseende: när något sparas där skickar servern en händelse (`stamp:add`,
+`stamp:remove`, `image:remove`, `room:style`) till alla i rummet. Peel- och rumsnycklar skickas
+aldrig ut. Över WebSocket går bara sådant som inte sparas: position (~12 gånger per sekund, och
+bara när man rör sig), gubbens utseende, chatten och (senare) röst-signaler. Varje anslutning har
+en spärr mot för många meddelanden. Servern pingar alla var 15:e sekund och kopplar bort den som
+inte svarar; webbläsaren gör likadant åt andra hållet. Vid omstart säger servern till alla
+(kod 1012) och webbläsarna kopplar upp sig igen. De andras gubbar visas 150 ms i efterhand och
+glider mellan positionerna, så rörelsen blir mjuk även när nätet hackar. Alla meddelanden står
+beskrivna överst i `server/realtime.js`.
 
 ### Byta rummet mot ett eget från Blender
 Bygg rummet i Blender och exportera det med *Arkiv → Exportera → glTF 2.0 (.glb)*.
@@ -200,20 +245,21 @@ startar om servern.
 ---
 
 ## Gränser i version 1
-- En användare i taget. Två personer kan vara inne samtidigt, men de ser inte varandras
-  nya klibbor förrän de laddar om sidan.
+- Högst 10 gubbar per rum (fler kan titta). Chatten finns bara i minnet och försvinner när
+  rummet blir tomt eller servern startar om.
+- Ingen röst än, och man ser inte vart de andra tittar upp/ner (gubben vrider sig bara åt sidan).
 - Inga konton. Artistnamnet sparas bara i din egen webbläsare och följer med dina stämplar.
 - Klibbor som du lagt upp syns i menyn bara i den webbläsare där du laddade upp dem.
 - Du kan peela (ta bort) dina egna klibbor från samma webbläsare. Andras kan bara admin ta bort.
 - Texturerna har inga normal maps (ingen djupverkan i fogar och tegel), för att hålla nere storleken.
 
 ## Nästa steg (förberett, inte byggt)
-- **Flerspelarläge (6–8 personer):** WebSocket-server i `server/realtime.js`, klient i
-  `client/src/net.js`. Händelserna `stamp:add`, `stamp:remove`, `player:move` och
-  `chat:message` finns redan beskrivna där.
-- **Textchatt:** samma WebSocket-anslutning.
-- **Röstsamtal:** WebRTC direkt mellan besökarna. Servern skickar bara vidare
-  "signalerna" (offer/answer/ICE).
+- **Röstsamtal:** WebRTC direkt mellan besökarna, med ljud i 3D (rösten kommer från gubben och
+  blir svagare på avstånd, Web Audio `PannerNode`). Servern är redan klar: meddelandet
+  `signal {to, data}` skickas vidare till en annan spelare i samma rum (för offer/answer/ICE), och
+  klienten har `net.sendSignal(to, data)` och `onSignal(from, data)`. Det som saknas är själva
+  WebRTC-koden i webbläsaren, en mikrofonknapp och en STUN/TURN-server (TURN behövs för en del
+  mobilnät).
 - **Profiler och egna rum:** rummen har redan egna id:n (`?room=...`). Det som behövs är
   inloggning och en ägare per rum, med behörigheterna *titta*, *chatta* och *sätta upp*.
 - **SQLite i stället för JSON-filer:** byt bara ut `server/store.js`.
@@ -247,6 +293,7 @@ Id:t räknas fram ur bildens innehåll, så laddar två personer upp exakt samma
 | `S3_PREFIX` | tomt | Lägger allt under en "mapp" i bucketen, t.ex. `slapandtalk/` |
 | `QUICK_ROOM_TTL_HOURS` | `24` | Hur länge ett tomt snabbrum får stå kvar |
 | `ROOM_CLEANUP_INTERVAL_MINUTES` | `60` | Hur ofta städningen körs |
+| `MAX_PLAYERS_PER_ROOM` | `10` | Hur många gubbar som får vara i ett rum samtidigt (fler kan titta) |
 
 **Slå på Cloudflare R2 senare:** skapa en bucket och en API-token (Object Read & Write) i
 Cloudflare, sätt `STORAGE=s3` och S3-variablerna ovan i Render, och starta om. Befintliga

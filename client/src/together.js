@@ -1,0 +1,210 @@
+// Tillsammans i rummet: andras gubbar, chatten och "Min gubbe".
+// main.js anropar initTogether(...) en gång och sedan together.update(dt) varje bildruta.
+import * as THREE from 'three';
+import { connect } from './net.js';
+import { Players, Avatar, loadAvatarModel, loadMyAvatar, saveMyAvatar, normalizeLook, randomLook, AVATAR, cleanName } from './avatars.js';
+
+const SEND_HZ = 12;
+const CHAT_FADE_MS = 15_000;
+
+export function initTogether({ room, scene, camera, controls, isTouch, toast, artist, onEvent, onReconnect, onBusyChange = () => {} }) {
+  const $ = (id) => document.getElementById(id);
+  const me = loadMyAvatar();
+  if (!me.saved) saveMyAvatar(me.name, me.look); // en slumpad gubbe ska se likadan ut nästa gång
+  const myName = () => me.name || cleanName(artist()) || '';
+  const players = new Players(scene);
+  let status = 'connecting', full = false, unread = 0;
+
+  // ---------- Anslutningen ----------
+  const net = connect(room, {
+    hello: () => ({ name: myName(), look: me.look, p: camera.position.toArray(), y: controls.yaw }),
+    onWelcome(m) {
+      players.remove('*');
+      for (const p of m.players) players.upsert(p);
+      full = !!m.full; $('full-banner').hidden = !full;
+      setChatHistory(m.chat || []);
+      last = null; renderPeople(); renderChatInput();
+    },
+    onJoin(p) { players.upsert(p); sys(`${p.name} kom in`); renderPeople(); },
+    onLeave(id) {
+      if (id !== '*') { const pl = players.map.get(id); if (pl) sys(`${pl.name} gick`); }
+      players.remove(id); renderPeople();
+    },
+    onMove: (id, p, y) => players.move(id, p, y),
+    onLook(id, name, look) { players.look(id, name, look); renderPeople(); },
+    onChat(msg) { addChat(msg); if (msg.from !== net.id) players.say(msg.from, msg.text); },
+    onEvent,
+    onStatus(s) { status = s; renderPeople(); renderChatInput(); },
+    onReconnect,
+    onError: (e) => toast(e, 2500),
+  });
+
+  // Skicka min position ~12 gånger per sekund, men bara när jag faktiskt rör mig.
+  let last = null, acc = 0;
+  function sendMove(dt) {
+    acc += dt; if (acc < 1 / SEND_HZ) return; acc = 0;
+    if (net.status !== 'online') return;
+    const p = camera.position, y = controls.yaw;
+    if (last && Math.abs(p.x - last.x) < 0.01 && Math.abs(p.z - last.z) < 0.01 && Math.abs(y - last.y) < 0.01) return;
+    last = { x: p.x, z: p.z, y };
+    net.sendMove([+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)], +y.toFixed(3));
+  }
+
+  // ---------- Vem är här ----------
+  function renderPeople() {
+    const dot = $('net-dot'); dot.className = 'dot ' + status;
+    const n = players.map.size + (status === 'online' ? 1 : 0);
+    $('presence-text').textContent = status === 'online' ? (n === 1 ? 'Bara du här just nu' : `${n} här just nu`)
+      : status === 'full' ? `Rummet är fullt (${players.map.size}) – du tittar på` : status === 'connecting' ? 'Ansluter…' : 'Ingen anslutning – försöker igen…';
+    const ul = $('people'); ul.innerHTML = '';
+    const add = (name, color, mine) => {
+      const li = document.createElement('li'); const i = document.createElement('i'); i.style.background = color;
+      li.append(i, document.createTextNode(mine ? (name ? `${name} (du)` : 'Du') : name)); ul.appendChild(li);
+    };
+    if (status === 'online') add(myName(), me.look.shirt, true);
+    for (const p of players.map.values()) add(p.name, p.look?.shirt || '#888', false);
+  }
+
+  // ---------- Chatt ----------
+  const log = $('chat-log'), input = $('chat-input'), form = $('chat-form'), chatEl = $('chat');
+  const fmt = (iso) => new Date(iso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+  function line(li) {
+    log.appendChild(li);
+    while (log.children.length > 50) log.firstChild.remove();
+    log.scrollTop = log.scrollHeight;
+    setTimeout(() => li.classList.add('old'), CHAT_FADE_MS);
+  }
+  // Allt läggs in som text (textContent), aldrig som HTML – så <script> och liknande visas bara som text.
+  function addChat(msg, { history = false } = {}) {
+    const li = document.createElement('li');
+    li.dataset.id = msg.id; if (msg.from === net.id) li.classList.add('me');
+    const tm = document.createElement('span'); tm.className = 'tm'; tm.textContent = fmt(msg.time);
+    const nm = document.createElement('span'); nm.className = 'n'; nm.textContent = msg.name;
+    li.append(tm, nm, document.createTextNode(msg.text));
+    if (history) li.classList.add('old');
+    line(li);
+    if (!history && !chatOpen() && msg.from !== net.id) { unread++; $('chat-unread').textContent = String(unread); }
+  }
+  function sys(text) { const li = document.createElement('li'); li.className = 'sys'; li.textContent = text; line(li); }
+  function setChatHistory(list) { log.innerHTML = ''; for (const m of list) addChat(m, { history: true }); }
+  function renderChatInput() {
+    const can = status === 'online';
+    input.disabled = !can;
+    input.placeholder = can ? (isTouch ? 'Skriv något…' : 'Skriv något… (Enter skickar, Esc stänger)')
+      : status === 'full' ? 'Rummet är fullt – du kan läsa men inte skriva än' : 'Ingen anslutning just nu…';
+  }
+  const chatOpen = () => chatEl.classList.contains('open');
+  function openChat() {
+    chatEl.classList.add('open'); form.hidden = false; unread = 0; $('chat-unread').textContent = '';
+    input.focus(); onBusyChange(); // T-tangenten skrivs inte in: keydown har preventDefault
+  }
+  function closeChat() { chatEl.classList.remove('open'); form.hidden = true; input.blur(); onBusyChange(); }
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (text) { if (!net.sendChat(text)) toast('Ingen anslutning just nu.'); input.value = ''; }
+    if (!isTouch || !text) closeChat(); // dator: Enter skickar och stänger
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeChat(); }
+  });
+  $('chat-close').onclick = () => closeChat();
+  $('chat-btn').onclick = (e) => { e.preventDefault(); if (chatOpen()) closeChat(); else openChat(); };
+  // Dator: T eller Enter öppnar chatten (inte medan man skriver någon annanstans).
+  addEventListener('keydown', (e) => {
+    if (isTouch || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target; if (t && t.closest && t.closest('input, textarea, select, [contenteditable]')) return;
+    if (av.open || chatOpen()) return;
+    if (e.code === 'KeyT' || e.key === 'Enter') { e.preventDefault(); openChat(); }
+  });
+
+  // ---------- Min gubbe ----------
+  const av = { open: false, draft: null, renderer: null, scene: null, cam: null, avatar: null, raf: 0, spin: 0.35, drag: null };
+  function chips(el, items, sel, pick) {
+    el.innerHTML = '';
+    for (const [id, spec] of Object.entries(items)) {
+      const b = document.createElement('button'); b.type = 'button'; b.dataset.id = id; b.textContent = spec.name;
+      if (id === sel) b.classList.add('sel'); b.onclick = () => pick(id); el.appendChild(b);
+    }
+  }
+  function colors(el, list, sel, pick) {
+    el.innerHTML = '';
+    for (const hex of list) {
+      const b = document.createElement('button'); b.type = 'button'; b.dataset.id = hex; b.style.background = hex; b.setAttribute('aria-label', hex);
+      if (hex === sel) b.classList.add('sel'); b.onclick = () => pick(hex); el.appendChild(b);
+    }
+  }
+  function renderAvatarPanel() {
+    const d = av.draft, set = (patch) => { av.draft = normalizeLook({ ...av.draft, ...patch }); renderAvatarPanel(); };
+    chips($('av-outfit'), AVATAR.outfits, d.outfit, (id) => set({ outfit: id }));
+    chips($('av-hair'), AVATAR.hair, d.hair, (id) => set({ hair: id }));
+    colors($('av-shirt'), AVATAR.colors.shirt, d.shirt, (c) => set({ shirt: c }));
+    colors($('av-pants'), AVATAR.colors.pants, d.pants, (c) => set({ pants: c }));
+    colors($('av-haircolor'), AVATAR.colors.hair, d.hairColor, (c) => set({ hairColor: c }));
+    colors($('av-skin'), AVATAR.colors.skin, d.skin, (c) => set({ skin: c }));
+    colors($('av-hatcolor'), AVATAR.colors.hat, d.hatColor, (c) => set({ hatColor: c }));
+    $('av-hat').checked = d.hat; $('av-hat-row').hidden = !d.hat;
+    av.avatar?.setLook(d);
+  }
+  $('av-hat').onchange = (e) => { av.draft = normalizeLook({ ...av.draft, hat: e.target.checked }); renderAvatarPanel(); };
+  async function startPreview() {
+    const c = $('avatar-preview');
+    if (!av.renderer) {
+      av.renderer = new THREE.WebGLRenderer({ canvas: c, antialias: true, alpha: true });
+      av.renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); av.renderer.outputColorSpace = THREE.SRGBColorSpace;
+      av.scene = new THREE.Scene();
+      av.scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 2.2));
+      const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(1.5, 3, 2.5); av.scene.add(sun);
+      av.cam = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
+      c.addEventListener('pointerdown', (e) => { av.drag = e.clientX; c.setPointerCapture(e.pointerId); });
+      c.addEventListener('pointermove', (e) => { if (av.drag !== null) { av.spin += (e.clientX - av.drag) * 0.012; av.drag = e.clientX; } });
+      c.addEventListener('pointerup', () => { av.drag = null; });
+    }
+    try {
+      const model = await loadAvatarModel();
+      if (!av.avatar) { av.avatar = new Avatar(model, av.draft, ''); av.scene.add(av.avatar.root); }
+      av.avatar.setLook(av.draft);
+    } catch { toast('Kunde inte ladda gubben just nu.'); }
+    const clock = new THREE.Clock();
+    const loop = () => {
+      if (!av.open) return;
+      const dt = Math.min(clock.getDelta(), 0.1);
+      const w = c.clientWidth, h = c.clientHeight;
+      if (c.width !== Math.round(w * av.renderer.getPixelRatio())) { av.renderer.setSize(w, h, false); av.cam.aspect = w / h; av.cam.updateProjectionMatrix(); }
+      av.cam.position.set(0, 1.0, 3.7); av.cam.lookAt(0, 0.86, 0);
+      if (av.drag === null) av.spin += dt * 0.35;
+      if (av.avatar) { av.avatar.root.rotation.y = av.spin; av.avatar.update(dt, 0); }
+      av.renderer.render(av.scene, av.cam);
+      av.raf = requestAnimationFrame(loop);
+    };
+    cancelAnimationFrame(av.raf); loop();
+  }
+  function openAvatarPanel() {
+    av.open = true; av.draft = { ...me.look };
+    $('av-name').value = me.name || cleanName(artist());
+    $('avatar-panel').hidden = false;
+    if (isTouch) { $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false'); }
+    controls.unlock?.();
+    renderAvatarPanel(); startPreview(); onBusyChange();
+  }
+  function closeAvatarPanel() { av.open = false; cancelAnimationFrame(av.raf); $('avatar-panel').hidden = true; onBusyChange(); }
+  $('my-avatar').onclick = () => openAvatarPanel();
+  $('av-cancel').onclick = () => closeAvatarPanel();
+  $('av-random').onclick = () => { av.draft = randomLook(); renderAvatarPanel(); };
+  $('av-ok').onclick = () => {
+    me.look = normalizeLook(av.draft); me.name = cleanName($('av-name').value);
+    saveMyAvatar(me.name, me.look);
+    net.sendLook(myName(), me.look);
+    closeAvatarPanel(); renderPeople();
+    toast('Din gubbe är sparad. De andra ser den direkt.', 2200);
+  };
+
+  renderPeople(); renderChatInput();
+  return {
+    net, players,
+    update(dt) { sendMove(dt); players.update(dt, camera.position); },
+    busy: () => av.open,
+    chatOpen, openChat, closeChat, openAvatarPanel, closeAvatarPanel,
+    me: () => ({ name: myName(), look: { ...me.look } }),
+  };
+}

@@ -1,12 +1,12 @@
 {
   "name": "slap-and-talk",
   "version": "1.0.0",
-  "description": "Slap and Talk \u2013 virtuellt utst\u00e4llningsrum f\u00f6r klisterm\u00e4rken",
+  "description": "Slap and Talk – virtuellt utställningsrum för klistermärken",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "test": "node tests/rooms.test.js && node tests/e2e.js"
+    "test": "node tests/rooms.test.js && node tests/realtime.test.js && node tests/e2e.js"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +23,7 @@
     "express": "^5.3.0",
     "multer": "^2.5.0",
     "sharp": "^0.35.5",
-    "three": "^0.186.1"
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
   }
 }

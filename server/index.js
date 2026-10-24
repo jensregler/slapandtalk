@@ -6,10 +6,12 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), 
 const { createAdapter } = require('./storage');
 const { createStore } = require('./store');
 const { createApp } = require('./app');
+const { attachRealtime } = require('./realtime');
 
 const PORT = Number(process.env.PORT || 8787);
 const QUICK_TTL_HOURS = Number(process.env.QUICK_ROOM_TTL_HOURS || 24);
 const CLEANUP_MINUTES = Number(process.env.ROOM_CLEANUP_INTERVAL_MINUTES || 60);
+const MAX_PLAYERS = Number(process.env.MAX_PLAYERS_PER_ROOM || 10);
 
 const adapter = createAdapter();
 const store = createStore(adapter);
@@ -24,7 +26,13 @@ async function cleanup() {
 }
 
 store.migrate().then((n) => { if (n) console.log(`Flyttade ${n} bilder från images.json till images/`); }).finally(() => {
-  app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind})`));
+  const server = app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind}, max ${MAX_PLAYERS} per rum)`));
+  // Flerspelarläget (WebSocket på /ws) går på samma port som webbappen.
+  const realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS });
+  // Vid omstart (pm2, Render): säg till alla anslutna att servern startar om, så kopplar
+  // deras webbläsare upp sig igen av sig själva när den nya servern är igång.
+  const stop = () => { realtime.close(); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 1500).unref(); };
+  process.once('SIGTERM', stop); process.once('SIGINT', stop);
   cleanup();
   setInterval(cleanup, CLEANUP_MINUTES * 60_000).unref();
 });

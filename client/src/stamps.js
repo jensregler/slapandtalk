@@ -17,6 +17,7 @@ export class StampLayer {
     this.textures = new Map(); // imageId -> Promise<Texture>
     this.materials = new Map(); // imageId -> Material
     this.meshes = new Map(); // stampId -> Mesh
+    this.gone = new Set(); // borttagna id:n (så en sen "stamp:add" inte får tillbaka dem)
   }
 
   texture(image) {
@@ -101,7 +102,7 @@ export class StampLayer {
     }
     const geom = this.geometry(stamp, image);
     if (!geom) return;
-    if (this.meshes.has(stamp.id)) { geom.dispose(); return; }
+    if (this.meshes.has(stamp.id) || this.gone.has(stamp.id)) { geom.dispose(); return; } // redan där, eller borttagen medan bilden laddades
     const mesh = new THREE.Mesh(geom, mat);
     mesh.renderOrder = 10 + stamp.order;
     mesh.userData = { stamp, image };
@@ -110,6 +111,7 @@ export class StampLayer {
   }
 
   remove(stampId) {
+    this.gone.add(stampId);
     const m = this.meshes.get(stampId);
     if (!m) return;
     this.scene.remove(m);
@@ -120,6 +122,7 @@ export class StampLayer {
 
   // Peel: klibban tonar bort och krymper lite (200 ms) och tas sedan bort.
   peelAway(stampId, ms = 200) {
+    this.gone.add(stampId);
     const m = this.meshes.get(stampId);
     if (!m) return Promise.resolve();
     this.meshes.delete(stampId); // syns inte längre i räkning/val

@@ -16,3 +16,13 @@ gjorts om till WebP med `tools/make-textures.js`.
 
 Klassisk, målad, kaklad, linoleum och klinker ritas i koden (`client/src/roomstyle.js`) och har
 inga externa källor.
+
+# Gubbarna
+
+`client/public/avatars/gubbe.glb` (ca 300 kB) är byggd av fem karaktärer ur **Ultimate Modular Men
+Pack** av [Quaternius](https://quaternius.com), licensierade under **CC0 1.0** (public domain).
+Hämtade från [Poly Pizza](https://poly.pizza/bundle/Ultimate-Animated-Character-Pack-ZiH8muWqwQ):
+Casual Character, Casual 2, Beach Character, Business Man och Punk.
+`tools/make-avatar.mjs` slår ihop dem till ett skelett med animationerna Idle, Walk och Wave,
+tar bort UV-koordinater och normaler (färgerna är platta) och komprimerar med meshopt.
+Kepsen ritas i koden (`client/src/avatars.js`).

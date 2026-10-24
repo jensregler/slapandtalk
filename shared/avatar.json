@@ -1,0 +1,24 @@
+{
+  "outfits": {
+    "huvtroja": { "name": "Huvtröja", "body": "Casual_Body", "legs": "Casual_Legs", "feet": "Casual_Feet", "shirt": "Purple", "pants": "LightBlue" },
+    "tshirt": { "name": "T-shirt", "body": "Casual2_Body", "legs": "Casual2_Legs", "feet": "Casual2_Feet", "shirt": "LightBrown", "pants": "LightBlue" },
+    "kostym": { "name": "Kostym", "body": "Suit_Body", "legs": "Suit_Legs", "feet": "Suit_Feet", "shirt": "Suit", "pants": "Suit" },
+    "punk": { "name": "Väst", "body": "Punk_Body", "legs": "Punk_Legs", "feet": "Punk_Feet", "shirt": "Black", "pants": "LightBlue" }
+  },
+  "hair": {
+    "kort": { "name": "Kort", "head": "Casual_Head", "hair": "Hair" },
+    "lugg": { "name": "Lugg", "head": "Casual2_Head", "hair": "Hair" },
+    "lang": { "name": "Långt", "head": "Beach_Head", "hair": "Hair" },
+    "kammad": { "name": "Bakåtkammat", "head": "Suit_Head", "hair": "Hair" },
+    "tupp": { "name": "Tupp", "head": "Punk_Head", "hair": "Red" }
+  },
+  "colors": {
+    "shirt": ["#e63946", "#f4a261", "#ffd400", "#2a9d8f", "#3a86ff", "#7b2cbf", "#ff70a6", "#f1f1f1", "#3a3a3a", "#6b8e23"],
+    "pants": ["#2b4c7e", "#5b8bd0", "#222222", "#6d6d6d", "#8b5a2b", "#c2b280", "#f1f1f1", "#b22222"],
+    "hair": ["#1b1410", "#4a2c17", "#8d5524", "#d4a35a", "#f0e2b6", "#b5b5b5", "#c0392b", "#ff4fa3", "#2e86de", "#27ae60"],
+    "skin": ["#ffe0c4", "#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#5c3a21"],
+    "hat": ["#e63946", "#ffd400", "#3a86ff", "#222222", "#f1f1f1", "#2a9d8f"]
+  },
+  "default": { "outfit": "tshirt", "hair": "kort", "shirt": "#3a86ff", "pants": "#2b4c7e", "hairColor": "#4a2c17", "skin": "#e0ac69", "hat": false, "hatColor": "#e63946" },
+  "maxName": 24
+}

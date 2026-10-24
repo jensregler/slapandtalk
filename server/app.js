@@ -213,7 +213,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
     artist: String(b.artist || '').slice(0, 60),
   });
   const stamp = publicStamp(saved);
-  broadcast(room, { type: 'stamp:add', stamp });
+  broadcast(room, { type: 'stamp:add', stamp, image }); // aldrig peel-nyckeln
   res.json({ stamp, image, peelToken });
 }));
 
@@ -258,6 +258,7 @@ app.delete('/api/stickers/:id', wrap(async (req, res) => {
   const removed = await store.deleteStampsWithImage(id);
   await store.deleteImage(id);
   await store.deleteImageFile(id);
+  broadcast('*', { type: 'image:remove', id });
   res.json({ ok: true, removedStamps: removed });
 }));
 

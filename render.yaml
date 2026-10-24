@@ -12,3 +12,6 @@ services:
         generateValue: true
       - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
         value: "1"
+      # Flerspelare (WebSocket på /ws, samma port): hur många som syns i ett rum samtidigt.
+      - key: MAX_PLAYERS_PER_ROOM
+        value: "10"

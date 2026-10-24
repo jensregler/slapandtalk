@@ -9,7 +9,7 @@ import { api } from './api.js';
 import { foldStamp } from './fold.js';
 import { readHistory, addHistory, removeHistory, roomHistory, HISTORY_KEY } from './history.js';
 import { readMine, addMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob } from './designs.js';
-import { connect } from './net.js';
+import { initTogether } from './together.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -30,6 +30,8 @@ const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
 const room = buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
 scene.add(room.group);
 camera.position.copy(room.spawn);
+// Lite slumpat var man dyker upp, så inte alla som kommer in står i varandra.
+camera.position.x += (Math.random() - 0.5) * 3; camera.position.z += (Math.random() - 0.5) * 1;
 
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
 controls.attachJoystick($('joystick'), $('stick'));
@@ -308,7 +310,7 @@ function adminPick(ndc) {
 
 function action(ndc) {
   if (state.mode === 'view') return null; // Tittläge: klick och tryck gör ingenting
-  if (sp.open) return null; // utseendepanelen är öppen: titta, men stämpla inte
+  if (sp.open || together.busy()) return null; // en panel är öppen: titta, men stämpla inte
   return state.adminToken ? adminPick(ndc) : stampAt(ndc);
 }
 
@@ -442,7 +444,8 @@ controls.onLockChange = (locked) => {
 if (!isTouch) {
   canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
-    if (sp.open) return; // panelen för rummets utseende är öppen
+    if (sp.open || together.busy()) return; // panelen för rummets utseende eller Min gubbe är öppen
+    if (together.chatOpen()) { together.closeChat(); if (!controls.locked) controls.lock(); return; } // klick = stäng chatten, stämpla inte
     if (!controls.locked) controls.lock(); else action(CENTER);
   });
   addEventListener('wheel', (e) => { if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
@@ -614,10 +617,34 @@ async function loadRoom() {
   } catch (err) { toast('Kunde inte ladda rummet: ' + err.message); }
 }
 
-// Flerspelarläge kommer senare – net.js gör ingenting än.
-connect(ROOM, {
-  onStampAdd: (s, img) => stamps.add(s, img).then(updateCount),
-  onStampRemove: (id) => { stamps.remove(id); updateCount(); },
+// ---------- Tillsammans: andra spelare, chatt, Min gubbe (together.js) ----------
+// Händelser från servern: det andra gör i rummet syns direkt, utan att ladda om.
+function onRoomEvent(e) {
+  if (!e || typeof e.type !== 'string') return;
+  if (e.type === 'stamp:add' && e.stamp && e.image) stamps.add(e.stamp, e.image).then(updateCount);
+  else if (e.type === 'stamp:remove') {
+    stamps.peelAway(e.id).then(updateCount);
+    if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); renderHistory(); }
+  } else if (e.type === 'image:remove') { stamps.removeImage(e.id); updateCount(); }
+  else if (e.type === 'room:style' && e.style) {
+    currentStyle = normalizeStyle(e.style); updateStyleUi();
+    if (!sp.open) { showStyle(currentStyle); toast('Rummets utseende ändrades.', 1800); }
+  }
+}
+// Efter ett avbrott (t.ex. servern startade om): hämta rummet igen och visa det vi missat.
+async function resyncRoom() {
+  try {
+    const { stamps: list, images, info } = await api.loadRoom(ROOM);
+    const alive = new Set(list.map((s) => s.id));
+    for (const id of [...stamps.meshes.keys()]) if (!alive.has(id)) stamps.remove(id);
+    await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
+    if (info && JSON.stringify(normalizeStyle(info.style)) !== JSON.stringify(currentStyle)) { showRoomInfo(info); if (!sp.open) showStyle(currentStyle); }
+    updateCount();
+  } catch { /* nästa gång */ }
+}
+const together = initTogether({
+  room: ROOM, scene, camera, controls, isTouch, toast, artist: () => state.artist,
+  onEvent: onRoomEvent, onReconnect: resyncRoom,
 });
 
 // ---------- Huvudloopen ----------
@@ -625,6 +652,7 @@ const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   controls.update(dt);
+  together.update(dt);
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
     if (h) {
@@ -661,5 +689,7 @@ window.klibb = {
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
+  net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
+  openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
   nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => roomHistory(ROOM), setSize, maxSizeCm: MAX_SIZE_CM,
 };
