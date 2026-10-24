@@ -42,15 +42,24 @@
     <button id="enter" type="button" class="primary desktop-only">Gå in i rummet</button>
     <div class="help desktop-only">
       <b>Dator:</b> klicka för att gå in. WASD = gå, musen = titta, klick = stämpla,
-      scrollhjul = storlek, Q/E = vrid, Esc = tillbaka till menyn.
+      scrollhjul = storlek, Q/E = vrid, R = byt design (växlar mellan dina uppladdade),
+      Esc = tillbaka till menyn.
     </div>
     <div class="help touch-only">
       <b>Mobil:</b> styrspaken nere till vänster = gå, dra med fingret = titta,
-      tryck = stämpla. Fäll ihop menyn med ☰.
+      tryck = stämpla. Den runda knappen nere till höger visar vald design: tryck på den
+      för att byta till nästa. Fäll ihop menyn med ☰.
     </div>
   </aside>
 
   <div id="joystick" class="touch-only"><div id="stick"></div></div>
+  <!-- Vald design. Dator: tryck R för att byta. Mobil: tryck på den runda knappen. -->
+  <div id="design-hud" class="desktop-only" hidden>
+    <img id="design-hud-img" alt="Vald design" /><span><b id="design-hud-num">1/1</b><br />R: byt design</span>
+  </div>
+  <button id="design-btn" class="touch-only" type="button" title="Byt design" aria-label="Byt design" hidden>
+    <img id="design-btn-img" alt="" /><span id="design-btn-num"></span>
+  </button>
   <div id="admin-banner" hidden>ADMIN-LÄGE – klicka/tryck på en klibba för att ta bort den</div>
   <div id="toast" role="status" aria-live="polite"></div>
   <dialog id="admin-dialog">

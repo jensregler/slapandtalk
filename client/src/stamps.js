@@ -91,8 +91,14 @@ export class StampLayer {
   }
 
   async add(stamp, image) {
-    if (this.meshes.has(stamp.id)) return;
-    const mat = await this.material(image);
+    if (this.meshes.has(stamp.id) || !image) return;
+    let mat;
+    try { mat = await this.material(image); } catch {
+      // Bilden gick inte att hämta (borta från servern): hoppa över stämpeln i stället
+      // för att låta den förstöra resten av rummet.
+      this.textures.delete(image.id);
+      return;
+    }
     const geom = this.geometry(stamp, image);
     if (!geom) return;
     if (this.meshes.has(stamp.id)) { geom.dispose(); return; }

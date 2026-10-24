@@ -16,14 +16,21 @@ All kod är öppen källkod under MIT-licensen (se `LICENSE`).
 
 **På datorn:** klicka på *Ladda upp klibba*, välj en bild och klicka på *Gå in i rummet*.
 Gå med **W A S D**, titta med musen och **klicka** för att stämpla. Scrollhjulet ändrar storlek,
-**Q/E** vrider klibban och **Esc** tar dig tillbaka till menyn.
+**Q/E** vrider klibban, **R** byter design och **Esc** tar dig tillbaka till menyn.
+
+**Byta design med R:** har du laddat upp flera klibbor växlar **R** till nästa (efter den sista
+börjar det om på den första). Rutan längst ner i mitten visar vilken design som är vald, till
+exempel *2/4*. Vill du sätta samma klibba många gånger trycker du bara inte på R.
+Dina uppladdade designs sparas i webbläsaren och finns kvar när du laddar om sidan, så länge
+servern har kvar bilderna. Designs som har försvunnit från servern tas bort ur listan automatiskt.
 
 **På mobilen:** ladda upp en bild i menyn och fäll ihop menyn med **☰**. Styrspaken nere till
 vänster tar dig framåt, **dra med fingret** för att titta och **tryck** där du vill stämpla.
+Den **runda knappen nere till höger** visar vald design: tryck på den för att byta till nästa.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.
 
 **Olika rum:** lägg till `?room=namn` i adressen, till exempel `/?room=jens`.
-Utan något rum hamnar du i `stad`, den gemensamma staden.
+Utan något rum hamnar du i `stad`, den gemensamma staden. Ett nytt rum är alltid helt tomt.
 
 ---
 
@@ -38,7 +45,8 @@ klibbrum/
 │       ├── main.js         ← startpunkten som kopplar ihop allt (läs den först!)
 │       ├── room.js         ← själva rummet (lådan på 10 x 4 x 10 m och ljuset)
 │       ├── controls.js     ← gå och titta (tangentbord, mus, styrspak, finger)
-│       ├── stamps.js       ← stämplarna (bilden som projiceras på ytan)
+│       ├── stamps.js       ← stämplarna (bilden på ytan)
+│       ├── fold.js         ← viker klibbor över kanter och hörn
 │       ├── api.js          ← alla anrop till servern
 │       ├── net.js          ← tom förberedelse för flerspelarläge
 │       └── style.css       ← utseendet på menyn
@@ -48,7 +56,7 @@ klibbrum/
 │   └── realtime.js         ← tom förberedelse för flerspelarläge
 ├── data/                   ← skapas automatiskt: uppladdade bilder och rummen
 ├── tests/e2e.js            ← automatiskt test i en osynlig webbläsare
-├── tools/make-icons.js     ← ritar appikonen och demo-klibban
+├── tools/make-icons.js     ← ritar appikonen och testbilden demo-klibba.png (används bara i testerna)
 ├── screenshots/            ← skärmdumpar från testet
 ├── ecosystem.config.js     ← säger till pm2 vilka program som ska hållas igång
 └── .env                    ← hemligheter (admin-nyckeln). Läggs ALDRIG upp på GitHub.
@@ -58,8 +66,9 @@ klibbrum/
 1. `controls.js` håller reda på var du står och åt vilket håll du tittar.
 2. När du klickar skickar `main.js` en osynlig stråle (en *raycast*) rakt ut från kameran
    och tar reda på var den träffar en yta och åt vilket håll ytan pekar (dess *normal*).
-3. `stamps.js` räknar ut hur klibban ska vändas och projicerar bilden på ytan med
-   Three.js `DecalGeometry`. Den fungerar ungefär som en diaprojektor som lyser på väggen.
+3. `stamps.js` räknar ut hur klibban ska vändas, och `fold.js` lägger den på ytan. Hamnar
+   klibban över en kant eller i ett hörn viks den över på grannytorna (upp till tre ytor),
+   som ett riktigt klistermärke som trycks in i ett hörn.
 4. `api.js` skickar placeringen till servern: position, normal, vridning, storlek,
    bild-id och artistnamn. Servern sparar den i `data/rooms/<rum>.json`.
 5. När någon öppnar sidan hämtas alla stämplar och ritas upp igen i samma ordning.
@@ -144,3 +153,10 @@ Byggt med [Three.js](https://threejs.org), [Vite](https://vite.dev),
 [Express](https://expressjs.com), [sharp](https://sharp.pixelplumbing.com),
 [pm2](https://pm2.keymetrics.io) och [Playwright](https://playwright.dev).
 Alla är öppen källkod.
+
+### Om Render och gamla klibbor
+På Renders gratisnivå är disken tillfällig: när tjänsten startas om (efter en uppdatering eller
+när den har sovit) försvinner uppladdade bilder och stämplar. Webbläsaren minns ändå dina designs
+och kan visa gamla kopior ur sin cache. Därför kollar appen vid start att dina designs finns kvar
+på servern och tar bort de som är borta, och servern hoppar över stämplar vars bild saknas.
+För att klibborna ska ligga kvar på riktigt behövs en beständig disk eller en databas.

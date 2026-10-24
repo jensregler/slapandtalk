@@ -77,12 +77,35 @@ app.post('/api/stickers', rateLimit(20), (req, res) => {
   });
 });
 
+// Finns bilden på riktigt? På Renders gratisnivå är disken tillfällig: efter en omstart
+// kan både bildfilen och listan över bilder vara borta, medan webbläsaren fortfarande
+// minns designen (och visar en gammal kopia ur sin cache).
+function imageAvailable(id) {
+  const meta = store.getImage(String(id || ''));
+  if (!meta || !fs.existsSync(path.join(UPLOAD_DIR, meta.id + '.webp'))) return null;
+  return meta;
+}
+
+// Vilka av de här bilderna finns kvar? ?ids=a,b,c  ->  { images: { a: {...}, c: {...} } }
+app.get('/api/stickers', (req, res) => {
+  const ids = String(req.query.ids || '').split(',').filter((id) => /^[a-f0-9]{16}$/.test(id)).slice(0, 100);
+  const images = {};
+  for (const id of ids) { const m = imageAvailable(id); if (m) images[id] = m; }
+  res.json({ images });
+});
+
 // ---------- Stämplar ----------
 app.get('/api/rooms/:room/stamps', (req, res) => {
   const room = roomParam(req, res); if (!room) return;
-  const stamps = store.listStamps(room);
+  // Stämplar vars bild saknas hoppas över, så de inte blir trasiga/osynliga i rummet.
   const images = {};
-  for (const s of stamps) if (!images[s.imageId]) images[s.imageId] = store.getImage(s.imageId);
+  const ok = new Map();
+  const stamps = store.listStamps(room).filter((s) => {
+    if (!ok.has(s.imageId)) ok.set(s.imageId, imageAvailable(s.imageId));
+    const m = ok.get(s.imageId);
+    if (m) images[s.imageId] = m;
+    return !!m;
+  });
   res.json({ room, stamps, images });
 });
 
@@ -92,8 +115,8 @@ const isVec = (v, len) => Array.isArray(v) && v.length === len && v.every(isNum)
 app.post('/api/rooms/:room/stamps', rateLimit(120), (req, res) => {
   const room = roomParam(req, res); if (!room) return;
   const b = req.body || {};
-  const image = store.getImage(String(b.imageId || ''));
-  if (!image) return res.status(400).json({ error: 'Okänd bild' });
+  const image = imageAvailable(b.imageId);
+  if (!image) return res.status(410).json({ error: 'Designen finns inte längre på servern. Ladda upp den igen.', gone: true });
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Felaktig placering' });
   if (!isNum(b.size) || b.size < 0.02 || b.size > 5) return res.status(400).json({ error: 'Felaktig storlek' });
   const stamp = store.addStamp(room, {
@@ -132,7 +155,15 @@ app.delete('/api/stickers/:id', (req, res) => {
 // ---------- Filer ----------
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true }));
 const DIST = path.join(__dirname, '..', 'dist');
-app.use(express.static(DIST));
-app.get(/^\/(?!api|uploads).*/, (req, res) => res.sendFile(path.join(DIST, 'index.html')));
+// index.html, sw.js och manifestet får aldrig cachas, så en ny version syns direkt efter
+// en uppdatering. Filerna i assets/ har ett unikt namn per version och får cachas länge.
+const noCache = (res) => res.setHeader('Cache-Control', 'no-cache');
+app.use(express.static(DIST, {
+  setHeaders: (res, file) => {
+    if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    else noCache(res);
+  },
+}));
+app.get(/^\/(?!api|uploads).*/, (req, res) => { noCache(res); res.sendFile(path.join(DIST, 'index.html')); });
 
 app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT}`));

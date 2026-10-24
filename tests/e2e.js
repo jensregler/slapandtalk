@@ -174,6 +174,80 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await page.reload(); await waitReady(page); await page.waitForTimeout(300);
     assert((await count(page)) === stampsNow, `vikta stämplar finns kvar efter omladdning (${stampsNow})`);
 
+    // ---------- R växlar mellan mina designs ----------
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    const designState = () => page.evaluate(() => ({ sel: window.klibb.state.selected && window.klibb.state.selected.id,
+      hud: document.getElementById('design-hud-img').getAttribute('src'), num: document.getElementById('design-hud-num').textContent,
+      hudVisible: !document.getElementById('design-hud').hidden, n: window.klibb.designs().length }));
+    const d0 = await designState();
+    assert(d0.n === 3 && d0.hudVisible, `designrutan syns (${d0.num})`);
+    const seen = [d0.sel];
+    for (let i = 0; i < 3; i++) {
+      await page.keyboard.press('r');
+      await page.waitForTimeout(150);
+      const d = await designState();
+      seen.push(d.sel);
+      const idx = await page.evaluate((id) => window.klibb.designs().findIndex((x) => x.id === id), d.sel);
+      assert(d.sel !== seen[seen.length - 2] && d.hud.includes(d.sel) && d.num === `${idx + 1}/3`, `R nr ${i + 1}: byter design och rutan visar den (${d.num})`);
+    }
+    assert(new Set(seen.slice(0, 3)).size === 3 && seen[3] === seen[0], 'R går igenom alla 3 designs och börjar om');
+    const previewOk = await page.evaluate(() => {
+      const map = window.klibb.preview.mat.map; return !!map && map.image.src.includes(window.klibb.state.selected.id);
+    });
+    assert(previewOk, 'förhandsvisningen byter bild direkt');
+    await page.keyboard.press('r'); await page.waitForTimeout(200);
+    await page.evaluate(() => { const k = window.klibb; k.moveTo(-1, -2.5); k.look(0.3, 0.1);
+      k.preview.show(new k.camera.position.constructor(-1.4, 1.9, -5), new k.camera.position.constructor(0, 0, 1),
+        new k.camera.quaternion.constructor(...k.orientation([0, 0, 1], [0, 0, -1], 0)), 0.6, 0.6, 'vägg-norr'); });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOTS, '09-design-dator.png') });
+    await page.evaluate(() => window.klibb.preview.hide());
+
+    // ---------- Designs som inte finns kvar på servern ----------
+    await page.evaluate(() => {
+      const mine = JSON.parse(localStorage.getItem('klibb.mine'));
+      mine.push({ id: 'deadbeefdeadbeef', url: '/uploads/deadbeefdeadbeef.webp', width: 100, height: 100 });
+      localStorage.setItem('klibb.mine', JSON.stringify(mine));
+    });
+    await page.reload(); await waitReady(page);
+    const afterDead = await page.evaluate(() => ({ ids: window.klibb.state.mine.map((m) => m.id), sel: window.klibb.state.selected && window.klibb.state.selected.id }));
+    assert(!afterDead.ids.includes('deadbeefdeadbeef') && afterDead.ids.length === 3 && afterDead.sel && afterDead.sel !== 'deadbeefdeadbeef',
+      'en sparad design som är borta från servern tas bort ur listan');
+    const okAdd = await page.evaluate(async () => {
+      const k = window.klibb, n = k.stamps.count;
+      await k.stamps.add({ id: 'trasig', order: 999, position: [0, 1, -5], quaternion: [0, 0, 0, 1], size: 0.5, surface: 'vägg-norr' },
+        { id: 'deadbeefdeadbeef', url: '/uploads/deadbeefdeadbeef.webp', width: 1, height: 1 });
+      return k.stamps.count === n;
+    });
+    assert(okAdd, 'en stämpel med saknad bild hoppas över utan fel');
+    const dead = await fetch(`${BASE}/api/rooms/${ROOM}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageId: 'deadbeefdeadbeef', position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.5 }) });
+    assert(dead.status === 410, 'servern vägrar stämpla en design som är borta (410)');
+    // Bildfilen försvinner men stämpeln ligger kvar (som efter en omstart på Render). Bara lokalt.
+    const UPLOADS = path.join(process.env.DATA_DIR || path.join(__dirname, '..', 'data'), 'uploads');
+    if (/localhost|127\.0\.0\.1/.test(BASE) && fs.existsSync(UPLOADS)) {
+      const fd = new FormData();
+      fd.append('file', new Blob([fs.readFileSync(testPng)], { type: 'image/png' }), 'x.png');
+      const img = await (await fetch(`${BASE}/api/stickers`, { method: 'POST', body: fd })).json();
+      created.add(img.id);
+      await fetch(`${BASE}/api/rooms/${ROOM}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageId: img.id, position: [2, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.5, surface: 'vägg-norr' }) });
+      const withIt = (await (await fetch(`${BASE}/api/rooms/${ROOM}/stamps`)).json()).stamps.length;
+      fs.rmSync(path.join(UPLOADS, img.id + '.webp'));
+      const without = (await (await fetch(`${BASE}/api/rooms/${ROOM}/stamps`)).json()).stamps.length;
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.reload(); await waitReady(page);
+      assert(without === withIt - 1 && (await count(page)) === without && !errors.length,
+        `stämplar vars bildfil saknas hoppas över och rummet laddas ändå (${withIt} → ${without})`);
+    }
+
+    // ---------- Ett nytt rum är helt tomt ----------
+    const fresh = 'nytt-' + Date.now().toString(36);
+    const freshApi = await (await fetch(`${BASE}/api/rooms/${fresh}/stamps`)).json();
+    await page.goto(`${BASE}/?room=${fresh}`); await waitReady(page);
+    assert(freshApi.stamps.length === 0 && (await count(page)) === 0, `ett nytt rum (${fresh}) är helt tomt`);
+
     // Admin-läget: rätt nyckel visar bannern, fel nyckel gör det inte
     await page.goto(`${BASE}/?room=${ROOM}&admin=fel`); await waitReady(page);
     assert(await page.isHidden('#admin-banner'), 'fel admin-nyckel avvisas');
@@ -210,8 +284,23 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     const after = await m.evaluate(() => window.klibb.camera.position.z);
     assert(after < before - 0.3, `mobil: styrspaken går framåt (${before.toFixed(2)} → ${after.toFixed(2)})`);
+    // Mobil: den runda knappen byter design
+    await m.setInputFiles('#file', gridPng);
+    await m.waitForFunction(() => window.klibb.state.mine.length === 2);
+    created.add(await m.evaluate(() => window.klibb.state.selected.id));
+    const sel = () => m.evaluate(() => [window.klibb.state.selected.id, document.getElementById('design-btn-num').textContent]);
+    const s0 = await sel();
+    assert(await m.isVisible('#design-btn'), `mobil: designknappen syns (${s0[1]})`);
+    await m.tap('#design-btn'); await m.waitForTimeout(150);
+    const s1 = await sel();
+    await m.tap('#design-btn'); await m.waitForTimeout(150);
+    const s2 = await sel();
+    assert(s1[0] !== s0[0] && s2[0] === s0[0] && s1[1] === '2/2', 'mobil: tryck på designknappen byter design och börjar om');
+    assert((await m.evaluate(() => window.klibb.stamps.count)) === mBefore + 1, 'mobil: knappen stämplar inte av misstag');
     await m.waitForTimeout(300);
     await m.screenshot({ path: path.join(SHOTS, '06-mobil-rum.png') });
+    await m.tap('#design-btn'); await m.waitForTimeout(300);
+    await m.screenshot({ path: path.join(SHOTS, '10-design-mobil.png') });
     await mctx.close();
   } finally {
     // Städa: ta bort testbilderna (och därmed alla teststämplar) via admin-API:t

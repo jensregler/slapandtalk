@@ -60,7 +60,7 @@ function updateCount() { $('stamp-count').textContent = stamps.count; }
 
 function renderTray() {
   const tray = $('tray'); tray.innerHTML = '';
-  for (const img of state.mine.slice(-12).reverse()) {
+  for (const img of designs()) {
     const b = document.createElement('button');
     b.type = 'button'; b.title = 'Välj den här klibban';
     b.className = state.selected?.id === img.id ? 'sel' : '';
@@ -69,9 +69,66 @@ function renderTray() {
     tray.appendChild(b);
   }
 }
+// Mina designs i samma ordning som i menyn (nyaste först). R växlar mellan dem.
+function designs() { return state.mine.slice().reverse(); }
+function saveMine() { localStorage.setItem('klibb.mine', JSON.stringify(state.mine)); }
+
 async function select(img) {
-  state.selected = img; renderTray();
-  preview.setTexture(await stamps.texture(img));
+  state.selected = img || null; renderTray(); renderDesignHud();
+  if (!img) { preview.setTexture(null); return; }
+  try {
+    const tex = await stamps.texture(img);
+    if (state.selected === img) preview.setTexture(tex);
+  } catch { stamps.textures.delete(img.id); toast('Kunde inte hämta designen just nu.'); }
+}
+
+// Byt till nästa uppladdade design (och börja om från början efter den sista).
+function nextDesign() {
+  const list = designs();
+  if (!list.length) { toast('Ladda upp en klibba först.'); return null; }
+  const i = list.findIndex((d) => d.id === state.selected?.id);
+  const next = list[(i + 1) % list.length];
+  select(next);
+  if (list.length === 1) toast('Du har bara en design. Ladda upp fler för att växla med R.');
+  return next;
+}
+
+function renderDesignHud() {
+  const list = designs(), sel = state.selected;
+  const i = sel ? list.findIndex((d) => d.id === sel.id) : -1;
+  const hud = $('design-hud'), btn = $('design-btn');
+  hud.hidden = !sel;
+  btn.hidden = !sel;
+  if (!sel) return;
+  $('design-hud-img').src = sel.url;
+  $('design-btn-img').src = sel.url;
+  $('design-hud-num').textContent = `${i + 1}/${list.length}`;
+  $('design-btn-num').textContent = list.length > 1 ? `${i + 1}/${list.length}` : '';
+}
+
+// Designs som inte längre finns på servern tas bort ur listan (och väljs bort).
+function dropDesigns(ids) {
+  if (!ids.length) return;
+  state.mine = state.mine.filter((m) => !ids.includes(m.id));
+  saveMine();
+  if (!state.selected || ids.includes(state.selected.id)) select(state.mine.at(-1));
+  else { renderTray(); renderDesignHud(); }
+}
+
+// Kolla mot servern att mina sparade designs finns kvar. Tar bort de som är borta.
+async function validateDesigns() {
+  if (!state.mine.length) return;
+  try {
+    const { images } = await api.checkStickers(state.mine.map((m) => m.id));
+    const dead = state.mine.filter((m) => !images[m.id]).map((m) => m.id);
+    // uppdatera metadata (t.ex. storlek) från servern för de som finns
+    state.mine = state.mine.map((m) => images[m.id] || m);
+    if (dead.length) {
+      dropDesigns(dead);
+      toast(dead.length === 1 ? 'En gammal design fanns inte kvar på servern och togs bort. Ladda upp den igen.'
+        : `${dead.length} gamla designs fanns inte kvar på servern och togs bort. Ladda upp dem igen.`, 4500);
+    } else saveMine();
+  } catch { /* offline: behåll listan */ }
 }
 
 $('size').oninput = (e) => { state.size = e.target.value / 100; $('size-val').textContent = `${e.target.value} cm`; };
@@ -103,7 +160,7 @@ $('file').onchange = async (e) => {
     toast('Laddar upp…', 10000);
     const img = await api.uploadSticker(await shrink(file), state.artist);
     state.mine = [...state.mine.filter((m) => m.id !== img.id), img].slice(-30);
-    localStorage.setItem('klibb.mine', JSON.stringify(state.mine));
+    saveMine();
     await select(img);
     toast(isTouch ? 'Klar! Tryck på en yta för att stämpla.' : 'Klar! Gå in i rummet och klicka för att stämpla.');
   } catch (err) { toast(err.message); }
@@ -136,7 +193,11 @@ async function stampAt(ndc) {
     });
     await stamps.add(stamp, image); updateCount();
     return stamp;
-  } catch (err) { toast(err.message); return null; }
+  } catch (err) {
+    toast(err.message, err.gone ? 4500 : 2200);
+    if (err.gone) dropDesigns([state.selected.id]);
+    return null;
+  }
 }
 
 // ---------- Admin (dold): öppna sidan med ?admin=NYCKEL ----------
@@ -198,6 +259,7 @@ if (!isTouch) {
     if (e.target.closest('input')) return;
     if (e.code === 'KeyQ') setRot(state.rotation - 15);
     if (e.code === 'KeyE') setRot(state.rotation + 15);
+    if (e.code === 'KeyR' && !e.repeat && !e.ctrlKey && !e.metaKey) nextDesign();
   });
 } else {
   // Mobil: dra = titta, kort tryck = stämpla.
@@ -220,6 +282,7 @@ if (!isTouch) {
   };
   canvas.addEventListener('pointerup', up);
   canvas.addEventListener('pointercancel', up);
+  $('design-btn').onclick = (e) => { e.preventDefault(); nextDesign(); };
   $('panel-toggle').onclick = () => {
     const hidden = $('panel').classList.toggle('hidden');
     $('panel-toggle').setAttribute('aria-expanded', String(!hidden));
@@ -230,7 +293,8 @@ if (!isTouch) {
 async function loadRoom() {
   try {
     const { stamps: list, images } = await api.loadRoom(ROOM);
-    await Promise.all(list.map((s) => images[s.imageId] && stamps.add(s, images[s.imageId])));
+    // allSettled: en enda trasig stämpel ska inte hindra resten av rummet från att laddas.
+    await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
     updateCount();
   } catch (err) { toast('Kunde inte ladda rummet: ' + err.message); }
 }
@@ -260,10 +324,13 @@ function frame() {
 renderTray();
 if (state.mine.length) select(state.mine.at(-1));
 initAdmin();
-loadRoom().then(() => { window.klibb.ready = true; });
+Promise.all([loadRoom(), validateDesigns()]).then(() => { window.klibb.ready = true; });
 frame();
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+// updateViaCache: 'none' = webbläsaren kollar alltid efter en ny sw.js, så appen inte fastnar på en gammal version.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});
+}
 
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 window.klibb = {
@@ -277,4 +344,5 @@ window.klibb = {
   look(yaw, pitch) { controls.yaw = yaw; controls.pitch = pitch; controls.apply(); },
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
+  nextDesign, designs,
 };
