@@ -2,6 +2,7 @@
 // (vägg, golv eller tak), ungefär som en diaprojektor som lyser rakt på väggen.
 import * as THREE from 'three';
 import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
+import { facesFromSurfaces, foldStamp, foldGeometry } from './fold.js';
 
 const loader = new THREE.TextureLoader();
 const DEPTH = 0.25; // hur "djup" projektionen är (meter)
@@ -10,6 +11,9 @@ export class StampLayer {
   constructor(scene, surfaces) {
     this.scene = scene;
     this.surfaces = surfaces;
+    // Rektangulära ytor (lådrummet) -> klibbor viks över kanter och hörn.
+    // Annars (t.ex. ett rum från Blender) används den gamla projektionen.
+    this.faces = facesFromSurfaces(surfaces);
     this.textures = new Map(); // imageId -> Promise<Texture>
     this.materials = new Map(); // imageId -> Material
     this.meshes = new Map(); // stampId -> Mesh
@@ -66,20 +70,33 @@ export class StampLayer {
     return this.surfaces.find((s) => s.name === stamp.surface) || null;
   }
 
+  // Geometrin för en stämpel. Fungerar för gamla sparade stämplar också:
+  // allt som behövs (position, quaternion, size, surface) har alltid sparats.
+  geometry(stamp, image) {
+    const pos = new THREE.Vector3(...stamp.position);
+    const quat = new THREE.Quaternion(...stamp.quaternion);
+    const [w, h] = StampLayer.dims(image, stamp.size);
+    if (this.faces) {
+      const pieces = foldStamp(this.faces, { center: pos, quaternion: quat, w, h, surface: stamp.surface });
+      return pieces.length ? foldGeometry(pieces) : null;
+    }
+    const euler = new THREE.Euler().setFromQuaternion(quat);
+    const targets = this.findSurface(stamp) ? [this.findSurface(stamp)] : this.surfaces;
+    for (const surf of targets) {
+      const g = new DecalGeometry(surf, pos, euler, new THREE.Vector3(w, h, DEPTH));
+      if (g.attributes.position.count > 0) return g;
+      g.dispose();
+    }
+    return null;
+  }
+
   async add(stamp, image) {
     if (this.meshes.has(stamp.id)) return;
     const mat = await this.material(image);
-    const pos = new THREE.Vector3(...stamp.position);
-    const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(...stamp.quaternion));
-    const [w, h] = StampLayer.dims(image, stamp.size);
-    const targets = this.findSurface(stamp) ? [this.findSurface(stamp)] : this.surfaces;
-    const geoms = [];
-    for (const surf of targets) {
-      const g = new DecalGeometry(surf, pos, euler, new THREE.Vector3(w, h, DEPTH));
-      if (g.attributes.position.count > 0) geoms.push(g); else g.dispose();
-    }
-    if (!geoms.length) return;
-    const mesh = new THREE.Mesh(geoms[0], mat);
+    const geom = this.geometry(stamp, image);
+    if (!geom) return;
+    if (this.meshes.has(stamp.id)) { geom.dispose(); return; }
+    const mesh = new THREE.Mesh(geom, mat);
     mesh.renderOrder = 10 + stamp.order;
     mesh.userData = { stamp, image };
     this.scene.add(mesh);
@@ -111,20 +128,35 @@ export class StampLayer {
 }
 
 // En genomskinlig förhandsvisning som följer siktet (bara på dator).
+// Den viks på samma sätt som den riktiga klibban, så man ser hur den hamnar i hörn.
 export class StampPreview {
-  constructor(scene) {
+  constructor(scene, faces = null) {
+    this.faces = faces;
     this.mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8 });
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat);
     this.mesh.renderOrder = 1e6;
     this.mesh.visible = false;
+    this.mesh.frustumCulled = false;
+    this.key = '';
     scene.add(this.mesh);
   }
   setTexture(tex) { this.mat.map = tex; this.mat.needsUpdate = true; }
-  show(point, normal, quaternion, w, h) {
-    this.mesh.position.copy(point).addScaledVector(normal, 0.003);
-    this.mesh.quaternion.copy(quaternion);
-    this.mesh.scale.set(w, h, 1);
+  show(point, normal, quaternion, w, h, surface) {
     this.mesh.visible = !!this.mat.map;
+    if (!this.faces) {
+      if (this.key !== 'plane') { this.mesh.geometry.dispose(); this.mesh.geometry = new THREE.PlaneGeometry(1, 1); this.key = 'plane'; }
+      this.mesh.position.copy(point).addScaledVector(normal, 0.003);
+      this.mesh.quaternion.copy(quaternion);
+      this.mesh.scale.set(w, h, 1);
+      return;
+    }
+    // Bygg bara om geometrin när något har ändrats.
+    const key = [...point.toArray(), ...quaternion.toArray(), w, h, surface].map((v) => (typeof v === 'number' ? v.toFixed(4) : v)).join();
+    if (key === this.key) return;
+    this.key = key;
+    const pieces = foldStamp(this.faces, { center: point, quaternion, w, h, surface });
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = foldGeometry(pieces, 0.0015);
   }
   hide() { this.mesh.visible = false; }
 }

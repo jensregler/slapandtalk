@@ -5,6 +5,7 @@ import { buildBoxRoom } from './room.js';
 import { FirstPersonControls } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { api } from './api.js';
+import { foldStamp } from './fold.js';
 import { connect } from './net.js';
 
 const $ = (id) => document.getElementById(id);
@@ -30,7 +31,7 @@ camera.position.copy(room.spawn);
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
 controls.attachJoystick($('joystick'), $('stick'));
 const stamps = new StampLayer(scene, room.surfaces);
-const preview = new StampPreview(scene);
+const preview = new StampPreview(scene, stamps.faces);
 const raycaster = new THREE.Raycaster();
 
 function resize() {
@@ -249,7 +250,7 @@ function frame() {
     const h = hitSurface(CENTER);
     if (h) {
       const [w, hh] = StampLayer.dims(state.selected, state.size);
-      preview.show(h.point, h.normal, StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh);
+      preview.show(h.point, h.normal, StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh, h.surface);
     } else preview.hide();
   }
   renderer.render(scene, camera);
@@ -266,7 +267,13 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 window.klibb = {
-  ready: false, state, stamps, camera, controls,
+  ready: false, state, stamps, camera, controls, preview,
+  // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
+  fold(position, quaternion, w, h, surface) {
+    const pieces = foldStamp(stamps.faces, { center: new THREE.Vector3(...position), quaternion: new THREE.Quaternion(...quaternion), w, h, surface });
+    return pieces.map((p) => ({ face: p.face, depth: p.depth, uv: p.uv, points: p.points.map((v) => v.toArray()) }));
+  },
+  orientation: (normal, dir, rot) => StampLayer.orientation(new THREE.Vector3(...normal), new THREE.Vector3(...dir), rot).toArray(),
   look(yaw, pitch) { controls.yaw = yaw; controls.pitch = pitch; controls.apply(); },
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
