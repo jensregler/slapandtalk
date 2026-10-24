@@ -19,7 +19,15 @@
   <button id="panel-toggle" type="button" aria-expanded="true">☰ Klibbor</button>
   <aside id="panel">
     <h1>Slap and Talk</h1>
-    <p class="room">Rum: <b id="room-name">stad</b> · <span id="stamp-count">0</span> klibbor</p>
+    <section id="room-box" aria-label="Rum">
+      <p class="room">Rum: <b id="room-name">stad</b> <span id="room-type" class="badge">Staden</span> · <span id="stamp-count">0</span> klibbor</p>
+      <p id="room-note" class="hint"></p>
+      <div class="room-btns">
+        <button id="new-room" type="button" title="Skapa ett eget rum med en kort kod som du kan dela">＋ Nytt snabbrum</button>
+        <button id="share-room" type="button" title="Kopiera eller dela länken till det här rummet">🔗 Dela länk</button>
+        <button id="to-stad" type="button" title="Tillbaka till det gemensamma rummet">🏙 Till Staden</button>
+      </div>
+    </section>
 
     <label class="upload">
       <input id="file" type="file" accept="image/png,image/jpeg,image/webp" />
@@ -43,12 +51,14 @@
     <div class="help desktop-only">
       <b>Dator:</b> klicka för att gå in. WASD = gå, musen = titta, klick = stämpla,
       scrollhjul = storlek, Q/E = vrid, R = byt design (växlar mellan dina uppladdade),
-      Esc = tillbaka till menyn.
+      Esc = tillbaka till menyn. <b>Rum:</b> ＋ Nytt snabbrum ger ett eget rum med en kort kod,
+      🔗 Dela länk skickar den till kompisar, 🏙 Till Staden tar dig tillbaka.
     </div>
     <div class="help touch-only">
       <b>Mobil:</b> styrspaken nere till vänster = gå, dra med fingret = titta,
       tryck = stämpla. Den runda knappen nere till höger visar vald design: tryck på den
-      för att byta till nästa. Fäll ihop menyn med ☰.
+      för att byta till nästa. Fäll ihop menyn med ☰. <b>Rum:</b> ＋ Nytt snabbrum ger ett eget rum,
+      🔗 Dela länk skickar det till kompisar, 🏙 Till Staden tar dig tillbaka.
     </div>
   </aside>
 
@@ -61,6 +71,7 @@
     <img id="design-btn-img" alt="" /><span id="design-btn-num"></span>
   </button>
   <div id="admin-banner" hidden>ADMIN-LÄGE – klicka/tryck på en klibba för att ta bort den</div>
+  <div id="room-hud" aria-hidden="true"></div>
   <div id="toast" role="status" aria-live="polite"></div>
   <dialog id="admin-dialog">
     <p id="admin-info"></p>

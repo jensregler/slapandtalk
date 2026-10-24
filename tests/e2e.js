@@ -226,8 +226,10 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // Bildfilen försvinner men stämpeln ligger kvar (som efter en omstart på Render). Bara lokalt.
     const UPLOADS = path.join(process.env.DATA_DIR || path.join(__dirname, '..', 'data'), 'uploads');
     if (/localhost|127\.0\.0\.1/.test(BASE) && fs.existsSync(UPLOADS)) {
+      // en egen bild (unik färg), eftersom samma bild annars blir samma design som de andra testbilderna
+      const uniq = await sharp({ create: { width: 64, height: 64, channels: 4, background: `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}` } }).png().toBuffer();
       const fd = new FormData();
-      fd.append('file', new Blob([fs.readFileSync(testPng)], { type: 'image/png' }), 'x.png');
+      fd.append('file', new Blob([uniq], { type: 'image/png' }), 'x.png');
       const img = await (await fetch(`${BASE}/api/stickers`, { method: 'POST', body: fd })).json();
       created.add(img.id);
       await fetch(`${BASE}/api/rooms/${ROOM}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -248,6 +250,28 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await page.goto(`${BASE}/?room=${fresh}`); await waitReady(page);
     assert(freshApi.stamps.length === 0 && (await count(page)) === 0, `ett nytt rum (${fresh}) är helt tomt`);
 
+    // ---------- Rumsmenyn: nytt snabbrum, dela länk, till Staden ----------
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
+    const roomUi = () => page.evaluate(() => ({ room: window.klibb.room, badge: document.getElementById('room-type').textContent,
+      hud: document.getElementById('room-hud').textContent, note: document.getElementById('room-note').textContent,
+      toStad: !document.getElementById('to-stad').hidden }));
+    await page.click('#new-room');
+    await page.waitForURL(/\?room=[a-z2-9]{6}$/); await waitReady(page);
+    const q = await roomUi();
+    assert(q.badge === 'Snabbrum' && q.hud === `Snabbrum · ${q.room}` && q.toStad && /24 timmar/.test(q.note) && (await count(page)) === 0,
+      `knappen Nytt snabbrum skapar ett tomt rum (${q.room}) och visar typen`);
+    const qInfo = await (await fetch(`${BASE}/api/rooms/${q.room}`)).json();
+    assert(qInfo.room.type === 'quick' && qInfo.room.createdAt, 'snabbrummet är sparat på servern som typ quick');
+    await page.click('#share-room');
+    const clip = await page.evaluate(() => navigator.clipboard.readText());
+    assert(clip === `${new URL(BASE).origin}/?room=${q.room}`, `Dela länk kopierar länken (${clip})`);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOTS, '11-rum-meny.png') });
+    await page.click('#to-stad');
+    await page.waitForURL((u) => !u.search.includes('room=')); await waitReady(page);
+    const st = await roomUi();
+    assert(st.room === 'stad' && st.badge === 'Staden' && st.hud === 'Staden' && !st.toStad, 'Till Staden tar en tillbaka till Staden');
+
     // Admin-läget: rätt nyckel visar bannern, fel nyckel gör det inte
     await page.goto(`${BASE}/?room=${ROOM}&admin=fel`); await waitReady(page);
     assert(await page.isHidden('#admin-banner'), 'fel admin-nyckel avvisas');
@@ -266,6 +290,10 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await m.waitForFunction(() => window.klibb.state.selected);
     created.add(await m.evaluate(() => window.klibb.state.selected.id));
     await m.screenshot({ path: path.join(SHOTS, '05-mobil-meny.png') });
+    assert((await m.textContent('#room-hud')) === 'Snabbrum · e2e-test' && await m.isVisible('#new-room'), 'mobil: rumsmenyn och rumsetiketten syns');
+    await m.waitForFunction(() => !document.getElementById('toast').classList.contains('show'), null, { timeout: 5000 });
+    await m.waitForTimeout(300);
+    await m.screenshot({ path: path.join(SHOTS, '12-rum-meny-mobil.png') });
     await m.tap('#panel-toggle');
     await m.evaluate(() => { window.klibb.moveTo(0, 1.5); window.klibb.look(0, 0); });
     const vp = m.viewportSize();

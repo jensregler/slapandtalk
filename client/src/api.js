@@ -19,6 +19,9 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(stamp),
   }).then(json),
 
+  createRoom: () => fetch('/api/rooms', { method: 'POST' }).then(json),
+  visit: (room) => fetch(`/api/rooms/${room}/visit`, { method: 'POST' }).then(json),
+
   // Vilka av mina designs finns kvar på servern?
   checkStickers: (ids) => fetch(`/api/stickers?ids=${ids.join(',')}`).then(json),
 

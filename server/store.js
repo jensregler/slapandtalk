@@ -1,74 +1,168 @@
-// Enkel lagring i JSON-filer: en fil per rum i data/rooms/<rum>.json
-// och en fil för alla bilder (data/images.json).
-// Allt går via funktionerna nedan, så om vi vill byta till SQLite senare
-// behöver bara den här filen skrivas om.
-const fs = require('fs');
-const path = require('path');
+// Rum, stämplar och bilder. Allt sparas via ett lagrings-adapter (se storage/), så det
+// spelar ingen roll för resten av appen om det ligger på disken eller i t.ex. Cloudflare R2.
+// Vill vi senare ha en riktig databas för rummen är det bara funktionerna här som byts.
+//
+// RUMSTYPER
+//   stad     Staden, det publika rummet ("stad"). Sparas alltid, rensas aldrig.
+//   quick    Snabbrum. Vem som helst kan skapa ett, utan konto. Raderas automatiskt
+//            när ingen har besökt det på QUICK_ROOM_TTL_HOURS timmar (standard 24).
+//   profile  Profilrum. Hör till en användare (owner) och sparas. Rensas aldrig av
+//            städjobbet. (Konton finns inte än; senare: påminnelse innan arkivering.)
+//
+// Ett rum sparas som "rooms/<id>.json":
+//   { id, type, owner, createdAt, lastVisitAt, stamps: [...] }
+//   owner = null, eller { id, name } när konton finns.
+//
+// Bilder (designs) sparas EN gång och stämplarna pekar på dem med imageId.
+//   "images/<id>.json"  metadata  { id, url, width, height, artist, createdAt }
+//   "uploads/<id>.webp" själva bilden
+//   id = början av SHA-256 av bildens innehåll, så samma bild två gånger blir samma design.
 const crypto = require('crypto');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
-const ROOMS_DIR = path.join(DATA_DIR, 'rooms');
-const IMAGES_FILE = path.join(DATA_DIR, 'images.json');
-fs.mkdirSync(ROOMS_DIR, { recursive: true });
+const ROOM_TYPES = ['stad', 'quick', 'profile'];
+const PUBLIC_ROOM = 'stad';
+const VISIT_WRITE_MS = 60_000; // skriv "senast besökt" högst en gång i minuten per rum
 
-function readJson(file, fallback) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
-}
-// Skriv först till en temporär fil och byt sedan namn, så filen aldrig blir halvskriven.
-function writeJson(file, data) {
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 1));
-  fs.renameSync(tmp, file);
-}
-
-const roomFile = (roomId) => path.join(ROOMS_DIR, roomId + '.json');
 const newId = () => crypto.randomBytes(8).toString('hex');
+const contentId = (buf) => crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
+// Korta rumskoder utan tecken som är lätta att blanda ihop (0/o, 1/l/i).
+const CODE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
+const roomCode = (n = 6) => [...crypto.randomBytes(n)].map((b) => CODE_CHARS[b % CODE_CHARS.length]).join('');
 
-function getRoom(roomId) {
-  return readJson(roomFile(roomId), { id: roomId, stamps: [] });
-}
-function listStamps(roomId) {
-  return getRoom(roomId).stamps;
-}
-function addStamp(roomId, stamp) {
-  const room = getRoom(roomId);
-  const s = { id: newId(), order: (room.stamps.at(-1)?.order ?? 0) + 1, createdAt: new Date().toISOString(), ...stamp };
-  room.stamps.push(s);
-  writeJson(roomFile(roomId), room);
-  return s;
-}
-function deleteStamp(roomId, stampId) {
-  const room = getRoom(roomId);
-  const before = room.stamps.length;
-  room.stamps = room.stamps.filter((s) => s.id !== stampId);
-  writeJson(roomFile(roomId), room);
-  return before !== room.stamps.length;
-}
-function deleteStampsWithImage(imageId) {
-  let removed = 0;
-  for (const f of fs.readdirSync(ROOMS_DIR).filter((f) => f.endsWith('.json'))) {
-    const roomId = f.replace(/\.json$/, '');
-    const room = getRoom(roomId);
-    const before = room.stamps.length;
-    room.stamps = room.stamps.filter((s) => s.imageId !== imageId);
-    removed += before - room.stamps.length;
-    writeJson(roomFile(roomId), room);
+function createStore(adapter, { clock = () => Date.now() } = {}) {
+  const locks = new Map();
+  // Ett rum i taget skrivs: annars kan två samtidiga stämplingar skriva över varandra.
+  function withLock(key, fn) {
+    const prev = locks.get(key) || Promise.resolve();
+    const run = prev.then(fn, fn);
+    const tail = run.catch(() => {});
+    locks.set(key, tail);
+    tail.then(() => { if (locks.get(key) === tail) locks.delete(key); });
+    return run;
   }
-  return removed;
+  const readJson = async (key) => { const b = await adapter.get(key); if (!b) return null; try { return JSON.parse(b.toString('utf8')); } catch { return null; } };
+  const writeJson = (key, data) => adapter.put(key, Buffer.from(JSON.stringify(data, null, 1)), 'application/json');
+  const roomKey = (id) => `rooms/${id}.json`;
+  const iso = () => new Date(clock()).toISOString();
+
+  const defaultType = (id) => (id === PUBLIC_ROOM ? 'stad' : 'quick');
+  // Fyller i fält som saknas i äldre rumsfiler (från före rumstyperna).
+  function normalize(id, r) {
+    const room = { id, type: defaultType(id), owner: null, createdAt: null, lastVisitAt: null, stamps: [], ...(r || {}) };
+    if (id === PUBLIC_ROOM) room.type = 'stad';
+    if (!ROOM_TYPES.includes(room.type)) room.type = 'quick';
+    return room;
+  }
+
+  async function getRoom(id) { const r = await readJson(roomKey(id)); return r ? normalize(id, r) : null; }
+  // Som getRoom, men ger ett tomt (osparat) rum om det inte finns.
+  async function roomOrEmpty(id) { return (await getRoom(id)) || { ...normalize(id, null), exists: false }; }
+  async function saveRoom(room) { const { exists, ...data } = room; await writeJson(roomKey(room.id), data); return data; }
+
+  async function createRoom({ id, type = 'quick', owner = null } = {}) {
+    if (!ROOM_TYPES.includes(type)) throw new Error('Okänd rumstyp');
+    for (let tries = 0; !id && tries < 20; tries++) {
+      const c = roomCode();
+      if (c !== PUBLIC_ROOM && !(await adapter.exists(roomKey(c)))) id = c;
+    }
+    if (!id) throw new Error('Kunde inte hitta en ledig rumskod');
+    return withLock(id, async () => {
+      if (await getRoom(id)) throw Object.assign(new Error('Rummet finns redan'), { code: 'EXISTS' });
+      const now = iso();
+      return saveRoom(normalize(id, { type: id === PUBLIC_ROOM ? 'stad' : type, owner, createdAt: now, lastVisitAt: now, stamps: [] }));
+    });
+  }
+
+  // Någon är i rummet: uppdatera "senast besökt" (bara rum som finns, plus staden).
+  async function touchRoom(id) {
+    return withLock(id, async () => {
+      let room = await getRoom(id);
+      if (!room && id !== PUBLIC_ROOM) return null;
+      if (!room) room = normalize(id, { createdAt: iso() });
+      const last = room.lastVisitAt ? Date.parse(room.lastVisitAt) : 0;
+      if (clock() - last >= VISIT_WRITE_MS) { room.lastVisitAt = iso(); await saveRoom(room); }
+      return room;
+    });
+  }
+
+  async function addStamp(roomId, stamp) {
+    return withLock(roomId, async () => {
+      const room = (await getRoom(roomId)) || normalize(roomId, { createdAt: iso() });
+      const s = { id: newId(), order: (room.stamps.at(-1)?.order ?? 0) + 1, createdAt: iso(), ...stamp };
+      room.stamps.push(s);
+      room.lastVisitAt = iso();
+      await saveRoom(room);
+      return s;
+    });
+  }
+  async function deleteStamp(roomId, stampId) {
+    return withLock(roomId, async () => {
+      const room = await getRoom(roomId);
+      if (!room) return false;
+      const before = room.stamps.length;
+      room.stamps = room.stamps.filter((s) => s.id !== stampId);
+      await saveRoom(room);
+      return before !== room.stamps.length;
+    });
+  }
+  async function listRooms() {
+    return (await adapter.list('rooms/')).filter((k) => k.endsWith('.json')).map((k) => k.slice(6, -5));
+  }
+  async function deleteRoom(id) { return withLock(id, () => adapter.delete(roomKey(id))); }
+  async function deleteStampsWithImage(imageId) {
+    let removed = 0;
+    for (const id of await listRooms()) {
+      await withLock(id, async () => {
+        const room = await getRoom(id);
+        if (!room) return;
+        const before = room.stamps.length;
+        room.stamps = room.stamps.filter((s) => s.imageId !== imageId);
+        if (room.stamps.length !== before) { removed += before - room.stamps.length; await saveRoom(room); }
+      });
+    }
+    return removed;
+  }
+
+  // Städjobbet: tar bort snabbrum som ingen har besökt på quickTtlMs millisekunder.
+  // Staden och profilrum rörs aldrig. Rum utan "senast besökt" (äldre filer) får den
+  // tiden satt nu, så de får en hel period på sig.
+  async function cleanupRooms({ quickTtlMs }) {
+    const deleted = [];
+    for (const id of await listRooms()) {
+      await withLock(id, async () => {
+        const room = await getRoom(id);
+        if (!room || room.type !== 'quick') return;
+        if (!room.lastVisitAt) { room.lastVisitAt = iso(); await saveRoom(room); return; }
+        if (clock() - Date.parse(room.lastVisitAt) > quickTtlMs) { await adapter.delete(roomKey(id)); deleted.push(id); }
+      });
+    }
+    return deleted;
+  }
+
+  // ---------- Bilder ----------
+  const getImage = (id) => readJson(`images/${id}.json`);
+  const addImage = async (img) => { await writeJson(`images/${img.id}.json`, img); return img; };
+  const deleteImage = (id) => adapter.delete(`images/${id}.json`);
+  const putImageFile = (id, buf) => adapter.put(`uploads/${id}.webp`, buf, 'image/webp');
+  const getImageFile = (id) => adapter.get(`uploads/${id}.webp`);
+  const hasImageFile = (id) => adapter.exists(`uploads/${id}.webp`);
+  const deleteImageFile = (id) => adapter.delete(`uploads/${id}.webp`);
+
+  // Engångsflytt: äldre versioner sparade alla bilder i en fil, images.json.
+  async function migrate() {
+    const old = await readJson('images.json');
+    if (!old) return 0;
+    for (const img of Object.values(old)) if (img && img.id && !(await adapter.exists(`images/${img.id}.json`))) await addImage(img);
+    await adapter.put('images.json.migrated', Buffer.from(JSON.stringify(old)), 'application/json');
+    await adapter.delete('images.json');
+    return Object.keys(old).length;
+  }
+
+  return {
+    adapter, clock, getRoom, roomOrEmpty, createRoom, touchRoom, addStamp, deleteStamp, listRooms, deleteRoom,
+    deleteStampsWithImage, cleanupRooms, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
+    deleteImageFile, migrate,
+  };
 }
 
-function listImages() { return readJson(IMAGES_FILE, {}); }
-function addImage(img) {
-  const images = listImages();
-  images[img.id] = img;
-  writeJson(IMAGES_FILE, images);
-  return img;
-}
-function getImage(id) { return listImages()[id]; }
-function deleteImage(id) {
-  const images = listImages();
-  delete images[id];
-  writeJson(IMAGES_FILE, images);
-}
-
-module.exports = { DATA_DIR, newId, listStamps, addStamp, deleteStamp, deleteStampsWithImage, addImage, getImage, deleteImage };
+module.exports = { createStore, newId, contentId, roomCode, ROOM_TYPES, PUBLIC_ROOM };

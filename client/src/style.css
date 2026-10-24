@@ -62,3 +62,16 @@ body.locked #panel { display: none; }
 #design-btn span:empty { display: none; }
 #design-hud[hidden], #design-btn[hidden] { display: none !important; }
 body.touch #design-hud { display: none !important; }
+
+/* Rum: typ, knappar och en diskret etikett högst upp i mitten. */
+.badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px; background: #333; color: #ddd; vertical-align: 1px; }
+.badge.quick { background: #ffd400; color: #111; }
+.badge.profile { background: #6ab0ff; color: #111; }
+#room-box { display: flex; flex-direction: column; gap: 6px; }
+#room-note:empty { display: none; }
+.room-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.room-btns button { flex: 1 1 auto; padding: 7px 8px; font-size: 13px; }
+.room-btns button[hidden] { display: none; }
+#room-hud { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 3; pointer-events: none;
+  font-size: 12px; color: rgba(255,255,255,.75); background: rgba(0,0,0,.35); padding: 3px 10px; border-radius: 10px; white-space: nowrap; }
+#room-hud:empty { display: none; }

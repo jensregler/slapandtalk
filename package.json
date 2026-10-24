@@ -1,12 +1,12 @@
 {
   "name": "slap-and-talk",
   "version": "1.0.0",
-  "description": "Slap and Talk – virtuellt utställningsrum för klistermärken",
+  "description": "Slap and Talk \u2013 virtuellt utst\u00e4llningsrum f\u00f6r klisterm\u00e4rken",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "test": "node tests/e2e.js"
+    "test": "node tests/rooms.test.js && node tests/e2e.js"
   },
   "keywords": [],
   "author": "",
@@ -18,6 +18,7 @@
     "vite": "^8.3.5"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1156.0",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
     "multer": "^2.5.0",

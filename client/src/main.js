@@ -289,10 +289,44 @@ if (!isTouch) {
   };
 }
 
+// ---------- Rum: typ, nytt snabbrum, dela länk, till Staden ----------
+const TYPE_NAMES = { stad: 'Staden', quick: 'Snabbrum', profile: 'Profilrum' };
+function roomUrl(id) { return `${location.origin}/${id === 'stad' ? '' : '?room=' + id}`; }
+function showRoomInfo(info) {
+  const type = info?.type || (ROOM === 'stad' ? 'stad' : 'quick');
+  const badge = $('room-type');
+  badge.textContent = TYPE_NAMES[type] || type;
+  badge.className = 'badge ' + type;
+  $('to-stad').hidden = ROOM === 'stad';
+  $('room-note').textContent = type === 'quick'
+    ? `Ditt eget rum. Dela länken så kan andra komma in. Det raderas när ingen har varit här på ${info?.quickTtlHours ?? 24} timmar.`
+    : type === 'profile' ? `Sparat rum${info.owner?.name ? ' som tillhör ' + info.owner.name : ''}.` : '';
+  $('room-hud').textContent = type === 'stad' ? 'Staden' : `${TYPE_NAMES[type] || type} · ${ROOM}`;
+  window.klibb && (window.klibb.roomInfo = { ...info, type });
+}
+showRoomInfo(null);
+$('new-room').onclick = async () => {
+  try {
+    const { room } = await api.createRoom();
+    location.href = roomUrl(room.id);
+  } catch (err) { toast(err.message); }
+};
+$('to-stad').onclick = () => { location.href = roomUrl('stad'); };
+$('share-room').onclick = async () => {
+  const url = roomUrl(ROOM);
+  const title = ROOM === 'stad' ? 'Slap and Talk – Staden' : `Slap and Talk – rum ${ROOM}`;
+  if (isTouch && navigator.share) { try { await navigator.share({ title, url }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(url); toast(`Länken är kopierad: ${url}`, 3500); }
+  catch { prompt('Kopiera länken:', url); }
+};
+// Säg till servern med jämna mellanrum att någon är här, så rummet inte städas bort.
+setInterval(() => { if (document.visibilityState === 'visible') api.visit(ROOM).catch(() => {}); }, 10 * 60_000);
+
 // ---------- Ladda rummet ----------
 async function loadRoom() {
   try {
-    const { stamps: list, images } = await api.loadRoom(ROOM);
+    const { stamps: list, images, info } = await api.loadRoom(ROOM);
+    showRoomInfo(info);
     // allSettled: en enda trasig stämpel ska inte hindra resten av rummet från att laddas.
     await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
     updateCount();
@@ -334,7 +368,7 @@ if ('serviceWorker' in navigator) {
 
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 window.klibb = {
-  ready: false, state, stamps, camera, controls, preview,
+  ready: false, room: ROOM, state, stamps, camera, controls, preview,
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {
     const pieces = foldStamp(stamps.faces, { center: new THREE.Vector3(...position), quaternion: new THREE.Quaternion(...quaternion), w, h, surface });

@@ -29,8 +29,24 @@ vänster tar dig framåt, **dra med fingret** för att titta och **tryck** där 
 Den **runda knappen nere till höger** visar vald design: tryck på den för att byta till nästa.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.
 
-**Olika rum:** lägg till `?room=namn` i adressen, till exempel `/?room=jens`.
-Utan något rum hamnar du i `stad`, den gemensamma staden. Ett nytt rum är alltid helt tomt.
+**Rum:** i menyn finns **＋ Nytt snabbrum** (skapar ett eget rum med en kort kod, t.ex.
+`/?room=k7m2qx`), **🔗 Dela länk** (kopierar länken, eller öppnar dela-menyn på mobilen) och
+**🏙 Till Staden**. Högst upp i bild står vilket rum du är i. Ett nytt rum är alltid helt tomt.
+
+Det finns tre sorters rum:
+
+| Typ | Vad | Sparas |
+|---|---|---|
+| **Staden** (`stad`) | Det gemensamma rummet där alla hamnar | Alltid, rensas aldrig |
+| **Snabbrum** | Vem som helst kan skapa ett, inget konto behövs | Raderas automatiskt när ingen har varit där på 24 timmar |
+| **Profilrum** | Hör till en användare (förberett, konton finns inte än) | Sparas, rensas aldrig av städningen |
+
+Man kan också skriva ett eget namn: `/?room=jens`. Det blir då ett snabbrum.
+
+**Städningen:** servern går igenom rummen en gång i timmen och tar bort snabbrum som ingen
+har besökt på `QUICK_ROOM_TTL_HOURS` timmar. Ett besök räknas när någon öppnar rummet,
+stämplar där, eller har sidan öppen (appen säger till var tionde minut). Designs (bilderna)
+tas inte bort, de kan finnas i andras menyer och rum.
 
 ---
 
@@ -51,11 +67,14 @@ klibbrum/
 │       ├── net.js          ← tom förberedelse för flerspelarläge
 │       └── style.css       ← utseendet på menyn
 ├── server/                 ← det som körs på servern (Node.js)
-│   ├── index.js            ← webbservern: tar emot bilder och stämplar
-│   ├── store.js            ← sparar allt i JSON-filer under data/
+│   ├── index.js            ← startar servern och städjobbet
+│   ├── app.js              ← webbservern: rum, bilder och stämplar (alla adresser /api/...)
+│   ├── store.js            ← rummen, stämplarna och bilderna (rumstyper, städning)
+│   ├── storage/            ← VAR det sparas: local.js (disk) eller s3.js (t.ex. Cloudflare R2)
 │   └── realtime.js         ← tom förberedelse för flerspelarläge
 ├── data/                   ← skapas automatiskt: uppladdade bilder och rummen
 ├── tests/e2e.js            ← automatiskt test i en osynlig webbläsare
+├── tests/rooms.test.js     ← test av rum, städning och lagring (utan webbläsare)
 ├── tools/make-icons.js     ← ritar appikonen och testbilden demo-klibba.png (används bara i testerna)
 ├── screenshots/            ← skärmdumpar från testet
 ├── ecosystem.config.js     ← säger till pm2 vilka program som ska hållas igång
@@ -160,3 +179,26 @@ när den har sovit) försvinner uppladdade bilder och stämplar. Webbläsaren mi
 och kan visa gamla kopior ur sin cache. Därför kollar appen vid start att dina designs finns kvar
 på servern och tar bort de som är borta, och servern hoppar över stämplar vars bild saknas.
 För att klibborna ska ligga kvar på riktigt behövs en beständig disk eller en databas.
+
+### Lagring och inställningar (miljövariabler)
+All lagring går genom ett litet lager i `server/storage/`, så vi kan byta från disk till
+beständig lagring utan att skriva om appen. Rummen sparas som `rooms/<rum>.json`, varje design
+en gång som `images/<id>.json` + `uploads/<id>.webp`, och stämplarna pekar på designen med dess id.
+Id:t räknas fram ur bildens innehåll, så laddar två personer upp exakt samma bild blir det en design.
+
+| Variabel | Standard | Vad |
+|---|---|---|
+| `STORAGE` | `local` | `local` = disken, `s3` = S3-kompatibel lagring (t.ex. Cloudflare R2) |
+| `DATA_DIR` | `./data` | Mappen som används när `STORAGE=local` |
+| `S3_BUCKET` | – | Bucketens namn (krävs för `s3`) |
+| `S3_ENDPOINT` | – | För R2: `https://<konto-id>.r2.cloudflarestorage.com` |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | – | API-nyckeln från leverantören (hemlig, lägg den bara i Render/`.env`) |
+| `S3_REGION` | `auto` | Region (R2 använder `auto`) |
+| `S3_PREFIX` | tomt | Lägger allt under en "mapp" i bucketen, t.ex. `slapandtalk/` |
+| `QUICK_ROOM_TTL_HOURS` | `24` | Hur länge ett tomt snabbrum får stå kvar |
+| `ROOM_CLEANUP_INTERVAL_MINUTES` | `60` | Hur ofta städningen körs |
+
+**Slå på Cloudflare R2 senare:** skapa en bucket och en API-token (Object Read & Write) i
+Cloudflare, sätt `STORAGE=s3` och S3-variablerna ovan i Render, och starta om. Befintliga
+klibbor på Render-disken flyttas inte automatiskt. En riktig databas för rummen kan senare
+kopplas in genom att bara skriva om funktionerna i `server/store.js`.
