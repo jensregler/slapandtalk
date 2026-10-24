@@ -13,6 +13,10 @@ const { broadcast } = require('./realtime');
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
+// Största klibban (längsta sidan) = väggens höjd, samma mått som rummet i webbappen.
+const MAX_STAMP_SIZE = require('../shared/room.json').height;
+// Större stämplar krymps (i stället för att nekas), så äldre appar inte får fel.
+const clampSize = (s) => Math.min(s, MAX_STAMP_SIZE);
 
 function createApp(store, { adminToken = '', quickTtlHours = 24 } = {}) {
 const ADMIN_TOKEN = adminToken;
@@ -145,7 +149,7 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
     const m = ok.get(s.imageId);
     if (m) images[s.imageId] = m;
     return !!m;
-  });
+  }).map((s) => (isNum(s.size) && s.size > MAX_STAMP_SIZE ? { ...s, size: MAX_STAMP_SIZE } : s)); // gamla för stora stämplar
   res.json({ room: id, info: roomPublic(room), stamps, images });
 }));
 
@@ -158,11 +162,11 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   const image = await imageAvailable(b.imageId);
   if (!image) return res.status(410).json({ error: 'Designen finns inte längre på servern. Ladda upp den igen.', gone: true });
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Felaktig placering' });
-  if (!isNum(b.size) || b.size < 0.02 || b.size > 5) return res.status(400).json({ error: 'Felaktig storlek' });
+  if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Felaktig storlek' });
   const stamp = await store.addStamp(room, {
     imageId: image.id,
     position: b.position, normal: b.normal, quaternion: b.quaternion,
-    size: b.size, rotation: isNum(b.rotation) ? b.rotation : 0,
+    size: clampSize(b.size), rotation: isNum(b.rotation) ? b.rotation : 0,
     surface: String(b.surface || '').slice(0, 40),
     artist: String(b.artist || '').slice(0, 60),
   });

@@ -122,6 +122,13 @@ async function roomLifecycle(name, adapter) {
       const st = await fetch(`${base}/api/rooms/${r.room.id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' }) });
       const room = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
+      const big = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 6, surface: 'vägg-norr' }) })).json();
+      assert(big.stamp && big.stamp.size === 4, `servern krymper för stora klibbor till väggens höjd i stället för att neka (6 m → ${big.stamp && big.stamp.size} m)`);
+      await store.addStamp(r.room.id, { imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 5, surface: 'vägg-norr' });
+      const loaded = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
+      assert(loaded.stamps.length === 3 && loaded.stamps.every((x) => x.size <= 4) && loaded.stamps[2].size === 4, 'gamla sparade stämplar större än väggen krymps när rummet laddas');
+      room.stamps = loaded.stamps.slice(0, 1);
       assert(st.status === 200 && room.stamps.length === 1 && room.stamps[0].imageId === i1.id && room.images[i1.id], 'stämplar pekar på designen med imageId');
     } finally { server.close(); }
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }

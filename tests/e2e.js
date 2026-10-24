@@ -427,6 +427,34 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.waitForTimeout(500);
     assert((await mineIds()).join() === five.join(), 'ett 410-svar för en design tar inte bort någon annan design');
 
+    // ---------- Största storlek = väggens höjd ----------
+    const cap = await d.evaluate(() => {
+      const k = window.klibb;
+      const r = { max: k.maxSizeCm, sliderMax: document.getElementById('size').max };
+      k.setSize(1000); r.after = k.state.size; r.slider = document.getElementById('size').value;
+      r.toast = document.getElementById('toast').textContent;
+      return r;
+    });
+    assert(cap.max === 400 && cap.sliderMax === '400' && cap.after === 4 && cap.slider === '400' && /Max storlek/.test(cap.toast),
+      `storleken stannar vid väggens höjd, räknad ur rummet (${cap.max} cm), med meddelande`);
+    // Scrollhjulet: låst mus, scrolla uppåt många gånger
+    await d.evaluate(() => { window.klibb.setSize(300); window.klibb.moveTo(0, 0); window.klibb.look(0, 0); });
+    await d.mouse.click(900, 400); await d.waitForTimeout(200);
+    for (let i = 0; i < 15; i++) await d.mouse.wheel(0, -200);
+    await d.waitForTimeout(200);
+    const wheelSize = await d.evaluate(() => window.klibb.state.size);
+    // En mycket bred design: längsta sidan (bredden) får inte bli längre än väggens höjd
+    await d.evaluate(() => { const k = window.klibb; k.state.size = 9; k.state.rotation = 0; });
+    const wideStamp = await d.evaluate(() => window.klibb.stampAt(0, 0).then((s) => s && { id: s.id, size: s.size }));
+    const wide = wideStamp && wideStamp.size;
+    const dimsOk = await d.evaluate((id) => { const m = window.klibb.stamps.meshes.get(id); m.geometry.computeBoundingBox();
+      const b = m.geometry.boundingBox; return Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z); }, wideStamp.id);
+    // En mycket bred design (10:1): längsta sidan, bredden, blir också högst väggens höjd.
+    const wideDims = await d.evaluate(() => { const k = window.klibb; return k.stamps.constructor.dims({ width: 1000, height: 100 }, Math.min(9, k.maxSizeCm / 100)); });
+    await d.evaluate(() => { const k = window.klibb; k.setSize(30); k.controls.unlock(); });
+    assert(wheelSize === 4 && wide === 4 && dimsOk <= 4 + 1e-3 && wideDims[0] === 4 && Math.abs(wideDims[1] - 0.4) < 1e-9,
+      `scroll stannar vid 4 m, en stämpel blir högst 4 m (${dimsOk.toFixed(2)} m) och en bred design högst 4 m bred`);
+
     // ---------- Klibbläge / Tittläge (V) ----------
     const modeInfo = () => d.evaluate(() => ({ mode: window.klibb.state.mode, hud: document.getElementById('mode-hud').textContent,
       preview: window.klibb.preview.mesh.visible, count: window.klibb.stamps.count, size: window.klibb.state.size,

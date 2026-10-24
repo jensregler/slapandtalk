@@ -1,7 +1,7 @@
 // Slap and Talk – startpunkten för webbappen. Här kopplas allt ihop:
 // rummet (room.js), styrningen (controls.js), stämplarna (stamps.js) och servern (api.js).
 import * as THREE from 'three';
-import { buildBoxRoom } from './room.js';
+import { buildBoxRoom, wallHeight } from './room.js';
 import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { api } from './api.js';
@@ -170,12 +170,25 @@ async function validateDesigns() {
   await handleMissing(missing);
 }
 
+// Största klibban: längsta sidan får vara högst väggens höjd (även bredden, eftersom
+// klibban kan vridas så att bredden blir höjd). Storleken = klibbans längsta sida.
+const MAX_SIZE_CM = Math.floor(wallHeight(room.surfaces) * 100 + 1e-6);
+$('size').max = String(MAX_SIZE_CM);
 $('size').oninput = (e) => { state.size = e.target.value / 100; $('size-val').textContent = `${e.target.value} cm`; };
 $('rot').oninput = (e) => { state.rotation = Number(e.target.value); $('rot-val').textContent = `${e.target.value}°`; };
 $('jitter').onchange = (e) => { state.jitter = e.target.checked; };
 $('artist').value = state.artist;
 $('artist').oninput = (e) => { state.artist = e.target.value.trim(); localStorage.setItem('klibb.artist', state.artist); };
-function setSize(cm) { cm = THREE.MathUtils.clamp(Math.round(cm), 5, 200); $('size').value = cm; $('size').oninput({ target: $('size') }); }
+let maxToastAt = 0;
+function setSize(cm) {
+  const want = Math.round(cm);
+  cm = THREE.MathUtils.clamp(want, 5, MAX_SIZE_CM);
+  if (want > MAX_SIZE_CM && performance.now() - maxToastAt > 1500) {
+    maxToastAt = performance.now();
+    toast(`Max storlek: ${(MAX_SIZE_CM / 100).toLocaleString('sv-SE')} m (väggens höjd)`, 1500);
+  }
+  $('size').value = cm; $('size').oninput({ target: $('size') });
+}
 function setRot(deg) { deg = ((deg + 540) % 360) - 180; $('rot').value = deg; $('rot').oninput({ target: $('rot') }); }
 
 // Bilden krymps i webbläsaren om den är stor, så uppladdningen går fort även på mobilen.
@@ -230,7 +243,7 @@ async function stampAt(ndc) {
   const body = {
     imageId: design.id,
     position: h.point.toArray(), normal: h.normal.toArray(), quaternion: q.toArray(),
-    size: state.size, rotation: state.rotation, surface: h.surface, artist: state.artist,
+    size: Math.min(state.size, MAX_SIZE_CM / 100), rotation: state.rotation, surface: h.surface, artist: state.artist,
   };
   try {
     let res;
@@ -421,7 +434,7 @@ function frame() {
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
     if (h) {
-      const [w, hh] = StampLayer.dims(state.selected, state.size);
+      const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, MAX_SIZE_CM / 100));
       preview.show(h.point, h.normal, StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh, h.surface);
     } else preview.hide();
   }
@@ -452,5 +465,5 @@ window.klibb = {
   look(yaw, pitch) { controls.yaw = yaw; controls.pitch = pitch; controls.apply(); },
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
-  nextDesign, designs, validateDesigns, setMode, toggleMode,
+  nextDesign, designs, validateDesigns, setMode, toggleMode, setSize, maxSizeCm: MAX_SIZE_CM,
 };

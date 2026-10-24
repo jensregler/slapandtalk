@@ -1,0 +1,6 @@
+{
+  "_om": "Rummets mått i meter. Används av både webbappen (room.js) och servern (största tillåtna klibba = väggens höjd).",
+  "width": 10,
+  "height": 4,
+  "depth": 10
+}

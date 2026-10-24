@@ -15,7 +15,9 @@ All kod är öppen källkod under MIT-licensen (se `LICENSE`).
 ## Så använder du det
 
 **På datorn:** klicka på *Ladda upp klibba*, välj en bild och klicka på *Gå in i rummet*.
-Gå med **W A S D**, titta med musen och **klicka** för att stämpla. Scrollhjulet ändrar storlek,
+Gå med **W A S D**, titta med musen och **klicka** för att stämpla. Scrollhjulet ändrar storlek
+(från 5 cm upp till väggens höjd, 4 m; det gäller klibbans längsta sida, så den blir aldrig högre
+än väggen ens om du vrider den),
 **Q/E** vrider klibban, **R** byter design, **V** växlar mellan Klibbläge och Tittläge och
 **Esc** tar dig tillbaka till menyn.
 

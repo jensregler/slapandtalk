@@ -5,6 +5,7 @@
 //   surfaces = de ytor (meshar) man får stämpla på
 //   bounds   = hur långt man får gå (så man inte går genom väggarna)
 import * as THREE from 'three';
+import ROOM_SIZE from '../../shared/room.json';
 
 function noiseTexture(base, spread, size = 256) {
   const c = document.createElement('canvas');
@@ -23,7 +24,7 @@ function noiseTexture(base, spread, size = 256) {
   return t;
 }
 
-export function buildBoxRoom({ width = 10, height = 4, depth = 10 } = {}) {
+export function buildBoxRoom({ width = ROOM_SIZE.width, height = ROOM_SIZE.height, depth = ROOM_SIZE.depth } = {}) {
   const group = new THREE.Group();
   const surfaces = [];
 
@@ -60,6 +61,22 @@ export function buildBoxRoom({ width = 10, height = 4, depth = 10 } = {}) {
   const margin = 0.35;
   const bounds = new THREE.Box3(new THREE.Vector3(-hw + margin, 0, -hd + margin), new THREE.Vector3(hw - margin, height, hd - margin));
   return { group, surfaces, bounds, spawn: new THREE.Vector3(0, 1.6, 3.5) };
+}
+
+// Väggens höjd, räknad ur själva geometrin: höjden på de stående ytorna (väggarna).
+// Finns inga stående ytor (t.ex. ett konstigt rum från Blender) används hela rummets höjd.
+export function wallHeight(surfaces) {
+  let h = 0;
+  for (const m of surfaces) {
+    const box = new THREE.Box3().setFromObject(m);
+    const size = box.getSize(new THREE.Vector3());
+    const n = new THREE.Vector3(0, 0, 1).transformDirection(m.matrixWorld);
+    if (Math.abs(n.y) < 0.1) h = Math.max(h, size.y); // stående yta
+  }
+  if (h > 0) return h;
+  const all = new THREE.Box3();
+  surfaces.forEach((m) => all.expandByObject(m));
+  return all.getSize(new THREE.Vector3()).y || 4;
 }
 
 // För senare: ladda ett rum gjort i Blender (Arkiv > Exportera > glTF 2.0, .glb).
