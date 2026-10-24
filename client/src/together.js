@@ -13,25 +13,31 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   if (!me.saved) saveMyAvatar(me.name, me.look); // en slumpad gubbe ska se likadan ut nästa gång
   const myName = () => me.name || cleanName(artist()) || '';
   const players = new Players(scene);
-  let status = 'connecting', full = false, unread = 0;
+  let status = 'connecting', full = false, unread = 0, serverName = ''; // serverName = det namn de andra ser på mig
 
   // ---------- Anslutningen ----------
   const net = connect(room, {
     hello: () => ({ name: myName(), look: me.look, p: camera.position.toArray(), y: controls.yaw }),
+    onYou(name) { serverName = name; renderPeople(); },
     onWelcome(m) {
+      serverName = m.you?.name || '';
       players.remove('*');
       for (const p of m.players) players.upsert(p);
       full = !!m.full; $('full-banner').hidden = !full;
       setChatHistory(m.chat || []);
       last = null; renderPeople(); renderChatInput();
     },
-    onJoin(p) { players.upsert(p); sys(`${p.name} kom in`); renderPeople(); },
-    onLeave(id) {
-      if (id !== '*') { const pl = players.map.get(id); if (pl) sys(`${pl.name} gick`); }
+    onJoin(p, rejoin) { players.upsert(p); if (!rejoin) sys(`${p.name} kom in`); renderPeople(); },
+    onLeave(id, rejoin) {
+      if (id !== '*' && !rejoin) { const pl = players.map.get(id); if (pl) sys(`${pl.name} gick`); } // med det namn personen har nu
       players.remove(id); renderPeople();
     },
     onMove: (id, p, y) => players.move(id, p, y),
-    onLook(id, name, look) { players.look(id, name, look); renderPeople(); },
+    onLook(id, name, look) {
+      const pl = players.map.get(id);
+      if (pl && pl.name !== name) sys(`${pl.name} heter nu ${name}`);
+      players.look(id, name, look); renderPeople();
+    },
     onChat(msg) { addChat(msg); if (msg.from !== net.id) players.say(msg.from, msg.text); },
     onEvent,
     onStatus(s) { status = s; renderPeople(); renderChatInput(); },
@@ -59,9 +65,9 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     const ul = $('people'); ul.innerHTML = '';
     const add = (name, color, mine) => {
       const li = document.createElement('li'); const i = document.createElement('i'); i.style.background = color;
-      li.append(i, document.createTextNode(mine ? (name ? `${name} (du)` : 'Du') : name)); ul.appendChild(li);
+      li.append(i, document.createTextNode(mine ? `${name || 'Du'} (du)` : name)); ul.appendChild(li);
     };
-    if (status === 'online') add(myName(), me.look.shirt, true);
+    if (status === 'online') add(serverName || myName(), me.look.shirt, true);
     for (const p of players.map.values()) add(p.name, p.look?.shirt || '#888', false);
   }
 
@@ -199,12 +205,21 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     toast('Din gubbe är sparad. De andra ser den direkt.', 2200);
   };
 
+  // Inget eget namn i Min gubbe? Då används artistnamnet, och ändras det får de andra veta direkt.
+  let artistTimer;
+  $('artist').addEventListener('input', () => {
+    if (me.name) return;
+    clearTimeout(artistTimer); artistTimer = setTimeout(() => net.sendLook(myName(), me.look), 700);
+  });
+  // Enter i namnfältet = Spara
+  $('av-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('av-ok').click(); } });
+
   renderPeople(); renderChatInput();
   return {
     net, players,
     update(dt) { sendMove(dt); players.update(dt, camera.position); },
     busy: () => av.open,
     chatOpen, openChat, closeChat, openAvatarPanel, closeAvatarPanel,
-    me: () => ({ name: myName(), look: { ...me.look } }),
+    me: () => ({ name: myName(), shownAs: serverName, look: { ...me.look } }),
   };
 }

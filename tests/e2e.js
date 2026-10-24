@@ -690,10 +690,20 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await seeOne(A); await seeOne(B);
     const stA = await A.evaluate(() => [window.klibb.net.status, document.getElementById('presence-text').textContent, document.querySelectorAll('#people li').length]);
     assert(stA[0] === 'online' && /2 här/.test(stA[1]) && stA[2] === 2, `två spelare i samma rum ser varandra (${stA[1]})`);
+    // Namn: två gäster utan namn får olika gästnamn, och namnskylten visar samma namn som servern
+    const nmA = await A.evaluate(() => [window.klibb.me().shownAs, window.klibb.players()[0].tag]);
+    const nmB = await B.evaluate(() => [window.klibb.me().shownAs, window.klibb.players()[0].tag]);
+    assert(/^Gäst \d+$/.test(nmA[0]) && /^Gäst \d+$/.test(nmB[0]) && nmA[0] !== nmB[0] && nmA[1] === nmB[0] && nmB[1] === nmA[0],
+      `två gäster utan namn får olika namn på namnskylten (${nmA[0]} och ${nmB[0]})`);
+    // B skriver bara ett artistnamn: det blir namnet på B:s gubbe direkt
+    await B.fill('#artist', '  Bosse  ');
+    await B.evaluate(() => document.activeElement.blur()); // annars står markören kvar i fältet (och T/Enter skriver där)
+    await A.waitForFunction(() => window.klibb.players()[0].tag === 'Bosse', null, { timeout: 5000 });
+    assert(true, 'artistnamnet blir namnet på gubben för de andra direkt (om man inte valt ett annat i Min gubbe)');
     // Min gubbe: A väljer kläder, färger och keps i panelen
     await A.click('#my-avatar');
     await A.waitForSelector('#avatar-panel', { state: 'visible' });
-    await A.fill('#av-name', 'Anna <3');
+    await A.fill('#av-name', '   Ulla   <3 ');
     await A.click('#av-outfit button[data-id="kostym"]'); await A.click('#av-hair button[data-id="lang"]');
     await A.click('#av-shirt button[data-id="#e63946"]'); await A.click('#av-haircolor button[data-id="#d4a35a"]');
     await A.check('#av-hat'); await A.click('#av-hatcolor button[data-id="#ffd400"]');
@@ -702,8 +712,12 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await A.screenshot({ path: path.join(SHOTS, '25-gubbe-dator.png') });
     const blocked = await A.evaluate(async () => { const n = window.klibb.stamps.count; const r = await window.klibb.stampAt(0, 0); return r === null && window.klibb.stamps.count === n; });
     await A.click('#av-ok');
-    await B.waitForFunction(() => { const p = window.klibb.players()[0]; return p && p.name === 'Anna <3' && p.look.outfit === 'kostym' && p.look.hat && p.look.shirt === '#e63946'; }, null, { timeout: 5000 });
+    await B.waitForFunction(() => { const p = window.klibb.players()[0]; return p && p.name === 'Ulla <3' && p.look.outfit === 'kostym' && p.look.hat && p.look.shirt === '#e63946'; }, null, { timeout: 5000 });
     assert(blocked && (await A.evaluate(() => JSON.parse(localStorage.getItem('klibb.avatar')).look.outfit)) === 'kostym', 'Min gubbe: valen sparas på enheten och syns för den andra direkt');
+    const tagB = await B.evaluate(() => [window.klibb.players()[0].tag, [...document.querySelectorAll('#people li')].map((l) => l.textContent), [...document.querySelectorAll('#chat-log li.sys')].map((l) => l.textContent)]);
+    const shownA = await A.waitForFunction(() => window.klibb.me().shownAs === 'Ulla <3', null, { timeout: 5000 }).then(() => true, () => false);
+    assert(tagB[0] === 'Ulla <3' && tagB[1].includes('Ulla <3') && tagB[2].some((t) => t === `${nmA[0]} heter nu Ulla <3`) && shownA,
+      'valt namn (Ulla) syns på namnskylten och i listan för den andra direkt när man sparar ("Gäst N heter nu Ulla <3")');
     // B går: A ser B röra sig (mjukt, med gå-animation) och sedan stå still
     let sawWalk = false;
     for (let i = 0; i <= 20; i++) {
@@ -734,7 +748,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await B.waitForFunction(() => [...document.querySelectorAll('#chat-log li')].some((li) => li.textContent.includes('Hej Bosse')), null, { timeout: 5000 });
     const chatB = await B.evaluate(() => { const li = [...document.querySelectorAll('#chat-log li')].find((x) => x.textContent.includes('Hej Bosse'));
       return { text: li.textContent, imgs: document.querySelectorAll('#chat-log img').length, xss: window.__xss, name: li.querySelector('.n').textContent, tm: li.querySelector('.tm').textContent, bubble: window.klibb.players()[0].bubble }; });
-    assert(tTyped === '' && chatB.text.includes('<img src=x') && chatB.imgs === 0 && chatB.xss === undefined && chatB.name === 'Anna <3' && /^\d\d:\d\d$/.test(chatB.tm) && chatB.bubble,
+    assert(tTyped === '' && chatB.text.includes('<img src=x') && chatB.imgs === 0 && chatB.xss === undefined && chatB.name === 'Ulla <3' && /^\d\d:\d\d$/.test(chatB.tm) && chatB.bubble,
       'chatt: T öppnar, meddelandet når B med namn och tid, HTML visas som text (ingen XSS), pratbubbla över gubben');
     assert(!(await A.isVisible('#chat-input')), 'Enter skickar och stänger chatten (dator)');
     // Skrivspärr: medan man skriver i chatten styr inte WASD/V/R/Z/Q/E spelet
@@ -763,8 +777,10 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // Min gubbe finns kvar efter omladdning, och B ser samma gubbe igen
     await A.reload(); await waitReady(A);
     const meAfter = await A.evaluate(() => window.klibb.me());
-    await B.waitForFunction(() => { const p = window.klibb.players(); return p.length === 1 && p[0].name === 'Anna <3' && p[0].look.outfit === 'kostym' && p[0].look.hair === 'lang'; }, null, { timeout: 8000 });
-    assert(meAfter.name === 'Anna <3' && meAfter.look.hat && meAfter.look.hatColor === '#ffd400', 'Min gubbe finns kvar efter omladdning och syns likadan för de andra');
+    await B.waitForFunction(() => { const p = window.klibb.players(); return p.length === 1 && p[0].name === 'Ulla <3' && p[0].look.outfit === 'kostym' && p[0].look.hair === 'lang'; }, null, { timeout: 8000 });
+    assert((await B.evaluate(() => window.klibb.players()[0].tag)) === 'Ulla <3' && (await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent))).filter((t) => t === 'Ulla <3 kom in').length >= 1,
+      'efter omladdning kommer A in igen som "Ulla <3" (namnskylt och "kom in"-rad)');
+    assert(meAfter.name === 'Ulla <3' && meAfter.look.hat && meAfter.look.hatColor === '#ffd400', 'Min gubbe finns kvar efter omladdning och syns likadan för de andra');
     // Servern startar om: båda kopplar upp sig igen av sig själva och ser varandra igen
     execSync('npx pm2 restart slapandtalk', { cwd: path.join(__dirname, '..'), stdio: 'ignore' });
     await A.waitForFunction(() => window.klibb.net.status !== 'online', null, { timeout: 8000 }).catch(() => {});
@@ -777,7 +793,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // A går: B ser att A försvinner
     await actx.close();
     await B.waitForFunction(() => window.klibb.players().length === 0, null, { timeout: 8000 });
-    assert([...(await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent)))].some((t) => /Anna <3 gick/.test(t)), 'när A stänger sidan försvinner gubben för B ("Anna <3 gick")');
+    assert([...(await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent)))].some((t) => /Ulla <3 gick/.test(t)), 'när A stänger sidan försvinner gubben för B ("Ulla <3 gick")');
     await bctx.close();
 
     // Fullt rum: 10 är max. Den elfte får titta, och kommer in när någon går.

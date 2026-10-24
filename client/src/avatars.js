@@ -35,7 +35,9 @@ export function randomLook() {
     hairColor: any(AV.colors.hair), skin: any(AV.colors.skin), hat: Math.random() < 0.3, hatColor: any(AV.colors.hat),
   });
 }
-export const cleanName = (s) => String(s || '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, AV.maxName);
+// Samma regler som servern: inga kontroll-/osynliga tecken, högst 24 tecken (emoji klipps inte itu).
+export const cleanName = (s) => Array.from(String(s ?? '').normalize('NFC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '').replace(/\s+/g, ' ').trim())
+  .slice(0, AV.maxName).join('').trim();
 // Min gubbe sparas bara på den här enheten.
 export function loadMyAvatar() {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(LOOK_KEY) || '{}') || {}; } catch { /* trasig, börja om */ }
@@ -258,6 +260,6 @@ export class Players {
   }
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
-      walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, bubble: p.avatar?.bubble ? true : false }));
+      walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false }));
   }
 }

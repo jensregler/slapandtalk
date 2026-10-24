@@ -71,6 +71,12 @@ inifrån (förstapersonsvy), men i **🧍 Min gubbe** finns en förhandsvisning.
   långt, bakåtkammat, tupp), färg på tröja, byxor och hår, hudton och keps. Gubben snurrar i en
   förhandsvisning medan du väljer (dra för att vrida). **Spara** sparar den på den här enheten och
   de andra ser den direkt. **🎲 Slumpa** ger en slumpad gubbe. Första gången får du en slumpad.
+- **Namn på namnskylten:** det namn du väljer i Min gubbe syns för alla direkt när du sparar (och
+  när du kommer in igen). Har du inget namn där används ditt artistnamn, annars heter du *Gäst 1*,
+  *Gäst 2* … (servern delar ut numren, så två i samma rum får aldrig samma gästnamn, och ingen kan
+  välja ett gästnamn själv). Namn rensas från osynliga tecken och dubbla mellanslag och får vara
+  högst 24 tecken. Byter någon namn står det i chatten (*Gäst 1 heter nu Ulla*), och *kom in* /
+  *gick* visar alltid det namn personen har just då.
 - **Fullt rum:** högst 10 gubbar per rum (`MAX_PLAYERS_PER_ROOM`). Den elfte ser rummet, alla
   gubbar och chatten, men kan inte skriva och syns inte, och kommer in automatiskt när någon går.
 - **Tappar du anslutningen** (mobilen byter nät, servern startar om eller Render vaknar) kopplar

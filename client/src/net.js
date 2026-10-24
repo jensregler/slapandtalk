@@ -15,7 +15,10 @@
 export function connect(roomId, handlers) {
   const h = { hello: () => ({}), ...handlers };
   const noop = () => {};
-  for (const k of ['onWelcome', 'onJoin', 'onLeave', 'onMove', 'onLook', 'onChat', 'onEvent', 'onSignal', 'onStatus', 'onReconnect', 'onError']) h[k] = h[k] || noop;
+  for (const k of ['onYou', 'onWelcome', 'onJoin', 'onLeave', 'onMove', 'onLook', 'onChat', 'onEvent', 'onSignal', 'onStatus', 'onReconnect', 'onError']) h[k] = h[k] || noop;
+  // Slumpas per sidladdning: kopplar samma flik upp sig igen vet servern att den gamla
+  // anslutningen är död och tar bort den direkt (annars kunde man synas två gånger en stund).
+  const sid = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
   let ws = null, closed = false, attempt = 0, timer = null, lastMsg = 0, everOnline = false, status = 'offline', myId = null;
   const setStatus = (s) => { if (s !== status) { status = s; h.onStatus(s); } };
   const url = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?room=${encodeURIComponent(roomId)}`;
@@ -28,7 +31,7 @@ export function connect(roomId, handlers) {
     let sock;
     try { sock = new WebSocket(url()); } catch { schedule(); return; }
     ws = sock;
-    sock.onopen = () => { lastMsg = Date.now(); send({ t: 'hello', ...h.hello() }); };
+    sock.onopen = () => { lastMsg = Date.now(); send({ t: 'hello', ...h.hello(), sid }); };
     sock.onmessage = (ev) => {
       lastMsg = Date.now();
       let m; try { m = JSON.parse(ev.data); } catch { return; }
@@ -41,8 +44,9 @@ export function connect(roomId, handlers) {
           if (again) h.onReconnect();
           break;
         }
-        case 'join': h.onJoin(m.player); break;
-        case 'leave': h.onLeave(m.id); break;
+        case 'you': h.onYou(m.name); break;
+        case 'join': h.onJoin(m.player, !!m.rejoin); break;
+        case 'leave': h.onLeave(m.id, !!m.rejoin); break;
         case 'move': h.onMove(m.id, m.p, m.y); break;
         case 'look': h.onLook(m.id, m.name, m.look); break;
         case 'chat': h.onChat(m.msg); break;

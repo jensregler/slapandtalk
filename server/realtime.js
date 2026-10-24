@@ -33,9 +33,14 @@ const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
 const clampN = (n, a, b) => Math.min(b, Math.max(a, n));
 const round = (n) => Math.round(n * 1000) / 1000;
 
+// Namn: inga kontroll- eller osynliga tecken (t.ex. tecken som vänder textriktningen), inga
+// dubbla mellanslag, högst 24 tecken (räknat i tecken, så en emoji inte klipps itu).
 function cleanName(s) {
-  return String(s || '').replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e]/g, '').replace(/\s+/g, ' ').trim().slice(0, AV.maxName);
+  const t = String(s ?? '').normalize('NFC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '').replace(/\s+/g, ' ').trim();
+  return Array.from(t).slice(0, AV.maxName).join('').trim();
 }
+// "Gäst 3" är reserverat för gäster utan namn, så ingen kan låtsas vara en annan gäst.
+const GUEST_RE = /^g[äa]st\s*\d*$/i;
 // Gubbens utseende kontrolleras mot samma katalog som webbappen använder (shared/avatar.json).
 function cleanLook(l) {
   const d = AV.default; l = l && typeof l === 'object' ? l : {};
@@ -80,6 +85,18 @@ function attachRealtime(server, {
     return rooms.get(id);
   };
   const pub = (c) => ({ id: c.id, name: c.name, look: c.look, p: c.p, y: c.y });
+  // Den som inte valt något namn heter "Gäst N", med det lägsta lediga N i rummet.
+  // Två i samma rum får därför aldrig samma gästnamn.
+  function setName(c, r, wanted) {
+    const chosen = cleanName(wanted);
+    if (chosen && !GUEST_RE.test(chosen)) { c.guestNo = null; c.name = chosen; return; }
+    if (!c.guestNo) {
+      const used = new Set(everyone(r).filter((o) => o !== c && o.guestNo).map((o) => o.guestNo));
+      let n = 1; while (used.has(n)) n++;
+      c.guestNo = n;
+    }
+    c.name = `Gäst ${c.guestNo}`;
+  }
   const send = (c, msg) => { if (c.ws.readyState === 1) c.ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); };
   const everyone = (r) => [...r.players.values(), ...r.watchers];
   const toRoom = (r, msg, except) => { const s = JSON.stringify(msg); for (const c of everyone(r)) if (c !== except) send(c, s); };
@@ -90,7 +107,7 @@ function attachRealtime(server, {
   });
 
   function welcome(c, r) {
-    send(c, { t: 'welcome', id: c.id, full: !c.player, max: maxPlayers, count: r.players.size,
+    send(c, { t: 'welcome', id: c.id, you: { id: c.id, name: c.name }, full: !c.player, max: maxPlayers, count: r.players.size,
       players: [...r.players.values()].filter((p) => p !== c).map(pub), chat: r.chat });
   }
   // Någon gick: släpp in den som väntat längst (om rummet var fullt).
@@ -105,7 +122,7 @@ function attachRealtime(server, {
   }
   function leave(c) {
     const r = rooms.get(c.room); if (!r) return;
-    if (r.players.get(c.id) === c) { r.players.delete(c.id); toRoom(r, { t: 'leave', id: c.id }); promote(r); }
+    if (r.players.get(c.id) === c) { r.players.delete(c.id); toRoom(r, { t: 'leave', id: c.id, ...(c.replaced ? { rejoin: true } : {}) }); if (!c.replaced) promote(r); }
     r.watchers = r.watchers.filter((w) => w !== c);
     if (!r.players.size && !r.watchers.length) rooms.delete(c.room); // chatten glöms när rummet är tomt
   }
@@ -114,17 +131,26 @@ function attachRealtime(server, {
     if (!c.limit()) { if (++c.strikes > 200) c.ws.close(4008, 'För många meddelanden'); return; }
     let m; try { m = JSON.parse(raw); } catch { return; }
     if (!m || typeof m.t !== 'string') return;
-    const r = room(c.room);
+    let r = room(c.room);
     if (m.t === 'ping') return send(c, { t: 'pong' });
     if (m.t === 'hello') {
       if (c.joined) return;
       c.joined = true;
-      c.name = cleanName(m.name) || `Gäst ${c.id.slice(0, 3)}`;
+      // Samma flik som kopplar upp sig igen (sid = slumpat per sidladdning): den gamla, döda
+      // anslutningen tas bort direkt, så ingen syns två gånger. Gästnumret behålls.
+      c.sid = typeof m.sid === 'string' && /^[A-Za-z0-9_-]{8,40}$/.test(m.sid) ? m.sid : null;
+      const old = c.sid && everyone(r).find((o) => o !== c && o.sid === c.sid);
+      if (old) {
+        c.guestNo = old.guestNo; old.replaced = true;
+        leave(old); try { old.ws.close(4000, 'Ersatt av en ny anslutning'); } catch { /* redan stängd */ }
+        r = room(c.room);
+      }
+      setName(c, r, m.name);
       c.look = cleanLook(m.look);
       c.p = cleanPos(m.p, bounds) || [0, 1.6, 3.5]; c.y = isNum(m.y) ? round(m.y) : 0;
       if (r.players.size < maxPlayers) { c.player = true; r.players.set(c.id, c); } else r.watchers.push(c);
       welcome(c, r);
-      if (c.player) toRoom(r, { t: 'join', player: pub(c) }, c);
+      if (c.player) toRoom(r, { t: 'join', player: pub(c), ...(old ? { rejoin: true } : {}) }, c);
       return;
     }
     if (!c.joined) return;
@@ -136,7 +162,8 @@ function attachRealtime(server, {
     }
     if (m.t === 'look') {
       if (!c.lookLimit()) return send(c, { t: 'error', error: 'Lugn i stormen – vänta lite innan du byter igen.' });
-      c.look = cleanLook(m.look); c.name = cleanName(m.name) || c.name;
+      c.look = cleanLook(m.look); setName(c, r, m.name);
+      send(c, { t: 'you', id: c.id, name: c.name }); // så jag vet vad de andra ser
       if (c.player) toRoom(r, { t: 'look', id: c.id, name: c.name, look: c.look }, c);
       return;
     }
