@@ -71,8 +71,9 @@ function client(base, room, hello = {}) {
     const img = await (await fetch(`${base}/api/stickers`, { method: 'POST', body: fd })).json();
     const other = join('rum2', { name: 'Annan' }); await other.ready; await other.wait((m) => m.t === 'welcome');
     const st = await (await fetch(`${base}/api/rooms/rum1/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageId: img.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' }) })).json();
+      body: JSON.stringify({ imageId: img.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', by: wa.id }) })).json();
     const ev = await b.wait((m) => m.t === 'event' && m.e.type === 'stamp:add');
+    assert(ev.e.by === wa.id && !('by' in ev.e.stamp) && !('by' in st.stamp), 'stamp:add säger vem i rummet som slappade (by), så de andra ser gubben slappa; sparas inte med klibban');
     const raw = JSON.stringify(b.msgs);
     assert(ev && ev.e.stamp.id === st.stamp.id && ev.e.image.id === img.id && !raw.includes(st.peelToken) && !raw.includes('peelHash'),
       'ny stämpel skickas till alla i rummet direkt (med bilden, aldrig peel-nyckeln)');
@@ -81,6 +82,17 @@ function client(base, room, hello = {}) {
     await fetch(`${base}/api/rooms/rum1/stamps/${st.stamp.id}/peel`, { method: 'DELETE', headers: { 'x-peel-token': st.peelToken } });
     const rm = await a.wait((m) => m.t === 'event' && m.e.type === 'stamp:remove');
     assert(rm && rm.e.id === st.stamp.id && !JSON.stringify(a.msgs).includes(st.peelToken), 'peel syns för alla direkt');
+    // Utan by (äldre klienter) eller med skräp: inget by i händelsen. Peel i klump bär också by.
+    const post = (body) => fetch(`${base}/api/rooms/rum1/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageId: img.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', ...body }) }).then((r) => r.json());
+    const sb2 = await post({}), sb3 = await post({ by: '<script>alert(1)</script>' });
+    const eb2 = await b.wait((m) => m.t === 'event' && m.e.type === 'stamp:add' && m.e.stamp.id === sb2.stamp.id);
+    const eb3 = await b.wait((m) => m.t === 'event' && m.e.type === 'stamp:add' && m.e.stamp.id === sb3.stamp.id);
+    assert(!('by' in eb2.e) && !('by' in eb3.e), 'utan by (äldre klienter) eller med ett ogiltigt by: händelsen är som förut');
+    await fetch(`${base}/api/rooms/rum1/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ by: wa.id, items: [{ id: sb2.stamp.id, token: sb2.peelToken }, { id: sb3.stamp.id, token: sb3.peelToken }] }) });
+    const rb2 = await b.wait((m) => m.t === 'event' && m.e.type === 'stamp:remove' && m.e.id === sb2.stamp.id);
+    assert(rb2.e.by === wa.id, 'peel säger också vem som peelade (för peel-rörelsen)');
     const created = await (await fetch(`${base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style: { floor: 'betong', wall: 'tegel', ceiling: 'vit' } }) })).json();
     const sc = join(created.room.id, { name: 'Skaparen' }); await sc.ready; await sc.wait((m) => m.t === 'welcome');
     await fetch(`${base}/api/rooms/${created.room.id}/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': created.roomKey }, body: JSON.stringify({ style: { floor: 'parkett', wall: 'puts', ceiling: 'vit' } }) });

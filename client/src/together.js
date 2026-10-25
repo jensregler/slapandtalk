@@ -202,6 +202,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   $('av-random').onclick = () => { av.draft = randomLook(); renderAvatarPanel(); };
   $('av-ok').onclick = () => {
     me.look = normalizeLook(av.draft); me.name = cleanName($('av-name').value);
+    self.avatar?.setLook(me.look);
     saveMyAvatar(me.name, me.look);
     net.sendLook(myName(), me.look);
     closeAvatarPanel(); renderPeople();
@@ -217,10 +218,42 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   // Enter i namnfältet = Spara
   $('av-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('av-ok').click(); } });
 
+  // ---------- Min egen gubbe (bara i tredjepersonsvy, se main.js) ----------
+  // Ingen namnskylt: det är ju jag. Byggs först när den behövs.
+  const self = { avatar: null, want: false, last: null, speed: 0 };
+  function showSelf(on) {
+    self.want = !!on;
+    if (self.want && !self.avatar) {
+      loadAvatarModel().then((m) => {
+        if (self.avatar) return;
+        self.avatar = new Avatar(m, me.look, ''); self.avatar.root.name = 'min-gubbe'; self.avatar.root.visible = self.want;
+        scene.add(self.avatar.root);
+      }).catch(() => {});
+    }
+    if (self.avatar) self.avatar.root.visible = self.want;
+  }
+  // Varje bildruta: gubben står där jag står (under ögonen) och tittar åt samma håll.
+  function updateSelf(dt, { hide = false } = {}) {
+    const a = self.avatar; if (!a) return;
+    const p = new THREE.Vector3(camera.position.x, 0, camera.position.z);
+    const v = self.last && dt > 0 ? self.last.distanceTo(p) / dt : 0; self.last = p;
+    self.speed += (v - self.speed) * Math.min(1, dt * 10);
+    a.root.position.copy(p); a.root.rotation.y = controls.yaw + Math.PI;
+    a.root.visible = self.want && !hide;
+    if (self.want) a.update(dt, self.speed);
+  }
+
   renderPeople(); renderChatInput();
   return {
     net, players,
-    update(dt, eye = camera.position) { sendMove(dt); players.update(dt, eye); },
+    update(dt, eye = camera.position, { hideSelf = false } = {}) { sendMove(dt); players.update(dt, eye); updateSelf(dt, { hide: hideSelf }); },
+    showSelf,
+    // Min gubbe slappar/peelar (syns bara i tredjepersonsvy). De andra får veta via servern (by = net.id).
+    selfGesture: (kind, point, normal) => !!(self.want && self.avatar && (kind === 'peel' ? self.avatar.peel(point, normal) : self.avatar.slap(point, normal))),
+    freezeGestures(ms) { if (self.avatar) self.avatar.gesture.freeze = ms; for (const p of players.map.values()) if (p.avatar) p.avatar.gesture.freeze = ms; },
+    handPos: () => { const a = self.avatar; if (!a) return null; const w = a.gesture.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray()); return w; },
+    selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0,
+      gesturing: !!self.avatar?.gesture.active(), pos: self.avatar?.root.position.toArray() || null }),
     busy: () => av.open,
     chatOpen, openChat, closeChat, openAvatarPanel, closeAvatarPanel,
     sys,

@@ -217,6 +217,9 @@ const isVec = (v, len) => Array.isArray(v) && v.length === len && v.every(isNum)
 
 // Namn och länk till den som gjorde klibban. Ogiltig länk (javascript:, data:, inloggning i
 // länken, för lång …) sparas inte alls, och en tom länk sparas inte heller.
+// Ett spelar-id från realtime.js (10 hex-tecken), annars ingenting.
+const playerId = (v) => (typeof v === 'string' && /^[a-f0-9]{10}$/.test(v) ? v : undefined);
+
 async function artistFields(b) {
   const { cleanArtistName, cleanArtistLink } = await artistLinkMod;
   const link = cleanArtistLink(b.artistLink);
@@ -247,7 +250,10 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   // nonce: en slumpad lapp från klienten, så den som stämplade känner igen sin egen stämpel
   // (och inte spelar upp ljudet två gånger). Aldrig peel-nyckeln.
   const nonce = typeof b.nonce === 'string' ? b.nonce.slice(0, 40) : undefined;
-  broadcast(room, { type: 'stamp:add', stamp, image, ...(nonce ? { nonce } : {}) });
+  // by: vem i rummet (WebSocket-id) som slappade, så de andras webbläsare kan visa gubbens slap.
+  // Sparas inte med klibban. Äldre klienter skickar inget och bryr sig inte om fältet.
+  const by = playerId(b.by);
+  broadcast(room, { type: 'stamp:add', stamp, image, ...(nonce ? { nonce } : {}), ...(by ? { by } : {}) });
   res.json({ stamp, image, peelToken });
 }));
 
@@ -259,7 +265,8 @@ app.post('/api/rooms/:room/peel', rateLimit(60), wrap(async (req, res) => {
     .filter((x) => x && typeof x.id === 'string' && /^[a-f0-9]{16}$/.test(x.id)).map((x) => ({ id: x.id, token: String(x.token || '') })) : [];
   if (!items.length) return res.status(400).json({ error: 'No stickers to peel' });
   const results = await store.peelStamps(room, items, (s, token) => tokenMatches(token, s.peelHash));
-  for (const [id, r] of Object.entries(results)) if (r === 'ok') broadcast(room, { type: 'stamp:remove', id });
+  const by = playerId(req.body?.by);
+  for (const [id, r] of Object.entries(results)) if (r === 'ok') broadcast(room, { type: 'stamp:remove', id, ...(by ? { by } : {}) });
   res.json({ results });
 }));
 // En enda stämpel: 200 om den peelades, 404 om den inte finns, 403 om nyckeln är fel.

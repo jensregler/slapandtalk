@@ -89,6 +89,12 @@ body.view-mode #design-hud { opacity: .5; }
 /* I Tittläge: bara en liten prick i stället för siktet */
 body.view-mode #crosshair { width: 4px; height: 4px; margin: -2px 0 0 -2px; border: 0; background: rgba(255,255,255,.55); }
 
+/* 1:a / 3:e person (mobil): ovanför ↩ */
+#view-btn { position: fixed; right: 180px; bottom: calc(106px + env(safe-area-inset-bottom)); width: 48px; height: 48px; padding: 0;
+  border-radius: 50%; font-size: 22px; line-height: 1; background: rgba(20,20,20,.75); border: 2px solid rgba(255,255,255,.5);
+  z-index: 4; touch-action: manipulation; }
+#view-btn[aria-pressed="true"] { background: #ffd400; border-color: #ffd400; }
+
 /* Peel och historik */
 #peel-btn { position: fixed; right: 176px; bottom: calc(38px + env(safe-area-inset-bottom)); width: 56px; height: 56px; padding: 0;
   border-radius: 50%; font-size: 26px; line-height: 1; background: rgba(20,20,20,.75); border: 2px solid rgba(255,255,255,.5);
@@ -233,11 +239,11 @@ body.touch #rec-badge { top: 56px; }
 #camview-hud button { padding: 4px 10px; }
 body.camview #panel, body.camview #more-panel, body.camview #panel-toggle, body.camview #chat, body.camview #chat-btn, body.camview #design-hud,
 body.camview #mode-hud, body.camview #room-hud, body.camview #crosshair, body.camview #joystick, body.camview #mode-btn,
-body.camview #peel-btn, body.camview #design-btn { display: none !important; }
+body.camview #peel-btn, body.camview #view-btn, body.camview #design-btn { display: none !important; }
 
 /* ---------- Uppspelaren (?replay=) ---------- */
 body.replay #panel, body.replay #more-panel, body.replay #panel-toggle, body.replay #chat, body.replay #chat-btn, body.replay #design-hud, body.replay #mode-hud,
-body.replay #room-hud, body.replay #crosshair, body.replay #joystick, body.replay #mode-btn, body.replay #peel-btn, body.replay #design-btn,
+body.replay #room-hud, body.replay #crosshair, body.replay #joystick, body.replay #mode-btn, body.replay #view-btn, body.replay #peel-btn, body.replay #design-btn,
 body.replay #full-banner, body.replay #admin-banner { display: none !important; }
 #replay-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; background: rgba(18,18,18,.9); border-top: 1px solid #333;
   padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; }
@@ -285,7 +291,7 @@ body.replay #full-banner, body.replay #admin-banner { display: none !important; 
 #people { margin: 0; }
 /* Mobil: ⚙ Mer blir ett ark nerifrån som täcker spelytan tills man stänger det. */
 body.touch #more-panel { left: 8px; right: 8px; top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); width: auto; max-height: 72%; z-index: 9; }
-body.touch.more-open #joystick, body.touch.more-open #mode-btn, body.touch.more-open #peel-btn, body.touch.more-open #design-btn,
+body.touch.more-open #joystick, body.touch.more-open #mode-btn, body.touch.more-open #view-btn, body.touch.more-open #peel-btn, body.touch.more-open #design-btn,
 body.touch.more-open #chat-btn { display: none !important; }
 @media (max-width: 680px) { body:not(.touch) #more-panel { left: 12px; z-index: 7; } }
 .nowrap { white-space: nowrap; }

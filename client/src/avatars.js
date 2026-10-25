@@ -7,6 +7,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import AV from '../../shared/avatar.json';
+import { ArmGesture } from './slapanim.js';
 
 export const AVATAR = AV;
 export const AVATAR_URL = '/avatars/gubbe.glb';
@@ -138,6 +139,7 @@ export class Avatar {
     this.actions.Idle?.play();
     if (this.actions.Walk) { this.actions.Walk.play(); this.actions.Walk.setEffectiveWeight(0); }
     this.walk = 0; this.waveUntil = 0;
+    this.gesture = new ArmGesture(this.model); // slap- och peel-rörelsen (slapanim.js)
     this.setLook(look); this.setName(name);
   }
   setLook(look) {
@@ -167,6 +169,10 @@ export class Avatar {
     this.bubbleUntil = performance.now() + ms;
     this.waveUntil = performance.now() + 1600;
   }
+  // Slap: armen upp mot punkten (världskoordinater) direkt, och sedan ner igen. Peel: grip och dra.
+  slap(point, normal = null) { this.waveUntil = 0; this.actions.Wave?.stop(); return this.gesture.start('slap', point, normal); }
+  peel(point, normal = null) { this.waveUntil = 0; this.actions.Wave?.stop(); return this.gesture.start('peel', point, normal); }
+  get gestures() { return this.gesture.count; }
   unsay() { if (this.bubble) { this.root.remove(this.bubble); this.bubble.material.map.dispose(); this.bubble.material.dispose(); this.bubble = null; } }
   // speed = hur fort gubben går (m/s) → gå- eller stå-animation
   update(dt, speed = 0) {
@@ -180,6 +186,7 @@ export class Avatar {
     if (this.actions.Walk) this.actions.Walk.timeScale = THREE.MathUtils.clamp(speed / 1.6, 0.6, 1.8);
     this.actions.Idle?.setEffectiveWeight(1 - this.walk);
     this.mixer.update(dt);
+    this.gesture.apply(this.root);
     if (this.cap.visible && this.head) {
       this.root.updateMatrixWorld(true);
       // Kepsen följer huvudbenet (i gubbens eget koordinatsystem).
@@ -235,6 +242,12 @@ export class Players {
     for (const i of ids) { const pl = this.map.get(i); if (!pl) continue; if (pl.avatar) { this.scene.remove(pl.avatar.root); pl.avatar.dispose(); } this.map.delete(i); }
   }
   say(id, text) { const pl = this.map.get(id); if (pl?.avatar) pl.avatar.say(text); }
+  // Någon annan slappade (eller peelade): deras gubbe gör rörelsen mot klibban.
+  gesture(id, kind, point, normal = null) {
+    const pl = this.map.get(id); if (!pl) return false;
+    pl.gestures = (pl.gestures || 0) + 1;
+    return !!pl.avatar && (kind === 'peel' ? pl.avatar.peel(point, normal) : pl.avatar.slap(point, normal));
+  }
   place(pl, now) {
     const s = pl.snaps; if (!s.length) return;
     const t = now - DELAY;
@@ -260,6 +273,7 @@ export class Players {
   }
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
-      walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false }));
+      walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false,
+      gestures: p.gestures || 0, gesturing: !!p.avatar?.gesture.active() }));
   }
 }

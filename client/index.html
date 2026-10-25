@@ -102,6 +102,14 @@
       <button id="edit-style" type="button" hidden data-t="editStyle">🎨 Change room look</button>
     </section>
 
+    <section class="more-sec" aria-label="View">
+      <h3 data-t="secView">View</h3>
+      <div id="view-switch" class="seg" role="group" data-t-aria="viewSwitch">
+        <button id="view-first" type="button" data-t="viewFirst" data-t-title="viewFirstTitle" aria-pressed="true">1st person</button>
+        <button id="view-third" type="button" data-t="viewThird" data-t-title="viewThirdTitle" aria-pressed="false">3rd person</button>
+      </div>
+    </section>
+
     <section class="more-sec" aria-label="Sound">
       <h3 data-t="secSound">Sound</h3>
       <label class="check"><input id="sound-on" type="checkbox" checked /> <span data-t="sound">Sounds</span></label>
@@ -135,6 +143,7 @@
   </div>
   <div id="mode-hud" aria-live="polite"></div>
   <button id="peel-btn" class="touch-only" type="button" data-t-aria="peelBtnAria" data-t-title="peelBtnTitle">↩</button>
+  <button id="view-btn" class="touch-only" type="button" data-t-aria="viewBtnAria" aria-pressed="false">👤</button>
   <button id="mode-btn" class="touch-only" type="button" data-t-aria="modeBtnAria" aria-pressed="false">👁</button>
   <button id="design-btn" class="touch-only" type="button" data-t-title="designBtn" data-t-aria="designBtn" hidden>
     <img id="design-btn-img" alt="" /><span id="design-btn-num"></span>

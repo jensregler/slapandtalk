@@ -81,6 +81,13 @@ export const EN = {
   modeToastLook: (touch) => (touch ? 'Look mode: just look around. Tap 👁 to slap again.' : 'Look mode: just look around. V = slap again.'),
   modeToastSlap: (touch) => (touch ? 'Slap mode: tap where you want to slap.' : 'Slap mode: click to slap.'),
   modeSwitch: 'Mode',
+  // ---------- 1st / 3rd person ----------
+  secView: 'View', viewSwitch: 'Camera view',
+  viewFirst: '1st person', viewThird: '3rd person',
+  viewFirstTitle: 'See through your own eyes (C)', viewThirdTitle: 'See your avatar from behind (C)',
+  viewBtnAria: '1st / 3rd person view', viewBtnToFirst: 'Back to 1st person', viewBtnToThird: '3rd person: see yourself from behind',
+  viewToastThird: (touch) => (touch ? '3rd person: you see yourself from behind. Tap 👤 to switch back.' : '3rd person: you see yourself from behind. C = 1st person.'),
+  viewToastFirst: (touch) => (touch ? '1st person' : '1st person · C = 3rd person'),
 
   // ---------- Peel and history ----------
   myslaps: 'My slaps in this room',
@@ -105,15 +112,15 @@ export const EN = {
 
   // ---------- Desktop / touch help ----------
   enter: 'Enter the room',
-  quickHelp: 'Click to enter · WASD walk · click = slap · R next design · Z peel · V look mode · T chat',
+  quickHelp: 'Click to enter · WASD walk · click = slap · R next design · Z peel · V look mode · C 3rd person · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
     + 'R = next design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = look mode on/off '
-    + '(hides the pointer, clicks do nothing; V again = slap mode), Esc = back to the menu. '
+    + '(hides the pointer, clicks do nothing; V again = slap mode), C = 1st/3rd person (see your avatar from behind), Esc = back to the menu. '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Back to the City takes you back. '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
   helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look, tap = slap. The round button bottom right shows your design: tap it for the next one. '
-    + 'The eye 👁 turns look mode on (taps do nothing), tap again to slap. ↩ peels your last sticker. '
+    + 'The eye 👁 turns look mode on (taps do nothing), tap again to slap. 👤 switches between 1st and 3rd person (see yourself from behind). ↩ peels your last sticker. '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room, 🔗 Share link sends it to friends. '
     + '<b>Together:</b> everyone in the same room sees each other right away. 💬 = chat. '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',

@@ -20,8 +20,9 @@ export const api = {
   }).then(json),
 
   // Peela egna stämplar: items = [{ id, token }]. Svar: { results: { id: 'ok'|'notfound'|'forbidden' } }
-  peel: (room, items) => fetch(`/api/rooms/${room}/peel`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
+  // by = mitt id i rummet (WebSocket), så de andra ser min gubbe peela. Valfritt.
+  peel: (room, items, by = null) => fetch(`/api/rooms/${room}/peel`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(by ? { items, by } : { items }),
   }).then(json),
 
   createRoom: (style) => fetch('/api/rooms', {

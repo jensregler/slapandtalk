@@ -1037,6 +1037,64 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await A.evaluate(() => window.klibb.peelLast());
     await B.waitForFunction((id) => !window.klibb.stamps.meshes.has(id), sid, { timeout: 5000 });
     assert((await B.evaluate(() => window.klibb.stamps.count)) === nB, 'när A peelar försvinner klibban för B direkt');
+
+    // ---------- Tredjepersonsvy och slap-rörelsen ----------
+    const tp_gB = () => B.evaluate(() => window.klibb.players()[0].gestures);
+    assert((await tp_gB()) >= 2, 'B såg A:s gubbe slappa och peela, fast A är i förstapersonsläget');
+    assert((await A.evaluate(() => window.klibb.view())) === 'first' && !(await A.evaluate(() => window.klibb.selfAvatar().visible)),
+      'förstapersonsläget är standard: ingen egen gubbe eller hand syns');
+    await A.evaluate(() => document.activeElement && document.activeElement.blur());
+    await A.keyboard.press('c');
+    await A.waitForFunction(() => window.klibb.selfAvatar().built && window.klibb.selfAvatar().visible, null, { timeout: 10000 });
+    assert((await A.evaluate(() => [window.klibb.view(), localStorage.getItem('klibb.view'), document.getElementById('view-third').getAttribute('aria-pressed')].join())) === 'third,third,true',
+      'C byter till tredjepersonsvy (sparas på enheten, knappen i ⚙ More visar valet), och min gubbe syns');
+    await A.evaluate(() => { const k = window.klibb; k.moveTo(0.4, -2.2); k.look(0, 0.05); });
+    await A.waitForTimeout(1200);
+    const tp_ch = await A.evaluate(() => ({ ...window.klibb.chase(), eye: window.klibb.camera.position.toArray() }));
+    assert(tp_ch.dist > 2.4 && tp_ch.cam[2] > tp_ch.eye[2] + 2 && tp_ch.cam[1] > tp_ch.eye[1], `kameran står bakom och ovanför gubben (${tp_ch.dist.toFixed(2)} m)`);
+    const tp_g0 = await tp_gB();
+    const tp_t0 = await A.evaluate(async () => {
+      const k = window.klibb, n = k.stamps.count, before = k.selfAvatar().gestures;
+      const p = k.stampAt(0, 0); await new Promise((r) => setTimeout(r, 20));
+      const shown = k.stamps.count === n + 1, g = k.selfAvatar();
+      const st = await p; const cam = k.tpCam.position.toArray();
+      return { shown, gestured: g.gestures === before + 1, gesturing: g.gesturing, surface: st && st.surface, x: st && st.position[0], camX: cam[0], log: k.soundLog().slice(-1)[0] };
+    });
+    assert(tp_t0.shown && tp_t0.gestured && tp_t0.gesturing, 'tredje person: klibban syns direkt och min gubbe slår handen mot väggen i samma ögonblick');
+    assert(tp_t0.surface === 'vägg-norr' && Math.abs(tp_t0.x - tp_t0.camX) < 0.08, `siktet gäller: klibban hamnar där siktet i mitten pekar (x ${tp_t0.x.toFixed(2)} ≈ kameran ${tp_t0.camX.toFixed(2)})`);
+    await B.waitForFunction((n) => window.klibb.players()[0].gestures > n, tp_g0, { timeout: 5000 });
+    assert(true, 'B ser A:s gubbe slappa i tredjepersonsvyn också');
+    // Skärmdumpar: A mitt i slaget (bakifrån), och B som ser A slappa
+    await A.evaluate(() => { document.getElementById('crosshair').hidden = false; window.klibb.freezeGestures(60); return window.klibb.stampAt(0.12, 0.1); });
+    await A.waitForTimeout(700);
+    await A.screenshot({ path: path.join(SHOTS, '44-tredje-person-slap.png') });
+    await B.evaluate(() => { const k = window.klibb; k.moveTo(-2.2, -2.4); k.look(-Math.PI / 2 + 0.25, 0); });
+    await B.evaluate(() => window.klibb.freezeGestures(60));
+    await A.evaluate(() => window.klibb.stampAt(-0.1, 0.05));
+    await B.waitForTimeout(900);
+    await B.screenshot({ path: path.join(SHOTS, '45-andra-ser-slap.png') });
+    await A.evaluate(() => { window.klibb.freezeGestures(null); document.getElementById('crosshair').hidden = true; });
+    await B.evaluate(() => window.klibb.freezeGestures(null));
+    // Peel i tredjepersonsvy: gubben griper klibban
+    const tp_pg0 = await A.evaluate(() => window.klibb.selfAvatar().gestures);
+    await A.evaluate(() => window.klibb.peelLast());
+    assert((await A.evaluate(() => window.klibb.selfAvatar().gestures)) === tp_pg0 + 1, 'peel i tredjepersonsvy: gubben griper klibban och drar bort den');
+    // Ryggen mot väggen: kameran dras in, går aldrig genom väggen, och gubben göms när kameran är för nära
+    await A.evaluate(() => { const k = window.klibb; k.moveTo(0, 4.65); k.look(0, 0); });
+    await A.waitForTimeout(800);
+    const tp_wall = await A.evaluate(() => ({ ...window.klibb.chase(), self: window.klibb.selfAvatar().visible }));
+    assert(tp_wall.dist < 0.7 && tp_wall.cam[2] < 5 - 0.15 && !tp_wall.self, `ryggen mot väggen: kameran dras in (${tp_wall.dist.toFixed(2)} m), stannar i rummet och gubben göms`);
+    await A.evaluate(() => { const k = window.klibb; k.moveTo(0, 0); k.look(0, 0); });
+    await A.waitForTimeout(1500);
+    assert((await A.evaluate(() => window.klibb.chase().dist)) > 2.4 && (await A.evaluate(() => window.klibb.selfAvatar().visible)), 'bort från väggen: kameran glider ut igen och gubben syns');
+    // Valet finns kvar efter omladdning; knappen i ⚙ More byter tillbaka
+    await A.reload(); await waitReady(A);
+    await seeOne(A);
+    assert((await A.evaluate(() => window.klibb.view())) === 'third', 'tredjepersonsvyn finns kvar efter omladdning');
+    await openMore(A); await A.click('#view-first'); await closeMore(A);
+    assert((await A.evaluate(() => [window.klibb.view(), localStorage.getItem('klibb.view'), window.klibb.selfAvatar().visible].join())) === 'first,first,false',
+      'knappen "1st person" i ⚙ More byter tillbaka (sparas), och den egna gubben försvinner');
+    await B.waitForFunction(() => window.klibb.players().length === 1 && window.klibb.players()[0].built, null, { timeout: 15000 });
     // Chatt: T öppnar, Enter skickar. HTML visas som text.
     await A.evaluate(() => { document.activeElement && document.activeElement.blur(); });
     await A.keyboard.press('t');
@@ -1135,6 +1193,12 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     assert(sheet.width <= M.viewportSize().width && sheet.y + sheet.height <= M.viewportSize().height + 1 && !(await M.isVisible('#joystick')),
       'mobil: ⚙ More öppnas som ett ark nerifrån (styrspaken göms så länge)');
     await M.tap('#more-close'); await M.waitForTimeout(200);
+    await M.tap('#view-btn'); await M.waitForTimeout(300);
+    const tpMob = await M.evaluate(() => [window.klibb.view(), localStorage.getItem('klibb.view'), document.getElementById('view-btn').getAttribute('aria-pressed')].join());
+    await M.waitForFunction(() => window.klibb.selfAvatar().visible, null, { timeout: 10000 }); await M.waitForTimeout(500);
+    await M.screenshot({ path: path.join(SHOTS, '46-tredje-person-mobil.png') });
+    await M.tap('#view-btn'); await M.waitForTimeout(200);
+    assert(tpMob === 'third,third,true' && (await M.evaluate(() => window.klibb.view())) === 'first', 'mobil: 👤 växlar mellan första och tredje person (sparas)');
     assert(await M.isVisible('#joystick') && await M.isHidden('#more-panel'), 'mobil: ✕ stänger ⚙ More och styrspaken är tillbaka');
     await openMore(M); await M.tap('#my-avatar');
     await M.waitForSelector('#avatar-panel', { state: 'visible' });

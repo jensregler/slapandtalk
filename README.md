@@ -76,6 +76,18 @@ design i Look mode, men du stannar kvar där tills du trycker **V** igen. Längs
 vilket läge du är i. V fungerar inte medan du skriver i ett textfält, och Ctrl+V (klistra in)
 växlar inte läge.
 
+**Första eller tredje person (C):** tryck **C** (eller *3rd person* under ⚙ More, eller 👤 på
+mobilen) för att se din egen gubbe bakifrån, över axeln. Kameran följer mjukt, dras in mot gubben
+när en vägg är i vägen (den går aldrig genom väggen) och gubben göms om kameran kommer för nära.
+Siktet i mitten gäller precis som vanligt: strålen går från kameran genom siktet och räknas från
+gubben och framåt. När du slappar slår gubben handen mot väggen i samma bildruta som klibban syns
+(upp på 25 ms, en kort tryckning, sedan ner igen på ~320 ms), och vid peel griper den klibban.
+Valet sparas på enheten. Förstapersonsläget är precis som förut (ingen hand syns). De andra i
+rummet ser din gubbe slappa och peela i båda lägena: klienten skickar sitt rums-id (`by`) med
+slappen/peelen och servern skickar det vidare i `stamp:add`/`stamp:remove` (äldre klienter
+bryr sig inte om fältet). Matten finns i `client/src/chasecam.js` och rörelsen i
+`client/src/slapanim.js` (tester: `tests/thirdperson.test.mjs`).
+
 **Vem gjorde klibban? (Look mode):** vilar pricken på en klibba i ungefär 150 ms syns en liten
 etikett bredvid pricken med konstnärens namn och länk, t.ex. *Ulla K · @ulla.k · Instagram*. Tryck
 **L** eller klicka medan etiketten syns: musen släpps och en liten ruta (*Open this link?*) visar

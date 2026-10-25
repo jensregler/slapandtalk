@@ -13,6 +13,7 @@ import { initTogether } from './together.js';
 import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed } from './cameras.js';
 import { S, LOCALE } from './strings.js';
 import { Sounds } from './sound.js';
+import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView } from './chasecam.js';
 import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
 
 const $ = (id) => document.getElementById(id);
@@ -44,11 +45,17 @@ const preview = new StampPreview(scene, stamps.faces);
 const cams = new CameraLayer(scene); // virtuella kameror (för inspelning)
 const viewCam = new THREE.PerspectiveCamera(60, 1, 0.05, 100); // "Titta genom kamera"
 const raycaster = new THREE.Raycaster();
+// Tredjepersonsvy: en egen kamera bakom och lite ovanför min gubbe. `camera` är fortfarande
+// "jag" (ögonen): styrningen, nätet och allt annat utgår från den, precis som i förstapersonsläget.
+const tpCam = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
+const chaseCast = surfaceCaster(room.surfaces);
+const chase = { eye: null, dist: null, pose: null };
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
+  tpCam.aspect = camera.aspect; tpCam.updateProjectionMatrix();
 }
 addEventListener('resize', resize); resize();
 
@@ -276,9 +283,22 @@ $('file').onchange = async (e) => {
 };
 
 // ---------- Stämpla ----------
+// Siktet: i förstapersonsläget från ögonen, i tredjepersonsvy från kameran bakom gubben, genom
+// samma punkt på skärmen (siktet). Strålen räknas då först från gubben och framåt, så man inte
+// stämplar på något mellan kameran och gubben. Räckvidden är densamma som förut: rummet.
+// var: frame() och setView() kan köras innan raden här (via setMode längre upp).
+var view = loadView(); // eslint-disable-line no-var
+const third = () => view === 'third' && !camView;
+function aimRay(ndc) {
+  const cam = third() ? tpCam : camera;
+  cam.updateMatrixWorld();
+  raycaster.setFromCamera(ndc, cam);
+  raycaster.near = cam === tpCam ? aimNear(cam.position, raycaster.ray.direction, camera.position) : 0;
+  raycaster.far = Infinity;
+  return raycaster;
+}
 function hitSurface(ndc) {
-  camera.updateMatrixWorld();
-  raycaster.setFromCamera(ndc, camera);
+  aimRay(ndc);
   const hit = raycaster.intersectObjects(room.surfaces, false)[0];
   if (!hit) return null;
   const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
@@ -294,12 +314,14 @@ async function stampAt(ndc) {
   const h = hitSurface(ndc); if (!h) return null;
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
   pendingJitter = (Math.random() - 0.5) * 30;
+  // Min gubbe slår handen mot väggen i samma bildruta som klibban syns (bara i tredjepersonsvy).
+  together.selfGesture('slap', h.point, h.normal);
   // Kom ihåg exakt vilken design som stämplas: användaren kan hinna trycka R innan svaret kommer.
   const design = state.selected;
   sound.play('slap'); // direkt, utan att vänta på servern: det ska kännas som en riktig klibba
   const nonce = Math.random().toString(36).slice(2, 12);
   myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
-  const body = { nonce, owner: deviceId(),
+  const body = { nonce, owner: deviceId(), ...(together.net.id ? { by: together.net.id } : {}), // by: så de andra ser min gubbe slappa
     imageId: design.id,
     position: h.point.toArray(), normal: h.normal.toArray(), quaternion: q.toArray(),
     size: Math.min(state.size, MAX_SIZE_CM / 100), rotation: state.rotation, surface: h.surface, artist: state.artist,
@@ -309,7 +331,7 @@ async function stampAt(ndc) {
   // kommer, via HTTP-svaret eller WebSocket, det som kommer först. Går det fel tas den bort.
   const tempId = 'tmp-' + nonce;
   const temp = { ...body, id: tempId, order: stamps.topOrder() + 1, createdAt: new Date().toISOString(), pending: true };
-  delete temp.owner; delete temp.nonce;
+  delete temp.owner; delete temp.nonce; delete temp.by;
   let settle; const settled = new Promise((r) => { settle = r; });
   pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled });
   stamps.add(temp, design).then(updateCount);
@@ -373,8 +395,7 @@ async function initAdmin() {
 }
 
 function adminPick(ndc) {
-  camera.updateMatrixWorld();
-  raycaster.setFromCamera(ndc, camera);
+  aimRay(ndc);
   const picked = stamps.pick(raycaster);
   if (!picked) { toast(S.noStickerThere); return; }
   controls.unlock();
@@ -444,6 +465,7 @@ const peelable = () => roomHistory(ROOM).filter((h) => !peeling.has(h.stampId));
 function startPeel(entries, { quiet = false } = {}) {
   const fresh = entries.filter((h) => !peeling.has(h.stampId));
   if (!fresh.length) return 0;
+  peelGesture(fresh[0].stampId);
   for (const h of fresh) {
     peeling.set(h.stampId, h);
     // Servern skickar ut "borttagen" till alla, även mig: det ska inte låta som någon annans peel.
@@ -457,13 +479,18 @@ function startPeel(entries, { quiet = false } = {}) {
   flushPeels();
   return fresh.length;
 }
+// Min gubbe griper klibban och drar bort den (tredjepersonsvy).
+function peelGesture(id) {
+  const st = stamps.meshes.get(id)?.userData.stamp;
+  if (st) together.selfGesture('peel', st.position, st.normal);
+}
 function flushPeels() {
   if (peelInFlight) return peelInFlight;
   if (!peelOutbox.length) return Promise.resolve();
   const batch = peelOutbox.splice(0, 200);
   peelInFlight = (async () => {
     let results = null;
-    try { ({ results } = await api.peel(ROOM, batch.map((h) => ({ id: h.stampId, token: h.token })))); } catch (err) {
+    try { ({ results } = await api.peel(ROOM, batch.map((h) => ({ id: h.stampId, token: h.token })), together.net.id)); } catch (err) {
       toast(err.status === 429 ? S.slowDown : S.peelFailed);
     }
     // ok = borta. notfound = fanns redan inte. forbidden = nyckeln gäller inte längre (för gammal):
@@ -487,6 +514,7 @@ function peelLast() {
   const pend = [...pendingSlaps.values()].filter((p) => !p.peel).at(-1);
   if (pend) {
     pend.peel = true;
+    peelGesture(pend.tempId);
     stamps.peelAway(pend.tempId).then(updateCount);
     sound.play('peel'); toast(S.peeled, 900);
     return pend.settled.then(() => peelSettled()).then(() => true);
@@ -614,8 +642,7 @@ function creditOf(stamp) {
   return name || link ? { id: stamp.id, name, link } : null;
 }
 function pickStampAt(ndc) {
-  camera.updateMatrixWorld();
-  raycaster.setFromCamera(ndc, camera);
+  aimRay(ndc);
   const p = stamps.pick(raycaster);
   if (!p) return null;
   // Står en vägg/golv närmare än klibban (klibban på andra sidan)? Då syns den inte.
@@ -703,6 +730,7 @@ if (!isTouch) {
     if (e.ctrlKey || e.metaKey || e.altKey) return; // inte Ctrl+V osv.
     if (e.code === 'KeyV' && !e.repeat) toggleMode();
     if (e.code === 'KeyM' && !e.repeat) setMuted(!sound.muted);
+    if (e.code === 'KeyC' && !e.repeat) toggleView();
     if (e.code === 'KeyL' && !e.repeat && credit.shown?.link) openLink(credit.shown.link);
     if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
     if (state.mode === 'slap' && e.code === 'KeyE') setRot(state.rotation + 15);
@@ -879,10 +907,14 @@ function onRoomEvent(e) {
     // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
     if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); return; } // min egen, redan synlig
     if (!(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id)) sound.play('slap', e.stamp.position);
+    // Någon annans slap: deras gubbe slår handen mot väggen samtidigt som klibban dyker upp.
+    // (by saknas från äldre klienter: då syns bara klibban, som förut.)
+    if (typeof e.by === 'string' && e.by !== together.net.id && !stamps.meshes.has(e.stamp.id)) together.players.gesture(e.by, 'slap', e.stamp.position, e.stamp.normal);
     stamps.add(e.stamp, e.image).then(updateCount);
   } else if (e.type === 'stamp:remove') {
     const m = stamps.meshes.get(e.id);
     if (m && !myPeels.has(e.id)) sound.play('peel', m.userData.stamp.position);
+    if (m && typeof e.by === 'string' && e.by !== together.net.id && !myPeels.has(e.id)) together.players.gesture(e.by, 'peel', m.userData.stamp.position, m.userData.stamp.normal);
     stamps.peelAway(e.id).then(updateCount);
     if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); scheduleHistory(); }
   } else if (e.type === 'room:reset') onRoomReset(e);
@@ -1023,6 +1055,40 @@ function exitCamView() {
 $('camview-exit').onclick = () => exitCamView();
 addEventListener('keydown', (e) => { if (e.key === 'Escape' && camView) { e.preventDefault(); exitCamView(); } });
 
+// ---------- Första eller tredje person (C, knappen i ⚙ More, 👤 på mobilen) ----------
+// Förstapersonsläget är precis som förut (ingen hand syns). I tredjepersonsvy står kameran bakom
+// och lite ovanför min gubbe, och gubben slappar mot väggen. Valet sparas på enheten.
+function setView(v, { quiet = false } = {}) {
+  view = saveView(v);
+  const t = view === 'third';
+  document.body.classList.toggle('third-person', t);
+  chase.eye = null; chase.dist = null; // börja om utan glidning
+  together.showSelf(t);
+  $('view-first').setAttribute('aria-pressed', String(!t)); $('view-third').setAttribute('aria-pressed', String(t));
+  $('view-btn').setAttribute('aria-pressed', String(t));
+  $('view-btn').title = t ? S.viewBtnToFirst : S.viewBtnToThird;
+  if (!quiet) toast(t ? S.viewToastThird(isTouch) : S.viewToastFirst(isTouch), 1600);
+  return view;
+}
+const toggleView = () => setView(view === 'third' ? 'first' : 'third');
+$('view-first').onclick = () => { if (view !== 'first') setView('first'); };
+$('view-third').onclick = () => { if (view !== 'third') setView('third'); };
+$('view-btn').onclick = (e) => { e.preventDefault(); toggleView(); };
+setView(view, { quiet: true });
+
+// Kameran bakom gubben: följer mjukt, dras in mot gubben när en vägg är i vägen.
+function updateChase(dt) {
+  const eye = camera.position;
+  if (!chase.eye) chase.eye = eye.clone(); else chase.eye.lerp(eye, 1 - Math.exp(-dt * 16));
+  const pose = chasePose(chase.eye, controls.yaw, controls.pitch, chaseCast, chaseOpts(tpCam.aspect));
+  chase.dist = smoothDist(chase.dist, pose.dist, dt);
+  const back = pose.position.clone().sub(pose.pivot); if (back.lengthSq() > 1e-9) back.normalize(); else back.set(0, 0, 1).applyQuaternion(camera.quaternion);
+  tpCam.position.copy(pose.pivot).addScaledVector(back, chase.dist);
+  tpCam.quaternion.copy(camera.quaternion);
+  tpCam.updateMatrixWorld();
+  chase.pose = { dist: chase.dist, target: pose.dist };
+}
+
 // ---------- Huvudloopen ----------
 const clock = new THREE.Clock();
 function frame() {
@@ -1030,8 +1096,12 @@ function frame() {
   if (!camView) controls.update(dt);
   const cv = camView && cams.get(camView);
   if (cv) poseCamera(viewCam, { p: cv.p, yaw: cv.yaw, pitch: cv.pitch, fov: cv.fov });
-  together.update(dt, cv ? viewCam.position : camera.position); // gubbar precis vid kameran döljs
-  cams.update(cv ? null : camera.position);
+  const tp = !cv && view === 'third';
+  if (tp) updateChase(dt);
+  const eyeCam = cv ? viewCam : tp ? tpCam : camera;
+  // gubbar precis vid kameran döljs, och min egen om kameran kommer för nära (t.ex. mot en vägg)
+  together.update(dt, eyeCam.position, { hideSelf: !tp || chase.dist < CHASE.hideBelow });
+  cams.update(cv ? null : eyeCam.position);
   updateHover(performance.now());
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
@@ -1042,7 +1112,7 @@ function frame() {
     } else preview.hide();
   }
   if (cv) renderFramed(renderer, scene, viewCam, cv.aspect || '');
-  else { if (camView) exitCamView(); renderer.render(scene, camera); }
+  else { if (camView) exitCamView(); renderer.render(scene, tp ? tpCam : camera); }
   requestAnimationFrame(frame);
 }
 
@@ -1083,5 +1153,6 @@ window.klibb = {
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
+  setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, maxSizeCm: MAX_SIZE_CM,
 };
