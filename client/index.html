@@ -206,6 +206,16 @@
       <button id="av-ok" type="button" class="primary" data-t="save">Save</button>
     </div>
   </aside>
+  <!-- När man peelat förbi slutet av sin historik -->
+  <dialog id="end-dialog" aria-labelledby="end-title">
+    <h2 id="end-title" data-t="endTitle">End of slap history</h2>
+    <p id="end-q" class="end-q"></p>
+    <p id="end-text" class="hint"></p>
+    <div class="end-btns">
+      <button id="end-action" type="button"></button>
+      <button id="end-keep" type="button" class="primary" data-t="keepSlapping">Keep slapping</button>
+    </div>
+  </dialog>
   <div id="toast" role="status" aria-live="polite"></div>
   <dialog id="admin-dialog">
     <p id="admin-info"></p>

@@ -299,6 +299,7 @@ async function stampAt(ndc) {
       if (!fresh) { if (fresh === null) await handleMissing([design]); else toast(S.slapFailed); return null; }
       res = await api.addStamp(ROOM, { ...body, imageId: fresh.id });
     }
+    endShown = false; // ny klibba: nästa gång man peelar förbi slutet visas rutan igen
     if (res.peelToken) {
       addHistory({ room: ROOM, stampId: res.stamp.id, token: res.peelToken, designId: res.image.id, url: res.image.url, time: res.stamp.createdAt || new Date().toISOString() });
     }
@@ -440,7 +441,7 @@ function peelLast() {
   const list = peelable();
   // Helst en som syns i rummet (gamla poster som redan är borta städas bort av servern).
   const next = list.find((h) => stamps.meshes.has(h.stampId)) || list[0];
-  if (!next) { toast(S.nothingToPeel); return Promise.resolve(false); }
+  if (!next) { endOfHistory(); return Promise.resolve(false); }
   startPeel([next]); toast(S.peeled, 900);
   return peelSettled().then(() => true);
 }
@@ -451,6 +452,47 @@ function peelAll() {
   const n = startPeel(all);
   toast(S.peeledN(n));
   return peelSettled().then(() => n);
+}
+
+// ---------- "End of slap history" ----------
+// Peelar man förbi slutet visas en liten ruta EN gång (inte om och om igen när man håller in Z).
+// Skaparen/admin får frågan om att nollställa rummet, alla andra om att starta ett eget rum.
+// Efter att man stängt den räcker en liten notis, tills man har satt en ny klibba.
+let endShown = false, endShows = 0;
+const endDlg = $('end-dialog');
+function endOfHistory() {
+  if (endDlg.open) return;
+  if (endShown) { toast(S.endTitle, 1200); return; }
+  endShown = true; endShows++;
+  const reset = canEditStyle();
+  $('end-q').textContent = reset ? S.endResetQ : S.endFreshQ;
+  $('end-text').textContent = reset ? S.endResetText : S.endFreshText;
+  const act = $('end-action');
+  act.textContent = reset ? S.resetRoom : S.newRoomShort;
+  act.className = reset ? 'danger' : '';
+  act.dataset.kind = reset ? 'reset' : 'new';
+  controls.unlock(); preview.hide(); closeMore();
+  endDlg.showModal();
+  $('end-keep').focus();
+}
+$('end-keep').onclick = () => endDlg.close();
+$('end-action').onclick = async () => {
+  const b = $('end-action');
+  if (b.dataset.kind === 'new') { endDlg.close(); openStylePanel('create'); return; }
+  b.disabled = true;
+  try {
+    await api.resetRoom(ROOM, together.me().shownAs || together.me().name, auth());
+    endDlg.close();
+  } catch (err) { toast(err.message || S.resetFailed, 3000); } finally { b.disabled = false; }
+};
+// Någon (skaparen eller admin) nollställde rummet: alla klibbor bort, för alla.
+function onRoomReset(e) {
+  for (const id of [...stamps.meshes.keys()]) stamps.remove(id);
+  const mine = readHistory().filter((h) => h.room === ROOM).map((h) => h.stampId);
+  if (mine.length) removeHistory(mine);
+  sound.play('peel');
+  together.sys(S.roomReset(String(e.by || '').slice(0, 24) || '?'));
+  updateCount(); scheduleHistory();
 }
 
 // Historiklistan ritas om högst en gång per bildruta, hur många peel det än blir.
@@ -526,6 +568,7 @@ if (!isTouch) {
   addEventListener('wheel', (e) => { if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
   addEventListener('keydown', (e) => {
     if (isTyping(e)) return; // inte medan man skriver
+    if (endDlg.open) return; // rutan "End of slap history" är öppen
     // Z eller Ctrl+Z / Cmd+Z = peela senaste (i både Klibbläge och Tittläge)
     if ((e.key === 'z' || e.key === 'Z' || e.code === 'KeyZ') && !e.altKey && !e.shiftKey) {
       if (e.ctrlKey || e.metaKey) e.preventDefault();
@@ -710,7 +753,8 @@ function onRoomEvent(e) {
     if (m && !myPeels.has(e.id)) sound.play('peel', m.userData.stamp.position);
     stamps.peelAway(e.id).then(updateCount);
     if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); scheduleHistory(); }
-  } else if (e.type === 'image:remove') { stamps.removeImage(e.id); updateCount(); }
+  } else if (e.type === 'room:reset') onRoomReset(e);
+  else if (e.type === 'image:remove') { stamps.removeImage(e.id); updateCount(); }
   else if (e.type === 'room:style' && e.style) {
     currentStyle = normalizeStyle(e.style); updateStyleUi();
     if (!sp.open) { showStyle(currentStyle); toast(S.styleChanged, 1800); }
@@ -897,6 +941,7 @@ window.klibb = {
   net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
   openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
   cameras: () => cams.list(), camerasVisible: () => [...cams.map.values()].some((e) => e.obj.visible), addCamera: addCam, updateCamera: updateCam, removeCamera: removeCam,
+  endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, maxSizeCm: MAX_SIZE_CM,

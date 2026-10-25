@@ -112,6 +112,11 @@ async function setup(recOpts = {}) {
     await T.api('DELETE', `/api/rooms/${R}/cameras/${cam2.id}`, { key: KEY });
     await T.api('PUT', `/api/rooms/${R}/style`, { key: KEY, body: { style: { floor: 'betong', wall: 'tegel', ceiling: 'vit' } } });
     await sleep(60);
+    assert((await T.api('POST', `/api/rooms/${R}/reset`, { body: { by: 'Anna' } })).status === 403, 'nollställ rummet utan rumsnyckel nekas');
+    await T.api('POST', `/api/rooms/${R}/reset`, { key: KEY, body: { by: 'Anna' } });
+    const aReset = await a.wait(ev('room:reset'));
+    assert(aReset && aReset.e.by === 'Anna' && aReset.e.removed >= 1, 'skaparen nollställer rummet: alla i rummet får room:reset med namnet');
+    await sleep(60);
     b.ws.close(); await a.wait((m) => m.t === 'leave');
     await sleep(60);
     loaded = await (await fetch(`${T.base}/api/rooms/${R}/stamps`)).json();
@@ -136,7 +141,7 @@ async function setup(recOpts = {}) {
     assert(h.format === 'slapandtalk-rec' && h.v === 1 && h.room === R && h.stamps.some((s) => s.id === before.stamp.id) && h.images[img.id] && !h.stamps.some((s) => s.peelHash)
       && h.cameras.length === 2 && h.players.length === 1 && h.players[0].name === 'Anna' && h.players[0].pi === -0.3 && h.style && Array.isArray(h.tracks),
       'startläget: version, rummets utseende, klibbor (utan peel-nycklar), kameror och vem som är där (med blickriktning)');
-    assert(['join', 'move', 'look', 'chat', 'stamp:add', 'stamp:remove', 'camera:update', 'camera:remove', 'room:style', 'leave'].every((k) => kinds.has(k)) && rec.end && rec.end.reason === 'stop',
+    assert(['join', 'move', 'look', 'chat', 'stamp:add', 'stamp:remove', 'camera:update', 'camera:remove', 'room:style', 'room:reset', 'leave'].every((k) => kinds.has(k)) && rec.end && rec.end.reason === 'stop',
       `loggen har alla händelser (${[...kinds].join(', ')}) och en slut-rad`);
     assert(!text.includes('hemligt-röstsamtal') && !kinds.has('signal') && !text.includes('peelHash') && !text.includes(KEY), 'röstens signalering, peel-nycklar och rumsnyckeln spelas aldrig in');
     const moves = rec.events.filter((e) => e.e === 'move' && e.id === wb.id);
@@ -165,6 +170,8 @@ async function setup(recOpts = {}) {
       'klibbor kommer och peelas på rätt tid');
     assert(sEnd.cameras.length === 1 && sEnd.cameras[0].name === 'Vida' && sEnd.style.floor === 'betong' && !sEnd.players.some((p) => p.id === wb.id) && sEnd.chat.length === 1,
       'vid slutet: flyttad kamera, nytt utseende, Bosse har gått, chatten finns');
+    const tReset = rec.events.find((e) => e.e === 'room:reset').t;
+    assert(snapshotAt(tl, tReset - 1).stamps.length >= 1 && snapshotAt(tl, tReset).stamps.length === 0 && sEnd.stamps.length === 0, 'uppspelningen: alla klibbor försvinner när rummet nollställs');
     const times = [0, tJoinB, tLastMove - 30, tAdd + 5, tl.duration / 2, tl.duration];
     const a1 = times.map((t) => JSON.stringify(snapshotAt(tl, t)));
     const a2 = times.slice().reverse().map((t) => JSON.stringify(snapshotAt(buildTimeline(parseRecording(text)), t))).reverse();

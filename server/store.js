@@ -162,6 +162,17 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
       return result;
     });
   }
+  // Ta bort alla stämplar i rummet. Svar: hur många som togs bort.
+  async function resetStamps(roomId) {
+    return withLock(roomId, async () => {
+      const room = await getRoom(roomId);
+      if (!room || !room.stamps.length) return 0;
+      const n = room.stamps.length;
+      room.stamps = []; room.lastVisitAt = iso();
+      await saveRoom(room);
+      return n;
+    });
+  }
   async function listRooms() {
     return (await adapter.list('rooms/')).filter((k) => k.endsWith('.json')).map((k) => k.slice(6, -5));
   }
@@ -216,7 +227,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   }
 
   return {
-    adapter, clock, getRoom, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, listRooms, deleteRoom,
+    adapter, clock, getRoom, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
     deleteStampsWithImage, cleanupRooms, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, migrate,
   };

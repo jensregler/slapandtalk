@@ -44,8 +44,12 @@ ljudet; valet sparas i webbläsaren (`klibb.muted`). Webbläsare tillåter ljud 
 man klickat eller tryckt någonstans, så det första ljudet kommer efter första klicket.
 
 **Peel (ångra) med Z:** satt en klibba lite fel? Tryck **Z** (eller **Ctrl+Z** / **Cmd+Z**) så
-peelas din senaste klibba i rummet. Tryck igen för att gå bakåt, tills det står *No more of your
-stickers here*. Det fungerar i både Slap mode och Look mode. Under ⚙ More finns **My slaps in this
+peelas din senaste klibba i rummet. Tryck igen för att gå bakåt. När det inte finns fler kommer en liten ruta,
+*End of slap history* (bara en gång, även om du håller Z, och Esc eller *Keep slapping* stänger
+den). Är det ditt rum (eller du är admin) frågar den *Reset this room?*: **Reset room** tar bort
+**alla** klibbor i rummet (även andras) på servern, alla i rummet ser *X reset the room* och spelas
+rummet in kommer det med i inspelningen. Annars (Staden eller någon annans rum) frågar den *Start a
+fresh room?*: **New room** gör samma som Room ▾ > New quick room. Bara admin kan nollställa Staden. Det fungerar i både Slap mode och Look mode. Under ⚙ More finns **My slaps in this
 room**: dina klibbor med bild och tid, nyast först. Peka på en (eller tryck) så lyser den upp i
 rummet, **✕** tar bort just den, och **Peel all** tar bort alla dina (tryck två gånger för att
 bekräfta). Du kan bara peela dina egna: när du stämplar får din enhet en hemlig nyckel för just den

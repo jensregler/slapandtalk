@@ -291,3 +291,13 @@ body.touch.more-open #chat-btn { display: none !important; }
 .nowrap { white-space: nowrap; }
 /* Mobil: ☰-knappen ligger ovanför menyn, inte över ljudknappen. */
 body.touch #panel { top: calc(60px + env(safe-area-inset-top)); max-height: calc(62% - 48px); }
+
+/* "End of slap history" */
+#end-dialog { width: min(340px, calc(100% - 32px)); padding: 18px 18px 16px; text-align: center; }
+#end-dialog::backdrop { background: rgba(0,0,0,.45); }
+#end-dialog h2 { margin: 0 0 6px; font-size: 18px; }
+#end-dialog .end-q { margin: 4px 0; font-size: 16px; font-weight: 700; color: #ffd400; }
+#end-dialog .hint { margin: 0 0 14px; }
+.end-btns { display: flex; gap: 8px; }
+.end-btns button { flex: 1; min-height: 44px; }
+#end-action.danger { background: #b3261e; border-color: #b3261e; color: #fff; font-weight: 700; }

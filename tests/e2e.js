@@ -511,7 +511,11 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.evaluate(() => window.klibb.setMode('slap', { quiet: true }));
     assert(h2.count === h1.count - 1 && /^Peeled$/.test(h2.toast) && h3.count === h1.count - 2 && h4.count === h1.count - 3 && h4.n === 0,
       `Z, Ctrl+Z och Cmd+Z peelar senaste klibban en i taget (även i Tittläge)`);
-    assert(h5.count === h4.count && /No more of your stickers here/.test(h5.toast), 'när inga egna finns kvar: "No more of your stickers here"');
+    const end5 = await d.evaluate(() => window.klibb.endDialog());
+    assert(h5.count === h4.count && end5.open && end5.title === 'End of slap history' && end5.question === 'Start a fresh room?' && end5.action === 'New room' && end5.keep === 'Keep slapping',
+      'när inga egna finns kvar: rutan "End of slap history" – "Start a fresh room?" [New room] [Keep slapping] (någon annans rum)');
+    await d.keyboard.press('Escape'); await d.waitForTimeout(200);
+    assert(!(await d.evaluate(() => window.klibb.endDialog().open)), 'Esc stänger rutan');
     // Z medan man skriver: ingen peel
     await stampN(1);
     await openMore(d); await d.fill('#artist', ''); await d.type('#artist', 'Zorro');
@@ -704,12 +708,68 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       `30 snabba Z (${keysMs} ms): de 20 senaste peelas direkt på skärmen och på servern, de 30 äldsta sitter kvar`);
     assert(respMs < 1000 && keysMs < baseMs * 2 + 2000 && doneMs - keysMs < 3000 && peelCalls <= 10 && pAfter.gap < baseGap * 2 + 500,
       `sidan hänger sig inte: 30 Z tar ${keysMs} ms (30 tryck på en tom tangent: ${baseMs} ms), sidan svarar på ${respMs} ms, allt klart ${doneMs - keysMs} ms efter sista trycket med ${peelCalls} anrop till servern (inte ett per tryck), längsta bildruta ${pAfter.gap} ms (utan peel ${baseGap} ms)`);
-    assert(/No more of your stickers here/.test(pAfter.toast) && pAfter.peels >= 1, 'efter 20 peel: "No more of your stickers here"');
+    const pEnd = await pp.evaluate(() => window.klibb.endDialog());
+    assert(pEnd.open && pEnd.shows === 1 && pEnd.question === 'Start a fresh room?' && pAfter.peels >= 1,
+      `efter 20 peel visas "End of slap history" en gång (${pEnd.shows}), inte för varje tryck`);
+    await pp.click('#end-keep');
+    for (let i = 0; i < 3; i++) await pp.keyboard.press('z');
+    const pEnd2 = await pp.evaluate(() => [window.klibb.endDialog(), document.getElementById('toast').textContent]);
+    assert(!pEnd2[0].open && pEnd2[0].shows === 1 && pEnd2[1] === 'End of slap history', 'Keep slapping stänger rutan, och fler Z visar den inte igen (bara en liten notis)');
     await pp.evaluate(() => window.klibb.controls.unlock());
     // Äldre klibbor (21:a och bakåt) går inte att peela, inte ens med en gammal nyckel från servern
     const oldOk = await pp.evaluate(async () => { const r = await fetch(`/api/rooms/${window.klibb.room}/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ id: window.klibb.stamps.meshes.keys().next().value, token: 'x' }] }) }); return r.status; });
     assert(oldOk === 200 && (await pp.evaluate(() => window.klibb.stamps.count)) === 30, 'äldre klibbor ligger kvar (kan bara tas bort av admin)');
+    // [New room] = samma som Room ▾ > New quick room
+    await pp.evaluate(() => window.klibb.stampAt(0, 0)); await pp.keyboard.press('z'); await pp.waitForTimeout(300); await pp.keyboard.press('z');
+    await pp.waitForFunction(() => window.klibb.endDialog().open, null, { timeout: 3000 });
+    await pp.click('#end-action');
+    await pp.waitForSelector('#style-panel', { state: 'visible', timeout: 3000 });
+    assert((await pp.textContent('#style-title')) === 'New quick room' && (await pp.evaluate(() => window.klibb.endDialog().shows)) === 2,
+      'en ny klibba gör att rutan kan visas igen, och [New room] öppnar "New quick room"');
+    await pp.click('#style-cancel');
     await pctx.close();
+
+    // ---------- Skaparen: "Reset this room?" -> alla klibbor bort, för alla ----------
+    const made = await (await fetch(`${BASE}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
+    const RR = made.room.id;
+    const rctx = await browser.newContext({ viewport: { width: 1024, height: 640 } }), vctx = await browser.newContext({ ...devices['Pixel 7'] });
+    await rctx.addInitScript(([r, k]) => { localStorage.setItem('klibb.roomKeys', JSON.stringify({ [r]: k })); localStorage.setItem('klibb.avatar', JSON.stringify({ name: 'Ulla', look: {} })); }, [RR, made.roomKey]);
+    const RA = await rctx.newPage(), RV = await vctx.newPage();
+    for (const [n, pg] of [['skapare', RA], ['besökare', RV]]) pg.on('pageerror', (e) => console.log(`sidfel (${n}):`, e.message));
+    await RA.goto(`${BASE}/?room=${RR}`); await waitReady(RA);
+    await RV.goto(`${BASE}/?room=${RR}`); await waitReady(RV);
+    await RA.setInputFiles('#file', testPng); await RA.waitForFunction(() => window.klibb.state.selected);
+    created.add(await RA.evaluate(() => window.klibb.state.selected.id));
+    await RV.setInputFiles('#file', testPng); await RV.waitForFunction(() => window.klibb.state.selected);
+    await RA.evaluate(async () => { const k = window.klibb; k.moveTo(0, 0); for (let i = 0; i < 2; i++) { k.look(-0.3 + i * 0.3, 0); await k.stampAt(0, 0); } });
+    await RV.evaluate(async () => { const k = window.klibb; k.moveTo(0, 0); k.look(0.5, 0.1); await k.stampAt(0, 0); });
+    await RA.waitForFunction(() => window.klibb.stamps.count === 3, null, { timeout: 5000 });
+    await RA.mouse.click(700, 300); await RA.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
+    for (let i = 0; i < 6; i++) { await RA.keyboard.press('z'); await RA.waitForTimeout(60); }
+    await RA.waitForFunction(() => window.klibb.endDialog().open, null, { timeout: 3000 });
+    const ra = await RA.evaluate(() => [window.klibb.endDialog(), document.getElementById('end-action').className, window.klibb.stamps.count, window.klibb.controls.locked]);
+    assert(ra[0].question === 'Reset this room?' && ra[0].action === 'Reset room' && ra[1] === 'danger' && ra[0].shows === 1 && ra[2] === 1 && !ra[3],
+      'skaparen: "End of slap history" – "Reset this room?" [Reset room] (röd) [Keep slapping], en gång, och musen släpps');
+    await RA.screenshot({ path: path.join(SHOTS, '39-slut-pa-historiken-skapare.png') });
+    await RA.click('#end-action');
+    await RV.waitForFunction(() => window.klibb.stamps.count === 0, null, { timeout: 8000 });
+    await RA.waitForFunction(() => !window.klibb.endDialog().open && window.klibb.stamps.count === 0, null, { timeout: 8000 }).catch(() => {});
+    await RV.waitForFunction(() => [...document.querySelectorAll('#chat-log li.sys')].some((l) => l.textContent === 'Ulla reset the room'), null, { timeout: 5000 }).catch(() => {});
+    const rv = await RV.evaluate(() => [...document.querySelectorAll('#chat-log li.sys')].map((l) => l.textContent));
+    const rServer = await (await fetch(`${BASE}/api/rooms/${RR}/stamps`)).json();
+    assert(!(await RA.evaluate(() => window.klibb.endDialog().open)) && (await RA.evaluate(() => window.klibb.stamps.count)) === 0 && rServer.stamps.length === 0 && rv.includes('Ulla reset the room'),
+      '[Reset room] tar bort ALLA klibbor (även andras) på servern och för alla, och chatten säger "Ulla reset the room"');
+    // Besökaren på mobilen: ↩ förbi slutet -> "Start a fresh room?"
+    await RV.tap('#peel-btn'); await RV.waitForTimeout(200); await RV.tap('#peel-btn').catch(() => {});
+    await RV.waitForFunction(() => window.klibb.endDialog().open, null, { timeout: 3000 });
+    const rvd = await RV.evaluate(() => window.klibb.endDialog());
+    const box = await RV.locator('#end-dialog').boundingBox();
+    await RV.screenshot({ path: path.join(SHOTS, '40-slut-pa-historiken-mobil.png') });
+    assert(rvd.question === 'Start a fresh room?' && rvd.action === 'New room' && rvd.shows === 1 && box.width <= RV.viewportSize().width - 20,
+      'mobil, någon annans rum: ↩ förbi slutet ger "Start a fresh room?" i en ruta som får plats');
+    await RV.tap('#end-keep');
+    assert(!(await RV.evaluate(() => window.klibb.endDialog().open)) && await RV.isVisible('#joystick'), 'mobil: Keep slapping stänger rutan');
+    await rctx.close(); await vctx.close();
 
     // ---------- Rummets utseende ----------
     const sctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });

@@ -81,6 +81,12 @@ export const EN = {
   peelAll: 'Peel all', peelAllConfirm: (n) => `Sure? Tap again (${n})`,
   peeled: 'Peeled', peeledN: (n) => `Peeled ${n} sticker${n === 1 ? '' : 's'}`,
   nothingToPeel: 'No more of your stickers here',
+  // The dialog when you peel past the end of your history
+  endTitle: 'End of slap history',
+  endResetQ: 'Reset this room?', endResetText: 'This removes ALL stickers in this room, for everyone.',
+  endFreshQ: 'Start a fresh room?', endFreshText: 'You’ve peeled all the slaps you can here. Want an empty room of your own?',
+  resetRoom: 'Reset room', newRoomShort: 'New room', keepSlapping: 'Keep slapping',
+  roomReset: (by) => `${by} reset the room`, resetFailed: 'Could not reset the room right now.',
   slowDown: 'Easy now – wait a moment.',
   peelFailed: 'Could not peel right now, try again.',
   peelBtnAria: 'Peel my last sticker', peelBtnTitle: 'Peel (undo) my last sticker',

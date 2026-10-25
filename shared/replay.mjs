@@ -76,6 +76,7 @@ export function buildTimeline(rec) {
         if (e.stamp && !stamps.has(e.stamp.id)) stamps.set(e.stamp.id, { stamp: e.stamp, image: e.image || images[e.stamp.imageId] || null, from: t, to: Infinity });
         break;
       case 'stamp:remove': { const s = stamps.get(e.id); if (s && s.to === Infinity) s.to = t; break; }
+      case 'room:reset': for (const s of stamps.values()) if (s.to === Infinity) s.to = t; break;
       case 'image:remove': for (const s of stamps.values()) if (s.stamp.imageId === e.id && s.to === Infinity) s.to = t; break;
       case 'room:style': styles.push({ t, style: e.style }); break;
       case 'camera:add': case 'camera:update': if (e.camera && e.camera.id) camVersion(e.camera, t); break;

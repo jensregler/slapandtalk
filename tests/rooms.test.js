@@ -188,6 +188,25 @@ async function roomLifecycle(name, adapter) {
       const resA = a25.map((x) => pAll.results[x.stamp.id]);
       assert(resA.slice(0, 5).every((x) => x === 'forbidden') && resA.slice(5).every((x) => x === 'ok') && b2.every((x) => pAll.results[x.stamp.id] === 'ok'),
         'de 5 äldsta av 25 går inte längre att peela (403), de senaste 20 går, och en annan persons gräns är egen');
+      // ---------- Nollställ rummet (alla klibbor bort): bara skaparen eller admin, Staden bara admin ----------
+      const reset = (id, headers = {}, by = 'Ulla') => fetch(`${base}/api/rooms/${id}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ by }) });
+      const postIn = (id) => fetch(`${base}/api/rooms/${id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageId: i1.id, position: [1, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' }) });
+      await postIn(made.room.id); await postIn(made.room.id); await postIn('stad');
+      const rNo = await reset(made.room.id), rWrong = await reset(made.room.id, { 'x-room-key': 'fel' }), rOther = await reset(made.room.id, { 'x-room-key': (await (await mk({})).json()).roomKey });
+      const keptN = (await (await fetch(`${base}/api/rooms/${made.room.id}/stamps`)).json()).stamps.length;
+      const rOk = await reset(made.room.id, { 'x-room-key': made.roomKey }, '  Ulla\u200b  ');
+      const okBody = await rOk.json();
+      const leftN = (await (await fetch(`${base}/api/rooms/${made.room.id}/stamps`)).json()).stamps.length;
+      assert(rNo.status === 403 && rWrong.status === 403 && rOther.status === 403 && keptN >= 2 && rOk.status === 200 && okBody.removed === keptN && leftN === 0,
+        `nollställ rummet: utan, med fel eller med ett annat rums nyckel nekas (403); skaparens nyckel tar bort alla ${keptN}`);
+      const stadKey = await reset('stad', { 'x-room-key': made.roomKey }), stadNone = await reset('stad');
+      const stadBefore = (await (await fetch(`${base}/api/rooms/stad/stamps`)).json()).stamps.length;
+      const stadAdmin = await reset('stad', { 'x-admin-token': 'hemligt-test' });
+      const stadAfter = (await (await fetch(`${base}/api/rooms/stad/stamps`)).json()).stamps.length;
+      const anyAdmin = await reset(r.room.id, { 'x-admin-token': 'hemligt-test' });
+      assert(stadKey.status === 403 && stadNone.status === 403 && stadBefore >= 1 && stadAdmin.status === 200 && stadAfter === 0 && anyAdmin.status === 200 && (await reset('finns-inte-alls', { 'x-admin-token': 'hemligt-test' })).status === 404,
+        'Staden kan bara admin nollställa; admin kan nollställa alla rum; okänt rum ger 404');
       assert(st.status === 200 && room.stamps.length === 1 && room.stamps[0].imageId === i1.id && room.images[i1.id], 'stämplar pekar på designen med imageId');
     } finally { server.close(); }
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }

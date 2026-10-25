@@ -249,13 +249,26 @@ app.delete('/api/rooms/:room/stamps/:id/peel', rateLimit(60), wrap(async (req, r
 // Samma regel som för rummets utseende: den som skapade rummet (rumsnyckeln i x-room-key)
 // eller admin. Staden: bara admin.
 const canEditRoom = (req) => { const admin = isAdmin(req), key = String(req.get('x-room-key') || ''); return (room) => admin || (room.type !== 'stad' && tokenMatches(key, room.keyHash)); };
-async function rightsTo(req, res, id) {
+async function rightsTo(req, res, id, what = 'record and place cameras') {
   let room = await store.getRoom(id);
   if (!room && id === 'stad') room = { id, type: 'stad' };
   if (!room) { res.status(404).json({ error: 'That room does not exist' }); return null; }
-  if (!canEditRoom(req)(room)) { res.status(403).json({ error: id === 'stad' ? 'Bara admin kan spela in och placera kameror i Staden' : 'Bara den som skapade rummet kan spela in och placera kameror' }); return null; }
+  if (!canEditRoom(req)(room)) { res.status(403).json({ error: id === 'stad' ? `Only admin can ${what} in the City` : `Only the room’s creator can ${what}` }); return null; }
   return room;
 }
+
+// ---------- Nollställ rummet: ALLA klibbor bort, för alla ----------
+// Bara den som skapade rummet (rumsnyckeln) eller admin. Staden: bara admin.
+// { by: namnet som visas i chatten ("Ulla reset the room") }. Spelas in om rummet spelas in.
+const cleanBy = (v) => String(v || '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);
+app.post('/api/rooms/:room/reset', rateLimit(20), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  if (!(await rightsTo(req, res, id, 'reset the room'))) return;
+  const removed = await store.resetStamps(id);
+  const by = cleanBy(req.body?.by) || (isAdmin(req) ? 'Admin' : 'The room’s creator');
+  broadcast(id, { type: 'room:reset', by, removed });
+  res.json({ ok: true, removed });
+}));
 
 // ---------- Virtuella kameror ----------
 // { name, p: [x,y,z] (kamerans position), yaw, pitch (radianer), fov (lodrät bildvinkel, grader), aspect: '' | '16:9' | '9:16' }

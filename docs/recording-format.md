@@ -59,6 +59,7 @@ Varje rad: `{ "t": <ms sedan start>, "e": "<typ>", …data }`. Raderna står i t
 | `stamp:add` | `stamp, image` | En klibba sattes. |
 | `stamp:remove` | `id` | En klibba peelades eller togs bort. |
 | `image:remove` | `id` | Admin tog bort en bild helt: alla klibbor med den bilden försvinner. |
+| `room:reset` | `by`, `removed` | Rummets skapare (eller admin) nollställde rummet: alla klibbor försvinner. `by` = namnet som visades. |
 | `room:style` | `style` | Rummets utseende ändrades. |
 | `camera:add` / `camera:update` | `camera` (hela kameran) | En kamera placerades / flyttades / ändrades. |
 | `camera:remove` | `id` | En kamera togs bort. |

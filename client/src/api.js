@@ -55,6 +55,8 @@ const send = (method, url, body, auth) => fetch(url, {
 }).then(json);
 Object.assign(api, {
   recStatus: (room) => fetch(`/api/rooms/${room}/recording`).then(json),
+  // Nollställ rummet (alla klibbor bort). Bara skaparen (rumsnyckel) eller admin.
+  resetRoom: (room, by, auth) => send('POST', `/api/rooms/${room}/reset`, { by }, auth),
   startRec: (room, auth) => send('POST', `/api/rooms/${room}/recording/start`, {}, auth),
   stopRec: (room, auth) => send('POST', `/api/rooms/${room}/recording/stop`, {}, auth),
   listRecs: (room, auth) => fetch(`/api/rooms/${room}/recordings`, { headers: rights(auth) }).then(json),
