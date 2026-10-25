@@ -14,29 +14,52 @@ All kod är öppen källkod under MIT-licensen (se `LICENSE`).
 
 ## Så använder du det
 
-**På datorn:** klicka på *Ladda upp klibba*, välj en bild och klicka på *Gå in i rummet*.
-Gå med **W A S D**, titta med musen och **klicka** för att stämpla. Scrollhjulet ändrar storlek
+**Språk:** hela sajten är på **engelska** (ingen språkväljare). All text som besökaren ser finns
+samlad i `client/src/strings.js`, så det blir lätt att lägga till fler språk senare. Den här
+README:n (och koden) är fortfarande på svenska; knapparnas namn står här som de heter på sidan.
+
+**Första vyn är enkel:** i menyn syns bara det viktigaste: rummets namn och typ, **Room ▾**
+(*＋ New quick room*, *🔗 Share link*, *🏙 Back to the City*), vilka som är här,
+**⬆ Upload sticker**, dina designs, **Slap mode / Look mode**, **Enter the room** och **⚙ More**.
+Allt annat ligger under **⚙ More**: storlek, rotation, slumpvridning och artistnamn, *My slaps in
+this room* (historiken och peel), vilka som är här och **🧍 My avatar**, rummets utseende
+(*🎨 Change room look*), ljud, **🎬 Recording** med kamerorna, och hjälpen. På mobilen öppnas
+⚙ More som ett ark nerifrån (styrspaken göms så länge), ✕ stänger. More stängs av sig själv när
+du går in i rummet.
+
+**På datorn:** klicka på *⬆ Upload sticker*, välj en bild och klicka på *Enter the room*.
+Gå med **W A S D**, titta med musen och **klicka** för att stämpla (*slap*). Scrollhjulet ändrar storlek
 (från 5 cm upp till väggens höjd, 4 m; det gäller klibbans längsta sida, så den blir aldrig högre
 än väggen ens om du vrider den),
-**Q/E** vrider klibban, **R** byter design, **V** växlar mellan Klibbläge och Tittläge och
-**Esc** tar dig tillbaka till menyn.
+**Q/E** vrider klibban, **R** byter design, **V** växlar mellan Slap mode och Look mode, **M**
+stänger av/slår på ljudet och **Esc** tar dig tillbaka till menyn.
+
+**Ljud:** varje gång du stämplar hörs ett kort, smackigt *slap*, och när du peelar ett mjukare
+*rrrip*. Andras klibbor och peel i samma rum hörs också, från där klibban sitter: till vänster
+eller höger, och tystare ju längre bort (Web Audio, `PannerNode` med HRTF). Varje ljud får en
+liten slumpad tonhöjd så att det inte låter likadant varje gång. Ljuden skapas i koden
+(`client/src/sound.js`: filtrerat brus och en låg "duns"), så inga ljudfiler behövs och inget
+behöver krediteras. **🔊/🔇** uppe i menyn (eller **M**, eller *Sounds* under ⚙ More) stänger av
+ljudet; valet sparas i webbläsaren (`klibb.muted`). Webbläsare tillåter ljud först efter att
+man klickat eller tryckt någonstans, så det första ljudet kommer efter första klicket.
 
 **Peel (ångra) med Z:** satt en klibba lite fel? Tryck **Z** (eller **Ctrl+Z** / **Cmd+Z**) så
-peelas din senaste klibba i rummet. Tryck igen för att gå bakåt, tills det står *Inga fler egna
-klibbor här*. Det fungerar i både Klibbläge och Tittläge. I menyn finns **Mina klibbor i det här
-rummet**: dina klibbor med bild och tid, nyast först. Peka på en (eller tryck) så lyser den upp i
-rummet, **✕** tar bort just den, och **Peela alla** tar bort alla dina (tryck två gånger för att
+peelas din senaste klibba i rummet. Tryck igen för att gå bakåt, tills det står *No more of your
+stickers here*. Det fungerar i både Slap mode och Look mode. Under ⚙ More finns **My slaps in this
+room**: dina klibbor med bild och tid, nyast först. Peka på en (eller tryck) så lyser den upp i
+rummet, **✕** tar bort just den, och **Peel all** tar bort alla dina (tryck två gånger för att
 bekräfta). Du kan bara peela dina egna: när du stämplar får din enhet en hemlig nyckel för just den
 klibban (servern sparar bara en hash av den, och den syns aldrig för andra). Nycklarna sparas i
 webbläsaren, så byter du enhet eller rensar webbläsaren kan du inte längre peela de gamla.
 Admin kan fortfarande ta bort allt. Andra som är i rummet ser att klibban försvinner direkt.
 
-**Klibbläge och Tittläge (V):** du börjar i *Klibbläge*: den genomskinliga pekaren visar var
-klibban hamnar och ett klick stämplar. Tryck **V** för *Tittläge* när du vill kliva tillbaka och
-beundra väggen: pekaren och siktet försvinner (kvar är bara en liten prick), klick stämplar inte
-och scroll/Q/E gör ingenting. Gå och titta som vanligt. **R** byter fortfarande design i Tittläge,
-men du stannar kvar där tills du trycker **V** igen. Längst ner i bild står vilket läge du är i.
-V fungerar inte medan du skriver i ett textfält, och Ctrl+V (klistra in) växlar inte läge.
+**Slap mode och Look mode (V):** du börjar i *Slap mode*: den genomskinliga pekaren visar var
+klibban hamnar och ett klick stämplar. Tryck **V** (eller knappen *Look mode*) när du vill kliva
+tillbaka och beundra väggen: pekaren och siktet försvinner (kvar är bara en liten prick), klick
+stämplar inte och scroll/Q/E gör ingenting. Gå och titta som vanligt. **R** byter fortfarande
+design i Look mode, men du stannar kvar där tills du trycker **V** igen. Längst ner i bild står
+vilket läge du är i. V fungerar inte medan du skriver i ett textfält, och Ctrl+V (klistra in)
+växlar inte läge.
 
 **Byta design med R:** har du laddat upp flera klibbor växlar **R** till nästa (efter den sista
 börjar det om på den första). Rutan längst ner i mitten visar vilken design som är vald, till
@@ -47,7 +70,7 @@ servern har kvar bilderna. Designs som har försvunnit från servern tas bort ur
 **På mobilen:** ladda upp en bild i menyn och fäll ihop menyn med **☰**. Styrspaken nere till
 vänster tar dig framåt, **dra med fingret** för att titta och **tryck** där du vill stämpla.
 Den **runda knappen nere till höger** visar vald design: tryck på den för att byta till nästa.
-**↩** peelar (ångrar) din senaste klibba. **Ögat 👁** bredvid slår på Tittläge (pekaren försvinner och tryck stämplar inte, designknappen
+**↩** peelar (ångrar) din senaste klibba. **Ögat 👁** bredvid slår på Look mode (pekaren försvinner och tryck stämplar inte, designknappen
 dämpas); tryck på ögat igen för att klibba.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.
 
@@ -55,11 +78,11 @@ Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en 
 
 Alla som är i samma rum ser varandra. Varje besökare är en liten gubbe med namnskylt ovanför
 huvudet; den går när personen går och står och väger när den står still. Du ser dig själv bara
-inifrån (förstapersonsvy), men i **🧍 Min gubbe** finns en förhandsvisning.
+inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) finns en förhandsvisning.
 
 - **Klibbor syns direkt:** när någon stämplar, peelar eller när admin tar bort något ser alla i
   rummet det på en gång, utan att ladda om. Samma sak när rummets utseende ändras.
-- **Vem är här:** i menyn står *3 här just nu* och en lista med namnen (grön prick = ansluten).
+- **Vem är här:** i menyn står *3 here right now* och en lista med namnen (grön prick = ansluten).
 - **Chatt:** på datorn trycker du **T** eller **Enter**, skriver och trycker **Enter** för att
   skicka (**Esc** stänger). På mobilen trycker du på **💬**. Meddelandet syns i chatten med namn och
   tid, och en stund som en pratbubbla ovanför din gubbe. Medan du skriver går det inte att gå
@@ -67,16 +90,16 @@ inifrån (förstapersonsvy), men i **🧍 Min gubbe** finns en förhandsvisning.
   De senaste 50 meddelandena finns kvar så länge någon är i rummet; de sparas aldrig på disk.
   Max 300 tecken per meddelande och en spärr mot spam (ungefär ett meddelande varannan sekund).
   Inget filter: det är fritt fram.
-- **🧍 Min gubbe:** välj namn, kläder (huvtröja, t-shirt, kostym, väst), frisyr (kort, lugg,
-  långt, bakåtkammat, tupp), färg på tröja, byxor och hår, hudton och keps. Gubben snurrar i en
-  förhandsvisning medan du väljer (dra för att vrida). **Spara** sparar den på den här enheten och
-  de andra ser den direkt. **🎲 Slumpa** ger en slumpad gubbe. Första gången får du en slumpad.
-- **Namn på namnskylten:** det namn du väljer i Min gubbe syns för alla direkt när du sparar (och
-  när du kommer in igen). Har du inget namn där används ditt artistnamn, annars heter du *Gäst 1*,
-  *Gäst 2* … (servern delar ut numren, så två i samma rum får aldrig samma gästnamn, och ingen kan
+- **🧍 My avatar:** välj namn, kläder (Hoodie, T-shirt, Suit, Vest), frisyr (Short, Fringe,
+  Long, Slicked back, Mohawk), färg på tröja, byxor och hår, hudton och keps. Gubben snurrar i en
+  förhandsvisning medan du väljer (dra för att vrida). **Save** sparar den på den här enheten och
+  de andra ser den direkt. **🎲 Random** ger en slumpad gubbe. Första gången får du en slumpad.
+- **Namn på namnskylten:** det namn du väljer i My avatar syns för alla direkt när du sparar (och
+  när du kommer in igen). Har du inget namn där används ditt artistnamn, annars heter du *Guest 1*,
+  *Guest 2* … (servern delar ut numren, så två i samma rum får aldrig samma gästnamn, och ingen kan
   välja ett gästnamn själv). Namn rensas från osynliga tecken och dubbla mellanslag och får vara
-  högst 24 tecken. Byter någon namn står det i chatten (*Gäst 1 heter nu Ulla*), och *kom in* /
-  *gick* visar alltid det namn personen har just då.
+  högst 24 tecken. Byter någon namn står det i chatten (*Guest 1 is now Ulla*), och *joined* /
+  *left* visar alltid det namn personen har just då.
 - **Fullt rum:** högst 10 gubbar per rum (`MAX_PLAYERS_PER_ROOM`). Den elfte ser rummet, alla
   gubbar och chatten, men kan inte skriva och syns inte, och kommer in automatiskt när någon går.
 - **Tappar du anslutningen** (mobilen byter nät, servern startar om eller Render vaknar) kopplar
@@ -84,17 +107,17 @@ inifrån (förstapersonsvy), men i **🧍 Min gubbe** finns en förhandsvisning.
   10 sekunder. När den är tillbaka hämtar den rummet igen så att du ser det du missat.
 - Gubbarna stör aldrig stämplandet: klibbor hamnar på väggen bakom en person, inte på personen.
 
-**Rum:** i menyn finns **＋ Nytt snabbrum** (skapar ett eget rum med en kort kod, t.ex.
-`/?room=k7m2qx`), **🔗 Dela länk** (kopierar länken, eller öppnar dela-menyn på mobilen) och
-**🏙 Till Staden**. Högst upp i bild står vilket rum du är i. Ett nytt rum är alltid helt tomt.
+**Rum:** under **Room ▾** i menyn finns **＋ New quick room** (skapar ett eget rum med en kort kod, t.ex.
+`/?room=k7m2qx`), **🔗 Share link** (kopierar länken, eller öppnar dela-menyn på mobilen) och
+**🏙 Back to the City**. Högst upp i bild står vilket rum du är i. Ett nytt rum är alltid helt tomt.
 
 Det finns tre sorters rum:
 
 | Typ | Vad | Sparas |
 |---|---|---|
-| **Staden** (`stad`) | Det gemensamma rummet där alla hamnar | Alltid, rensas aldrig |
-| **Snabbrum** | Vem som helst kan skapa ett, inget konto behövs | Raderas automatiskt när ingen har varit där på 24 timmar |
-| **Profilrum** | Hör till en användare (förberett, konton finns inte än) | Sparas, rensas aldrig av städningen |
+| **Staden** (`stad`, på sidan *The City*) | Det gemensamma rummet där alla hamnar | Alltid, rensas aldrig |
+| **Snabbrum** (*Quick room*) | Vem som helst kan skapa ett, inget konto behövs | Raderas automatiskt när ingen har varit där på 24 timmar |
+| **Profilrum** (*Profile room*) | Hör till en användare (förberett, konton finns inte än) | Sparas, rensas aldrig av städningen |
 
 Man kan också skriva ett eget namn: `/?room=jens`. Det blir då ett snabbrum.
 
@@ -104,28 +127,28 @@ stämplar där, eller har sidan öppen (appen säger till var tionde minut). Des
 tas inte bort, de kan finnas i andras menyer och rum.
 
 ### Inspelning och kameror (för poddar och filmer)
-Den som skapade rummet (eller admin; i Staden bara admin) ser **🎬 Inspelning** i menyn.
+Den som skapade rummet (eller admin; i Staden bara admin) ser **🎬 Recording** under ⚙ More.
 
-- **● Starta inspelning / ■ Stoppa:** servern spelar in allt som händer i rummet: utseendet,
+- **● Start recording / ■ Stop recording:** servern spelar in allt som händer i rummet: utseendet,
   klibborna (även de som sätts och peelas), kamerorna, vilka som är där, hur deras gubbar ser ut,
   var de står och åt vilket håll de tittar (även upp och ner), och chatten. **Röst spelas inte in**
   (rösten kommer i nästa steg, och då med ett eget ljudspår per person).
 - **● REC** syns uppe till höger för **alla** i rummet så länge det spelas in, och chatten säger
   när inspelningen startar och stoppas. Den som kommer in mitt i en inspelning får en ruta:
-  *Det här rummet spelas in*. (Ett riktigt samtycke, där var och en godkänner, kommer med kontona.)
+  *This room is being recorded*. (Ett riktigt samtycke, där var och en godkänner, kommer med kontona.)
 - **Gränser:** högst 2 timmar och 32 MB per inspelning (stoppas av sig själv), högst 4 rum
   samtidigt, och står rummet tomt i 5 minuter stoppas inspelningen. Se `REC_MAX_*` nedan.
-- **🎥 Placera kamera här:** ställer en virtuell kamera där du står, åt det håll du tittar
-  (*Kamera 1, 2 …*). I listan kan du byta namn, bildvinkel (35–90°) och format (fritt, 16:9
+- **🎥 Place camera here:** ställer en virtuell kamera där du står, åt det håll du tittar
+  (*Camera 1, 2 …*). I listan kan du byta namn, bildvinkel (35–90°) och format (fritt, 16:9
   liggande eller 9:16 stående för Reels), **⤓** flyttar kameran dit du står nu, **✕** tar bort den.
-  Kamerorna sparas med rummet och syns för alla som små röda kameror (inte i Tittläge; kan
-  stängas av med *Visa kamerorna i rummet*).
+  Kamerorna sparas med rummet och syns för alla som små röda kameror (inte i Look mode; kan
+  stängas av med *Show cameras in the room*).
 - **👁 Titta genom kameran:** skärmen visar exakt det kameran ser, med svarta kanter för 16:9
-  och 9:16, så att du kan ställa in bilden. **Esc** (eller *Tillbaka*) = tillbaka.
-- **Inspelningar:** under *Inspelningar* i menyn finns de som gjorts i rummet. **▶** öppnar
+  och 9:16, så att du kan ställa in bilden. **Esc** (eller *Back*) = tillbaka.
+- **Inspelningar:** under *Recordings* i ⚙ More finns de som gjorts i rummet. **▶** öppnar
   uppspelaren (`/?room=<rum>&replay=<id>`): spela/pausa (mellanslag), spola (←/→ = 5 s),
   hastighet 0,5–4×, och välj vy: **fri kamera** (dra för att titta, WASD = gå), **en placerad
-  kamera** eller **någons ögon** (POV). **⏺ Spela in video** spelar in det du ser till en
+  kamera** eller **någons ögon** (POV). **⏺ Record video** spelar in det du ser till en
   `.webm`-fil (ett första test; riktig export av råfiler och klippta filmer kommer senare).
   Länken till en uppspelning kan delas: id:t är slumpat och går inte att gissa.
 - Formatet på inspelningarna (versionerat, förberett för ljudspår och rendering) beskrivs i
@@ -142,7 +165,7 @@ Rummet bakom panelen ändras direkt, så du ser resultatet innan du skapar det.
 - **Väggar:** klassisk, målad, kaklad, tegel, betong, träpanel, puts. Målad och kaklad
   får en färg ur en liten palett. Alla fyra väggarna blir likadana.
 - **Tak:** klassisk, vitt, betong, mörkt.
-- **🎲 Slumpa** ger en kod på fem tecken, t.ex. `k7m2q`. Samma kod ger alltid samma rum, så du
+- **🎲 Random** ger en kod på fem tecken, t.ex. `k7m2q`. Samma kod ger alltid samma rum, så du
   kan skriva in en kod du sett hos någon annan. Väljer du själv en ruta blir det ett eget val
   utan kod.
 
@@ -176,11 +199,13 @@ klibbrum/
 │       ├── fold.js         ← viker klibbor över kanter och hörn
 │       ├── api.js          ← alla anrop till servern
 │       ├── net.js          ← WebSocket till servern (kopplar upp sig igen själv)
-│       ├── together.js     ← andra spelare, chatten och Min gubbe
+│       ├── together.js     ← andra spelare, chatten och My avatar
 │       ├── avatars.js      ← gubbarna: modellen, kläder/färger, namnskylt, gå/stå
 │       ├── cameras.js      ← virtuella kameror: modellen i rummet, titta genom, 16:9/9:16-ram
 │       ├── replay.js       ← uppspelaren (?replay=): spela, spola, vy, spela in video
 │       ├── boot.js         ← väljer uppspelaren eller själva rummet
+│       ├── strings.js      ← ALL text som besökaren ser (engelska; förberett för fler språk)
+│       ├── sound.js        ← ljuden: slap och peel (Web Audio, rumsljud för andras klibbor)
 
 │       └── style.css       ← utseendet på menyn
 ├── server/                 ← det som körs på servern (Node.js)

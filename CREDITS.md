@@ -26,3 +26,9 @@ Casual Character, Casual 2, Beach Character, Business Man och Punk.
 `tools/make-avatar.mjs` slår ihop dem till ett skelett med animationerna Idle, Walk och Wave,
 tar bort UV-koordinater och normaler (färgerna är platta) och komprimerar med meshopt.
 Kepsen ritas i koden (`client/src/avatars.js`).
+
+# Ljud
+
+Ljuden (slap när man stämplar, peel när man ångrar) skapas i webbläsaren med Web Audio i
+`client/src/sound.js` (filtrerat brus och en kort sinuston). Det finns inga ljudfiler och inga
+externa källor att kreditera.
