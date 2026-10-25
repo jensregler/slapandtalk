@@ -201,6 +201,32 @@ body.touch #chat-close { display: block; }
 .chips button.sel, .swatches.colors button.sel { border-color: #ffd400; }
 .chips button.sel { background: #ffd400; color: #111; font-weight: 700; }
 #av-hat-row[hidden] { display: none; }
+/* Tyger (fabrics) */
+.fab-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fab-seg { display: inline-flex; border: 1px solid #555; border-radius: 13px; overflow: hidden; }
+.fab-seg button { border: 0; border-radius: 0; padding: 3px 10px; font-size: 12px; background: #222; }
+.fab-seg button.sel { background: #ffd400; color: #111; font-weight: 700; }
+.fab-ctl { display: flex; flex-direction: column; gap: 6px; background: #1b1b1b; border: 1px solid #333; border-radius: 10px; padding: 8px; }
+.fab-ctl[hidden], .fab-base[hidden] { display: none; }
+.fab-top { display: flex; gap: 9px; align-items: flex-start; }
+.fab-preview { flex: none; width: 66px; height: 66px; border-radius: 9px; overflow: hidden; position: relative; border: 2px solid #444; }
+.fab-preview .fab-tile { position: absolute; left: -50%; top: -50%; width: 200%; height: 200%; background-repeat: repeat; background-position: center; }
+.fab-src { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.fab-src .fab-up { font-size: 12.5px; padding: 5px 8px; }
+.fab-src small, .fab-base small { color: #aaa; font-size: 11px; }
+.fab-picks { display: flex; flex-wrap: wrap; gap: 4px; max-height: 76px; overflow: auto; }
+.fab-picks button { width: 32px; height: 32px; padding: 0; border-radius: 7px; border: 2px solid #444; background-size: cover; background-position: center; background-color: #333; }
+.fab-picks button.sel { border-color: #ffd400; }
+.fab-picks button.mine { border-style: dashed; }
+.fab-sl { display: grid; grid-template-columns: 84px 1fr 58px; align-items: center; gap: 6px; font-size: 12px; }
+.fab-sl input[type=range] { width: 100%; margin: 0; accent-color: #ffd400; }
+.fab-sl output { text-align: right; color: #ccc; font-variant-numeric: tabular-nums; }
+.fab-sl label.check { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.fab-sl.off input[type=range], .fab-sl.off output { opacity: .4; }
+body.touch .fab-sl { grid-template-columns: 90px 1fr 58px; }
+body.touch .fab-sl input[type=range] { height: 28px; }
+body.touch .fab-picks button { width: 38px; height: 38px; }
+body.touch .fab-seg button { padding: 6px 12px; font-size: 13px; }
 body.touch #avatar-panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 70%; border-radius: 14px 14px 0 0;
   padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
 body.touch #avatar-preview { height: 150px; }

@@ -86,6 +86,45 @@ app.post('/api/stickers', rateLimit(20), (req, res) => {
   });
 });
 
+// ---------- Tyger (fabrics): en bild som upprepas över en del av gubben ----------
+// Samma lagring som klibborna (id = innehållets hash, /uploads/<id>.webp), så alla i rummet kan
+// hämta den med id:t. Bilden blir alltid kvadratisk med sidan en tvåpotens (32–512 px): den
+// passas in och resten blir genomskinligt (där syns delens färg igenom). Webbläsaren krymper den
+// redan innan, så den ska vara liten (högst ~300 kB in och ut).
+const FAB = require('../shared/fabric.json');
+const fabricUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: FAB.maxBytes, files: 1 },
+  fileFilter: (req, file, cb) => cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype)),
+});
+const fabricSize = (w, h) => Math.min(FAB.maxPx, Math.max(FAB.minPx, 2 ** Math.ceil(Math.log2(Math.max(1, w | 0, h | 0)))));
+app.post('/api/fabrics', rateLimit(20), (req, res) => {
+  fabricUpload.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? `The fabric image is larger than ${Math.round(FAB.maxBytes / 1024)} kB.` : 'The upload failed.' });
+    if (!req.file) return res.status(400).json({ error: 'Pick a PNG, JPG or WebP image.' });
+    try {
+      const base = sharp(req.file.buffer, { limitInputPixels: 30e6 }).rotate();
+      const meta = await base.metadata();
+      const swap = (meta.orientation || 1) >= 5;
+      const size = fabricSize(swap ? meta.height : meta.width, swap ? meta.width : meta.height);
+      let out = null;
+      for (const quality of [88, 75, 60]) {
+        out = await base.clone().resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+          .webp({ quality, alphaQuality: 90 }).toBuffer({ resolveWithObject: true });
+        if (out.data.length <= FAB.maxBytes) break;
+      }
+      if (out.data.length > FAB.maxBytes) return res.status(400).json({ error: 'That image is too detailed for a fabric.' });
+      const id = contentId(out.data);
+      const existing = await store.getImage(id);
+      if (existing && await store.hasImageFile(id)) return res.json(existing);
+      await store.putImageFile(id, out.data);
+      res.json(await store.addImage({ id, url: `/uploads/${id}.webp`, width: out.info.width, height: out.info.height, kind: 'fabric', createdAt: new Date().toISOString() }));
+    } catch (e) {
+      res.status(400).json({ error: 'Could not read the image.' });
+    }
+  });
+});
+
 // Finns bilden på riktigt? På Renders gratisnivå är disken tillfällig: efter en omstart
 // kan både bildfilen och listan över bilder vara borta, medan webbläsaren fortfarande
 // minns designen (och visar en gammal kopia ur sin cache).

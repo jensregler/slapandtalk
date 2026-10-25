@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { connect } from './net.js';
 import { S, LOCALE } from './strings.js';
 import { Players, Avatar, loadAvatarModel, loadMyAvatar, saveMyAvatar, normalizeLook, randomLook, AVATAR, cleanName } from './avatars.js';
+import { initFabricUI, addRecent } from './fabricui.js';
+import { fabricStats } from './fabrics.js';
 
 const SEND_HZ = 12;
 const CHAT_FADE_MS = 15_000;
@@ -143,6 +145,14 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       if (hex === sel) b.classList.add('sel'); b.onclick = () => pick(hex); el.appendChild(b);
     }
   }
+  // Tyger: Colour | Fabric på varje färgplats (fabricui.js). rerender: false = bara förhandsvisningen (slidrar).
+  const fab = initFabricUI({
+    $, toast, getDraft: () => av.draft,
+    setDraft(patch, { rerender = true } = {}) {
+      av.draft = normalizeLook({ ...av.draft, ...patch });
+      if (rerender) renderAvatarPanel(); else av.avatar?.setLook(av.draft);
+    },
+  });
   function renderAvatarPanel() {
     const d = av.draft, set = (patch) => { av.draft = normalizeLook({ ...av.draft, ...patch }); renderAvatarPanel(); };
     chips($('av-outfit'), AVATAR.outfits, d.outfit, (id) => set({ outfit: id }));
@@ -153,6 +163,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     colors($('av-skin'), AVATAR.colors.skin, d.skin, (c) => set({ skin: c }));
     colors($('av-hatcolor'), AVATAR.colors.hat, d.hatColor, (c) => set({ hatColor: c }));
     $('av-hat').checked = d.hat; $('av-hat-row').hidden = !d.hat;
+    fab.render();
     av.avatar?.setLook(d);
   }
   $('av-hat').onchange = (e) => { av.draft = normalizeLook({ ...av.draft, hat: e.target.checked }); renderAvatarPanel(); };
@@ -183,25 +194,34 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       av.cam.position.set(0, 1.0, 3.7); av.cam.lookAt(0, 0.86, 0);
       if (av.drag === null) av.spin += dt * 0.35;
       if (av.avatar) { av.avatar.root.rotation.y = av.spin; av.avatar.update(dt, 0); }
+      fab.tick();
       av.renderer.render(av.scene, av.cam);
       av.raf = requestAnimationFrame(loop);
     };
     cancelAnimationFrame(av.raf); loop();
   }
   function openAvatarPanel() {
-    av.open = true; av.draft = { ...me.look };
+    av.open = true; av.draft = normalizeLook(me.look); fab.reset(av.draft);
     $('av-name').value = me.name || cleanName(artist());
     $('avatar-panel').hidden = false;
     if (isTouch) { $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false'); }
     controls.unlock?.();
     renderAvatarPanel(); startPreview(); onBusyChange();
   }
-  function closeAvatarPanel() { av.open = false; cancelAnimationFrame(av.raf); $('avatar-panel').hidden = true; onBusyChange(); }
+  function closeAvatarPanel() { av.open = false; cancelAnimationFrame(av.raf); av.avatar?.setLook(me.look); /* släpp tyger man bara provade */ $('avatar-panel').hidden = true; onBusyChange(); }
   $('my-avatar').onclick = () => openAvatarPanel();
   $('av-cancel').onclick = () => closeAvatarPanel();
-  $('av-random').onclick = () => { av.draft = randomLook(); renderAvatarPanel(); };
+  // 🎲 Random = färger och kläder som förut (inga tyger). 🌀 Randomize = galna tyger på det mesta.
+  $('av-random').onclick = () => { av.draft = randomLook(); fab.reset(av.draft); renderAvatarPanel(); };
+  $('av-wild').onclick = async () => {
+    if (fab.busy()) return;
+    const look = await fab.wild(randomLook());
+    if (!av.open) return;
+    av.draft = normalizeLook(look); renderAvatarPanel();
+  };
   $('av-ok').onclick = () => {
     me.look = normalizeLook(av.draft); me.name = cleanName($('av-name').value);
+    if (me.look.fabric) addRecent(Object.values(me.look.fabric).map((f) => f.id));
     self.avatar?.setLook(me.look);
     saveMyAvatar(me.name, me.look);
     net.sendLook(myName(), me.look);
@@ -252,9 +272,10 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     selfGesture: (kind, point, normal) => !!(self.want && self.avatar && (kind === 'peel' ? self.avatar.peel(point, normal) : self.avatar.slap(point, normal))),
     freezeGestures(ms) { if (self.avatar) self.avatar.gesture.freeze = ms; for (const p of players.map.values()) if (p.avatar) p.avatar.gesture.freeze = ms; },
     handPos: () => { const a = self.avatar; if (!a) return null; const w = a.gesture.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray()); return w; },
-    selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0,
+    selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0, fabrics: self.avatar ? self.avatar.fabricInfo() : {},
       gesturing: !!self.avatar?.gesture.active(), pos: self.avatar?.root.position.toArray() || null }),
     busy: () => av.open,
+    fabricStats, previewFabrics: () => (av.avatar ? av.avatar.fabricInfo() : {}),
     chatOpen, openChat, closeChat, openAvatarPanel, closeAvatarPanel,
     sys,
     me: () => ({ name: myName(), shownAs: serverName, look: { ...me.look } }),

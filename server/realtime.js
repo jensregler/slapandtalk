@@ -59,8 +59,35 @@ function cleanLook(l) {
     skin: pick(l.skin, AV.colors.skin, d.skin),
     hat: l.hat === true,
     hatColor: pick(l.hatColor, AV.colors.hat, d.hatColor),
+    ...fabricField(l.fabric),
   };
 }
+// Tyger (fabrics): en uppladdad bild som upprepas över en kroppsdel i stället för färgen.
+// Samma regler som shared/fabric.mjs (webbläsaren); tests/fabric.test.mjs kollar att de är lika.
+// Äldre klienter känner inte till fältet och visar bara färgen.
+const FAB = require('../shared/fabric.json');
+const FAB_ID_RE = /^[a-f0-9]{16}$/;
+function cleanFabricParam(name, v) {
+  const p = FAB.params[name];
+  let n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return p.def;
+  n = p.wrap ? ((n % 360) + 360) % 360 : Math.min(p.max, Math.max(p.min, n));
+  return round(n);
+}
+function cleanFabrics(fs) {
+  if (!fs || typeof fs !== 'object' || Array.isArray(fs)) return null;
+  const out = {};
+  for (const s of FAB.slots) {
+    const f = fs[s];
+    if (!f || typeof f !== 'object' || Array.isArray(f) || typeof f.id !== 'string' || !FAB_ID_RE.test(f.id)) continue;
+    const o = { id: f.id };
+    for (const k of Object.keys(FAB.params)) o[k] = cleanFabricParam(k, f[k]);
+    for (const k of FAB.flags) o[k] = f[k] === true;
+    out[s] = o;
+  }
+  return Object.keys(out).length ? out : null;
+}
+function fabricField(fs) { const f = cleanFabrics(fs); return f ? { fabric: f } : {}; }
 const cleanPitch = (n) => (isNum(n) ? round(clampN(n, -1.57, 1.57)) : 0);
 function cleanPos(p, bounds) {
   if (!Array.isArray(p) || p.length !== 3 || !p.every(isNum)) return null;
@@ -243,4 +270,4 @@ function attachRealtime(server, {
   };
 }
 
-module.exports = { broadcast, onBroadcast, attachRealtime, cleanLook, cleanName };
+module.exports = { broadcast, onBroadcast, attachRealtime, cleanLook, cleanName, cleanFabrics };

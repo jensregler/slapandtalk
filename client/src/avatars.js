@@ -8,6 +8,8 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import AV from '../../shared/avatar.json';
 import { ArmGesture } from './slapanim.js';
+import { cleanFabrics } from '../../shared/fabric.mjs';
+import { acquireFabric, releaseFabric, makeFabricable, setFabric, tickFabric } from './fabrics.js';
 
 export const AVATAR = AV;
 export const AVATAR_URL = '/avatars/gubbe.glb';
@@ -27,6 +29,7 @@ export function normalizeLook(l) {
     skin: pickColor(l.skin, AV.colors.skin, d.skin),
     hat: l.hat === true,
     hatColor: pickColor(l.hatColor, AV.colors.hat, d.hatColor),
+    ...(cleanFabrics(l.fabric) ? { fabric: cleanFabrics(l.fabric) } : {}), // tyger (valfritt), se shared/fabric.mjs
   };
 }
 const any = (list) => list[Math.floor(Math.random() * list.length)];
@@ -53,11 +56,27 @@ export function loadAvatarModel() {
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     modelPromise = loader.loadAsync(AVATAR_URL).then((gltf) => {
       const clips = Object.fromEntries(gltf.animations.map((a) => [a.name, a]));
+      addFabricPositions(gltf.scene);
       return { scene: gltf.scene, clips };
     });
     modelPromise.catch(() => { modelPromise = null; });
   }
   return modelPromise;
+}
+
+// Tygerna behöver en fast position på kroppen (modellen har inga UV-koordinater, och varje del är
+// kvantiserad i sitt eget lilla koordinatsystem). Vi räknar ut var varje hörn sitter när gubben står
+// i viloläge (i meter, samma system för alla delar) och sparar det som attributet fabPos, en gång per
+// geometri. Då följer mönstret kroppen när den går i stället för att glida.
+function addFabricPositions(scene) {
+  scene.updateMatrixWorld(true);
+  const v = new THREE.Vector3();
+  scene.traverse((o) => {
+    if (!o.isSkinnedMesh || o.geometry.attributes.fabPos) return;
+    const n = o.geometry.attributes.position.count, out = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { o.getVertexPosition(i, v); v.applyMatrix4(o.matrixWorld); out.set([v.x, v.y, v.z], i * 3); }
+    o.geometry.setAttribute('fabPos', new THREE.BufferAttribute(out, 3));
+  });
 }
 
 // Vilken roll har ett material på en viss del? (hud, hår, tröja, byxor eller ingen)
@@ -133,6 +152,11 @@ export class Avatar {
     this.cap = new THREE.Group(); this.capMat = capMat;
     for (const g of capGeo) { const m = new THREE.Mesh(g, capMat); m.raycast = () => {}; this.cap.add(m); }
     this.root.add(this.cap);
+    // Tyger: varje färgplats kan bära en upprepad bild (fabrics.js). Huden har två material (mörkare skugga).
+    for (const [role, list] of Object.entries(this.mats)) for (const m of list) makeFabricable(m, { tint: role === 'skinDark' ? 0.82 : 1 });
+    makeFabricable(capMat);
+    this.slotMats = { shirt: this.mats.shirt, pants: this.mats.pants, hair: this.mats.hair, skin: [...this.mats.skin, ...this.mats.skinDark], hat: [capMat] };
+    this.fab = {}; // plats -> { id, f, tex, ok }
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = {};
     for (const [n, clip] of Object.entries(model.clips)) this.actions[n] = this.mixer.clipAction(clip);
@@ -151,7 +175,27 @@ export class Avatar {
     set('skin', L.skin); set('skinDark', L.skin, 0.82); set('hair', L.hairColor); set('brows', L.hairColor, 0.55);
     set('shirt', L.shirt); set('pants', L.pants);
     this.cap.visible = L.hat; this.capMat.color.set(L.hatColor);
+    this.applyFabrics(L.fabric || {});
   }
+  // Samma tyg-id som förut: bara nya värden. Nytt id: hämta texturen (cachad), färgen syns tills den är laddad.
+  applyFabrics(fabric) {
+    for (const [slot, mats] of Object.entries(this.slotMats)) {
+      const want = fabric[slot] || null, cur = this.fab[slot];
+      if (cur && (!want || want.id !== cur.id)) { if (cur.ok) releaseFabric(cur.id); delete this.fab[slot]; mats.forEach((m) => setFabric(m, null, null)); }
+      if (!want) continue;
+      if (this.fab[slot]) { this.fab[slot].f = want; if (this.fab[slot].tex) mats.forEach((m) => setFabric(m, this.fab[slot].tex, want)); continue; }
+      const entry = { id: want.id, f: want, tex: null, ok: false };
+      this.fab[slot] = entry;
+      const p = acquireFabric(want.id);
+      if (!p) continue; // för många olika tyger just nu: färgen får duga
+      entry.ok = true;
+      p.then((tex) => {
+        if (this.fab[slot] !== entry || this.disposed || !tex) return;
+        entry.tex = tex; mats.forEach((m) => setFabric(m, tex, entry.f));
+      });
+    }
+  }
+  fabricInfo() { return Object.fromEntries(Object.entries(this.fab).map(([s, e]) => [s, { id: e.id, loaded: !!e.tex, f: e.f }])); }
   setName(name) {
     this.name = name;
     if (this.tag) { this.root.remove(this.tag); this.tag.material.map.dispose(); this.tag.material.dispose(); this.tag = null; }
@@ -187,6 +231,8 @@ export class Avatar {
     this.actions.Idle?.setEffectiveWeight(1 - this.walk);
     this.mixer.update(dt);
     this.gesture.apply(this.root);
+    const now = Date.now();
+    for (const [slot, e] of Object.entries(this.fab)) if (e.tex) this.slotMats[slot].forEach((m) => tickFabric(m, now));
     if (this.cap.visible && this.head) {
       this.root.updateMatrixWorld(true);
       // Kepsen följer huvudbenet (i gubbens eget koordinatsystem).
@@ -200,6 +246,9 @@ export class Avatar {
   }
   dispose() {
     this.unsay(); this.setName('');
+    this.disposed = true;
+    for (const e of Object.values(this.fab)) if (e.ok) releaseFabric(e.id);
+    this.fab = {};
     for (const list of Object.values(this.mats)) list.forEach((m) => m.dispose());
     this.capMat.dispose(); this.mixer.stopAllAction();
   }
@@ -274,6 +323,6 @@ export class Players {
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
       walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false,
-      gestures: p.gestures || 0, gesturing: !!p.avatar?.gesture.active() }));
+      gestures: p.gestures || 0, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {} }));
   }
 }

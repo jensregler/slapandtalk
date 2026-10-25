@@ -150,6 +150,19 @@ export const EN = {
   avatarHeading: 'My avatar', avatarPreview: 'Preview of your avatar',
   avatarName: 'Name (shown above your head)', avatarNamePlaceholder: 'e.g. Jens',
   outfit: 'Outfit', hair: 'Hair', shirt: 'Top', pants: 'Trousers', hairColor: 'Hair colour', skin: 'Skin', cap: 'Cap',
+  capColour: 'Cap colour',
+  // Fabrics: an image repeated over a body part instead of the colour
+  fabColour: 'Colour', fabFabric: 'Fabric', fabModeAria: (part) => `${part}: colour or fabric`,
+  fabUpload: '📷 Upload image', fabUploadTitle: 'Use a picture from your device as fabric (it gets repeated)',
+  fabPickHint: 'or pick one of these (your stickers, recent fabrics, patterns):',
+  fabBaseHint: 'Colour under the fabric (shows through transparent parts):',
+  fabNone: 'Pick an image to wear.',
+  fabScale: 'Scale', fabRotation: 'Rotation', fabHue: 'Hue', fabCycleHue: 'Cycle hue', fabSpin: 'Spin', fabSpeed: 'Speed', fabScroll: 'Scroll',
+  fabPreview: 'Fabric preview',
+  fabMine: 'Your sticker', fabRecent: 'Recent fabric', fabPreset: (name) => `Pattern: ${name}`,
+  fabUploading: 'Making fabric…', fabFailed: (msg) => `Could not use that image: ${msg}`,
+  randomize: '🌀 Randomize', randomizeTitle: 'Roll a wild outfit with fabrics on everything',
+  randomizing: 'Rolling a wild outfit…',
 
   // ---------- Recording and cameras ----------
   recHeading: '🎬 Recording',
