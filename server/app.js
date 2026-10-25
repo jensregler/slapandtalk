@@ -22,8 +22,9 @@ const MAX_PX = 1024;
 const MAX_STAMP_SIZE = require('../shared/room.json').height;
 // Större stämplar krymps (i stället för att nekas), så äldre appar inte får fel.
 const clampSize = (s) => Math.min(s, MAX_STAMP_SIZE);
+const { makeEntitlements, fromReq } = require('./entitlements');
 
-function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null } = {}) {
+function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env) } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
@@ -100,7 +101,15 @@ const fabricUpload = multer({
   fileFilter: (req, file, cb) => cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype)),
 });
 const fabricSize = (w, h) => Math.min(FAB.maxPx, Math.max(FAB.minPx, 2 ** Math.ceil(Math.log2(Math.max(1, w | 0, h | 0)))));
+// Full version flags for this browser (see server/entitlements.js). Free = all false.
+app.get('/api/entitlements', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ full: entitle(fromReq(req)), devAllowed: !!entitle.devAllowed });
+});
+
 app.post('/api/fabrics', rateLimit(20), (req, res) => {
+  // Fabrics are part of the full version: free players can't make new ones (they still see others').
+  if (!entitle(fromReq(req)).fabrics) return res.status(403).json({ error: 'Fabrics are part of the full version.' });
   fabricUpload.single('file')(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? `The fabric image is larger than ${Math.round(FAB.maxBytes / 1024)} kB.` : 'The upload failed.' });
     if (!req.file) return res.status(400).json({ error: 'Pick a PNG, JPG or WebP image.' });

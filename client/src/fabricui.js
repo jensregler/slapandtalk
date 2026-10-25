@@ -4,6 +4,7 @@ import { S } from './strings.js';
 import { FABRIC, cleanFabric, fabricPhase, fabricUrl, prepareFabricImage, uploadFabric, PRESETS, presetCanvas, presetBlob } from './fabrics.js';
 import { randomFabricParams } from '../../shared/fabric.mjs';
 import { readMine, getBlob } from './designs.js';
+import { has } from './entitlements.js';
 
 export const SLOTS = { shirt: 'shirt', pants: 'pants', hair: 'hairColor', skin: 'skin', hat: 'hatColor' }; // plats -> färgfältet i looken
 const SLOT_LABEL = { shirt: () => S.shirt, pants: () => S.pants, hair: () => S.hairColor, skin: () => S.skin, hat: () => S.capColour };
@@ -59,10 +60,13 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
   const file = $('fab-file'); let fileSlot = null;
   file.onchange = () => { const f = file.files && file.files[0]; file.value = ''; if (f && fileSlot) useSource(fileSlot, () => idForFile(f)); };
 
+  // The Fabric button's icon: a tiny swatch of plain, off-white cotton weave (drawn once).
+  // Deliberately unremarkable – the wild stuff is only found once the panel is open.
   function seg(slot, mode) {
     const box = document.createElement('div'); box.className = 'fab-seg'; box.setAttribute('role', 'group'); box.setAttribute('aria-label', S.fabModeAria(SLOT_LABEL[slot]()));
     for (const [m, label] of [['color', S.fabColour], ['fabric', S.fabFabric]]) {
       const b = document.createElement('button'); b.type = 'button'; b.dataset.mode = m; b.textContent = label;
+      if (m === 'fabric') { const ico = document.createElement('span'); ico.className = 'fab-ico'; ico.setAttribute('aria-hidden', 'true'); ico.style.backgroundImage = `url("${weaveIcon()}")`; b.prepend(ico); }
       b.setAttribute('aria-pressed', String(mode === m)); if (mode === m) b.classList.add('sel');
       b.onclick = () => {
         if (modes[slot] === m) return;
@@ -130,18 +134,27 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     setDraft({ fabric: { ...getDraft().fabric, [slot]: f } }, { rerender: false });
   }
 
+  // Free version: plain colours only – no Colour | Fabric switch, no fabric panel at all.
+  // Full version (entitlements.full.fabrics): the switch, and inside an opened fabric panel
+  // the 🌀 Randomize button (never on the closed/default view).
   function render() {
-    const d = getDraft();
+    const d = getDraft(), full = has('fabrics');
+    const wild = $('av-wild'), home = $('av-wild-home');
+    if (wild && home && wild.parentElement !== home) home.appendChild(wild);
+    let wildPlaced = false;
     for (const row of document.querySelectorAll('#avatar-panel .fab-slot')) {
-      const slot = row.dataset.slot, f = d.fabric?.[slot] || null;
+      const slot = row.dataset.slot, f = full ? d.fabric?.[slot] || null : null;
       if (f) { modes[slot] = 'fabric'; params[slot] = f; }
+      if (!full) modes[slot] = 'color';
       const mode = modes[slot] === 'fabric' ? 'fabric' : 'color';
       const head = row.querySelector('.fab-head');
-      head.querySelector('.fab-seg')?.remove(); head.appendChild(seg(slot, mode));
+      head.querySelector('.fab-seg')?.remove(); if (full) head.appendChild(seg(slot, mode));
       row.querySelector('.fab-ctl')?.remove(); row.querySelector('.fab-base')?.remove();
       const sw = row.querySelector('.swatches');
       if (mode === 'fabric') {
-        row.insertBefore(controls(slot, f), sw);
+        const ctl = controls(slot, f);
+        if (wild && !wildPlaced) { const w = document.createElement('div'); w.className = 'fab-wild'; w.appendChild(wild); ctl.appendChild(w); wildPlaced = true; }
+        row.insertBefore(ctl, sw);
         const base = document.createElement('div'); base.className = 'fab-base';
         const s = document.createElement('small'); s.textContent = S.fabBaseHint; base.appendChild(s);
         row.insertBefore(base, sw);
@@ -182,4 +195,21 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     } finally { busy--; }
   }
   return { render, tick, reset, wild, busy: () => busy > 0, modes };
+}
+
+let weaveUrl = null;
+export function weaveIcon() {
+  if (weaveUrl) return weaveUrl;
+  const n = 16, c = document.createElement('canvas'); c.width = c.height = n;
+  const g = c.getContext('2d');
+  g.fillStyle = '#e9e4d8'; g.fillRect(0, 0, n, n); // unbleached cotton
+  // Plain weave: alternating over/under threads, a touch of slub.
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const over = (x + y) % 2 === 0, slub = ((x * 7 + y * 13) % 11) / 110;
+    g.fillStyle = over ? `rgba(255,255,250,${0.35 + slub})` : `rgba(120,110,95,${0.18 + slub})`;
+    g.fillRect(x, y, 1, 1);
+  }
+  g.strokeStyle = 'rgba(90,85,75,.35)'; g.strokeRect(0.5, 0.5, n - 1, n - 1);
+  weaveUrl = c.toDataURL();
+  return weaveUrl;
 }

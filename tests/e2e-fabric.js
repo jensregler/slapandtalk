@@ -24,11 +24,28 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
   const R = (await (await fetch(`${BASE}/api/rooms`, { method: 'POST' })).json()).room.id;
   const actx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
   const bctx = await browser.newContext({ viewport: { width: 1024, height: 640 } });
+  // A has the full version (dev unlock: the test server runs with DEV_UNLOCK=1); B is a free player.
+  const unlock = () => localStorage.setItem('klibb.devUnlock', '1');
+  await actx.addInitScript(unlock);
   const A = await actx.newPage(), B = await bctx.newPage();
   for (const [n, pg] of [['A', A], ['B', B]]) pg.on('pageerror', (e) => console.log(`sidfel (tyg ${n}):`, e.message));
   try {
     await A.goto(`${BASE}/?room=${R}`); await waitReady(A);
     await B.goto(`${BASE}/?room=${R}`); await waitReady(B);
+    await A.evaluate(() => window.klibb.entitlementsReady()); await B.evaluate(() => window.klibb.entitlementsReady());
+    const ents = [await A.evaluate(() => window.klibb.entitlements().full), await B.evaluate(() => window.klibb.entitlements().full)];
+    assert(ents[0].fabrics && ents[0].soundDesign && !ents[1].fabrics && !ents[1].soundDesign, 'full version: A (unlocked) has fabrics + soundDesign, B (default) has nothing');
+    // Free player: plain colours only – no Fabric switch, no Randomize, nothing locked or for sale
+    await B.evaluate(() => window.klibb.openAvatarPanel());
+    await B.waitForSelector('#avatar-panel', { state: 'visible' });
+    const free = await B.evaluate(() => ({ segs: document.querySelectorAll('#avatar-panel .fab-seg').length, ctl: document.querySelectorAll('#avatar-panel .fab-ctl').length,
+      wild: !!document.getElementById('av-wild').offsetParent, text: document.getElementById('avatar-panel').innerText }));
+    assert(free.segs === 0 && free.ctl === 0 && !free.wild && !/fabric|randomize|premium|upgrade|buy|locked|🔒/i.test(free.text),
+      'free: My avatar shows only plain colours (no Colour | Fabric switch, no Randomize, no locked/upsell items)');
+    await B.screenshot({ path: path.join(OUT, 'free-avatar-menu.png') });
+    await B.click('#av-cancel');
+    const freeUp = await B.evaluate(async () => (await fetch('/api/fabrics', { method: 'POST', body: new FormData() })).status);
+    assert(freeUp === 403, 'free: the server refuses fabric uploads (403) even if the UI is bypassed');
     await A.waitForFunction(() => window.klibb.players().length === 1 && window.klibb.players()[0].built, null, { timeout: 15000 });
     await B.waitForFunction(() => window.klibb.players().length === 1 && window.klibb.players()[0].built, null, { timeout: 15000 });
     // A laddar upp en klibba (så den finns bland "dina klibbor" i tygväljaren)
@@ -42,6 +59,11 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
     const segs = await A.$$eval('#avatar-panel .fab-slot', (rows) => rows.map((r) => [r.dataset.slot, [...r.querySelectorAll('.fab-seg button')].map((b) => b.textContent).join('|')]));
     assert(segs.length === 5 && segs.every(([, t]) => t === 'Colour|Fabric') && segs.map(([s]) => s).join() === 'shirt,pants,hair,skin,hat',
       'Min gubbe: varje färgplats (tröja, byxor, hårfärg, hud, keps) har en Colour | Fabric-knapp');
+    const plain = await A.evaluate(() => { const b = document.querySelector('#avatar-panel .fab-seg button[data-mode="fabric"]'), ico = b.querySelector('.fab-ico');
+      return { ico: !!ico && /^url\("data:image\/png/.test(ico.style.backgroundImage), text: b.textContent, wild: !!document.getElementById('av-wild').offsetParent }; });
+    assert(plain.ico && plain.text === 'Fabric' && !plain.wild, 'closed view: the Fabric button is a plain label with a small cotton-weave swatch, and Randomize is not shown');
+    await A.$eval('#avatar-panel .fab-slot', (el) => el.scrollIntoView({ block: 'start' }));
+    await A.screenshot({ path: path.join(OUT, 'fabric-switch-closed.png'), clip: { x: 1280 - 12 - 360, y: 0, width: 360, height: 520 } });
     await A.click('#av-outfit button[data-id="huvtroja"]'); await A.click('#av-hair button[data-id="tupp"]');
     // Tröja: egen bild från enheten (filväljaren)
     await A.click(`${slot('shirt')} .fab-seg button[data-mode="fabric"]`);
@@ -120,8 +142,12 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
     await B.waitForFunction(() => Object.keys(window.klibb.players()[0].fabrics).length === 0 && !window.klibb.players()[0].look.fabric, null, { timeout: 8000 });
     const freed = await B.evaluate(() => window.klibb.fabricStats().inUse);
     assert(freed === 0, 'tar A av tygerna ser B färgerna igen, och texturerna som ingen använder släpps');
-    // 🌀 Randomize
+    // 🌀 Randomize: only inside an opened fabric panel
     await A.evaluate(() => window.klibb.openAvatarPanel());
+    const wildClosed = await A.evaluate(() => !!document.getElementById('av-wild').offsetParent);
+    await A.click(`${slot('shirt')} .fab-seg button[data-mode="fabric"]`);
+    const wildOpen = await A.evaluate(() => { const w = document.getElementById('av-wild'); return !!w.offsetParent && !!w.closest('.fab-ctl'); });
+    assert(!wildClosed && wildOpen, 'Randomize appears only inside the opened fabric panel');
     await A.click('#av-wild');
     await A.waitForFunction(() => Object.values(window.klibb.previewFabrics()).some((f) => f.loaded), null, { timeout: 15000 });
     const wild = await A.evaluate(() => window.klibb.previewFabrics());
@@ -131,9 +157,10 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
 
     // Mobil: panelen med tygreglagen går att använda med touch
     const mctx = await browser.newContext({ ...devices['iPhone 13'] });
+    await mctx.addInitScript(unlock);
     const M = await mctx.newPage();
     M.on('pageerror', (e) => console.log('sidfel (tyg mobil):', e.message));
-    await M.goto(`${BASE}/?room=${R}`); await waitReady(M);
+    await M.goto(`${BASE}/?room=${R}`); await waitReady(M); await M.evaluate(() => window.klibb.entitlementsReady());
     await M.evaluate(() => window.klibb.openAvatarPanel());
     await M.waitForSelector('#avatar-panel', { state: 'visible' });
     await M.tap(`${slot('shirt')} .fab-seg button[data-mode="fabric"]`);

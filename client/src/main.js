@@ -17,6 +17,10 @@ import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadVi
 import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
 import { PeelLayer } from './peels.js';
 import { PEEL, peelPlan, onFloor, stampDims } from '../../shared/peels.mjs';
+import { entitlements, loadEntitlements } from './entitlements.js';
+import { Footsteps } from './steps.js';
+import { loadSoundLook, initSoundUI } from './soundui.js';
+import * as synthShared from '../../shared/synth.mjs';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -45,6 +49,13 @@ controls.attachJoystick($('joystick'), $('stick'));
 const stamps = new StampLayer(scene, room.surfaces);
 // Peels: baksidespappret som faller till golvet vid varje slap (när rummet har det på), peels.js.
 const peelLayer = new PeelLayer(scene);
+// The backing paper lands: a soft "duff", louder and lower the bigger the paper, in the
+// slapper's own sound (their look.sound), from where it landed.
+peelLayer.onLand = (peel, by) => {
+  const area = (peel.w || 0.3) * (peel.h || 0.3);
+  if (by === 'me') sound.play('duff', [peel.x, 0.02, peel.z], { area, sound: sound.mine });
+  else sound.play('duff', [peel.x, 0.02, peel.z], { area, sound: together.voiceOf(by) });
+};
 let nopes = 0;
 // Klibbor fastnar inte på baksidespapper: ett litet "nej" och en axelryckning. (Påskägg, står inte i hjälpen.)
 function nope() {
@@ -84,6 +95,7 @@ const state = {
 
 // ---------- Ljud (sound.js) ----------
 const sound = new Sounds();
+sound.setMine({ seed: loadSoundLook().seed }); // custom patches only once the full version is confirmed
 const myNonces = new Set(); // mina egna stämplar på väg till servern (så ljudet inte spelas två gånger)
 const myPeels = new Set(); // stämplar som jag själv peelar
 const fwd = new THREE.Vector3();
@@ -355,7 +367,7 @@ async function stampAt(ndc) {
   const tempPeel = 'tmp-' + nonce;
   if (peelLayer.on) {
     const [pw, ph] = stampDims(design, slapSize);
-    peelLayer.add({ id: tempPeel, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, { x: camera.position.x, z: camera.position.z, yaw: controls.yaw }, body.position) }, design, { animate: true });
+    peelLayer.add({ id: tempPeel, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, { x: camera.position.x, z: camera.position.z, yaw: controls.yaw }, body.position) }, design, { animate: true, by: 'me' });
   }
   let settle; const settled = new Promise((r) => { settle = r; });
   pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled });
@@ -374,7 +386,7 @@ async function stampAt(ndc) {
       addHistory({ room: ROOM, stampId: res.stamp.id, token: res.peelToken, designId: res.image.id, url: res.image.url, time: res.stamp.createdAt || new Date().toISOString() });
     }
     confirmSlap(nonce, res.stamp, res.image); updateCount(); renderHistory();
-    if (res.peel) { if (!peelLayer.confirm(tempPeel, res.peel)) peelLayer.add(res.peel, res.image, { animate: true }); } else peelLayer.remove([tempPeel]);
+    if (res.peel) { if (!peelLayer.confirm(tempPeel, res.peel)) peelLayer.add(res.peel, res.image, { animate: true, by: 'me' }); } else peelLayer.remove([tempPeel]);
     // Peelad (↩/Z) innan servern hann svara: peela den riktiga nu, tyst (den är redan borta på skärmen).
     if (peelWhenSaved.delete(res.stamp.id)) {
       const h = roomHistory(ROOM).find((x) => x.stampId === res.stamp.id);
@@ -853,6 +865,7 @@ $('peels-clear').onclick = async () => {
   try { await api.clearPeels(ROOM, { key: roomKeys()[ROOM], admin: state.adminToken }); peelLayer.clear(); toast(S.peelsCleared, 1500); } catch (err) { toast(err.message); }
 };
 async function showStyle(s) {
+  sound.setRoom(s); // the room's materials give a subtle, automatic acoustic (free, no UI)
   try { return await applyStyle(room.surfaces, s); } catch { toast(S.texturesFailed); return null; }
 }
 showStyle(DEFAULT_STYLE);
@@ -955,15 +968,15 @@ function onRoomEvent(e) {
   if (e.type === 'stamp:add' && e.stamp && e.image) {
     // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
     if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); if (e.peel) peelLayer.confirm('tmp-' + e.nonce, e.peel); return; } // min egen, redan synlig
-    if (e.peel && !(e.nonce && myNonces.has(e.nonce))) peelLayer.add(e.peel, e.image, { animate: true }); // någon annans papper faller
-    if (!(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id)) sound.play('slap', e.stamp.position);
+    if (e.peel && !(e.nonce && myNonces.has(e.nonce))) peelLayer.add(e.peel, e.image, { animate: true, by: e.by }); // någon annans papper faller
+    if (!(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id)) sound.play('slap', e.stamp.position, { sound: together.voiceOf(e.by) });
     // Någon annans slap: deras gubbe slår handen mot väggen samtidigt som klibban dyker upp.
     // (by saknas från äldre klienter: då syns bara klibban, som förut.)
     if (typeof e.by === 'string' && e.by !== together.net.id && !stamps.meshes.has(e.stamp.id)) together.players.gesture(e.by, 'slap', e.stamp.position, e.stamp.normal);
     stamps.add(e.stamp, e.image).then(updateCount);
   } else if (e.type === 'stamp:remove') {
     const m = stamps.meshes.get(e.id);
-    if (m && !myPeels.has(e.id)) sound.play('peel', m.userData.stamp.position);
+    if (m && !myPeels.has(e.id)) sound.play('peel', m.userData.stamp.position, { sound: together.voiceOf(e.by) });
     if (m && typeof e.by === 'string' && e.by !== together.net.id && !myPeels.has(e.id)) together.players.gesture(e.by, 'peel', m.userData.stamp.position, m.userData.stamp.normal);
     stamps.peelAway(e.id).then(updateCount);
     if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); scheduleHistory(); }
@@ -1005,7 +1018,14 @@ const together = initTogether({
   room: ROOM, scene, camera, controls, isTouch, toast, artist: () => state.artist,
   onEvent: onRoomEvent, onReconnect: resyncRoom,
   onWelcome: (m) => setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }),
+  onSound: (s) => sound.setMine(s),
 });
+// Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
+const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); });
+function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; }
+// Sound settings (soundui.js): only reachable with entitlements.full.soundDesign.
+const soundUi = initSoundUI({ $, sound, toast, onSave: () => together.soundChanged(), onOpenChange: (o) => { if (o) controls.unlock?.(); } });
+$('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { closeMore(); soundUi.open(); } };
 
 // ---------- Inspelning ('sessionsinspelning') och virtuella kameror ----------
 // Den som skapade rummet (rumsnyckeln) eller admin kan starta och stoppa en inspelning och
@@ -1151,6 +1171,19 @@ function updateChase(dt) {
   chase.pose = { dist: chase.dist, target: pose.dist };
 }
 
+// Footsteps (steps.js): mine while I walk, and the others' from where they walk.
+const footsteps = new Footsteps(sound);
+let stepsTick = 0;
+function walkSounds() {
+  footsteps.update('me', camera.position.x, camera.position.z);
+  const ids = new Set();
+  for (const pl of together.players.map.values()) {
+    ids.add(pl.id);
+    footsteps.update(pl.id, pl.pos.x, pl.pos.z, { at: [pl.pos.x, 0.05, pl.pos.z], voice: pl.look?.sound || null });
+  }
+  if (++stepsTick % 300 === 0) footsteps.forget(ids);
+}
+
 // ---------- Huvudloopen ----------
 const clock = new THREE.Clock();
 function frame() {
@@ -1165,6 +1198,7 @@ function frame() {
   together.update(dt, eyeCam.position, { hideSelf: !tp || chase.dist < CHASE.hideBelow });
   cams.update(cv ? null : eyeCam.position);
   peelLayer.update();
+  walkSounds();
   updateHover(performance.now());
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
@@ -1193,6 +1227,10 @@ if ('serviceWorker' in navigator) {
 
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 window.klibb = {
+  soundUi: () => soundUi, synthShared: () => synthShared, soundSteps: () => sound.steps, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
+  // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
+  synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
+  entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview,
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {

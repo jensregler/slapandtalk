@@ -332,6 +332,49 @@ npx pm2 restart slapandtalk-tunnel       # starta om tunneln (ny adress!)
 
 ---
 
+## Fullversionen (entitlements)
+
+Grundversionen är ett lugnt, komplett klistermärkesrum: vanliga färger på gubben, egna (unika)
+standardljud och en diskret rumsakustik. Fullversionen lägger till de djupa menyerna ovanpå:
+**tyger** på gubben (`fabrics`) och **Sound settings** med synth och effekter (`soundDesign`).
+Allt sitter i en gemensam abstraktion, `entitlements.full.<funktion>` (server/entitlements.js och
+client/src/entitlements.js), så nya saker (t.ex. ljus) blir bara ett namn till i `FEATURES`.
+Standard är `false` för allt. Alla ser och hör andras tyger och ljud; bara att *skicka* egna kräver
+flaggan, och servern stryker/nekar tyg- och patchdata från den som inte har den.
+
+**Så slår Jens på fullversionen för sig själv (produktion, t.ex. Render):**
+
+1. Hitta på en hemlig nyckel (minst 12 tecken, `A–Z a–z 0–9 _ . ~ -`), t.ex. `openssl rand -hex 16`.
+2. Lägg den i miljövariabeln `FULL_ACCESS_KEYS` på servern (Render → Environment). Flera nycklar
+   separeras med komma. `nyckel` ensam låser upp allt; `nyckel:fabrics+soundDesign` bara de uppräknade.
+3. Öppna `https://<sajten>/?unlock=<nyckel>` en gång i webbläsaren. Nyckeln sparas i den
+   webbläsaren (localStorage `klibb.unlock`) och tas bort ur adressfältet. `?unlock=off` glömmer den.
+
+**Utveckling/test:** med `DEV_UNLOCK=1` på servern räcker det att sätta
+`localStorage.setItem('klibb.devUnlock', '1')` i webbläsaren. Flaggan ignoreras när servern inte har
+`DEV_UNLOCK=1` (sätt den aldrig i produktion). E2E-testerna kör med `DEV_UNLOCK=1`.
+
+### Ljud: synth, effekter och rumsakustik
+
+Alla ljud (slap, peel, nope, fotsteg, "duff" när ett baksidespapper landar) är JSON-patchar
+(`shared/synth.mjs`) som spelas av en liten synthmotor byggd på **Tone.js** (MIT, laddas först
+när ljudet startar, så första sidladdningen är lika lätt). En patch = upp till 4 lager: oscillator
+(sine/square/saw/triangle, detune, unison, sub) eller brus (vitt/rosa), ADSR, LP/HP/BP-filter med
+cutoff, Q och filterenvelope, tonhöjdssvep, LFO (tonhöjd/cutoff/volym), nivå och drive.
+Effekter: reverb (decay, pre-delay, wet), delay (tid eller synk 1/4, 1/8, 1/8d, 1/16, 1/4t,
+feedback ≤ 0,95, wet, ping-pong), filter, bitcrush och distortion – per spelare och per ljud.
+
+- **Gratis:** varje spelare får en egen, diskret variant av standardljuden (frö i
+  localStorage `klibb.soundSeed`, skickas med gubbens look – andra hör *din* variant utan extra
+  trafik). Rummets material ger automatiskt lite akustik: kakelväggar lite reverb, betonggolv
+  mycket diskret, övrigt torrt (`roomAcoustics`, max 12 % wet). Inga menyer.
+- **Fullversionen (`soundDesign`):** ⚙ More → Sound settings… – en synthpanel per ljud plus
+  Effects, med Preview, Randomize, Wild, Reset. Sparas i webbläsaren (`klibb.sound`) och skickas
+  med looken; servern klämmer alla värden och stryker patchar från den som saknar flaggan.
+- Duff: volym och tonhöjd följer pappersytan (`duffScale`: större = högre och mörkare).
+- Testerna: `tests/synth.test.mjs` och `tests/e2e-synth.js` (renderar alla patchar med
+  `Tone.Offline` och kollar att de hörs och inte klipper).
+
 ## Admin: ta bort olagligt innehåll
 
 Det finns ingen förhandsgranskning, allt kommer upp direkt. Men den som driver en tjänst där

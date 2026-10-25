@@ -15,3 +15,7 @@ services:
       # Flerspelare (WebSocket på /ws, samma port): hur många som syns i ett rum samtidigt.
       - key: MAX_PLAYERS_PER_ROOM
         value: "10"
+      # Fullversionen (tyger, Sound settings): hemliga nycklar, se README "Fullversionen".
+      # Sätts i Render-panelen (sync: false = värdet ligger inte i repot).
+      - key: FULL_ACCESS_KEYS
+        sync: false

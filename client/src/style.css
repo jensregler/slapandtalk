@@ -207,6 +207,9 @@ body.touch #chat-close { display: block; }
 .fab-seg { display: inline-flex; border: 1px solid #555; border-radius: 13px; overflow: hidden; }
 .fab-seg button { border: 0; border-radius: 0; padding: 3px 10px; font-size: 12px; background: #222; }
 .fab-seg button.sel { background: #ffd400; color: #111; font-weight: 700; }
+.fab-seg .fab-ico { display: inline-block; width: 11px; height: 11px; margin-right: 5px; vertical-align: -1px; border-radius: 2px; background-size: 11px 11px; image-rendering: auto; }
+.fab-wild { margin-top: 8px; }
+.fab-wild button { font-size: 12px; }
 .fab-ctl { display: flex; flex-direction: column; gap: 6px; background: #1b1b1b; border: 1px solid #333; border-radius: 10px; padding: 8px; }
 .fab-ctl[hidden], .fab-base[hidden] { display: none; }
 .fab-top { display: flex; gap: 9px; align-items: flex-start; }
@@ -365,3 +368,26 @@ a.btn.primary { background: #fff; color: #111; font-weight: 700; border-color: #
 #nope-shrug.show { animation: nope-shrug .75s ease-out; }
 @keyframes nope-shrug { 0% { opacity: 0; transform: translate(-50%, -40%) scale(.6) rotate(0); } 20% { opacity: 1; transform: translate(-50%, -110%) scale(1) rotate(-10deg); }
   45% { transform: translate(-50%, -110%) scale(1) rotate(10deg); } 70% { opacity: 1; transform: translate(-50%, -120%) scale(1) rotate(0); } 100% { opacity: 0; transform: translate(-50%, -150%) scale(.9); } }
+
+/* Sound settings (full version) */
+#sound-panel { position: fixed; top: 12px; right: 12px; width: 420px; max-height: calc(100% - 24px); overflow: auto; z-index: 9;
+  background: rgba(20,20,20,.97); color: #eee; border: 1px solid #333; border-radius: 12px; padding: 12px 14px 0; font-size: 13px; }
+#sound-panel h2 { margin: 0; font-size: 16px; }
+#sound-panel .sp-btns { position: sticky; bottom: 0; background: rgba(20,20,20,.98); padding: 8px 0 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+#snd-tabs { display: flex; flex-wrap: wrap; margin: 10px 0; }
+#snd-tabs button { flex: 1; }
+#snd-body .hint { margin: 4px 0 8px; }
+.snd-layer, .snd-unit { border: 1px solid #3a3a3a; border-radius: 8px; margin: 8px 0; padding: 4px 8px 6px; }
+.snd-layer legend, .snd-unit legend { font-weight: 700; padding: 0 4px; }
+.snd-sel { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; align-items: center; }
+.snd-sel select { background: #222; color: #eee; border: 1px solid #555; border-radius: 6px; padding: 2px 4px; font-size: 12px; }
+.snd-rm { margin-left: auto; padding: 1px 7px; }
+.snd-group small { display: block; color: #9a9a9a; margin-top: 4px; text-transform: uppercase; letter-spacing: .04em; font-size: 10px; }
+.snd-sl { display: grid; grid-template-columns: 78px 1fr 62px; gap: 6px; align-items: center; }
+.snd-sl input[type=range] { width: 100%; }
+.snd-sl output { text-align: right; font-variant-numeric: tabular-nums; color: #ccc; font-size: 12px; }
+.snd-add { margin: 2px 0 6px; }
+.snd-own { display: block; margin: 8px 0; }
+body.touch #sound-panel { left: 8px; right: 8px; width: auto; top: 8px; }
+#sound-design-btn[hidden] { display: none !important; }
+#sound-design-btn { margin-top: 6px; }

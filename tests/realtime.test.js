@@ -143,9 +143,9 @@ function client(base, room, hello = {}) {
     await sleep(300);
     assert(flood.closed === 4008, 'den som skickar hundratals meddelanden i sekunden kopplas bort');
     const big = join('rum3', { name: 'Stor' }); await big.ready; await big.wait((m) => m.t === 'welcome');
-    big.ws.send(JSON.stringify({ t: 'chat', text: 'x'.repeat(20000) }));
+    big.ws.send(JSON.stringify({ t: 'chat', text: 'x'.repeat(30000) }));
     await sleep(200);
-    assert(big.closed === 1009, 'för stora meddelanden (över 16 kB) stänger anslutningen');
+    assert(big.closed === 1009, 'för stora meddelanden (över 24 kB) stänger anslutningen');
     const bad = new WebSocket(`${base.replace('http', 'ws')}/ws?room=OGILTIGT/../x`);
     const badRes = await new Promise((r) => { bad.on('error', () => r('nekad')); bad.on('open', () => r('öppen')); });
     assert(badRes === 'nekad', 'ogiltigt rum nekas');

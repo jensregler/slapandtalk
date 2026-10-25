@@ -6,21 +6,29 @@ import { S, LOCALE } from './strings.js';
 import { Players, Avatar, loadAvatarModel, loadMyAvatar, saveMyAvatar, normalizeLook, randomLook, AVATAR, cleanName } from './avatars.js';
 import { initFabricUI, addRecent } from './fabricui.js';
 import { fabricStats } from './fabrics.js';
+import { has, credentials } from './entitlements.js';
+import { loadSoundLook } from './soundui.js';
 
 const SEND_HZ = 12;
 const CHAT_FADE_MS = 15_000;
 
-export function initTogether({ room, scene, camera, controls, isTouch, toast, artist, onEvent, onReconnect, onWelcome = () => {}, onBusyChange = () => {} }) {
+export function initTogether({ room, scene, camera, controls, isTouch, toast, artist, onEvent, onReconnect, onWelcome = () => {}, onBusyChange = () => {}, onSound = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const me = loadMyAvatar();
   if (!me.saved) saveMyAvatar(me.name, me.look); // en slumpad gubbe ska se likadan ut nästa gång
   const myName = () => me.name || cleanName(artist()) || '';
+  // What others see (and I see on my own avatar): fabrics only with the full version
+  // (the server drops them otherwise). Other players' fabrics are always shown.
+  // Sound: my seed (= my own variation of the default sounds) always; custom patches/FX only
+  // with soundDesign (the server drops them otherwise).
+  const shownSound = () => { const s = loadSoundLook(); if (!has('soundDesign')) { delete s.patches; delete s.fx; } return s; };
+  const shownLook = () => { const l = { ...me.look, sound: shownSound() }; if (!has('fabrics')) delete l.fabric; return l; };
   const players = new Players(scene);
   let status = 'connecting', full = false, unread = 0, serverName = ''; // serverName = det namn de andra ser på mig
 
   // ---------- Anslutningen ----------
   const net = connect(room, {
-    hello: () => ({ name: myName(), look: me.look, p: camera.position.toArray(), y: controls.yaw, pi: controls.pitch }),
+    hello: () => ({ name: myName(), look: shownLook(), unlock: credentials(), p: camera.position.toArray(), y: controls.yaw, pi: controls.pitch }),
     onYou(name) { serverName = name; renderPeople(); },
     onWelcome(m) {
       serverName = m.you?.name || '';
@@ -201,14 +209,14 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     cancelAnimationFrame(av.raf); loop();
   }
   function openAvatarPanel() {
-    av.open = true; av.draft = normalizeLook(me.look); fab.reset(av.draft);
+    av.open = true; av.draft = normalizeLook(shownLook()); fab.reset(av.draft);
     $('av-name').value = me.name || cleanName(artist());
     $('avatar-panel').hidden = false;
     if (isTouch) { $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false'); }
     controls.unlock?.();
     renderAvatarPanel(); startPreview(); onBusyChange();
   }
-  function closeAvatarPanel() { av.open = false; cancelAnimationFrame(av.raf); av.avatar?.setLook(me.look); /* släpp tyger man bara provade */ $('avatar-panel').hidden = true; onBusyChange(); }
+  function closeAvatarPanel() { av.open = false; cancelAnimationFrame(av.raf); av.avatar?.setLook(shownLook()); /* släpp tyger man bara provade */ $('avatar-panel').hidden = true; onBusyChange(); }
   $('my-avatar').onclick = () => openAvatarPanel();
   $('av-cancel').onclick = () => closeAvatarPanel();
   // 🎲 Random = färger och kläder som förut (inga tyger). 🌀 Randomize = galna tyger på det mesta.
@@ -222,9 +230,9 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   $('av-ok').onclick = () => {
     me.look = normalizeLook(av.draft); me.name = cleanName($('av-name').value);
     if (me.look.fabric) addRecent(Object.values(me.look.fabric).map((f) => f.id));
-    self.avatar?.setLook(me.look);
+    self.avatar?.setLook(shownLook());
     saveMyAvatar(me.name, me.look);
-    net.sendLook(myName(), me.look);
+    net.sendLook(myName(), shownLook());
     closeAvatarPanel(); renderPeople();
     toast(S.avatarSaved, 2200);
   };
@@ -233,7 +241,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   let artistTimer;
   $('artist').addEventListener('input', () => {
     if (me.name) return;
-    clearTimeout(artistTimer); artistTimer = setTimeout(() => net.sendLook(myName(), me.look), 700);
+    clearTimeout(artistTimer); artistTimer = setTimeout(() => net.sendLook(myName(), shownLook()), 700);
   });
   // Enter i namnfältet = Spara
   $('av-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('av-ok').click(); } });
@@ -246,7 +254,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     if (self.want && !self.avatar) {
       loadAvatarModel().then((m) => {
         if (self.avatar) return;
-        self.avatar = new Avatar(m, me.look, ''); self.avatar.root.name = 'min-gubbe'; self.avatar.root.visible = self.want;
+        self.avatar = new Avatar(m, shownLook(), ''); self.avatar.root.name = 'min-gubbe'; self.avatar.root.visible = self.want;
         scene.add(self.avatar.root);
       }).catch(() => {});
     }
@@ -266,6 +274,18 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   renderPeople(); renderChatInput();
   return {
     net, players,
+    // A player's sound look (seed + custom patches) by connection id; mine for my own id.
+    voiceOf(id) { if (!id || id === net.id) return shownSound(); const pl = players.map.get(id); return pl ? pl.look?.sound || null : null; },
+    // Sound settings saved: tell everyone (they play my patches; no other network cost).
+    soundChanged() { onSound(shownSound()); if (net.status === 'online') net.sendLook(myName(), shownLook()); },
+    shownSound,
+    // The full-version flags arrived (entitlements.js): show/send my fabrics, redraw the panel.
+    entitlementsChanged() {
+      self.avatar?.setLook(shownLook()); onSound(shownSound());
+      const l = shownLook();
+      if ((l.fabric || l.sound.patches || l.sound.fx) && net.status === 'online') net.sendLook(myName(), l);
+      if (av.open) { fab.reset(av.draft); renderAvatarPanel(); }
+    },
     update(dt, eye = camera.position, { hideSelf = false } = {}) { sendMove(dt); players.update(dt, eye); updateSelf(dt, { hide: hideSelf }); },
     showSelf,
     // Min gubbe slappar/peelar (syns bara i tredjepersonsvy). De andra får veta via servern (by = net.id).

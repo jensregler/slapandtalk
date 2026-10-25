@@ -14,6 +14,7 @@ const { LocalAdapter } = require('../server/storage/local');
 const { createStore, contentId } = require('../server/store');
 const { createApp } = require('../server/app');
 const { attachRealtime, cleanLook, cleanFabrics: serverClean } = require('../server/realtime');
+const { makeEntitlements } = require('../server/entitlements');
 
 const assert = (c, m) => { if (!c) throw new Error('FEL: ' + m); console.log('✔ ' + m); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -76,17 +77,29 @@ const seeded = (seed) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let 
 // ---------- Uppladdningen och realtid ----------
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-fab-'));
 const store = createStore(new LocalAdapter(dir));
-const app = createApp(store, { adminToken: 'hemligt-test' });
+// Fabrics are part of the full version: this key unlocks them (FULL_ACCESS_KEYS on the server).
+const FULL_KEY = 'test-full-key-123';
+const entitle = makeEntitlements({ FULL_ACCESS_KEYS: `${FULL_KEY}, only-sound-key-1:soundDesign` });
+const app = createApp(store, { adminToken: 'hemligt-test', entitle });
 const server = app.listen(0);
-const rt = attachRealtime(server, { maxPlayers: 5, heartbeatMs: 500 });
+const rt = attachRealtime(server, { maxPlayers: 5, heartbeatMs: 500, entitle });
 const base = `http://127.0.0.1:${server.address().port}`;
 const clients = [];
 try {
   const png = (w, h, opts = {}) => sharp({ create: { width: w, height: h, channels: 4, background: opts.bg || { r: 255, g: 0, b: 80, alpha: 1 } } }).png().toBuffer();
-  const post = (buf, type = 'image/png', name = 'tyg.png', ip = '10.0.0.1') => {
+  const post = (buf, type = 'image/png', name = 'tyg.png', ip = '10.0.0.1', key = FULL_KEY) => {
     const fd = new FormData(); fd.append('file', new Blob([buf], { type }), name);
-    return fetch(`${base}/api/fabrics`, { method: 'POST', body: fd, headers: { 'x-forwarded-for': ip } });
+    return fetch(`${base}/api/fabrics`, { method: 'POST', body: fd, headers: { 'x-forwarded-for': ip, ...(key ? { 'x-unlock': key } : {}) } });
   };
+  // Gating: free players (no key, a wrong key, a sound-only key) can't upload fabrics
+  const freeUp = [await post(await png(16, 16), 'image/png', 'f.png', '10.0.1.1', null), await post(await png(16, 16), 'image/png', 'f.png', '10.0.1.1', 'wrong-key-123456'), await post(await png(16, 16), 'image/png', 'f.png', '10.0.1.1', 'only-sound-key-1')];
+  const ents = await Promise.all([{}, { 'x-unlock': FULL_KEY }, { 'x-unlock': 'only-sound-key-1' }, { 'x-dev-unlock': '1' }].map((h) => fetch(`${base}/api/entitlements`, { headers: h }).then((r) => r.json())));
+  assert(freeUp.every((r) => r.status === 403) && same(ents[0].full, { fabrics: false, soundDesign: false }) && same(ents[1].full, { fabrics: true, soundDesign: true })
+    && same(ents[2].full, { fabrics: false, soundDesign: true }) && same(ents[3].full, { fabrics: false, soundDesign: false }) && ents[0].devAllowed === false,
+    'full version: free by default; only a key from FULL_ACCESS_KEYS unlocks fabrics (403 otherwise); per-feature keys; dev unlock ignored unless DEV_UNLOCK=1');
+  const devEnt = makeEntitlements({ DEV_UNLOCK: '1' });
+  assert(devEnt({ dev: true }).fabrics && devEnt({ dev: true }).soundDesign && !devEnt({}).fabrics && devEnt.devAllowed && !makeEntitlements({ FULL_ACCESS_KEYS: 'short' })({ key: 'short' }).fabrics,
+    'DEV_UNLOCK=1 (test servers): the browser flag klibb.devUnlock unlocks everything; keys shorter than 12 chars are ignored');
   const r1 = await post(await png(1000, 400));
   const m1 = await r1.json();
   const file = await fetch(`${base}${m1.url}`);
@@ -106,7 +119,7 @@ try {
   const text = await post(Buffer.from('hej hej'), 'text/plain', 'a.txt', '10.0.0.3');
   const gif = await post(Buffer.from('GIF89a'), 'image/gif', 'a.gif', '10.0.0.3');
   const fake = await post(Buffer.from('det här är ingen bild'), 'image/png', 'a.png', '10.0.0.3');
-  const none = await fetch(`${base}/api/fabrics`, { method: 'POST', headers: { 'x-forwarded-for': '10.0.0.3' } });
+  const none = await fetch(`${base}/api/fabrics`, { method: 'POST', headers: { 'x-forwarded-for': '10.0.0.3', 'x-unlock': FULL_KEY } });
   assert(text.status === 400 && gif.status === 400 && fake.status === 400 && none.status === 400, 'fel filtyp, GIF, trasig "bild" och ingen fil alls nekas (400)');
   const noise = await sharp(Buffer.from([...Array(700 * 700 * 3)].map(() => Math.floor(Math.random() * 256))), { raw: { width: 700, height: 700, channels: 3 } }).png().toBuffer();
   const tooBig = await post(noise, 'image/png', 'brus.png', '10.0.0.4');
@@ -126,7 +139,7 @@ try {
     return c;
   };
   const fab = { shirt: { id: m1.id, scale: 2.5, rot: 45, hue: 200, cycleHue: true, hueHz: 0.5, spin: true, spinHz: 0.2, scroll: 0.3 }, hat: { id: 'trasigt' }, shoes: { id: m1.id } };
-  const a = client('fab-rt', { name: 'Anna', look: { outfit: 'punk', hat: true, fabric: fab } });
+  const a = client('fab-rt', { name: 'Anna', look: { outfit: 'punk', hat: true, fabric: fab }, unlock: { key: FULL_KEY } });
   await a.ready; await a.wait((m) => m.t === 'welcome');
   const b = client('fab-rt', { name: 'Bosse', look: { outfit: 'tshirt' } });
   await b.ready;
@@ -142,6 +155,17 @@ try {
   a.send({ t: 'look', name: 'Anna', look: { outfit: 'punk', fabric: { shirt: { id: 'x'.repeat(5000) } } } });
   const lk2 = await b.wait((m) => m.t === 'look' && m !== lk);
   assert(lk2 && !('fabric' in lk2.look), 'tar man bort tygerna (eller skickar skräp) går gubben tillbaka till bara färger');
+  a.send({ t: 'look', name: 'Anna', look: { outfit: 'punk', fabric: { shirt: { id: m1.id } } } });
+  await b.wait((m) => m.t === 'look' && m.look.fabric && m.look.fabric.shirt && !m.look.fabric.pants);
+  // A free player who sends fabric anyway (hello and look): the server drops it for everyone.
+  const f = client('fab-rt', { name: 'Fri', look: { outfit: 'punk', fabric: { shirt: { id: m1.id } } }, unlock: { key: 'wrong-key-123456', dev: true } });
+  await f.ready; await f.wait((m) => m.t === 'welcome');
+  const jf = await b.wait((m) => m.t === 'join' && m.player.name === 'Fri');
+  f.send({ t: 'look', name: 'Fri', look: { outfit: 'punk', fabric: { pants: { id: m1.id } } } });
+  const lf = await b.wait((m) => m.t === 'look' && m.name === 'Fri');
+  assert(jf && !('fabric' in jf.player.look) && lf && !('fabric' in lf.look), 'free player: fabric data in hello/look is rejected by the server (others never get it)');
+  const wf = f.msgs.find((m) => m.t === 'welcome');
+  assert(wf.players.some((p) => p.name === 'Anna' && p.look.fabric), "free players still SEE other players' fabrics");
 } finally {
   for (const c of clients) try { c.ws.close(); } catch { /* */ }
   rt.close?.(); server.close(); fs.rmSync(dir, { recursive: true, force: true });

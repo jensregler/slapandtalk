@@ -117,6 +117,7 @@
     <section class="more-sec" aria-label="Sound">
       <h3 data-t="secSound">Sound</h3>
       <label class="check"><input id="sound-on" type="checkbox" checked /> <span data-t="sound">Sounds</span></label>
+      <button id="sound-design-btn" type="button" hidden data-t="soundDesign" data-t-title="soundDesignTitle">Sound settings…</button>
     </section>
 
     <!-- Recording and cameras: only for the room's creator (or admin; in the City only admin). -->
@@ -204,6 +205,20 @@
     <div id="chat-hint" class="desktop-only" data-t="chatHint">T = chat</div>
   </section>
   <button id="chat-btn" class="touch-only" type="button" data-t-aria="chatAria" data-t-title="chatAria">💬<span id="chat-unread"></span></button>
+  <!-- Sound settings (full version): a synth panel per sound + effects. Built by soundui.js. -->
+  <aside id="sound-panel" hidden aria-label="Sound settings">
+    <div class="more-head"><h2>Sound settings</h2><button id="snd-close" type="button" class="icon-btn" data-t-aria="close">✕</button></div>
+    <div id="snd-tabs" class="seg" role="group" aria-label="Sound"></div>
+    <div id="snd-body"></div>
+    <div class="sp-btns">
+      <button id="snd-preview" type="button">▶ Preview</button>
+      <button id="snd-random" type="button">🎲 Randomize</button>
+      <button id="snd-wild" type="button">🌀 Wild</button>
+      <button id="snd-reset" type="button">↺ Reset</button>
+      <button id="snd-cancel" type="button" data-t="cancel">Cancel</button>
+      <button id="snd-save" type="button" class="primary" data-t="save">Save</button>
+    </div>
+  </aside>
   <!-- My avatar: how you look to others. Saved on this device only. -->
   <aside id="avatar-panel" hidden aria-label="My avatar">
     <h2 data-t="avatarHeading">My avatar</h2>
@@ -219,10 +234,11 @@
     <div class="sp-row fab-slot" data-slot="skin"><div class="fab-head"><b data-t="skin">Skin</b></div><div id="av-skin" class="swatches colors"></div></div>
     <label class="check"><input id="av-hat" type="checkbox" /> <span data-t="cap">Cap</span></label>
     <div class="sp-row fab-slot" id="av-hat-row" data-slot="hat"><div class="fab-head"><b data-t="capColour">Cap colour</b></div><div id="av-hatcolor" class="swatches colors"></div></div>
+    <!-- 🌀 Randomize lives inside an opened fabric panel (fabricui.js moves it there); parked here otherwise. -->
+    <div id="av-wild-home" hidden><button id="av-wild" type="button" data-t="randomize" data-t-title="randomizeTitle">🌀 Randomize</button></div>
     <input id="fab-file" type="file" accept="image/png,image/jpeg,image/webp,image/*" hidden />
     <div class="sp-btns">
       <button id="av-random" type="button" data-t="random">🎲 Random</button>
-      <button id="av-wild" type="button" data-t="randomize" data-t-title="randomizeTitle">🌀 Randomize</button>
       <button id="av-cancel" type="button" data-t="cancel">Cancel</button>
       <button id="av-ok" type="button" class="primary" data-t="save">Save</button>
     </div>

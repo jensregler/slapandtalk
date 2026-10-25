@@ -77,12 +77,13 @@ export class PeelLayer {
       _p.set(pose.p[0] + 0.006, PEEL.floorY * 0.5, pose.p[2] + 0.008); _s.set(P.w * 1.06 + 0.01, P.h * 1.06 + 0.01, 1);
       g.edge.setMatrixAt(i, _m.compose(_p, FLAT, _s));
     } else g.edge.setMatrixAt(i, _m.makeScale(0, 0, 0));
-    if (u >= 1 && !e.landed) { e.landed = true; this.falling.delete(it.id); this.landedCount++; }
+    if (u >= 1 && !e.landed) { e.landed = true; this.falling.delete(it.id); this.landedCount++; if (this.onLand) this.onLand(e.peel, e.by); }
   }
   // peel = { id, imageId, w, h, seed, start, x, z, yaw }. animate = fall from the hip (a new slap).
-  async add(peel, image, { animate = false } = {}) {
+  // by: who slapped it ('me' or a player id) – the landing "duff" uses their sound (onLand).
+  async add(peel, image, { animate = false, by = null } = {}) {
     if (!peel || !image || this.peels.has(peel.id)) return;
-    const e = { peel, image, born: performance.now(), params: pathParams(peel.seed), landed: !animate };
+    const e = { peel, image, born: performance.now(), params: pathParams(peel.seed), landed: !animate, by };
     this.peels.set(peel.id, e);
     let g;
     try { g = await this.group(image); } catch { this.peels.delete(peel.id); return; }

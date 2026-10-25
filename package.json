@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "test": "node tests/rooms.test.js && node tests/realtime.test.js && node tests/recording.test.js && node tests/thirdperson.test.mjs && node tests/fabric.test.mjs && node tests/peels.test.mjs && node tests/e2e.js"
+    "test": "node tests/rooms.test.js && node tests/realtime.test.js && node tests/recording.test.js && node tests/thirdperson.test.mjs && node tests/fabric.test.mjs && node tests/peels.test.mjs && node tests/synth.test.mjs && node tests/e2e.js"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +24,7 @@
     "multer": "^2.5.0",
     "sharp": "^0.35.5",
     "three": "^0.186.1",
+    "tone": "^15.1.22",
     "ws": "^8.22.0"
   }
 }

@@ -130,6 +130,7 @@ export const EN = {
   more: '⚙ More', moreTitle: 'Sticker settings, your slaps, avatar, room look, sound, recording',
   moreHeading: 'More', close: 'Close',
   secSticker: 'Sticker', secPeople: 'People here', secRoom: 'Room', secSound: 'Sound', secHelp: 'Help',
+  soundDesign: 'Sound settings…', soundDesignTitle: 'Design your own sounds and effects', soundSaved: 'Sound settings saved', soundTooBig: 'Too much sound data – remove a layer or two.',
   sound: 'Sounds', soundOn: '🔊', soundOff: '🔇', soundToggleTitle: 'Sound on/off (M)', soundOnToast: 'Sound on', soundOffToast: 'Sound off',
 
   // ---------- Together ----------

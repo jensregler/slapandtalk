@@ -8,7 +8,7 @@
 //     hur deras gubbe ser ut och chatten (de senaste 50 meddelandena, bara i minnet).
 //
 // Meddelanden är JSON med fältet t (typ):
-//   klient → server: hello {name, look, p, y, pi} · move {p, y, pi} · look {name, look} · chat {text}
+//   klient → server: hello {name, look, p, y, pi, unlock?: {key, dev}} · move {p, y, pi} · look {name, look} · chat {text}
 //                    ping · signal {to, data}  (signal = för röstchatt via WebRTC, se nedan)
 //   server → klient: welcome {id, you, players, chat, max, full, rec} · join {player} · leave {id}
 //                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
@@ -47,7 +47,10 @@ function cleanName(s) {
 // "Guest 3" (och "Gäst 3") är reserverat för gäster utan namn, så ingen kan låtsas vara en annan gäst.
 const GUEST_RE = /^(guest|g[äa]st)\s*\d*$/i;
 // Gubbens utseende kontrolleras mot samma katalog som webbappen använder (shared/avatar.json).
-function cleanLook(l) {
+// ent = the sender's full-version flags (server/entitlements.js): fabric (and custom sound)
+// data from a free player is dropped, so nobody can push it past the UI.
+const ALL = { fabrics: true, soundDesign: true }; // cleanLook(l) without flags: trust (recordings, tests)
+function cleanLook(l, ent = ALL) {
   const d = AV.default; l = l && typeof l === 'object' ? l : {};
   const pick = (v, list, def) => (typeof v === 'string' && list.includes(v.toLowerCase()) ? v.toLowerCase() : def);
   return {
@@ -59,13 +62,26 @@ function cleanLook(l) {
     skin: pick(l.skin, AV.colors.skin, d.skin),
     hat: l.hat === true,
     hatColor: pick(l.hatColor, AV.colors.hat, d.hatColor),
-    ...fabricField(l.fabric),
+    ...(ent.fabrics ? fabricField(l.fabric) : {}),
+    ...soundField(l.sound, ent),
   };
+}
+// look.sound (shared/synth.mjs): the seed for the player's own variation of the default sounds,
+// plus custom patches/FX for soundDesign players – clamped to the same ranges as the editor.
+// The shared module is ESM: loaded once at startup (until then only the seed is kept).
+let SYN = null;
+const synthReady = import('../shared/synth.mjs').then((m) => { SYN = m; return m; });
+function soundField(s, ent) {
+  if (!s || typeof s !== 'object') return {};
+  if (!SYN) return typeof s.seed === 'string' && /^[A-Za-z0-9_-]{4,24}$/.test(s.seed) ? { sound: { seed: s.seed } } : {};
+  const out = SYN.cleanSound(s, { custom: !!ent.soundDesign });
+  return out ? { sound: out } : {};
 }
 // Tyger (fabrics): en uppladdad bild som upprepas över en kroppsdel i stället för färgen.
 // Samma regler som shared/fabric.mjs (webbläsaren); tests/fabric.test.mjs kollar att de är lika.
 // Äldre klienter känner inte till fältet och visar bara färgen.
 const FAB = require('../shared/fabric.json');
+const { makeEntitlements, fromHello } = require('./entitlements');
 const FAB_ID_RE = /^[a-f0-9]{16}$/;
 function cleanFabricParam(name, v) {
   const p = FAB.params[name];
@@ -106,10 +122,10 @@ function bucket(rate, burst) {
 
 function attachRealtime(server, {
   maxPlayers = 10, path = '/ws', heartbeatMs = 15_000, maxPerIp = 30, clock = () => Date.now(),
-  roomSize = require('../shared/room.json'), recorder = null,
+  roomSize = require('../shared/room.json'), recorder = null, entitle = makeEntitlements(process.env),
 } = {}) {
   const bounds = { x: roomSize.width / 2, y: roomSize.height, z: roomSize.depth / 2 };
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 }); // a look with custom sound patches can be ~10 kB
   const rooms = new Map(); // id -> { players: Map<id, client>, watchers: Set<client>, chat: [] }
   const perIp = new Map();
 
@@ -183,7 +199,8 @@ function attachRealtime(server, {
         r = room(c.room);
       }
       setName(c, r, m.name);
-      c.look = cleanLook(m.look);
+      c.ent = entitle(fromHello(m));
+      c.look = cleanLook(m.look, c.ent);
       c.p = cleanPos(m.p, bounds) || [0, 1.6, 3.5]; c.y = isNum(m.y) ? round(m.y) : 0; c.pi = cleanPitch(m.pi);
       if (r.players.size < maxPlayers) { c.player = true; r.players.set(c.id, c); } else r.watchers.push(c);
       welcome(c, r);
@@ -200,7 +217,7 @@ function attachRealtime(server, {
     }
     if (m.t === 'look') {
       if (!c.lookLimit()) return send(c, { t: 'error', error: 'Easy now – wait a bit before changing again.' });
-      c.look = cleanLook(m.look); setName(c, r, m.name);
+      c.look = cleanLook(m.look, c.ent || {}); setName(c, r, m.name);
       send(c, { t: 'you', id: c.id, name: c.name }); // så jag vet vad de andra ser
       if (c.player) { toRoom(r, { t: 'look', id: c.id, name: c.name, look: c.look }, c); rec(r.id, 'look', { id: c.id, name: c.name, look: c.look }); }
       return;
@@ -270,4 +287,4 @@ function attachRealtime(server, {
   };
 }
 
-module.exports = { broadcast, onBroadcast, attachRealtime, cleanLook, cleanName, cleanFabrics };
+module.exports = { broadcast, onBroadcast, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };

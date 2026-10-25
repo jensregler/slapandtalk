@@ -12,6 +12,7 @@
 //    and stored with POST /api/fabrics (content hash id), so others load /uploads/<id>.webp.
 import * as THREE from 'three';
 import { FABRIC, FABRIC_ID_RE, cleanFabric, fabricPhase, fabricSize } from '../../shared/fabric.mjs';
+import { unlockHeaders } from './entitlements.js';
 
 export { FABRIC, cleanFabric, fabricPhase };
 export const fabricUrl = (id) => `/uploads/${id}.webp`;
@@ -130,7 +131,7 @@ export async function prepareFabricImage(blob) {
 export async function uploadFabric(blob) {
   const fd = new FormData();
   fd.append('file', blob, blob.type === 'image/png' ? 'tyg.png' : 'tyg.webp');
-  const res = await fetch('/api/fabrics', { method: 'POST', body: fd });
+  const res = await fetch('/api/fabrics', { method: 'POST', body: fd, headers: unlockHeaders() }); // full version only (server checks)
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
   return data; // { id, url, width, height, kind: 'fabric' }

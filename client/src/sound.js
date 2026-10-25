@@ -1,40 +1,58 @@
-// Sounds, made on the fly with Web Audio (no sound files to download, nothing to license).
-//   slap  – a short, punchy "thwack": a burst of filtered noise (the sticker hitting the wall)
-//           on top of a quick low thump (the hand).
-//   peel  – a softer "rrrip": noise through a sweeping band-pass filter with a crackle.
-// Other people's slaps and peels are spatial: they come from where the sticker is, and get
-// quieter with distance (PannerNode, HRTF). Each sound gets a small random pitch variation.
-// Mute is remembered in localStorage ('klibb.muted').
+// Sounds: every sound in the room is a synth patch (shared/synth.mjs) played by the Tone.js
+// engine in synth.js – no sound files to download, nothing to license.
+//   slap  – a short, punchy "thwack"        peel – a softer "rrrip" with crackle
+//   nope  – "uh-uh" (a refused slap)        step – quiet footsteps while moving
+//   duff  – the backing paper landing; bigger paper = louder and lower
+// Each player has their own variation of the defaults, picked deterministically from a seed in
+// their look (look.sound.seed), so everyone hears YOUR slap the same way with no extra traffic.
+// Paid "Sound settings" can replace a patch and add an FX chain (look.sound.patches / .fx).
+// Other people's sounds are spatial (HRTF panner, quieter with distance). The room's materials
+// add a subtle, automatic reverb (roomAcoustics). Mute is remembered ('klibb.muted').
+import { DEFAULT_PATCHES, variant, cleanPatch, cleanFx, duffScale, retune, roomAcoustics } from '../../shared/synth.mjs';
+import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
+
 const MUTE_KEY = 'klibb.muted';
+const VOLUME = { slap: [0.75 / 0.75, 0.9 / 0.75], peel: [1, 0.6 / 0.45], nope: [1, 1], step: [1, 1], duff: [1, 1] }; // [mine, remote]
 
 export class Sounds {
   constructor() {
-    this.ctx = null; this.master = null; this.noise = null;
+    this.ctx = null; this.engine = null; this.Tone = null;
     this.muted = localStorage.getItem(MUTE_KEY) === '1';
-    this.log = []; // the last sounds (for tests and curious people): { kind, remote, distance, gain, rate }
+    this.log = [];     // the last sounds (for tests and curious people): { kind, remote, distance, gain, rate, seed, custom }
+    this.steps = 0;    // footsteps played (not in the log: they would drown it)
+    this.mine = null;  // my look.sound ({ seed, patches?, fx? })
+    this.room = roomAcoustics(null);
     this.listener = { p: [0, 1.6, 0], f: [0, 0, -1] };
+    this.cache = new Map(); // seed+kind -> varied patch
     // Browsers only allow audio after the user has clicked/tapped/typed: start then.
     const unlock = () => { this.ensure(); if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); };
     for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, unlock, { capture: true, passive: true });
   }
+  // The AudioContext is made right away (inside the click); Tone.js loads in the background.
   ensure() {
     if (this.ctx) return this.ctx;
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
     try { this.ctx = new AC(); } catch { return null; }
-    this.master = this.ctx.createGain(); this.master.gain.value = 0.9; this.master.connect(this.ctx.destination);
-    // One second of white noise, reused by every sound.
-    const n = this.ctx.sampleRate, buf = this.ctx.createBuffer(1, n, n), d = buf.getChannelData(0);
-    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-    this.noise = buf;
+    this.ready = loadTone().then((Tone) => {
+      Tone.setContext(new Tone.Context(this.ctx));
+      this.Tone = Tone;
+      this.engine = new SynthEngine(Tone);
+      this.engine.out.gain.value = 0.9;
+      this.engine.setRoom(this.room);
+      return this.engine;
+    }).catch((e) => { console.warn('synth', e); return null; });
     return this.ctx;
   }
   setMuted(m) { this.muted = !!m; localStorage.setItem(MUTE_KEY, this.muted ? '1' : '0'); }
+  setMine(sound) { this.mine = sound || null; }
+  // Room style ({ floor, wall, ceiling }) → automatic acoustics.
+  setRoom(style) { this.room = roomAcoustics(style); if (this.engine) this.engine.setRoom(this.room); }
   // Where am I and which way am I looking (call every frame with the camera).
   setListener(pos, forward) {
     this.listener = { p: [pos.x, pos.y, pos.z], f: [forward.x, forward.y, forward.z] };
     const ctx = this.ctx; if (!ctx) return;
-    // Bara när något ändrats, och med .value (inte setValueAtTime): en automationshändelse per
-    // bildruta och parameter gör att ljudtrådens tidslinjer växer hela tiden.
+    // Only when something changed, and with .value (not setValueAtTime): one automation event
+    // per frame and parameter makes the audio thread's timelines grow forever.
     const L = ctx.listener;
     const key = this.listener.p.concat(this.listener.f).map((n) => n.toFixed(2)).join();
     if (key === this.listenerKey) return;
@@ -45,83 +63,40 @@ export class Sounds {
       L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0;
     } else if (L.setPosition) { L.setPosition(pos.x, pos.y, pos.z); L.setOrientation(forward.x, forward.y, forward.z, 0, 1, 0); }
   }
-  // kind: 'slap' | 'peel' | 'nope'. at = [x, y, z] for someone else's sound (spatial), or null for my own.
-  play(kind, at = null) {
-    const rate = 0.9 + Math.random() * 0.22; // small random pitch variation
+  // The patch a player's sound uses: their custom one, else their variation of the default.
+  patchFor(kind, sound) {
+    const custom = sound && sound.patches && cleanPatch(sound.patches[kind]);
+    if (custom) return { patch: custom, custom: true };
+    const seed = sound && sound.seed || '';
+    const key = seed + ':' + kind;
+    if (!this.cache.has(key)) { if (this.cache.size > 200) this.cache.clear(); this.cache.set(key, seed ? variant(DEFAULT_PATCHES[kind], seed, kind) : cleanPatch(DEFAULT_PATCHES[kind])); }
+    return { patch: this.cache.get(key), custom: false };
+  }
+  // kind: 'slap' | 'peel' | 'nope' | 'step' | 'duff'. at = [x, y, z] for a sound out in the
+  // room (spatial), or null for my own. opts: { sound: that player's look.sound (default: mine),
+  // area: m² (duff), volume }.
+  play(kind, at = null, { sound, area, volume = 1 } = {}) {
     const remote = !!at;
+    const who = sound === undefined ? this.mine : sound;
+    const wobble = kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06; // tiny per-play life
+    let rate = wobble, gain = volume * (VOLUME[kind] || [1, 1])[remote ? 1 : 0];
+    if (kind === 'duff') { const s = duffScale(area); gain *= s.gain; rate *= s.rate; }
     const distance = remote ? Math.hypot(at[0] - this.listener.p[0], at[1] - this.listener.p[1], at[2] - this.listener.p[2]) : 0;
-    // Same curve as the PannerNode below (inverse distance), so the log shows what you hear.
-    const gain = remote ? 1.6 / (1.6 + Math.max(0, distance - 1.6)) : 1;
-    const entry = { kind, remote, distance: +distance.toFixed(2), gain: +gain.toFixed(3), rate: +rate.toFixed(3), muted: this.muted, time: Date.now() };
-    this.log.push(entry); if (this.log.length > 50) this.log.shift();
+    // Same curve as the panner (inverse distance), so the log shows what you hear.
+    const heard = remote ? 1.6 / (1.6 + Math.max(0, distance - 1.6)) : 1;
+    const { patch, custom } = this.patchFor(kind, who);
+    const entry = { kind, remote, distance: +distance.toFixed(2), gain: +heard.toFixed(3), level: +gain.toFixed(3), rate: +rate.toFixed(3),
+      seed: who?.seed || null, custom, muted: this.muted, time: Date.now(), ...(kind === 'duff' ? { area: +(+area || 0).toFixed(4) } : {}) };
+    if (kind === 'step') this.steps++; else { this.log.push(entry); if (this.log.length > 50) this.log.shift(); }
     if (this.muted) return entry;
-    const ctx = this.ensure(); if (!ctx) return entry;
-    // Högst 12 ljud samtidigt: trycker någon Z väldigt fort hoppas resten över i stället för att
-    // ljudtråden fylls med noder.
-    const now = ctx.currentTime;
-    this.voices = (this.voices || []).filter((end) => end > now);
-    if (this.voices.length >= 12) { entry.skipped = true; return entry; }
-    this.voices.push(now + 0.4);
-    let out = this.master;
-    if (remote) {
-      const p = ctx.createPanner();
-      p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 1.6; p.rolloffFactor = 1; p.maxDistance = 30;
-      if (p.positionX) { p.positionX.value = at[0]; p.positionY.value = at[1]; p.positionZ.value = at[2]; } else p.setPosition(...at);
-      p.connect(this.master); out = p;
-      setTimeout(() => p.disconnect(), 800); // när ljudet är slut
-    }
-    const t = ctx.currentTime + 0.005;
-    if (kind === 'slap') this.slap(ctx, out, t, rate, remote ? 0.9 : 0.75);
-    else if (kind === 'nope') this.nope(ctx, out, t, 0.5);
-    else this.peel(ctx, out, t, rate, remote ? 0.6 : 0.45);
+    if (!this.ensure()) return entry;
+    const fx = who && who.fx ? cleanFx(who.fx) : null;
+    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, fx, pos: remote ? at : null })) entry.skipped = true; };
+    if (this.engine) go(this.engine);
+    else { const t = Date.now(); this.ready.then((eng) => { if (Date.now() - t < 400) go(eng); }); } // the very first sound waits for Tone.js
     return entry;
   }
-  noiseSource(ctx, rate) { const s = ctx.createBufferSource(); s.buffer = this.noise; s.playbackRate.value = rate; s.loop = true; return s; }
-  slap(ctx, out, t, rate, vol) {
-    // The "thwack": bright noise, very fast attack, ~90 ms decay.
-    const n = this.noiseSource(ctx, rate);
-    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800 * rate; bp.Q.value = 0.8;
-    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 350;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
-    n.connect(bp).connect(hp).connect(g).connect(out); n.start(t, Math.random() * 0.5); n.stop(t + 0.13);
-    // The "thump": a low sine that drops in pitch.
-    const o = ctx.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(190 * rate, t); o.frequency.exponentialRampToValueAtTime(70 * rate, t + 0.08);
-    const g2 = ctx.createGain();
-    g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(vol * 0.9, t + 0.004); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
-    o.connect(g2).connect(out); o.start(t); o.stop(t + 0.12);
-    // A tiny sticky "smack" tail.
-    const n2 = this.noiseSource(ctx, rate * 1.3);
-    const bp2 = ctx.createBiquadFilter(); bp2.type = 'bandpass'; bp2.frequency.value = 4200 * rate; bp2.Q.value = 2;
-    const g3 = ctx.createGain();
-    g3.gain.setValueAtTime(0.0001, t + 0.012); g3.gain.exponentialRampToValueAtTime(vol * 0.25, t + 0.016); g3.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
-    n2.connect(bp2).connect(g3).connect(out); n2.start(t, Math.random() * 0.5); n2.stop(t + 0.08);
-  }
-  // "Nope": two short descending buzzy blips ("uh-uh"), the sticker refusing to stick.
-  nope(ctx, out, t, vol) {
-    for (const [dt, f0, f1] of [[0, 330, 290], [0.13, 260, 200]]) {
-      const o = ctx.createOscillator(); o.type = 'square';
-      o.frequency.setValueAtTime(f0, t + dt); o.frequency.exponentialRampToValueAtTime(f1, t + dt + 0.1);
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t + dt); g.gain.exponentialRampToValueAtTime(vol * 0.35, t + dt + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.11);
-      o.connect(lp).connect(g).connect(out); o.start(t + dt); o.stop(t + dt + 0.12);
-    }
-  }
-  peel(ctx, out, t, rate, vol) {
-    const dur = 0.26 / rate;
-    const n = this.noiseSource(ctx, rate);
-    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 3;
-    bp.frequency.setValueAtTime(700 * rate, t); bp.frequency.exponentialRampToValueAtTime(3200 * rate, t + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.03); g.gain.setValueAtTime(vol, t + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    // Crackle: the adhesive letting go in little jerks.
-    const am = ctx.createGain(); am.gain.value = 0.55;
-    const lfo = ctx.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 38 * rate;
-    const lfoGain = ctx.createGain(); lfoGain.gain.value = 0.45;
-    lfo.connect(lfoGain).connect(am.gain);
-    n.connect(bp).connect(am).connect(g).connect(out);
-    n.start(t, Math.random() * 0.5); n.stop(t + dur + 0.02); lfo.start(t); lfo.stop(t + dur + 0.02);
-  }
+  // Preview a patch (the Sound settings editor), dry, at my position.
+  preview(patch, fx = null) { if (!this.ensure()) return Promise.resolve(false); return this.ready.then((eng) => eng ? eng.play(patch, { fx }) : false); }
+  get maxVoices() { return MAX_VOICES; }
 }
