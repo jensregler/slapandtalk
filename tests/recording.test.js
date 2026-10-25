@@ -67,7 +67,7 @@ async function setup(recOpts = {}) {
       && (await T.api('POST', '/api/rooms/stad/cameras', { body: camBody })).status === 403, 'kameror: bara rummets skapare (eller admin) får placera, i Staden bara admin');
     const cam1 = (await (await T.api('POST', `/api/rooms/${R}/cameras`, { key: KEY, body: camBody })).json()).camera;
     const cam2 = (await (await T.api('POST', `/api/rooms/${R}/cameras`, { key: KEY, body: { p: [99, -3, 0], yaw: 7, pitch: 3, fov: 500, aspect: '9:16' } })).json()).camera;
-    assert(cam1.name === 'Kamera 1' && cam2.name === 'Kamera 2' && cam1.aspect === '16:9' && cam2.p[0] === 4.95 && cam2.p[1] === 0.05 && cam2.pitch === 1.55 && cam2.fov === 120
+    assert(cam1.name === 'Camera 1' && cam2.name === 'Camera 2' && cam1.aspect === '16:9' && cam2.p[0] === 4.95 && cam2.p[1] === 0.05 && cam2.pitch === 1.55 && cam2.fov === 120
       && Math.abs(cam2.yaw - (7 - 2 * Math.PI)) < 1e-3, 'kameror får namn (Kamera 1, 2), position, riktning och bildvinkel hålls inom rummet');
     assert((await T.api('POST', `/api/rooms/${R}/cameras`, { key: KEY, body: { ...camBody, aspect: '4:3' } })).status === 400, 'okänt bildformat nekas');
     let loaded = await (await fetch(`${T.base}/api/rooms/${R}/stamps`)).json();

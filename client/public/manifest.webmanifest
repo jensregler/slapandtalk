@@ -1,8 +1,8 @@
 {
   "name": "Slap and Talk",
   "short_name": "Slap&Talk",
-  "description": "Virtuellt utställningsrum för klistermärken – sätt upp klibbor och snacka",
-  "lang": "sv",
+  "description": "A virtual room for stickers – slap them up together and talk.",
+  "lang": "en",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",

@@ -101,7 +101,7 @@ function client(base, room, hello = {}) {
     for (let i = 0; i < 8; i++) a.send({ t: 'chat', text: `spam ${i}` });
     await sleep(300);
     const spam = b.msgs.filter((m) => m.t === 'chat' && m.msg.text.startsWith('spam')).length;
-    assert(spam >= 2 && spam < 8 && a.msgs.some((m) => m.t === 'error' && /för snabbt/.test(m.error)), `chatten har en spärr mot spam (${spam} av 8 kom fram)`);
+    assert(spam >= 2 && spam < 8 && a.msgs.some((m) => m.t === 'error' && /too fast/.test(m.error)), `chatten har en spärr mot spam (${spam} av 8 kom fram)`);
     // ---------- Fullt rum ----------
     const c3 = join('rum1', { name: 'Tredje' }); await c3.ready;
     const w3 = await c3.wait((m) => m.t === 'welcome');
@@ -112,7 +112,7 @@ function client(base, room, hello = {}) {
     assert(w4 && w4.full && w4.players.length === 3 && !a.msgs.some((m) => m.t === 'join' && m.player.name === 'Fjärde'), 'rummet är fullt (max 3 här): den fjärde får titta men syns inte');
     c4.send({ t: 'chat', text: 'får jag skriva?' }); c4.send({ t: 'move', p: [0, 1.6, 0], y: 0 });
     await sleep(150);
-    assert(!a.msgs.some((m) => m.t === 'chat' && m.msg.text === 'får jag skriva?') && c4.msgs.some((m) => m.t === 'error' && /fullt/.test(m.error)), 'den som tittar kan inte chatta eller synas');
+    assert(!a.msgs.some((m) => m.t === 'chat' && m.msg.text === 'får jag skriva?') && c4.msgs.some((m) => m.t === 'error' && /full/.test(m.error)), 'den som tittar kan inte chatta eller synas');
     c3.ws.close();
     const promoted = await c4.wait((m) => m.t === 'welcome' && !m.full);
     const pj = await a.wait((m) => m.t === 'join' && m.player.name === 'Fjärde');
@@ -145,18 +145,18 @@ function client(base, room, hello = {}) {
     // ---------- Namn: gästnamn är unika, valda namn syns direkt, städas ----------
     const g1 = join('namn', { name: '' }); await g1.ready; const wg1 = await g1.wait((m) => m.t === 'welcome');
     const g2 = join('namn', { name: '   ' }); await g2.ready; const wg2 = await g2.wait((m) => m.t === 'welcome');
-    const g3 = join('namn', { name: 'gäst 1' }); await g3.ready; const wg3 = await g3.wait((m) => m.t === 'welcome');
-    assert(wg1.you.name === 'Gäst 1' && wg2.you.name === 'Gäst 2' && wg3.you.name === 'Gäst 3' && wg3.players.map((p) => p.name).join() === 'Gäst 1,Gäst 2',
-      'gäster utan namn får olika namn (Gäst 1, 2, 3), och ingen kan välja namnet "Gäst 1"');
+    const g3 = join('namn', { name: 'guest 1' }); await g3.ready; const wg3 = await g3.wait((m) => m.t === 'welcome');
+    assert(wg1.you.name === 'Guest 1' && wg2.you.name === 'Guest 2' && wg3.you.name === 'Guest 3' && wg3.players.map((p) => p.name).join() === 'Guest 1,Guest 2',
+      'gäster utan namn får olika namn (Guest 1, 2, 3), och ingen kan välja namnet "guest 1"');
     g2.send({ t: 'look', name: '  Ulla \u202e\u200b  ', look: {} });
     const ul = await g1.wait((m) => m.t === 'look' && m.id === wg2.id);
     const you = await g2.wait((m) => m.t === 'you');
     assert(ul && ul.name === 'Ulla' && you.name === 'Ulla', 'valt namn ("Ulla") syns för de andra direkt när man sparar, städat från mellanslag och osynliga tecken');
     const g4 = join('namn', { name: '' }); await g4.ready; const wg4 = await g4.wait((m) => m.t === 'welcome');
-    assert(wg4.you.name === 'Gäst 2' && wg4.players.some((p) => p.name === 'Ulla'), 'den som kommer in senare ser "Ulla", och det lediga gästnumret används igen');
+    assert(wg4.you.name === 'Guest 2' && wg4.players.some((p) => p.name === 'Ulla'), 'den som kommer in senare ser "Ulla", och det lediga gästnumret används igen');
     g2.send({ t: 'look', name: '', look: {} });
     const back = await g1.wait((m) => m.t === 'look' && m.id === wg2.id && m.name !== 'Ulla');
-    assert(back && /^Gäst \d+$/.test(back.name) && back.name !== 'Gäst 2' && back.name !== 'Gäst 1' && back.name !== 'Gäst 3', `tar man bort sitt namn blir man en gäst med ett eget nummer (${back && back.name})`);
+    assert(back && /^Guest \d+$/.test(back.name) && back.name !== 'Guest 2' && back.name !== 'Guest 1' && back.name !== 'Guest 3', `tar man bort sitt namn blir man en gäst med ett eget nummer (${back && back.name})`);
     g3.send({ t: 'look', name: 'A'.repeat(23) + '😀😀', look: {} });
     const em = await g1.wait((m) => m.t === 'look' && m.id === wg3.id);
     assert(em && Array.from(em.name).length === 24 && em.name.endsWith('😀') && !/[\uD800-\uDBFF]$/.test(em.name), 'namn kortas till 24 tecken utan att en emoji klipps itu');

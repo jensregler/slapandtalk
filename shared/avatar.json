@@ -1,16 +1,16 @@
 {
   "outfits": {
-    "huvtroja": { "name": "Huvtröja", "body": "Casual_Body", "legs": "Casual_Legs", "feet": "Casual_Feet", "shirt": "Purple", "pants": "LightBlue" },
+    "huvtroja": { "name": "Hoodie", "body": "Casual_Body", "legs": "Casual_Legs", "feet": "Casual_Feet", "shirt": "Purple", "pants": "LightBlue" },
     "tshirt": { "name": "T-shirt", "body": "Casual2_Body", "legs": "Casual2_Legs", "feet": "Casual2_Feet", "shirt": "LightBrown", "pants": "LightBlue" },
-    "kostym": { "name": "Kostym", "body": "Suit_Body", "legs": "Suit_Legs", "feet": "Suit_Feet", "shirt": "Suit", "pants": "Suit" },
-    "punk": { "name": "Väst", "body": "Punk_Body", "legs": "Punk_Legs", "feet": "Punk_Feet", "shirt": "Black", "pants": "LightBlue" }
+    "kostym": { "name": "Suit", "body": "Suit_Body", "legs": "Suit_Legs", "feet": "Suit_Feet", "shirt": "Suit", "pants": "Suit" },
+    "punk": { "name": "Vest", "body": "Punk_Body", "legs": "Punk_Legs", "feet": "Punk_Feet", "shirt": "Black", "pants": "LightBlue" }
   },
   "hair": {
-    "kort": { "name": "Kort", "head": "Casual_Head", "hair": "Hair" },
-    "lugg": { "name": "Lugg", "head": "Casual2_Head", "hair": "Hair" },
-    "lang": { "name": "Långt", "head": "Beach_Head", "hair": "Hair" },
-    "kammad": { "name": "Bakåtkammat", "head": "Suit_Head", "hair": "Hair" },
-    "tupp": { "name": "Tupp", "head": "Punk_Head", "hair": "Red" }
+    "kort": { "name": "Short", "head": "Casual_Head", "hair": "Hair" },
+    "lugg": { "name": "Fringe", "head": "Casual2_Head", "hair": "Hair" },
+    "lang": { "name": "Long", "head": "Beach_Head", "hair": "Hair" },
+    "kammad": { "name": "Slicked back", "head": "Suit_Head", "hair": "Hair" },
+    "tupp": { "name": "Mohawk", "head": "Punk_Head", "hair": "Red" }
   },
   "colors": {
     "shirt": ["#e63946", "#f4a261", "#ffd400", "#2a9d8f", "#3a86ff", "#7b2cbf", "#ff70a6", "#f1f1f1", "#3a3a3a", "#6b8e23"],

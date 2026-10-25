@@ -44,8 +44,8 @@ function cleanName(s) {
   const t = String(s ?? '').normalize('NFC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '').replace(/\s+/g, ' ').trim();
   return Array.from(t).slice(0, AV.maxName).join('').trim();
 }
-// "Gäst 3" är reserverat för gäster utan namn, så ingen kan låtsas vara en annan gäst.
-const GUEST_RE = /^g[äa]st\s*\d*$/i;
+// "Guest 3" (och "Gäst 3") är reserverat för gäster utan namn, så ingen kan låtsas vara en annan gäst.
+const GUEST_RE = /^(guest|g[äa]st)\s*\d*$/i;
 // Gubbens utseende kontrolleras mot samma katalog som webbappen använder (shared/avatar.json).
 function cleanLook(l) {
   const d = AV.default; l = l && typeof l === 'object' ? l : {};
@@ -94,7 +94,7 @@ function attachRealtime(server, {
   const rec = (roomId, e, data) => { if (recorder) recorder.log(roomId, e, data); };
   // Inspelningen frågar vilka som är i rummet när den startar (och om rummet står tomt).
   if (recorder) recorder.setPresence((id) => { const r = rooms.get(id); return r ? [...r.players.values()].map(pub) : []; });
-  // Den som inte valt något namn heter "Gäst N", med det lägsta lediga N i rummet.
+  // Den som inte valt något namn heter "Guest N", med det lägsta lediga N i rummet.
   // Två i samma rum får därför aldrig samma gästnamn.
   function setName(c, r, wanted) {
     const chosen = cleanName(wanted);
@@ -104,7 +104,7 @@ function attachRealtime(server, {
       let n = 1; while (used.has(n)) n++;
       c.guestNo = n;
     }
-    c.name = `Gäst ${c.guestNo}`;
+    c.name = `Guest ${c.guestNo}`;
   }
   const send = (c, msg) => { if (c.ws.readyState === 1) c.ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); };
   const everyone = (r) => [...r.players.values(), ...r.watchers];
@@ -138,7 +138,7 @@ function attachRealtime(server, {
   }
 
   function onMessage(c, raw) {
-    if (!c.limit()) { if (++c.strikes > 200) c.ws.close(4008, 'För många meddelanden'); return; }
+    if (!c.limit()) { if (++c.strikes > 200) c.ws.close(4008, 'Too many messages'); return; }
     let m; try { m = JSON.parse(raw); } catch { return; }
     if (!m || typeof m.t !== 'string') return;
     let r = room(c.room);
@@ -152,7 +152,7 @@ function attachRealtime(server, {
       const old = c.sid && everyone(r).find((o) => o !== c && o.sid === c.sid);
       if (old) {
         c.guestNo = old.guestNo; old.replaced = true;
-        leave(old); try { old.ws.close(4000, 'Ersatt av en ny anslutning'); } catch { /* redan stängd */ }
+        leave(old); try { old.ws.close(4000, 'Replaced by a new connection'); } catch { /* redan stängd */ }
         r = room(c.room);
       }
       setName(c, r, m.name);
@@ -172,17 +172,17 @@ function attachRealtime(server, {
       return toRoom(r, { t: 'move', id: c.id, p: c.p, y: c.y, pi: c.pi }, c);
     }
     if (m.t === 'look') {
-      if (!c.lookLimit()) return send(c, { t: 'error', error: 'Lugn i stormen – vänta lite innan du byter igen.' });
+      if (!c.lookLimit()) return send(c, { t: 'error', error: 'Easy now – wait a bit before changing again.' });
       c.look = cleanLook(m.look); setName(c, r, m.name);
       send(c, { t: 'you', id: c.id, name: c.name }); // så jag vet vad de andra ser
       if (c.player) { toRoom(r, { t: 'look', id: c.id, name: c.name, look: c.look }, c); rec(r.id, 'look', { id: c.id, name: c.name, look: c.look }); }
       return;
     }
     if (m.t === 'chat') {
-      if (!c.player) return send(c, { t: 'error', error: 'Rummet är fullt – du kan läsa chatten men inte skriva än.' });
+      if (!c.player) return send(c, { t: 'error', error: 'The room is full – you can read the chat but not write yet.' });
       const text = String(m.text || '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, CHAT_MAX);
       if (!text) return;
-      if (!c.chatLimit()) return send(c, { t: 'error', error: 'Du skriver för snabbt – vänta några sekunder.' });
+      if (!c.chatLimit()) return send(c, { t: 'error', error: 'You are typing too fast – wait a few seconds.' });
       const msg = { id: crypto.randomBytes(6).toString('hex'), from: c.id, name: c.name, text, time: new Date(clock()).toISOString() };
       r.chat.push(msg); if (r.chat.length > CHAT_KEEP) r.chat.splice(0, r.chat.length - CHAT_KEEP);
       rec(r.id, 'chat', { id: c.id, name: c.name, text, mid: msg.id });

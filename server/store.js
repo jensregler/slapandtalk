@@ -61,14 +61,14 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   async function saveRoom(room) { const { exists, ...data } = room; await writeJson(roomKey(room.id), data); return data; }
 
   async function createRoom({ id, type = 'quick', owner = null, style = null, keyHash = null } = {}) {
-    if (!ROOM_TYPES.includes(type)) throw new Error('Okänd rumstyp');
+    if (!ROOM_TYPES.includes(type)) throw new Error('Unknown room type');
     for (let tries = 0; !id && tries < 20; tries++) {
       const c = roomCode();
       if (c !== PUBLIC_ROOM && !(await adapter.exists(roomKey(c)))) id = c;
     }
-    if (!id) throw new Error('Kunde inte hitta en ledig rumskod');
+    if (!id) throw new Error('Could not find a free room code');
     return withLock(id, async () => {
-      if (await getRoom(id)) throw Object.assign(new Error('Rummet finns redan'), { code: 'EXISTS' });
+      if (await getRoom(id)) throw Object.assign(new Error('That room already exists'), { code: 'EXISTS' });
       const now = iso();
       const extra = {};
       if (style) extra.style = style;

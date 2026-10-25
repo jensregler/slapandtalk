@@ -90,7 +90,7 @@ function createRecorder(store, {
 
   async function start(room, { by = null, snapshot }) {
     if (active.has(room)) return { already: true, ...status(room) };
-    if (active.size >= maxActive) throw Object.assign(new Error('Servern spelar redan in så många rum den orkar just nu. Försök igen senare.'), { code: 'BUSY' });
+    if (active.size >= maxActive) throw Object.assign(new Error('The server is already recording as many rooms as it can. Try again later.'), { code: 'BUSY' });
     const now = clock();
     const r = {
       id: crypto.randomBytes(8).toString('hex'), room, start: now, by, status: 'recording', lines: [], bytes: 0, header: null, endLine: null,

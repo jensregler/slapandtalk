@@ -28,7 +28,7 @@ app.use(express.json({ limit: '50kb' }));
 const ROOM_RE = /^[a-z0-9-]{1,40}$/;
 function roomParam(req, res) {
   const id = String(req.params.room || '').toLowerCase();
-  if (!ROOM_RE.test(id)) { res.status(400).json({ error: 'Ogiltigt rum' }); return null; }
+  if (!ROOM_RE.test(id)) { res.status(400).json({ error: 'Invalid room' }); return null; }
   return id;
 }
 
@@ -39,7 +39,7 @@ function rateLimit(max) {
     const now = Date.now();
     const key = req.ip;
     const list = (hits.get(key) || []).filter((t) => now - t < 60_000);
-    if (list.length >= max) return res.status(429).json({ error: 'Lugn i stormen – vänta en minut.' });
+    if (list.length >= max) return res.status(429).json({ error: 'Easy now – wait a minute.' });
     list.push(now); hits.set(key, list); next();
   };
 }
@@ -59,8 +59,8 @@ const upload = multer({
 
 app.post('/api/stickers', rateLimit(20), (req, res) => {
   upload.single('file')(req, res, async (err) => {
-    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Filen är större än 5 MB.' : 'Uppladdningen misslyckades.' });
-    if (!req.file) return res.status(400).json({ error: 'Välj en PNG-, JPG- eller WebP-bild.' });
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'The file is larger than 5 MB.' : 'The upload failed.' });
+    if (!req.file) return res.status(400).json({ error: 'Pick a PNG, JPG or WebP image.' });
     try {
       // Vi gör om bilden till WebP (behåller genomskinlighet), max 1024 px,
       // och tar bort metadata som GPS-position från mobilkameran.
@@ -78,7 +78,7 @@ app.post('/api/stickers', rateLimit(20), (req, res) => {
       });
       res.json(meta);
     } catch (e) {
-      res.status(400).json({ error: 'Bilden gick inte att läsa.' });
+      res.status(400).json({ error: 'Could not read the image.' });
     }
   });
 });
@@ -133,7 +133,7 @@ const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, cre
 // rummets utseende ändras senare. Servern sparar bara en hash av nyckeln.
 app.post('/api/rooms', rateLimit(10), wrap(async (req, res) => {
   let style = null;
-  if (req.body && req.body.style !== undefined) { style = cleanStyle(req.body.style); if (!style) return res.status(400).json({ error: 'Okänt utseende' }); }
+  if (req.body && req.body.style !== undefined) { style = cleanStyle(req.body.style); if (!style) return res.status(400).json({ error: 'Unknown room look' }); }
   const roomKey = crypto.randomBytes(24).toString('base64url');
   const room = await store.createRoom({ type: 'quick', style, keyHash: hashToken(roomKey) });
   res.json({ room: roomPublic(room), roomKey });
@@ -143,21 +143,21 @@ app.post('/api/rooms', rateLimit(10), wrap(async (req, res) => {
 app.put('/api/rooms/:room/style', rateLimit(30), wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
   const style = cleanStyle(req.body && req.body.style);
-  if (!style) return res.status(400).json({ error: 'Okänt utseende' });
+  if (!style) return res.status(400).json({ error: 'Unknown room look' });
   const admin = isAdmin(req), key = String(req.get('x-room-key') || '');
   const r = await store.setRoomStyle(id, style, (room) => admin || (room.type !== 'stad' && tokenMatches(key, room.keyHash)));
-  if (r === 'notfound') return res.status(404).json({ error: 'Rummet finns inte' });
-  if (r === 'forbidden') return res.status(403).json({ error: 'Bara den som skapade rummet kan ändra utseendet' });
+  if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can change its look' });
   broadcast(id, { type: 'room:style', style });
   res.json({ ok: true, style });
 }));
 
 // Profilrum: förberett för konton. Tills inloggning finns kan bara admin skapa dem.
 app.post('/api/admin/rooms', express.json(), wrap(async (req, res) => {
-  if (!isAdmin(req)) return res.status(403).json({ error: 'Ej behörig' });
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
   const b = req.body || {};
   const id = String(b.id || '').toLowerCase();
-  if (!ROOM_RE.test(id) || id === 'stad') return res.status(400).json({ error: 'Ogiltigt rum' });
+  if (!ROOM_RE.test(id) || id === 'stad') return res.status(400).json({ error: 'Invalid room' });
   const owner = b.owner && typeof b.owner === 'object' ? { id: String(b.owner.id || '').slice(0, 60), name: String(b.owner.name || '').slice(0, 60) } : null;
   try {
     res.json({ room: roomPublic(await store.createRoom({ id, type: 'profile', owner })) });
@@ -199,9 +199,9 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   const room = roomParam(req, res); if (!room) return;
   const b = req.body || {};
   const image = await imageAvailable(b.imageId);
-  if (!image) return res.status(410).json({ error: 'Designen finns inte längre på servern. Ladda upp den igen.', gone: true });
-  if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Felaktig placering' });
-  if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Felaktig storlek' });
+  if (!image) return res.status(410).json({ error: 'That design is no longer on the server. Please upload it again.', gone: true });
+  if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Invalid position' });
+  if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
   // Peel-nyckel: bara den som stämplade får den. Servern sparar bara en hash av den.
   const peelToken = crypto.randomBytes(24).toString('base64url');
   const saved = await store.addStamp(room, {
@@ -213,7 +213,10 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
     artist: String(b.artist || '').slice(0, 60),
   });
   const stamp = publicStamp(saved);
-  broadcast(room, { type: 'stamp:add', stamp, image }); // aldrig peel-nyckeln
+  // nonce: en slumpad lapp från klienten, så den som stämplade känner igen sin egen stämpel
+  // (och inte spelar upp ljudet två gånger). Aldrig peel-nyckeln.
+  const nonce = typeof b.nonce === 'string' ? b.nonce.slice(0, 40) : undefined;
+  broadcast(room, { type: 'stamp:add', stamp, image, ...(nonce ? { nonce } : {}) });
   res.json({ stamp, image, peelToken });
 }));
 
@@ -223,7 +226,7 @@ app.post('/api/rooms/:room/peel', rateLimit(60), wrap(async (req, res) => {
   const room = roomParam(req, res); if (!room) return;
   const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200)
     .filter((x) => x && typeof x.id === 'string' && /^[a-f0-9]{16}$/.test(x.id)).map((x) => ({ id: x.id, token: String(x.token || '') })) : [];
-  if (!items.length) return res.status(400).json({ error: 'Inga klibbor att peela' });
+  if (!items.length) return res.status(400).json({ error: 'No stickers to peel' });
   const results = await store.peelStamps(room, items, (s, token) => tokenMatches(token, s.peelHash));
   for (const [id, r] of Object.entries(results)) if (r === 'ok') broadcast(room, { type: 'stamp:remove', id });
   res.json({ results });
@@ -235,8 +238,8 @@ app.delete('/api/rooms/:room/stamps/:id/peel', rateLimit(60), wrap(async (req, r
   const token = String(req.get('x-peel-token') || '');
   const r = (await store.peelStamps(room, [{ id, token }], (s, t) => tokenMatches(t, s.peelHash)))[id];
   if (r === 'ok') { broadcast(room, { type: 'stamp:remove', id }); return res.json({ ok: true }); }
-  if (r === 'notfound') return res.status(404).json({ error: 'Klibban finns inte längre', gone: true });
-  res.status(403).json({ error: 'Du kan bara peela dina egna klibbor' });
+  if (r === 'notfound') return res.status(404).json({ error: 'That sticker is gone', gone: true });
+  res.status(403).json({ error: 'You can only peel your own stickers' });
 }));
 
 // ---------- Rättigheter för inspelning och kameror ----------
@@ -246,7 +249,7 @@ const canEditRoom = (req) => { const admin = isAdmin(req), key = String(req.get(
 async function rightsTo(req, res, id) {
   let room = await store.getRoom(id);
   if (!room && id === 'stad') room = { id, type: 'stad' };
-  if (!room) { res.status(404).json({ error: 'Rummet finns inte' }); return null; }
+  if (!room) { res.status(404).json({ error: 'That room does not exist' }); return null; }
   if (!canEditRoom(req)(room)) { res.status(403).json({ error: id === 'stad' ? 'Bara admin kan spela in och placera kameror i Staden' : 'Bara den som skapade rummet kan spela in och placera kameror' }); return null; }
   return room;
 }
@@ -276,33 +279,33 @@ function cleanCamera(b, old = null) {
 }
 app.post('/api/rooms/:room/cameras', rateLimit(60), wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
-  const cam = cleanCamera(req.body); if (!cam) return res.status(400).json({ error: 'Felaktig kamera' });
+  const cam = cleanCamera(req.body); if (!cam) return res.status(400).json({ error: 'Invalid camera' });
   const r = await store.editCameras(id, canEditRoom(req), (list) => {
-    if (list.length >= MAX_CAMERAS) return { error: `Högst ${MAX_CAMERAS} kameror per rum`, save: false };
-    // Kamera 1, 2, 3 … (det lägsta lediga numret)
-    const used = new Set(list.map((c) => /^Kamera (\d+)$/.exec(c.name)?.[1]).filter(Boolean).map(Number));
+    if (list.length >= MAX_CAMERAS) return { error: `At most ${MAX_CAMERAS} cameras per room`, save: false };
+    // Camera 1, 2, 3 … (det lägsta lediga numret)
+    const used = new Set(list.map((c) => /^Camera (\d+)$/.exec(c.name)?.[1]).filter(Boolean).map(Number));
     let n = 1; while (used.has(n)) n++;
-    const c = { id: crypto.randomBytes(5).toString('hex'), name: cam.name || `Kamera ${n}`, p: cam.p, yaw: cam.yaw, pitch: cam.pitch, fov: cam.fov, aspect: cam.aspect, createdAt: new Date().toISOString() };
+    const c = { id: crypto.randomBytes(5).toString('hex'), name: cam.name || `Camera ${n}`, p: cam.p, yaw: cam.yaw, pitch: cam.pitch, fov: cam.fov, aspect: cam.aspect, createdAt: new Date().toISOString() };
     list.push(c);
     return { camera: c };
   });
-  if (r === 'notfound') return res.status(404).json({ error: 'Rummet finns inte' });
-  if (r === 'forbidden') return res.status(403).json({ error: 'Bara den som skapade rummet kan placera kameror' });
+  if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can place cameras' });
   if (r.error) return res.status(400).json({ error: r.error });
   broadcast(id, { type: 'camera:add', camera: r.camera });
   res.json(r);
 }));
 app.put('/api/rooms/:room/cameras/:id', rateLimit(120), wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
-  const camId = String(req.params.id); if (!CAM_ID_RE.test(camId)) return res.status(400).json({ error: 'Ogiltig kamera' });
+  const camId = String(req.params.id); if (!CAM_ID_RE.test(camId)) return res.status(400).json({ error: 'Invalid camera' });
   const r = await store.editCameras(id, canEditRoom(req), (list) => {
     const i = list.findIndex((c) => c.id === camId); if (i < 0) return { missing: true, save: false };
     const c = cleanCamera(req.body, list[i]); if (!c) return { bad: true, save: false };
     list[i] = c; return { camera: c };
   });
-  if (r === 'notfound' || r.missing) return res.status(404).json({ error: 'Kameran finns inte' });
-  if (r === 'forbidden') return res.status(403).json({ error: 'Bara den som skapade rummet kan ändra kamerorna' });
-  if (r.bad) return res.status(400).json({ error: 'Felaktig kamera' });
+  if (r === 'notfound' || r.missing) return res.status(404).json({ error: 'That camera does not exist' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can change the cameras' });
+  if (r.bad) return res.status(400).json({ error: 'Invalid camera' });
   broadcast(id, { type: 'camera:update', camera: r.camera });
   res.json(r);
 }));
@@ -313,14 +316,14 @@ app.delete('/api/rooms/:room/cameras/:id', rateLimit(60), wrap(async (req, res) 
     const i = list.findIndex((c) => c.id === camId); if (i < 0) return { missing: true, save: false };
     list.splice(i, 1); return { ok: true };
   });
-  if (r === 'notfound' || r.missing) return res.status(404).json({ error: 'Kameran finns inte' });
-  if (r === 'forbidden') return res.status(403).json({ error: 'Bara den som skapade rummet kan ta bort kameror' });
+  if (r === 'notfound' || r.missing) return res.status(404).json({ error: 'That camera does not exist' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can remove cameras' });
   broadcast(id, { type: 'camera:remove', id: camId });
   res.json({ ok: true });
 }));
 
 // ---------- Sessionsinspelning (se recorder.js och docs/recording-format.md) ----------
-const needRecorder = (res) => { if (!recorder) { res.status(503).json({ error: 'Inspelning är inte påslaget på den här servern' }); return false; } return true; };
+const needRecorder = (res) => { if (!recorder) { res.status(503).json({ error: 'Recording is not enabled on this server' }); return false; } return true; };
 // Pågår en inspelning? (alla får fråga: alla i rummet ser ju ● REC)
 app.get('/api/rooms/:room/recording', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
@@ -354,7 +357,7 @@ app.post('/api/rooms/:room/recording/stop', rateLimit(20), wrap(async (req, res)
   const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
   if (!(await rightsTo(req, res, id))) return;
   const meta = await recorder.stop(id, 'stop');
-  if (!meta) return res.status(409).json({ error: 'Ingen inspelning pågår' });
+  if (!meta) return res.status(409).json({ error: 'Nothing is being recorded' });
   res.json({ ok: true, recording: meta });
 }));
 // Lista: bara den som får spela in. En enskild inspelning kan alla med länken spela upp
@@ -367,13 +370,13 @@ app.get('/api/rooms/:room/recordings', wrap(async (req, res) => {
 app.get('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
   const m = await recorder.meta(id, String(req.params.rec));
-  if (!m) return res.status(404).json({ error: 'Inspelningen finns inte' });
+  if (!m) return res.status(404).json({ error: 'That recording does not exist' });
   res.json(m);
 }));
 app.get('/api/rooms/:room/recordings/:rec/log', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
   const buf = await recorder.read(id, String(req.params.rec));
-  if (!buf) return res.status(404).json({ error: 'Inspelningen finns inte' });
+  if (!buf) return res.status(404).json({ error: 'That recording does not exist' });
   res.set({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache' }).send(buf);
 }));
 app.delete('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
@@ -386,7 +389,7 @@ app.delete('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
 app.get('/api/admin/check', (req, res) => res.json({ ok: isAdmin(req) }));
 
 app.delete('/api/rooms/:room/stamps/:id', wrap(async (req, res) => {
-  if (!isAdmin(req)) return res.status(403).json({ error: 'Ej behörig' });
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
   const room = roomParam(req, res); if (!room) return;
   const ok = await store.deleteStamp(room, req.params.id);
   if (ok) broadcast(room, { type: 'stamp:remove', id: req.params.id });
@@ -395,9 +398,9 @@ app.delete('/api/rooms/:room/stamps/:id', wrap(async (req, res) => {
 
 // Tar bort en bild helt, och alla stämplar av den i alla rum.
 app.delete('/api/stickers/:id', wrap(async (req, res) => {
-  if (!isAdmin(req)) return res.status(403).json({ error: 'Ej behörig' });
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
   const id = String(req.params.id);
-  if (!/^[a-f0-9]{16}$/.test(id)) return res.status(400).json({ error: 'Ogiltigt id' });
+  if (!/^[a-f0-9]{16}$/.test(id)) return res.status(400).json({ error: 'Invalid id' });
   const removed = await store.deleteStampsWithImage(id);
   await store.deleteImage(id);
   await store.deleteImageFile(id);
@@ -426,7 +429,7 @@ app.use(express.static(DIST, {
 }));
 app.get(/^\/(?!api|uploads).*/, (req, res) => { noCache(res); res.sendFile(path.join(DIST, 'index.html')); });
 
-app.use('/api', (err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Något gick fel på servern.' }); });
+app.use('/api', (err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Something went wrong on the server.' }); });
 return app;
 }
 
