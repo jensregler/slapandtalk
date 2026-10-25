@@ -54,6 +54,7 @@ export const EN = {
   fileType: 'Only PNG, JPG or WebP, please.',
   fileTooBig: 'The file is too big (max 5 MB after shrinking).',
   uploading: 'Uploading…',
+  uploadFailed: 'Upload failed, please try again.',
   uploadedTouch: 'Done! Tap a surface to slap it.',
   uploadedDesktop: 'Done! Enter the room and click to slap it.',
   pickFirst: 'Upload or pick a sticker first.',

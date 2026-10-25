@@ -46,7 +46,7 @@
     </section>
 
     <label class="upload">
-      <input id="file" type="file" accept="image/png,image/jpeg,image/webp" />
+      <input id="file" class="vh-file" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" />
       <span data-t="upload">⬆ Upload sticker</span>
     </label>
     <div id="tray" aria-label="Your stickers" data-t-empty="trayEmpty"></div>
@@ -237,7 +237,7 @@
     <div class="sp-row fab-slot" id="av-hat-row" data-slot="hat"><div class="fab-head"><b data-t="capColour">Cap colour</b></div><div id="av-hatcolor" class="swatches colors"></div></div>
     <!-- 🌀 Randomize lives inside an opened fabric panel (fabricui.js moves it there); parked here otherwise. -->
     <div id="av-wild-home" hidden><button id="av-wild" type="button" data-t="randomize" data-t-title="randomizeTitle">🌀 Randomize</button></div>
-    <input id="fab-file" type="file" accept="image/png,image/jpeg,image/webp,image/*" hidden />
+    <input id="fab-file" class="vh-file" type="file" accept="image/png,image/jpeg,image/webp,image/*,.png,.jpg,.jpeg,.webp" tabindex="-1" aria-hidden="true" />
     <div class="sp-btns">
       <button id="av-random" type="button" data-t="random">🎲 Random</button>
       <button id="av-cancel" type="button" data-t="cancel">Cancel</button>

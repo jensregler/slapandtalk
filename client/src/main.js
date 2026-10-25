@@ -142,6 +142,7 @@ $('my-avatar').addEventListener('click', () => closeMore());
 
 // ---------- Meny ----------
 let toastTimer;
+const last = (a) => (a.length ? a[a.length - 1] : undefined); // Array#at needs Safari 15.4
 function toast(msg, ms = 2200) {
   const t = $('toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
@@ -165,7 +166,7 @@ function designs() { return state.mine.slice().reverse(); }
 addEventListener('storage', (e) => {
   if (e.key !== 'klibb.mine') return;
   state.mine = readMine();
-  if (state.selected && !state.mine.some((m) => m.id === state.selected.id)) select(state.mine.at(-1));
+  if (state.selected && !state.mine.some((m) => m.id === state.selected.id)) select(last(state.mine));
   else { renderTray(); renderDesignHud(); }
 });
 
@@ -209,7 +210,7 @@ function dropDesigns(ids) {
   if (!ids.length) return;
   state.mine = removeMine(ids);
   ids.forEach(deleteBlob);
-  if (!state.selected || ids.includes(state.selected.id)) select(state.mine.at(-1));
+  if (!state.selected || ids.includes(state.selected.id)) select(last(state.mine));
   else { renderTray(); renderDesignHud(); }
 }
 
@@ -293,32 +294,60 @@ function setSize(cm) {
 function setRot(deg) { deg = ((deg + 540) % 360) - 180; $('rot').value = deg; $('rot').oninput({ target: $('rot') }); }
 
 // Bilden krymps i webbläsaren om den är stor, så uppladdningen går fort även på mobilen.
+// Decode an image file: createImageBitmap where it can (Safari < 15 has none, and some Safaris
+// can't decode WebP from a Blob with it), otherwise an <img> from an object URL.
+async function decodeImage(file) {
+  if (typeof createImageBitmap === 'function') {
+    try { const b = await createImageBitmap(file); return { src: b, w: b.width, h: b.height }; } catch { /* fall through */ }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image(); img.decoding = 'async'; img.src = url;
+    await (img.decode ? img.decode() : new Promise((ok, no) => { img.onload = ok; img.onerror = no; }));
+    return { src: img, w: img.naturalWidth, h: img.naturalHeight };
+  } finally { setTimeout(() => URL.revokeObjectURL(url), 0); }
+}
+const toBlob = (c, type, q) => new Promise((r) => { try { c.toBlob(r, type, q); } catch { r(null); } });
 async function shrink(file) {
-  const bmp = await createImageBitmap(file);
-  const scale = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+  let im;
+  try { im = await decodeImage(file); } catch { im = null; }
+  if (!im || !im.w || !im.h) { if (file.size <= 5 * 1024 * 1024) return file; throw new Error(S.fileType); } // the server decodes it
+  const scale = Math.min(1, 1024 / Math.max(im.w, im.h));
   if (scale === 1 && file.size <= 5 * 1024 * 1024) return file;
   const c = document.createElement('canvas');
-  c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
-  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-  const blob = await new Promise((r) => c.toBlob(r, 'image/webp', 0.92));
-  return blob && blob.type === 'image/webp' ? blob : new Promise((r) => c.toBlob(r, 'image/png'));
+  c.width = Math.max(1, Math.round(im.w * scale)); c.height = Math.max(1, Math.round(im.h * scale));
+  c.getContext('2d').drawImage(im.src, 0, 0, c.width, c.height);
+  const blob = await toBlob(c, 'image/webp', 0.92); // Safari < 16 can't encode WebP: it hands back a PNG
+  return blob && blob.type === 'image/webp' ? blob : (await toBlob(c, 'image/png')) || file;
+}
+// Some browsers (Safari with odd files, drag-ins) leave file.type empty: go by the extension then.
+function fileKind(file) {
+  if (/^image\/(png|jpeg|webp)$/.test(file.type)) return file.type;
+  if (file.type) return null;
+  const ext = (/\.([a-z0-9]+)$/i.exec(file.name || '') || [])[1]?.toLowerCase();
+  return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }[ext] || null;
 }
 
-$('file').onchange = async (e) => {
-  const file = e.target.files[0]; e.target.value = '';
+// The upload button is a <label> around a visually hidden file input. Nothing here may touch
+// pointer lock: the click has to stay a plain label click so the browser (Safari!) opens the chooser.
+async function onFilePicked(input) {
+  const file = input.files && input.files[0];
   if (!file) return;
-  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return toast(S.fileType);
-  if (file.size > 20 * 1024 * 1024) return toast(S.fileTooBig);
   try {
+    if (!fileKind(file)) return toast(S.fileType);
+    if (file.size > 20 * 1024 * 1024) return toast(S.fileTooBig);
     toast(S.uploading, 10000);
     const blob = await shrink(file);
     const img = await api.uploadSticker(blob, state.artist);
-    await saveBlob(img.id, blob); // lokal kopia, så designen kan återställas om servern tappar den
+    try { await saveBlob(img.id, blob); } catch { /* local copy is a nice-to-have (private mode Safari) */ }
     state.mine = addMine(img);
     await select(img);
     toast(isTouch ? S.uploadedTouch : S.uploadedDesktop);
-  } catch (err) { toast(err.message); }
-};
+  } catch (err) { toast(err && err.message ? err.message : S.uploadFailed); } finally {
+    input.value = ''; // so picking the same file again fires 'change' again
+  }
+}
+$('file').addEventListener('change', (e) => onFilePicked(e.currentTarget));
 
 // ---------- Stämpla ----------
 // Siktet: i förstapersonsläget från ögonen, i tredjepersonsvy från kameran bakom gubben, genom
@@ -565,7 +594,7 @@ async function peelSettled() { while (peelInFlight || peelOutbox.length) await f
 function peelLast() {
   // Den senaste klibban väntar fortfarande på servern: peela den direkt på skärmen, och på
   // riktigt så fort servern har svarat (annars skulle ↩ ta klibban före).
-  const pend = [...pendingSlaps.values()].filter((p) => !p.peel).at(-1);
+  const pend = last([...pendingSlaps.values()].filter((p) => !p.peel));
   if (pend) {
     pend.peel = true;
     peelGesture(pend.tempId);
@@ -1290,7 +1319,7 @@ function frame() {
 
 renderTray();
 renderHistory();
-if (state.mine.length) select(state.mine.at(-1));
+if (state.mine.length) select(last(state.mine));
 initAdmin();
 Promise.all([loadRoom(), validateDesigns()]).then(() => { window.klibb.ready = true; if (canEditStyle()) renderRecs(); });
 frame();

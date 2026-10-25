@@ -113,8 +113,9 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     for (const size of [0.1, 0.6]) {
       await A.evaluate((size) => { const k = window.klibb; k.state.size = size; k.moveTo(-1 + size * 3, -3.0); k.look(0, 0.1); }, size); // inom räckhåll (peels)
       const n = await A.evaluate(() => window.klibb.soundLog().length);
-      await A.evaluate(() => window.klibb.stampAt(0, 0));
-      await A.waitForFunction((n) => window.klibb.soundLog().slice(n).some((e) => e.kind === 'duff'), n, { timeout: 5000 });
+      const st = await A.evaluate(async () => { const r = await window.klibb.stampAt(0, 0); return JSON.stringify(r); });
+      try { await A.waitForFunction((n) => window.klibb.soundLog().slice(n).some((e) => e.kind === 'duff'), n, { timeout: 10000 }); } catch (e) {
+        console.log('duff never came; stampAt →', st, await A.evaluate((n) => JSON.stringify({ sel: window.klibb.state.selected, peels: window.klibb.peels(), log: window.klibb.soundLog().slice(n), toast: document.getElementById('toast').textContent, count: window.klibb.stamps.count }), n)); throw e; }
       duffs.push(await A.evaluate((n) => window.klibb.soundLog().slice(n).find((e) => e.kind === 'duff'), n));
     }
     assert(put.status === 200 && duffs[0].area < duffs[1].area && duffs[1].level > duffs[0].level && duffs[1].rate < duffs[0].rate,
