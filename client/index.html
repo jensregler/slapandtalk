@@ -17,6 +17,8 @@
 <body>
   <canvas id="scene"></canvas>
   <div id="crosshair" hidden></div>
+  <!-- Who made the sticker under the dot (Look mode). -->
+  <div id="credit" hidden><b id="credit-name"></b><a id="credit-link" target="_blank" rel="noopener noreferrer"></a><small id="credit-hint"></small></div>
 
   <button id="panel-toggle" type="button" aria-expanded="true" data-t="panelToggle">☰ Stickers</button>
   <!-- The essentials: room, upload, design picker, slap/look mode. Everything else is under ⚙ More. -->
@@ -71,6 +73,10 @@
       <label><span data-t="artist"></span>
         <input id="artist" type="text" maxlength="60" data-t-placeholder="artistPlaceholder" />
       </label>
+      <label><span data-t="artistLink"></span>
+        <input id="artist-link" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" maxlength="200" data-t-placeholder="artistLinkPlaceholder" />
+      </label>
+      <p class="hint" id="artist-link-msg" aria-live="polite"></p>
     </section>
 
     <section id="history" aria-label="My slaps in this room">
@@ -214,6 +220,15 @@
     <div class="end-btns">
       <button id="end-action" type="button"></button>
       <button id="end-keep" type="button" class="primary" data-t="keepSlapping">Keep slapping</button>
+    </div>
+  </dialog>
+  <dialog id="link-dialog" aria-labelledby="link-title">
+    <h2 id="link-title" data-t="linkTitle">Open this link?</h2>
+    <p id="link-url" class="link-url"></p>
+    <p class="hint" data-t="linkNote"></p>
+    <div class="end-btns">
+      <button id="link-cancel" type="button" data-t="linkCancel">Cancel</button>
+      <a id="link-open" class="btn primary" target="_blank" rel="noopener noreferrer" data-t="linkOpen">Open</a>
     </div>
   </dialog>
   <div id="toast" role="status" aria-live="polite"></div>

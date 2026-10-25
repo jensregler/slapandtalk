@@ -188,6 +188,26 @@ async function roomLifecycle(name, adapter) {
       const resA = a25.map((x) => pAll.results[x.stamp.id]);
       assert(resA.slice(0, 5).every((x) => x === 'forbidden') && resA.slice(5).every((x) => x === 'ok') && b2.every((x) => pAll.results[x.stamp.id] === 'ok'),
         'de 5 äldsta av 25 går inte längre att peela (403), de senaste 20 går, och en annan persons gräns är egen');
+      // ---------- Konstnärens namn och länk: tvättas på servern ----------
+      const { cleanArtistLink, linkLabel } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'shared', 'artistlink.mjs')).href);
+      const GOOD = [['@ulla.k', 'https://www.instagram.com/ulla.k'], ['instagram.com/ulla', 'https://instagram.com/ulla'], ['x.com/ulla', 'https://x.com/ulla'],
+        ['https://www.tiktok.com/@ulla', 'https://www.tiktok.com/@ulla'], ['youtube.com/@ulla', 'https://youtube.com/@ulla'], ['http://ulla.se/konst', 'https://ulla.se/konst'], ['  https://ulla.se  ', 'https://ulla.se/']];
+      const BAD = ['javascript:alert(1)', 'JavaScript:alert(1)', ' javascript:alert(1)', 'java\tscript:alert(1)', 'data:text/html,<b>x</b>', 'vbscript:x', 'file:///etc/passwd', 'ftp://ulla.se',
+        'https://user:pw@ulla.se', 'https://127.0.0.1/', 'https://localhost/', 'https://ulla.se:8080/', 'https://ulla.se/"onmouseover=x', 'https://ulla.se/<script>', '@a b', '@' + 'a'.repeat(31),
+        'https://ulla.se/' + 'x'.repeat(200), 'hej', '', 42, null, { href: 'https://x.com' }];
+      assert(GOOD.every(([i, o]) => cleanArtistLink(i) === o) && BAD.every((i) => cleanArtistLink(i) === ''),
+        'länk: @namn blir Instagram, instagram/x/tiktok/youtube/https godkänns, javascript:, data:, inloggning, IP, port, för långt m.m. nekas');
+      assert(linkLabel('https://www.instagram.com/ulla.k') === '@ulla.k · Instagram' && linkLabel('https://x.com/ulla') === '@ulla · X' && linkLabel('https://ulla.se/konst') === 'ulla.se/konst',
+        'etiketten visar @namn · tjänst, annars adressen kort');
+      const withLink = await post({ artist: '  Ulla\u0000 K\u202e ', artistLink: '@ulla.k' });
+      const evil = await post({ artist: 'x'.repeat(100), artistLink: 'javascript:alert(document.cookie)' });
+      const noLink = await post({ artist: '' });
+      const listed = (await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json()).stamps;
+      const lw = listed.find((x) => x.id === withLink.stamp.id), le = listed.find((x) => x.id === evil.stamp.id), ln = listed.find((x) => x.id === noLink.stamp.id);
+      assert(withLink.stamp.artistLink === 'https://www.instagram.com/ulla.k' && withLink.stamp.artist === 'Ulla K' && lw.artistLink === withLink.stamp.artistLink && lw.artist === 'Ulla K',
+        'stämpeln sparar konstnärens namn och länk (tvättade), och rummets lista har dem');
+      assert(!('artistLink' in evil.stamp) && !('artistLink' in le) && le.artist.length === 60 && !JSON.stringify(listed).includes('javascript') && !('artistLink' in ln) && ln.artist === '',
+        'en javascript:-länk sparas aldrig, namnet kortas till 60 tecken, och utan länk finns ingen länk');
       // ---------- Nollställ rummet (alla klibbor bort): bara skaparen eller admin, Staden bara admin ----------
       const reset = (id, headers = {}, by = 'Ulla') => fetch(`${base}/api/rooms/${id}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ by }) });
       const postIn = (id) => fetch(`${base}/api/rooms/${id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },

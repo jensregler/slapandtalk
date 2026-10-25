@@ -57,8 +57,8 @@ async function setup(recOpts = {}) {
     // En klibba som sitter där innan inspelningen startar
     const fd = new FormData(); fd.append('file', new Blob([await sharp({ create: { width: 32, height: 32, channels: 4, background: '#00aaff' } }).png().toBuffer()], { type: 'image/png' }), 'k.png');
     const img = await (await fetch(`${T.base}/api/stickers`, { method: 'POST', body: fd })).json();
-    const stamp = (pos) => T.api('POST', `/api/rooms/${R}/stamps`, { body: { imageId: img.id, position: pos, normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' } }).then((r) => r.json());
-    const before = await stamp([0, 1.5, -5]);
+    const stamp = (pos, extra = {}) => T.api('POST', `/api/rooms/${R}/stamps`, { body: { imageId: img.id, position: pos, normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', ...extra } }).then((r) => r.json());
+    const before = await stamp([0, 1.5, -5], { artist: 'Före', artistLink: 'x.com/fore' });
 
     // ---------- Kameror: rättigheter, sparas med rummet, flytta, ta bort ----------
     const camBody = { p: [3, 2.2, 4], yaw: 0.6, pitch: -0.2, fov: 60, aspect: '16:9' };
@@ -101,7 +101,7 @@ async function setup(recOpts = {}) {
     a.send({ t: 'signal', to: wb.id, data: { sdp: 'hemligt-röstsamtal' } });
     await b.wait((m) => m.t === 'signal');
     await sleep(50);
-    const during = await stamp([1, 2, -5]);
+    const during = await stamp([1, 2, -5], { artist: 'Ulla K', artistLink: '@ulla.k' });
     await sleep(40);
     await T.api('DELETE', `/api/rooms/${R}/stamps/${before.stamp.id}/peel`, {}).then(() => fetch(`${T.base}/api/rooms/${R}/stamps/${before.stamp.id}/peel`, { method: 'DELETE', headers: { 'x-peel-token': before.peelToken } }));
     await sleep(40);
@@ -144,6 +144,9 @@ async function setup(recOpts = {}) {
     assert(['join', 'move', 'look', 'chat', 'stamp:add', 'stamp:remove', 'camera:update', 'camera:remove', 'room:style', 'room:reset', 'leave'].every((k) => kinds.has(k)) && rec.end && rec.end.reason === 'stop',
       `loggen har alla händelser (${[...kinds].join(', ')}) och en slut-rad`);
     assert(!text.includes('hemligt-röstsamtal') && !kinds.has('signal') && !text.includes('peelHash') && !text.includes(KEY), 'röstens signalering, peel-nycklar och rumsnyckeln spelas aldrig in');
+    const addEv = rec.events.find((e) => e.e === 'stamp:add' && e.stamp.id === during.stamp.id);
+    assert(addEv && addEv.stamp.artist === 'Ulla K' && addEv.stamp.artistLink === 'https://www.instagram.com/ulla.k'
+      && h.stamps.find((s) => s.id === before.stamp.id).artistLink === 'https://x.com/fore', 'konstnärens namn och länk finns med i inspelningen (startläget och nya klibbor)');
     const moves = rec.events.filter((e) => e.e === 'move' && e.id === wb.id);
     const gaps = moves.slice(1).map((m, i) => m.t - moves[i].t);
     assert(moves.length >= 2 && moves.length <= 10 && gaps.every((g) => g >= 80) && moves.at(-1).p[0] === 1 && moves.at(-1).pi === 0.5,

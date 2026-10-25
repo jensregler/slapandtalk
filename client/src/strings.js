@@ -61,7 +61,18 @@ export const EN = {
   designHud: 'R: next design',
   designBtn: 'Next design',
   size: 'Size', rotation: 'Rotation', jitter: 'A little random tilt (like for real)',
-  artist: 'Your artist name (optional)', artistPlaceholder: 'e.g. @yourname',
+  artist: 'Your artist name (optional)', artistPlaceholder: 'e.g. Ulla K',
+  artistLink: 'Your link (optional)', artistLinkPlaceholder: '@handle or https://…',
+  artistLinkHint: 'An Instagram @handle, or an X, TikTok, YouTube or https:// link. People see it when they look at your stickers.',
+  artistLinkBad: "That link won't work. Try @handle or an https:// link.",
+  artistLinkOk: (label) => `Shows as: ${label}`,
+
+  // ---------- Artist credit (Look mode) ----------
+  creditOpenKey: 'L or click: open link',
+  creditOpenTap: 'Tap the link to open it',
+  linkTitle: 'Open this link?',
+  linkNote: 'It opens in a new tab.',
+  linkOpen: 'Open', linkCancel: 'Cancel',
 
   // ---------- Modes ----------
   slapMode: 'Slap mode', lookMode: 'Look mode',

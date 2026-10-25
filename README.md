@@ -76,6 +76,18 @@ design i Look mode, men du stannar kvar där tills du trycker **V** igen. Längs
 vilket läge du är i. V fungerar inte medan du skriver i ett textfält, och Ctrl+V (klistra in)
 växlar inte läge.
 
+**Vem gjorde klibban? (Look mode):** vilar pricken på en klibba i ungefär 150 ms syns en liten
+etikett bredvid pricken med konstnärens namn och länk, t.ex. *Ulla K · @ulla.k · Instagram*. Tryck
+**L** eller klicka medan etiketten syns: musen släpps och en liten ruta (*Open this link?*) visar
+hela adressen; **Open** öppnar den i en ny flik (`rel="noopener noreferrer"`). På mobilen: tryck på
+klibban i Look mode, så syns etiketten där du tryckte med en länk du kan trycka på. Klibbor utan namn
+och länk visar ingenting. Ditt namn och din länk ställer du in under ⚙ More (*Your artist name* och
+*Your link*): skriv `@namn` (blir Instagram) eller en instagram/x/tiktok/youtube- eller annan
+`https://`-länk. Namnet och länken sparas med varje klibba du sätter (och kommer med i
+inspelningar). Servern tvättar dem (`shared/artistlink.mjs`, samma regler i webbläsaren): bara
+`https://` (http blir https), inga `javascript:`/`data:`-länkar, ingen inloggning, IP-adress eller
+port i länken, högst 200 tecken; namnet högst 60 tecken. En ogiltig länk sparas inte alls.
+
 **Byta design med R:** har du laddat upp flera klibbor växlar **R** till nästa (efter den sista
 börjar det om på den första). Rutan längst ner i mitten visar vilken design som är vald, till
 exempel *2/4*. Vill du sätta samma klibba många gånger trycker du bara inte på R.

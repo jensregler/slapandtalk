@@ -11,6 +11,9 @@ const sharp = require('sharp');
 const { contentId } = require('./store');
 const { broadcast, cleanName } = require('./realtime');
 
+// Konstnärens namn och länk (samma regler som i webbläsaren). ESM-modul, så den laddas med import().
+const artistLinkMod = import('../shared/artistlink.mjs');
+
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
 // Största klibban (längsta sidan) = väggens höjd, samma mått som rummet i webbappen.
@@ -195,6 +198,14 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
 const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
 const isVec = (v, len) => Array.isArray(v) && v.length === len && v.every(isNum);
 
+// Namn och länk till den som gjorde klibban. Ogiltig länk (javascript:, data:, inloggning i
+// länken, för lång …) sparas inte alls, och en tom länk sparas inte heller.
+async function artistFields(b) {
+  const { cleanArtistName, cleanArtistLink } = await artistLinkMod;
+  const link = cleanArtistLink(b.artistLink);
+  return { artist: cleanArtistName(b.artist), ...(link ? { artistLink: link } : {}) };
+}
+
 app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   const room = roomParam(req, res); if (!room) return;
   const b = req.body || {};
@@ -213,7 +224,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
     position: b.position, normal: b.normal, quaternion: b.quaternion,
     size: clampSize(b.size), rotation: isNum(b.rotation) ? b.rotation : 0,
     surface: String(b.surface || '').slice(0, 40),
-    artist: String(b.artist || '').slice(0, 60),
+    ...(await artistFields(b)),
   });
   const stamp = publicStamp(saved);
   // nonce: en slumpad lapp från klienten, så den som stämplade känner igen sin egen stämpel

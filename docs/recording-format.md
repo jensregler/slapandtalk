@@ -29,7 +29,7 @@ loggen går att spela upp fram till senaste skrivningen (en halv sista rad hoppa
   "format": "slapandtalk-rec", "v": 1, "id": "84732e9bc569733e", "room": "k7m2qx",
   "startedAt": "2026-10-24T17:58:02.120Z", "clock": "ms", "positions": "eye",
   "style": { "floor": "betong", "wall": "tegel", "ceiling": "vit" },
-  "stamps": [ { "id": "…", "order": 1, "imageId": "…", "position": [x,y,z], "normal": [x,y,z], "quaternion": [x,y,z,w], "size": 0.3, "rotation": 0, "surface": "vägg-norr", "artist": "", "createdAt": "…" } ],
+  "stamps": [ { "id": "…", "order": 1, "imageId": "…", "position": [x,y,z], "normal": [x,y,z], "quaternion": [x,y,z,w], "size": 0.3, "rotation": 0, "surface": "vägg-norr", "artist": "Ulla K", "artistLink": "https://www.instagram.com/ulla.k", "createdAt": "…" } ],
   "images": { "<imageId>": { "id": "…", "url": "/uploads/<id>.webp", "width": 400, "height": 400, "artist": "", "createdAt": "…" } },
   "cameras": [ { "id": "…", "name": "Kamera 1", "p": [x,y,z], "yaw": 0.75, "pitch": -0.2, "fov": 60, "aspect": "16:9", "createdAt": "…" } ],
   "players": [ { "id": "5e7d066fda", "name": "Ulla", "look": { "outfit": "kostym", "hair": "lang", "shirt": "#e63946", "pants": "#…", "hairColor": "#…", "skin": "#…", "hat": true, "hatColor": "#…" }, "p": [x,y,z], "y": 0.5, "pi": -0.1 } ],
@@ -56,7 +56,7 @@ Varje rad: `{ "t": <ms sedan start>, "e": "<typ>", …data }`. Raderna står i t
 | `look` | `id, name, look` | Bytte gubbe eller namn. |
 | `move` | `id, p, y, pi` | Position och blick. Högst ~10 per sekund och person; den senaste kommer alltid med. |
 | `chat` | `id, name, text, mid` | Chattmeddelande (`id` = avsändaren, `mid` = meddelandets id). |
-| `stamp:add` | `stamp, image` | En klibba sattes. |
+| `stamp:add` | `stamp, image` | En klibba sattes. `stamp.artist` (högst 60 tecken) och `stamp.artistLink` (valfri, alltid en tvättad `https:`-länk, se `shared/artistlink.mjs`) säger vem som gjorde den. |
 | `stamp:remove` | `id` | En klibba peelades eller togs bort. |
 | `image:remove` | `id` | Admin tog bort en bild helt: alla klibbor med den bilden försvinner. |
 | `room:reset` | `by`, `removed` | Rummets skapare (eller admin) nollställde rummet: alla klibbor försvinner. `by` = namnet som visades. |

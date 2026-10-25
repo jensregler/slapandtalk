@@ -13,6 +13,7 @@ import { initTogether } from './together.js';
 import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed } from './cameras.js';
 import { S, LOCALE } from './strings.js';
 import { Sounds } from './sound.js';
+import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -58,6 +59,7 @@ const state = {
   size: 0.3, rotation: 0, jitter: false,
   mode: 'slap', // 'slap' = Klibbläge (pekaren syns, klick stämplar), 'view' = Tittläge (bara titta)
   artist: localStorage.getItem('klibb.artist') || '',
+  artistLink: cleanArtistLink(localStorage.getItem('klibb.artistLink') || ''),
   adminToken: '',
 };
 
@@ -221,6 +223,18 @@ $('rot').oninput = (e) => { state.rotation = Number(e.target.value); $('rot-val'
 $('jitter').onchange = (e) => { state.jitter = e.target.checked; };
 $('artist').value = state.artist;
 $('artist').oninput = (e) => { state.artist = e.target.value.trim(); localStorage.setItem('klibb.artist', state.artist); };
+// Din länk: @namn blir Instagram, annars en https-länk. Fel länk sparas inte på klibborna.
+function showLinkMsg(raw) {
+  const msg = $('artist-link-msg');
+  msg.classList.toggle('bad', !!raw.trim() && !state.artistLink);
+  msg.textContent = !raw.trim() ? S.artistLinkHint : state.artistLink ? S.artistLinkOk(linkLabel(state.artistLink)) : S.artistLinkBad;
+}
+$('artist-link').value = localStorage.getItem('klibb.artistLink') || '';
+showLinkMsg($('artist-link').value);
+$('artist-link').oninput = (e) => {
+  const raw = e.target.value; state.artistLink = cleanArtistLink(raw);
+  localStorage.setItem('klibb.artistLink', raw.trim()); showLinkMsg(raw);
+};
 let maxToastAt = 0;
 function setSize(cm) {
   const want = Math.round(cm);
@@ -289,6 +303,7 @@ async function stampAt(ndc) {
     imageId: design.id,
     position: h.point.toArray(), normal: h.normal.toArray(), quaternion: q.toArray(),
     size: Math.min(state.size, MAX_SIZE_CM / 100), rotation: state.rotation, surface: h.surface, artist: state.artist,
+    ...(state.artistLink ? { artistLink: state.artistLink } : {}),
   };
   try {
     let res;
@@ -364,7 +379,7 @@ function setMode(mode, { quiet = false } = {}) {
   state.mode = mode === 'view' ? 'view' : 'slap';
   const view = state.mode === 'view';
   document.body.classList.toggle('view-mode', view);
-  if (view) preview.hide();
+  if (view) preview.hide(); else hideCredit();
   cams.setVisible(!view && camShow);
   $('mode-hud').textContent = S.modeHud(view, isTouch);
   $('mode-btn').setAttribute('aria-pressed', String(view));
@@ -548,6 +563,76 @@ function pruneHistory(stampIds) {
   renderHistory();
 }
 
+// ---------- Vem gjorde klibban? (Tittläge) ----------
+// Vilar pricken på en klibba i ~150 ms syns konstnärens namn och länk bredvid pricken.
+// L eller klick öppnar länken (efter en liten fråga som visar adressen). På mobilen: tryck på
+// klibban i Tittläge, så syns etiketten där man tryckte, med en länk man kan trycka på.
+// Klibbor utan namn och länk visar ingenting. Länken tvättas igen här (servern har redan gjort det).
+const CREDIT_DELAY = 150;
+// var: setMode längre upp (hideCredit) kan köras innan den här raden.
+var credit = { id: null, since: 0, shown: null, lastPick: 0, timer: 0 }; // eslint-disable-line no-var
+function creditOf(stamp) {
+  const name = cleanArtistName(stamp?.artist), link = cleanArtistLink(stamp?.artistLink || '');
+  return name || link ? { id: stamp.id, name, link } : null;
+}
+function pickStampAt(ndc) {
+  camera.updateMatrixWorld();
+  raycaster.setFromCamera(ndc, camera);
+  const p = stamps.pick(raycaster);
+  if (!p) return null;
+  // Står en vägg/golv närmare än klibban (klibban på andra sidan)? Då syns den inte.
+  const wall = raycaster.intersectObjects(room.surfaces, false)[0];
+  const hit = raycaster.intersectObjects([stamps.meshes.get(p.stamp.id)].filter(Boolean), false)[0];
+  if (wall && hit && wall.distance + 0.05 < hit.distance) return null;
+  return p;
+}
+function showCredit(c, at = null) {
+  const el = $('credit');
+  $('credit-name').textContent = c.name;
+  const a = $('credit-link');
+  if (c.link) { a.href = c.link; a.textContent = linkLabel(c.link); } else { a.removeAttribute('href'); a.textContent = ''; }
+  $('credit-hint').textContent = c.link ? (at ? S.creditOpenTap : S.creditOpenKey) : '';
+  el.classList.toggle('tap', !!at);
+  el.hidden = false;
+  if (at) {
+    const r = el.getBoundingClientRect();
+    el.style.left = Math.max(12, Math.min(innerWidth - r.width - 12, at.x + 12)) + 'px';
+    el.style.top = Math.max(12, Math.min(innerHeight - r.height - 12, at.y - r.height - 14)) + 'px';
+    clearTimeout(credit.timer); credit.timer = setTimeout(hideCredit, 6000);
+  } else { el.style.left = ''; el.style.top = ''; }
+  credit.shown = c;
+}
+function hideCredit() {
+  if (!credit) return; // innan raden ovan har körts
+  clearTimeout(credit.timer);
+  if (credit.shown) $('credit').hidden = true;
+  credit.shown = null;
+}
+function updateHover(now) {
+  if (isTouch) return;
+  if (!(controls.locked && state.mode === 'view' && !camView && !sp.open)) {
+    credit.id = null; if (credit.shown) hideCredit(); return;
+  }
+  if (now - credit.lastPick < 40) return; // inte varje bildruta
+  credit.lastPick = now;
+  const c = creditOf(pickStampAt(CENTER)?.stamp);
+  if (!c) { credit.id = null; if (credit.shown) hideCredit(); return; }
+  if (c.id !== credit.id) { credit.id = c.id; credit.since = now; if (credit.shown) hideCredit(); return; }
+  if (!credit.shown && now - credit.since >= CREDIT_DELAY) showCredit(c);
+}
+const linkDlg = $('link-dialog');
+function openLink(url) {
+  url = cleanArtistLink(url); if (!url) return false;
+  controls.unlock(); hideCredit(); credit.id = null;
+  $('link-url').textContent = url;
+  $('link-open').href = url;
+  linkDlg.showModal();
+  return true;
+}
+$('link-cancel').onclick = () => linkDlg.close();
+$('link-open').onclick = () => setTimeout(() => linkDlg.close(), 0); // länken öppnas i en ny flik (rel=noopener)
+$('credit-link').addEventListener('click', () => setTimeout(hideCredit, 0));
+
 // ---------- Inmatning ----------
 const CENTER = new THREE.Vector2(0, 0);
 $('enter').onclick = () => controls.lock();
@@ -563,12 +648,14 @@ if (!isTouch) {
     if (e.button !== 0) return;
     if (sp.open || together.busy()) return; // panelen för rummets utseende eller Min gubbe är öppen
     if (together.chatOpen()) { together.closeChat(); if (!controls.locked) controls.lock(); return; } // klick = stäng chatten, stämpla inte
-    if (!controls.locked) controls.lock(); else action(CENTER);
+    if (!controls.locked) controls.lock();
+    else if (state.mode === 'view' && credit.shown?.link) openLink(credit.shown.link); // klick på en konstnärslänk
+    else action(CENTER);
   });
   addEventListener('wheel', (e) => { if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
   addEventListener('keydown', (e) => {
     if (isTyping(e)) return; // inte medan man skriver
-    if (endDlg.open) return; // rutan "End of slap history" är öppen
+    if (endDlg.open || linkDlg.open) return; // rutan "End of slap history" eller länkfrågan är öppen
     // Z eller Ctrl+Z / Cmd+Z = peela senaste (i både Klibbläge och Tittläge)
     if ((e.key === 'z' || e.key === 'Z' || e.code === 'KeyZ') && !e.altKey && !e.shiftKey) {
       if (e.ctrlKey || e.metaKey) e.preventDefault();
@@ -578,6 +665,7 @@ if (!isTouch) {
     if (e.ctrlKey || e.metaKey || e.altKey) return; // inte Ctrl+V osv.
     if (e.code === 'KeyV' && !e.repeat) toggleMode();
     if (e.code === 'KeyM' && !e.repeat) setMuted(!sound.muted);
+    if (e.code === 'KeyL' && !e.repeat && credit.shown?.link) openLink(credit.shown.link);
     if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
     if (state.mode === 'slap' && e.code === 'KeyE') setRot(state.rotation + 15);
     if (e.code === 'KeyR' && !e.repeat && !e.ctrlKey && !e.metaKey) nextDesign();
@@ -598,7 +686,12 @@ if (!isTouch) {
   const up = (e) => {
     const p = touches.get(e.pointerId); touches.delete(e.pointerId);
     if (p && !p.drag && performance.now() - p.t < 400 && e.type === 'pointerup') {
-      action(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
+      const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+      if (state.mode === 'view' && !camView) {
+        // Tittläge: tryck på en klibba = vem gjorde den?
+        const c = creditOf(pickStampAt(ndc)?.stamp);
+        if (c) showCredit(c, { x: e.clientX, y: e.clientY }); else hideCredit();
+      } else { hideCredit(); action(ndc); }
     }
   };
   canvas.addEventListener('pointerup', up);
@@ -900,6 +993,7 @@ function frame() {
   if (cv) poseCamera(viewCam, { p: cv.p, yaw: cv.yaw, pitch: cv.pitch, fov: cv.fov });
   together.update(dt, cv ? viewCam.position : camera.position); // gubbar precis vid kameran döljs
   cams.update(cv ? null : camera.position);
+  updateHover(performance.now());
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
@@ -941,6 +1035,11 @@ window.klibb = {
   net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
   openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
   cameras: () => cams.list(), camerasVisible: () => [...cams.map.values()].some((e) => e.obj.visible), addCamera: addCam, updateCamera: updateCam, removeCamera: removeCam,
+  credit: () => ({ shown: !!credit.shown && !$('credit').hidden, name: $('credit-name').textContent, link: $('credit-link').getAttribute('href') || '',
+    label: $('credit-link').textContent, hint: $('credit-hint').textContent, tap: $('credit').classList.contains('tap'),
+    rect: $('credit').hidden ? null : $('credit').getBoundingClientRect().toJSON() }),
+  linkDialog: () => ({ open: linkDlg.open, url: $('link-url').textContent, href: $('link-open').getAttribute('href'), rel: $('link-open').rel, target: $('link-open').target }),
+  cleanArtistLink,
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
