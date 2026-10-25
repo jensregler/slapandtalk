@@ -11,6 +11,8 @@ import { readHistory, addHistory, removeHistory, roomHistory, HISTORY_KEY } from
 import { readMine, addMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob } from './designs.js';
 import { initTogether } from './together.js';
 import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed } from './cameras.js';
+import { S, LOCALE } from './strings.js';
+import { Sounds } from './sound.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -59,19 +61,53 @@ const state = {
   adminToken: '',
 };
 
+// ---------- Ljud (sound.js) ----------
+const sound = new Sounds();
+const myNonces = new Set(); // mina egna stämplar på väg till servern (så ljudet inte spelas två gånger)
+const myPeels = new Set(); // stämplar som jag själv peelar
+const fwd = new THREE.Vector3();
+function renderSound() {
+  $('sound-btn').textContent = sound.muted ? S.soundOff : S.soundOn;
+  $('sound-btn').setAttribute('aria-pressed', String(sound.muted));
+  $('sound-on').checked = !sound.muted;
+}
+function setMuted(m, { quiet = false } = {}) {
+  sound.setMuted(m); renderSound();
+  if (!quiet) toast(sound.muted ? S.soundOffToast : S.soundOnToast, 1200);
+  return sound.muted;
+}
+$('sound-btn').onclick = () => setMuted(!sound.muted);
+$('sound-on').onchange = (e) => setMuted(!e.target.checked);
+renderSound();
+
+// ---------- ⚙ Mer (allt utom det viktigaste) och rumsmenyn ----------
+function openMore() {
+  $('more-panel').hidden = false; $('more-btn').setAttribute('aria-expanded', 'true');
+  document.body.classList.add('more-open'); closeRoomMenu();
+  if (controls.locked) controls.unlock();
+}
+function closeMore() { $('more-panel').hidden = true; $('more-btn').setAttribute('aria-expanded', 'false'); document.body.classList.remove('more-open'); }
+$('more-btn').onclick = () => ($('more-panel').hidden ? openMore() : closeMore());
+$('more-close').onclick = () => closeMore();
+function closeRoomMenu() { $('room-menu').hidden = true; $('room-menu-btn').setAttribute('aria-expanded', 'false'); }
+$('room-menu-btn').onclick = () => {
+  const open = $('room-menu').hidden; $('room-menu').hidden = !open; $('room-menu-btn').setAttribute('aria-expanded', String(open));
+};
+$('my-avatar').addEventListener('click', () => closeMore());
+
 // ---------- Meny ----------
 let toastTimer;
 function toast(msg, ms = 2200) {
   const t = $('toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
-function updateCount() { $('stamp-count').textContent = stamps.count; }
+function updateCount() { $('stamp-count').textContent = stamps.count; $('stamp-word').textContent = S.stickersWord(stamps.count); }
 
 function renderTray() {
   const tray = $('tray'); tray.innerHTML = '';
   for (const img of designs()) {
     const b = document.createElement('button');
-    b.type = 'button'; b.title = 'Välj den här klibban';
+    b.type = 'button'; b.title = S.pickThis;
     b.className = state.selected?.id === img.id ? 'sel' : '';
     b.innerHTML = `<img src="${img.url}" alt="">`;
     b.onclick = () => select(img);
@@ -94,17 +130,17 @@ async function select(img) {
   try {
     const tex = await stamps.texture(img);
     if (state.selected === img) preview.setTexture(tex);
-  } catch { stamps.textures.delete(img.id); toast('Kunde inte hämta designen just nu.'); }
+  } catch { stamps.textures.delete(img.id); toast(S.designLoadFailed); }
 }
 
 // Byt till nästa uppladdade design (och börja om från början efter den sista).
 function nextDesign() {
   const list = designs();
-  if (!list.length) { toast('Ladda upp en klibba först.'); return null; }
+  if (!list.length) { toast(S.uploadFirst); return null; }
   const i = list.findIndex((d) => d.id === state.selected?.id);
   const next = list[(i + 1) % list.length];
   select(next);
-  if (list.length === 1) toast('Du har bara en design. Ladda upp fler för att växla med R.');
+  if (list.length === 1) toast(S.onlyOneDesign);
   return next;
 }
 
@@ -158,9 +194,8 @@ async function handleMissing(list) {
   const restored = results.filter(Boolean).length;
   if (lost.length) dropDesigns(lost);
   if (lost.length) {
-    toast(lost.length === 1 ? 'En gammal design fanns inte kvar på servern och kunde inte återställas. Ladda upp den igen.'
-      : `${lost.length} gamla designs fanns inte kvar på servern och kunde inte återställas. Ladda upp dem igen.`, 5000);
-  } else if (restored) toast(restored === 1 ? 'En design hade försvunnit från servern och laddades upp igen.' : `${restored} designs hade försvunnit från servern och laddades upp igen.`, 3500);
+    toast(S.designLost(lost.length), 5000);
+  } else if (restored) toast(S.designRestored(restored), 3500);
 }
 
 // Kolla mot servern att mina sparade designs finns kvar. Bara id:n som servern säkert
@@ -192,7 +227,7 @@ function setSize(cm) {
   cm = THREE.MathUtils.clamp(want, 5, MAX_SIZE_CM);
   if (want > MAX_SIZE_CM && performance.now() - maxToastAt > 1500) {
     maxToastAt = performance.now();
-    toast(`Max storlek: ${(MAX_SIZE_CM / 100).toLocaleString('sv-SE')} m (väggens höjd)`, 1500);
+    toast(S.maxSize((MAX_SIZE_CM / 100).toLocaleString(LOCALE)), 1500);
   }
   $('size').value = cm; $('size').oninput({ target: $('size') });
 }
@@ -213,16 +248,16 @@ async function shrink(file) {
 $('file').onchange = async (e) => {
   const file = e.target.files[0]; e.target.value = '';
   if (!file) return;
-  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return toast('Bara PNG, JPG eller WebP, tack.');
-  if (file.size > 20 * 1024 * 1024) return toast('Filen är för stor (max 5 MB efter förminskning).');
+  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return toast(S.fileType);
+  if (file.size > 20 * 1024 * 1024) return toast(S.fileTooBig);
   try {
-    toast('Laddar upp…', 10000);
+    toast(S.uploading, 10000);
     const blob = await shrink(file);
     const img = await api.uploadSticker(blob, state.artist);
     await saveBlob(img.id, blob); // lokal kopia, så designen kan återställas om servern tappar den
     state.mine = addMine(img);
     await select(img);
-    toast(isTouch ? 'Klar! Tryck på en yta för att stämpla.' : 'Klar! Gå in i rummet och klicka för att stämpla.');
+    toast(isTouch ? S.uploadedTouch : S.uploadedDesktop);
   } catch (err) { toast(err.message); }
 };
 
@@ -241,13 +276,16 @@ let pendingJitter = 0;
 function nextRotation() { return state.rotation + (state.jitter ? pendingJitter : 0); }
 
 async function stampAt(ndc) {
-  if (!state.selected) { toast('Ladda upp eller välj en klibba först.'); return null; }
+  if (!state.selected) { toast(S.pickFirst); return null; }
   const h = hitSurface(ndc); if (!h) return null;
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
   pendingJitter = (Math.random() - 0.5) * 30;
   // Kom ihåg exakt vilken design som stämplas: användaren kan hinna trycka R innan svaret kommer.
   const design = state.selected;
-  const body = {
+  sound.play('slap'); // direkt, utan att vänta på servern: det ska kännas som en riktig klibba
+  const nonce = Math.random().toString(36).slice(2, 12);
+  myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
+  const body = { nonce,
     imageId: design.id,
     position: h.point.toArray(), normal: h.normal.toArray(), quaternion: q.toArray(),
     size: Math.min(state.size, MAX_SIZE_CM / 100), rotation: state.rotation, surface: h.surface, artist: state.artist,
@@ -258,7 +296,7 @@ async function stampAt(ndc) {
       if (!err.gone) throw err;
       // Servern har tappat just den här designen: ladda upp den igen och stämpla en gång till.
       const fresh = await restoreDesign(design).catch(() => undefined);
-      if (!fresh) { if (fresh === null) await handleMissing([design]); else toast('Kunde inte stämpla just nu, försök igen.'); return null; }
+      if (!fresh) { if (fresh === null) await handleMissing([design]); else toast(S.slapFailed); return null; }
       res = await api.addStamp(ROOM, { ...body, imageId: fresh.id });
     }
     if (res.peelToken) {
@@ -275,7 +313,7 @@ async function stampAt(ndc) {
 // ---------- Admin (dold): öppna sidan med ?admin=NYCKEL ----------
 async function initAdmin() {
   if (params.has('admin')) {
-    const t = params.get('admin') || prompt('Admin-nyckel:') || '';
+    const t = params.get('admin') || prompt(S.adminPrompt) || '';
     sessionStorage.setItem('klibb.admin', t);
     params.delete('admin');
     history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : ''));
@@ -283,7 +321,7 @@ async function initAdmin() {
   const token = sessionStorage.getItem('klibb.admin');
   if (!token) return;
   const { ok } = await api.checkAdmin(token).catch(() => ({ ok: false }));
-  if (!ok) { sessionStorage.removeItem('klibb.admin'); toast('Fel admin-nyckel.'); return; }
+  if (!ok) { sessionStorage.removeItem('klibb.admin'); toast(S.adminWrong); return; }
   state.adminToken = token;
   $('admin-banner').hidden = false;
   updateStyleUi(); renderRecs();
@@ -293,19 +331,19 @@ function adminPick(ndc) {
   camera.updateMatrixWorld();
   raycaster.setFromCamera(ndc, camera);
   const picked = stamps.pick(raycaster);
-  if (!picked) { toast('Ingen klibba där.'); return; }
+  if (!picked) { toast(S.noStickerThere); return; }
   controls.unlock();
   const { stamp, image } = picked;
-  $('admin-info').textContent = `Stämpel #${stamp.order} · ${stamp.artist || 'okänd artist'} · ${new Date(stamp.createdAt).toLocaleString('sv-SE')}`;
+  $('admin-info').textContent = S.adminInfo(stamp.order, stamp.artist, new Date(stamp.createdAt).toLocaleString(LOCALE));
   $('admin-img').src = image.url;
   const dlg = $('admin-dialog');
   $('admin-del-stamp').onclick = async () => {
-    await api.deleteStamp(ROOM, stamp.id, state.adminToken); stamps.remove(stamp.id); updateCount(); dlg.close(); toast('Borttagen.');
+    await api.deleteStamp(ROOM, stamp.id, state.adminToken); stamps.remove(stamp.id); updateCount(); dlg.close(); toast(S.adminDeleted);
   };
   $('admin-del-image').onclick = async () => {
-    if (!confirm('Ta bort bilden och ALLA stämplar av den i alla rum?')) return;
+    if (!confirm(S.adminConfirmImage)) return;
     const r = await api.deleteImage(image.id, state.adminToken); stamps.removeImage(image.id); updateCount(); dlg.close();
-    toast(`Bilden borttagen (${r.removedStamps} stämplar).`);
+    toast(S.adminImageDeleted(r.removedStamps));
   };
   $('admin-cancel').onclick = () => dlg.close();
   dlg.showModal();
@@ -327,13 +365,11 @@ function setMode(mode, { quiet = false } = {}) {
   document.body.classList.toggle('view-mode', view);
   if (view) preview.hide();
   cams.setVisible(!view && camShow);
-  $('mode-hud').textContent = (view ? 'Tittläge' : 'Klibbläge') + (isTouch ? '' : ' · V');
+  $('mode-hud').textContent = S.modeHud(view, isTouch);
   $('mode-btn').setAttribute('aria-pressed', String(view));
-  $('mode-btn').title = view ? 'Tillbaka till klibbläge' : 'Tittläge: dölj pekaren och titta';
-  if (!quiet) {
-    toast(view ? (isTouch ? 'Tittläge: titta i lugn och ro. Tryck på 👁 för att klibba igen.' : 'Tittläge: titta i lugn och ro. V = klibba igen.')
-      : (isTouch ? 'Klibbläge: tryck där du vill stämpla.' : 'Klibbläge: klicka för att stämpla.'), 1600);
-  }
+  $('mode-btn').title = view ? S.modeBtnToSlap : S.modeBtnToLook;
+  $('mode-slap').setAttribute('aria-pressed', String(!view)); $('mode-look').setAttribute('aria-pressed', String(view));
+  if (!quiet) toast(view ? S.modeToastLook(isTouch) : S.modeToastSlap(isTouch), 1600);
   return state.mode;
 }
 const toggleMode = () => setMode(state.mode === 'view' ? 'slap' : 'view');
@@ -341,6 +377,8 @@ const toggleMode = () => setMode(state.mode === 'view' ? 'slap' : 'view');
 var camShow = localStorage.getItem('klibb.camShow') !== '0'; // eslint-disable-line no-var
 setMode('slap', { quiet: true });
 $('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); };
+$('mode-slap').onclick = () => { if (state.mode !== 'slap') setMode('slap'); };
+$('mode-look').onclick = () => { if (state.mode !== 'view') setMode('view'); };
 
 // ---------- Peel (ångra) och historik ----------
 // Peel tar bort en av MINA stämplar: servern kräver den hemliga nyckeln som bara den här
@@ -352,11 +390,15 @@ const queuePeel = (fn) => (peelQueue = peelQueue.then(fn, fn));
 // (eller vars nyckel inte stämmer) tas tyst bort ur historiken.
 async function peelEntries(entries) {
   if (!entries.length) return 0;
+  // Före anropet: servern kan hinna skicka ut "borttagen" innan svaret kommer, och då ska
+  // det inte låta som någon annans peel.
+  for (const h of entries) { myPeels.add(h.stampId); setTimeout(() => myPeels.delete(h.stampId), 60_000); }
   let results;
   try { ({ results } = await api.peel(ROOM, entries.map((h) => ({ id: h.stampId, token: h.token })))); } catch (err) {
-    toast(err.status === 429 ? 'Lugn i stormen – vänta en liten stund.' : 'Kunde inte peela just nu, försök igen.'); return -1;
+    toast(err.status === 429 ? S.slowDown : S.peelFailed); return -1;
   }
   const done = entries.filter((h) => results[h.stampId] === 'ok');
+  if (done.length) sound.play('peel');
   removeHistory(entries.filter((h) => results[h.stampId]).map((h) => h.stampId));
   await Promise.all(done.map((h) => stamps.peelAway(h.stampId)));
   updateCount(); renderHistory();
@@ -368,10 +410,10 @@ function peelLast() {
     // Gå bakåt tills något faktiskt peelas (hoppa över sådant som redan är borta).
     for (let tries = 0; tries < 20; tries++) {
       const next = roomHistory(ROOM)[0];
-      if (!next) { toast('Inga fler egna klibbor här'); return false; }
+      if (!next) { toast(S.nothingToPeel); return false; }
       const n = await peelEntries([next]);
       if (n < 0) return false;
-      if (n > 0) { toast('Peelad', 900); return true; }
+      if (n > 0) { toast(S.peeled, 900); return true; }
     }
     return false;
   });
@@ -380,18 +422,18 @@ function peelLast() {
 function peelAll() {
   return queuePeel(async () => {
     const all = roomHistory(ROOM);
-    if (!all.length) { toast('Inga fler egna klibbor här'); return 0; }
+    if (!all.length) { toast(S.nothingToPeel); return 0; }
     let total = 0;
     for (let i = 0; i < all.length; i += 200) { const n = await peelEntries(all.slice(i, i + 200)); if (n < 0) return total; total += n; }
-    toast(total ? `Peelade ${total} klibb${total === 1 ? 'a' : 'or'}` : 'Inga fler egna klibbor här');
+    toast(total ? S.peeledN(total) : S.nothingToPeel);
     return total;
   });
 }
 
 function fmtTime(iso) {
   const d = new Date(iso), now = new Date();
-  const t = d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-  return d.toDateString() === now.toDateString() ? t : `${d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })} ${t}`;
+  const t = d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === now.toDateString() ? t : `${d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' })} ${t}`;
 }
 function renderHistory() {
   const list = roomHistory(ROOM);
@@ -401,8 +443,8 @@ function renderHistory() {
   for (const h of list.slice(0, 200)) {
     const li = document.createElement('li');
     li.dataset.id = h.stampId;
-    li.title = 'Peka eller tryck för att se var den sitter';
-    li.innerHTML = `<img alt="" src="${h.url || ''}"><span class="t">${fmtTime(h.time)}</span><button type="button" title="Peela den här" aria-label="Peela den här klibban">✕</button>`;
+    li.title = S.historyItemTitle;
+    li.innerHTML = `<img alt="" src="${h.url || ''}"><span class="t">${fmtTime(h.time)}</span><button type="button" title="${S.peelThis}" aria-label="${S.peelThisAria}">✕</button>`;
     const hl = (on) => { li.classList.toggle('hl', on); stamps.highlight(h.stampId, on); };
     li.onmouseenter = () => hl(true);
     li.onmouseleave = () => hl(false);
@@ -410,7 +452,7 @@ function renderHistory() {
     li.querySelector('button').onclick = () => queuePeel(async () => {
       hl(false);
       const n = await peelEntries([h]);
-      if (n > 0) toast('Peelad', 900); else if (n === 0) renderHistory();
+      if (n > 0) toast(S.peeled, 900); else if (n === 0) renderHistory();
     });
     ul.appendChild(li);
   }
@@ -420,12 +462,12 @@ let peelAllTimer;
 $('peel-all').onclick = () => {
   const b = $('peel-all');
   if (!b.classList.contains('confirm')) {
-    b.classList.add('confirm'); b.textContent = `Säker? Tryck igen (${roomHistory(ROOM).length})`;
+    b.classList.add('confirm'); b.textContent = S.peelAllConfirm(roomHistory(ROOM).length);
     clearTimeout(peelAllTimer);
-    peelAllTimer = setTimeout(() => { b.classList.remove('confirm'); b.textContent = 'Peela alla'; }, 4000);
+    peelAllTimer = setTimeout(() => { b.classList.remove('confirm'); b.textContent = S.peelAll; }, 4000);
     return;
   }
-  clearTimeout(peelAllTimer); b.classList.remove('confirm'); b.textContent = 'Peela alla';
+  clearTimeout(peelAllTimer); b.classList.remove('confirm'); b.textContent = S.peelAll;
   peelAll();
 };
 $('peel-last').onclick = () => peelLast();
@@ -444,6 +486,7 @@ const CENTER = new THREE.Vector2(0, 0);
 $('enter').onclick = () => controls.lock();
 controls.onLockChange = (locked) => {
   document.body.classList.toggle('locked', locked);
+  if (locked) { closeMore(); closeRoomMenu(); }
   $('crosshair').hidden = !locked;
   if (!locked) preview.hide();
 };
@@ -466,6 +509,7 @@ if (!isTouch) {
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return; // inte Ctrl+V osv.
     if (e.code === 'KeyV' && !e.repeat) toggleMode();
+    if (e.code === 'KeyM' && !e.repeat) setMuted(!sound.muted);
     if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
     if (state.mode === 'slap' && e.code === 'KeyE') setRot(state.rotation + 15);
     if (e.code === 'KeyR' && !e.repeat && !e.ctrlKey && !e.metaKey) nextDesign();
@@ -494,12 +538,13 @@ if (!isTouch) {
   $('design-btn').onclick = (e) => { e.preventDefault(); nextDesign(); };
   $('panel-toggle').onclick = () => {
     const hidden = $('panel').classList.toggle('hidden');
+    if (hidden) closeMore();
     $('panel-toggle').setAttribute('aria-expanded', String(!hidden));
   };
 }
 
 // ---------- Rum: typ, nytt snabbrum, dela länk, till Staden ----------
-const TYPE_NAMES = { stad: 'Staden', quick: 'Snabbrum', profile: 'Profilrum' };
+const TYPE_NAMES = S.roomTypes;
 function roomUrl(id) { return `${location.origin}/${id === 'stad' ? '' : '?room=' + id}`; }
 function showRoomInfo(info) {
   const type = info?.type || (ROOM === 'stad' ? 'stad' : 'quick');
@@ -508,9 +553,9 @@ function showRoomInfo(info) {
   badge.className = 'badge ' + type;
   $('to-stad').hidden = ROOM === 'stad';
   $('room-note').textContent = type === 'quick'
-    ? `Ditt eget rum. Dela länken så kan andra komma in. Det raderas när ingen har varit här på ${info?.quickTtlHours ?? 24} timmar.`
-    : type === 'profile' ? `Sparat rum${info.owner?.name ? ' som tillhör ' + info.owner.name : ''}.` : '';
-  $('room-hud').textContent = type === 'stad' ? 'Staden' : `${TYPE_NAMES[type] || type} · ${ROOM}`;
+    ? S.roomNoteQuick(info?.quickTtlHours ?? 24)
+    : type === 'profile' ? S.roomNoteProfile(info.owner?.name) : '';
+  $('room-hud').textContent = S.roomHud(type, ROOM);
   roomType = type;
   if (info) currentStyle = normalizeStyle(info.style);
   if (info) updateStyleUi();
@@ -531,10 +576,10 @@ function updateStyleUi() {
   $('edit-style').hidden = !canEditStyle();
   $('rec-box').hidden = !canEditStyle();
   const s = currentStyle;
-  $('room-style').textContent = `Utseende: ${styleName(s)}${s.seed ? ` · kod ${s.seed}` : ''}`;
+  $('room-style').textContent = S.roomStyleLine(styleName(s), s.seed);
 }
 async function showStyle(s) {
-  try { return await applyStyle(room.surfaces, s); } catch { toast('Kunde inte ladda rummets texturer.'); return null; }
+  try { return await applyStyle(room.surfaces, s); } catch { toast(S.texturesFailed); return null; }
 }
 showStyle(DEFAULT_STYLE);
 
@@ -567,8 +612,9 @@ function previewStyle() { renderStylePanel(); showStyle(sp.style); }
 function openStylePanel(mode) {
   sp.open = true; sp.mode = mode;
   sp.style = mode === 'create' ? styleFromSeed(randomSeed()) : { ...currentStyle };
-  $('style-title').textContent = mode === 'create' ? 'Nytt snabbrum' : 'Ändra rummets utseende';
-  $('style-ok').textContent = mode === 'create' ? 'Skapa rum' : 'Spara';
+  $('style-title').textContent = mode === 'create' ? S.styleCreateTitle : S.styleEditTitle;
+  $('style-ok').textContent = mode === 'create' ? S.styleCreateOk : S.styleEditOk;
+  closeMore(); closeRoomMenu();
   $('style-panel').hidden = false;
   if (isTouch) { $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false'); }
   previewStyle();
@@ -598,16 +644,16 @@ $('style-ok').onclick = async () => {
     const res = await api.setStyle(ROOM, sp.style, { key: roomKeys()[ROOM], admin: state.adminToken });
     currentStyle = normalizeStyle(res.style);
     closeStylePanel(false); showStyle(currentStyle); updateStyleUi();
-    toast('Rummets utseende är sparat.');
+    toast(S.styleSaved);
   } catch (err) { toast(err.message); } finally { b.disabled = false; }
 };
 $('to-stad').onclick = () => { location.href = roomUrl('stad'); };
 $('share-room').onclick = async () => {
   const url = roomUrl(ROOM);
-  const title = ROOM === 'stad' ? 'Slap and Talk – Staden' : `Slap and Talk – rum ${ROOM}`;
+  const title = S.shareTitle(ROOM);
   if (isTouch && navigator.share) { try { await navigator.share({ title, url }); return; } catch (e) { if (e.name === 'AbortError') return; } }
-  try { await navigator.clipboard.writeText(url); toast(`Länken är kopierad: ${url}`, 3500); }
-  catch { prompt('Kopiera länken:', url); }
+  try { await navigator.clipboard.writeText(url); toast(S.linkCopied(url), 3500); }
+  catch { prompt(S.copyLink, url); }
 };
 // Säg till servern med jämna mellanrum att någon är här, så rummet inte städas bort.
 setInterval(() => { if (document.visibilityState === 'visible') api.visit(ROOM).catch(() => {}); }, 10 * 60_000);
@@ -623,21 +669,26 @@ async function loadRoom() {
     // allSettled: en enda trasig stämpel ska inte hindra resten av rummet från att laddas.
     await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
     updateCount();
-  } catch (err) { toast('Kunde inte ladda rummet: ' + err.message); }
+  } catch (err) { toast(S.roomLoadFailed(err.message)); }
 }
 
 // ---------- Tillsammans: andra spelare, chatt, Min gubbe (together.js) ----------
 // Händelser från servern: det andra gör i rummet syns direkt, utan att ladda om.
 function onRoomEvent(e) {
   if (!e || typeof e.type !== 'string') return;
-  if (e.type === 'stamp:add' && e.stamp && e.image) stamps.add(e.stamp, e.image).then(updateCount);
-  else if (e.type === 'stamp:remove') {
+  if (e.type === 'stamp:add' && e.stamp && e.image) {
+    // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
+    if (!(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id)) sound.play('slap', e.stamp.position);
+    stamps.add(e.stamp, e.image).then(updateCount);
+  } else if (e.type === 'stamp:remove') {
+    const m = stamps.meshes.get(e.id);
+    if (m && !myPeels.has(e.id)) sound.play('peel', m.userData.stamp.position);
     stamps.peelAway(e.id).then(updateCount);
     if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); renderHistory(); }
   } else if (e.type === 'image:remove') { stamps.removeImage(e.id); updateCount(); }
   else if (e.type === 'room:style' && e.style) {
     currentStyle = normalizeStyle(e.style); updateStyleUi();
-    if (!sp.open) { showStyle(currentStyle); toast('Rummets utseende ändrades.', 1800); }
+    if (!sp.open) { showStyle(currentStyle); toast(S.styleChanged, 1800); }
   } else if ((e.type === 'camera:add' || e.type === 'camera:update') && e.camera) { cams.upsert(e.camera); renderCams(); }
   else if (e.type === 'camera:remove') { cams.remove(e.id); if (camView === e.id) exitCamView(); renderCams(); }
   else if (e.type === 'rec:start') setRec({ recId: e.recId, startedAt: e.startedAt }, { announce: 'start' });
@@ -668,20 +719,20 @@ const together = initTogether({
 // var: setRec kan anropas av anslutningen innan raden här har körts.
 var rec = null; // eslint-disable-line no-var
 const auth = () => ({ key: roomKeys()[ROOM], admin: state.adminToken });
-const REASONS = { time: 'maxlängden (2 timmar) nåddes', size: 'maxstorleken nåddes', empty: 'rummet var tomt', shutdown: 'servern startade om' };
+const REASONS = S.recReasons;
 function setRec(status, { announce = null, reason = null } = {}) {
   rec = status;
   $('rec-badge').hidden = !rec;
   document.body.classList.toggle('recording', !!rec);
-  $('rec-toggle').textContent = rec ? '■ Stoppa inspelningen' : '● Starta inspelning';
+  $('rec-toggle').textContent = rec ? S.recStop : S.recStart;
   $('rec-toggle').classList.toggle('on', !!rec);
-  if (announce === 'start') { together.sys('● Inspelningen startade – det här rummet spelas in'); toast('● Inspelningen startade. Det här rummet spelas in.', 3000); }
+  if (announce === 'start') { together.sys(S.recStarted); toast(S.recStartedToast, 3000); }
   if (announce === 'stop') {
-    together.sys(`■ Inspelningen stoppades${REASONS[reason] ? ' (' + REASONS[reason] + ')' : ''}`);
-    toast('■ Inspelningen stoppades.', 2500); if (canEditStyle()) renderRecs();
+    together.sys(S.recStopped(REASONS[reason]));
+    toast(S.recStoppedToast, 2500); if (canEditStyle()) renderRecs();
   }
   if (announce === 'joined') {
-    together.sys('● Det här rummet spelas in');
+    together.sys(S.recJoined);
     const n = $('rec-notice'); n.hidden = false; clearTimeout(setRec.t); setRec.t = setTimeout(() => { n.hidden = true; }, 7000);
   }
   renderRecTime();
@@ -700,7 +751,7 @@ $('rec-toggle').onclick = async () => {
     if (rec) await api.stopRec(ROOM, auth()); else { const r = await api.startRec(ROOM, auth()); if (!rec) setRec(r.recording, { announce: null }); }
   } catch (err) { toast(err.message, 3500); } finally { b.disabled = false; }
 };
-const fmtLen = (ms) => { const s = Math.round(ms / 1000); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`; };
+const fmtLen = S.fmtLen;
 async function renderRecs() {
   let list = [];
   try { ({ recordings: list } = await api.listRecs(ROOM, auth())); } catch { return; }
@@ -709,9 +760,9 @@ async function renderRecs() {
   for (const r of list) {
     const li = document.createElement('li');
     const a = document.createElement('a'); a.href = `/?room=${ROOM}&replay=${r.recId}`; a.target = '_blank'; a.rel = 'noopener';
-    a.textContent = `▶ ${new Date(r.startedAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })} · ${fmtLen(r.durationMs)}`;
+    a.textContent = `▶ ${new Date(r.startedAt).toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' })} · ${fmtLen(r.durationMs)}`;
     const info = document.createElement('span'); info.className = 't';
-    info.textContent = ` ${r.participants.length} pers · ${(r.bytes / 1024).toFixed(0)} kB${r.status === 'recording' ? ' · pågår' : r.status === 'interrupted' ? ' · avbruten' : ''}`;
+    info.textContent = S.recItemInfo(r.participants.length, (r.bytes / 1024).toFixed(0), r.status);
     li.append(a, info); ul.appendChild(li);
   }
 }
@@ -721,26 +772,26 @@ function renderCams() {
   const ul = $('cam-list'); ul.innerHTML = '';
   for (const c of cams.list()) {
     const li = document.createElement('li'); li.dataset.id = c.id;
-    const name = document.createElement('input'); name.type = 'text'; name.maxLength = 24; name.value = c.name; name.className = 'cam-name'; name.setAttribute('aria-label', 'Kamerans namn');
+    const name = document.createElement('input'); name.type = 'text'; name.maxLength = 24; name.value = c.name; name.className = 'cam-name'; name.setAttribute('aria-label', S.camNameAria);
     name.onchange = () => updateCam(c.id, { name: name.value });
-    const fov = document.createElement('select'); fov.className = 'cam-fov'; fov.title = 'Bildvinkel';
+    const fov = document.createElement('select'); fov.className = 'cam-fov'; fov.title = S.camFov;
     for (const f of new Set([...CAMERA_FOVS, c.fov])) { const o = document.createElement('option'); o.value = f; o.textContent = `${f}°`; fov.appendChild(o); }
     fov.value = String(c.fov); fov.onchange = () => updateCam(c.id, { fov: Number(fov.value) });
-    const asp = document.createElement('select'); asp.className = 'cam-aspect'; asp.title = 'Bildformat';
-    for (const [v, t] of Object.entries(CAMERA_ASPECTS)) { const o = document.createElement('option'); o.value = v; o.textContent = v || 'Fritt'; o.title = t; asp.appendChild(o); }
+    const asp = document.createElement('select'); asp.className = 'cam-aspect'; asp.title = S.camAspect;
+    for (const [v, t] of Object.entries(CAMERA_ASPECTS)) { const o = document.createElement('option'); o.value = v; o.textContent = S.camAspects[v] ?? v; o.title = t; asp.appendChild(o); }
     asp.value = c.aspect || ''; asp.onchange = () => updateCam(c.id, { aspect: asp.value });
     const btn = (txt, title, fn, cls = '') => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.title = title; b.className = cls; b.onclick = fn; return b; };
     li.append(name, fov, asp,
-      btn('👁', 'Titta genom kameran (Esc = tillbaka)', () => enterCamView(c.id), 'cam-look'),
-      btn('⤓', 'Flytta kameran hit (där du står, åt det håll du tittar)', () => updateCam(c.id, here()), 'cam-move'),
-      btn('✕', 'Ta bort kameran', () => removeCam(c.id), 'cam-del'));
+      btn('👁', S.camLook, () => enterCamView(c.id), 'cam-look'),
+      btn('⤓', S.camMove, () => updateCam(c.id, here()), 'cam-move'),
+      btn('✕', S.camDel, () => removeCam(c.id), 'cam-del'));
     ul.appendChild(li);
   }
   $('cam-count').textContent = cams.map.size ? String(cams.map.size) : '';
 }
 const here = () => ({ p: camera.position.toArray().map((n) => +n.toFixed(3)), yaw: +controls.yaw.toFixed(4), pitch: +controls.pitch.toFixed(4) });
 async function addCam() {
-  try { const { camera: c } = await api.addCamera(ROOM, { ...here(), fov: 60 }, auth()); cams.upsert(c); renderCams(); toast(`${c.name} placerad. 👁 = titta genom den.`, 2200); return c; }
+  try { const { camera: c } = await api.addCamera(ROOM, { ...here(), fov: 60 }, auth()); cams.upsert(c); renderCams(); toast(S.camPlaced(c.name), 2200); return c; }
   catch (err) { toast(err.message, 3000); return null; }
 }
 async function updateCam(id, patch) {
@@ -760,7 +811,8 @@ function enterCamView(id) {
   const c = cams.get(id); if (!c) return false;
   camView = id; controls.unlock(); preview.hide(); cams.setHideAll(true);
   document.body.classList.add('camview');
-  $('camview-hud').hidden = false; $('camview-name').textContent = `📷 ${c.name}${c.aspect ? ' · ' + c.aspect : ''} · ${c.fov}°`;
+  $('camview-hud').hidden = false; $('camview-name').textContent = S.camViewLabel(c);
+  closeMore();
   return true;
 }
 function exitCamView() {
@@ -779,6 +831,7 @@ function frame() {
   if (cv) poseCamera(viewCam, { p: cv.p, yaw: cv.yaw, pitch: cv.pitch, fov: cv.fov });
   together.update(dt, cv ? viewCam.position : camera.position); // gubbar precis vid kameran döljs
   cams.update(cv ? null : camera.position);
+  { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
     if (h) {
@@ -819,6 +872,7 @@ window.klibb = {
   net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
   openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
   cameras: () => cams.list(), camerasVisible: () => [...cams.map.values()].some((e) => e.obj.visible), addCamera: addCam, updateCamera: updateCam, removeCamera: removeCam,
+  sound, soundLog: () => sound.log.slice(), openMore, closeMore, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => roomHistory(ROOM), setSize, maxSizeCm: MAX_SIZE_CM,
 };

@@ -4,9 +4,10 @@
 // THREE.PerspectiveCamera så att den ser exakt det kameran ser. Samma kod används i rummet
 // och i uppspelaren (replay.js), och senare när en inspelning renderas till video.
 import * as THREE from 'three';
+import { S } from './strings.js';
 
 export const CAMERA_FOVS = [35, 50, 60, 75, 90];
-export const CAMERA_ASPECTS = { '': 'Fritt format', '16:9': '16:9 (liggande)', '9:16': '9:16 (stående, Reels)' };
+export const CAMERA_ASPECTS = S.camAspectTitles;
 export const aspectRatio = (a) => (a === '16:9' ? 16 / 9 : a === '9:16' ? 9 / 16 : null);
 
 // Ställ en vanlig kamera som den virtuella kameran (eller som en persons ögon: p, y, pi).
@@ -63,7 +64,7 @@ function cameraModel(cam) {
     [-hw, -hh, -d], [hw, -hh, -d], [hw, -hh, -d], [hw, hh, -d], [hw, hh, -d], [-hw, hh, -d], [-hw, hh, -d], [-hw, -hh, -d]].flat();
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
   g.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xff5a5a, transparent: true, opacity: 0.7 })));
-  const tag = label(cam.name || 'Kamera'); tag.position.set(0, 0.2, 0); g.add(tag);
+  const tag = label(cam.name || S.cameraDefault); tag.position.set(0, 0.2, 0); g.add(tag);
   return g;
 }
 

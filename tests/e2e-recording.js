@@ -16,14 +16,17 @@ async function recordingE2E({ browser, BASE, SHOTS, assert, waitReady, testPng }
   await A.goto(`${BASE}/?room=${R}`); await waitReady(A);
   await B.goto(`${BASE}/?room=${R}`); await waitReady(B);
   await A.waitForFunction(() => window.klibb.net.status === 'online' && window.klibb.players().length === 1, null, { timeout: 15000 });
-  assert(await A.isVisible('#rec-box') && !(await B.isVisible('#rec-box')), 'inspelning och kameror: bara rummets skapare ser 🎬 Inspelning i menyn');
+  const openMore = (pg) => pg.evaluate(() => window.klibb.openMore()); // 🎬 ligger under ⚙ More
+  const recHidden = (pg) => pg.evaluate(() => document.getElementById('rec-box').hidden);
+  await openMore(A);
+  assert(await A.isVisible('#rec-box') && (await recHidden(B)), 'inspelning och kameror: bara rummets skapare ser 🎬 Inspelning i menyn');
 
   // ---------- Kameror ----------
   await A.evaluate(() => { const k = window.klibb; k.moveTo(3.4, 3.6); k.camera.position.y = 2.1; k.look(0.75, -0.2); });
   await A.click('#cam-add');
   await B.waitForFunction(() => window.klibb.cameras().length === 1, null, { timeout: 5000 });
   const cam = await B.evaluate(() => window.klibb.cameras()[0]);
-  assert(cam.name === 'Kamera 1' && cam.p[0] === 3.4 && cam.p[1] === 2.1 && Math.abs(cam.yaw - 0.75) < 1e-3 && Math.abs(cam.pitch + 0.2) < 1e-3 && cam.fov === 60,
+  assert(cam.name === 'Camera 1' && cam.p[0] === 3.4 && cam.p[1] === 2.1 && Math.abs(cam.yaw - 0.75) < 1e-3 && Math.abs(cam.pitch + 0.2) < 1e-3 && cam.fov === 60,
     '🎥 Placera kamera här: kameran hamnar där A står, åt det håll A tittar, och syns direkt för B');
   await A.click('#cam-add');
   await B.waitForFunction(() => window.klibb.cameras().length === 2, null, { timeout: 5000 });
@@ -51,7 +54,7 @@ async function recordingE2E({ browser, BASE, SHOTS, assert, waitReady, testPng }
   await A.evaluate(() => { const k = window.klibb; k.moveTo(-3.6, 3.7); k.camera.position.y = 1.9; k.look(-0.62, -0.12); });
   await A.click(`${li(id1)} .cam-move`);
   await B.waitForFunction(() => window.klibb.cameras()[0].p[0] === -3.6, null, { timeout: 5000 });
-  await A.reload(); await waitReady(A);
+  await A.reload(); await waitReady(A); await openMore(A);
   const camsAfter = await A.evaluate(() => window.klibb.cameras());
   assert(camsAfter.length === 1 && camsAfter[0].name === 'Vida' && camsAfter[0].p[0] === -3.6 && camsAfter[0].aspect === '9:16', 'kameran är flyttad, och kamerorna finns kvar efter omladdning (sparas med rummet)');
   const camId = camsAfter[0].id;
@@ -67,18 +70,18 @@ async function recordingE2E({ browser, BASE, SHOTS, assert, waitReady, testPng }
   assert((await A.evaluate(() => window.klibb.camView())) === null && !(await A.isVisible('#camview-hud')), 'Esc = tillbaka till sin egen vy');
 
   // ---------- Inspelning ----------
-  await A.click('#rec-toggle');
+  await openMore(A); await A.click('#rec-toggle');
   await B.waitForSelector('#rec-badge', { state: 'visible', timeout: 5000 });
   await A.waitForSelector('#rec-badge', { state: 'visible', timeout: 5000 });
   const sysB = await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent));
-  assert(sysB.some((t) => /Inspelningen startade/.test(t)) && (await B.textContent('#rec-badge')).includes('REC'), '● REC syns för alla i rummet, och chatten säger att inspelningen startade');
+  assert(sysB.some((t) => /Recording started/.test(t)) && (await B.textContent('#rec-badge')).includes('REC'), '● REC syns för alla i rummet, och chatten säger att inspelningen startade');
   await B.evaluate(() => { const k = window.klibb; k.moveTo(0.4, -2.2); k.look(-2.95, -0.08); });
   await B.waitForTimeout(500);
   await B.screenshot({ path: path.join(SHOTS, '29-rec-indikator.png') });
   const C = await cctx.newPage(); C.on('pageerror', (e) => console.log('sidfel (C):', e.message));
   await C.goto(`${BASE}/?room=${R}`); await waitReady(C);
   await C.waitForSelector('#rec-notice', { state: 'visible', timeout: 8000 });
-  assert((await C.textContent('#rec-notice')).includes('Det här rummet spelas in') && await C.isVisible('#rec-badge'), 'den som kommer in mitt i ser "Det här rummet spelas in" och ● REC');
+  assert((await C.textContent('#rec-notice')).includes('This room is being recorded') && await C.isVisible('#rec-badge'), 'den som kommer in mitt i ser "This room is being recorded" och ● REC');
   await C.screenshot({ path: path.join(SHOTS, '30-rec-sen-ankomling.png') });
   // Under inspelningen: B går och tittar upp och ner, en klibba sätts och peelas, B chattar
   const bId = await B.evaluate(() => window.klibb.net.id);
@@ -95,7 +98,7 @@ async function recordingE2E({ browser, BASE, SHOTS, assert, waitReady, testPng }
   await B.waitForTimeout(500);
   await A.click('#rec-toggle');
   await B.waitForSelector('#rec-badge', { state: 'hidden', timeout: 5000 });
-  assert((await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent))).some((t) => /Inspelningen stoppades/.test(t)), 'när inspelningen stoppas försvinner ● REC för alla');
+  assert((await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent))).some((t) => /Recording stopped/.test(t)), 'när inspelningen stoppas försvinner ● REC för alla');
   await A.waitForFunction(() => document.querySelectorAll('#rec-list a').length === 1, null, { timeout: 5000 });
   const href = await A.getAttribute('#rec-list a', 'href');
   const recId = new URL(href, BASE).searchParams.get('replay');

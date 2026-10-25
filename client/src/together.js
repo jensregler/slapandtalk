@@ -2,6 +2,7 @@
 // main.js anropar initTogether(...) en gång och sedan together.update(dt) varje bildruta.
 import * as THREE from 'three';
 import { connect } from './net.js';
+import { S, LOCALE } from './strings.js';
 import { Players, Avatar, loadAvatarModel, loadMyAvatar, saveMyAvatar, normalizeLook, randomLook, AVATAR, cleanName } from './avatars.js';
 
 const SEND_HZ = 12;
@@ -28,15 +29,15 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       last = null; renderPeople(); renderChatInput();
       onWelcome(m);
     },
-    onJoin(p, rejoin) { players.upsert(p); if (!rejoin) sys(`${p.name} kom in`); renderPeople(); },
+    onJoin(p, rejoin) { players.upsert(p); if (!rejoin) sys(S.joined(p.name)); renderPeople(); },
     onLeave(id, rejoin) {
-      if (id !== '*' && !rejoin) { const pl = players.map.get(id); if (pl) sys(`${pl.name} gick`); } // med det namn personen har nu
+      if (id !== '*' && !rejoin) { const pl = players.map.get(id); if (pl) sys(S.left(pl.name)); } // med det namn personen har nu
       players.remove(id); renderPeople();
     },
     onMove: (id, p, y) => players.move(id, p, y),
     onLook(id, name, look) {
       const pl = players.map.get(id);
-      if (pl && pl.name !== name) sys(`${pl.name} heter nu ${name}`);
+      if (pl && pl.name !== name) sys(S.renamed(pl.name, name));
       players.look(id, name, look); renderPeople();
     },
     onChat(msg) { addChat(msg); if (msg.from !== net.id) players.say(msg.from, msg.text); },
@@ -62,12 +63,12 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   function renderPeople() {
     const dot = $('net-dot'); dot.className = 'dot ' + status;
     const n = players.map.size + (status === 'online' ? 1 : 0);
-    $('presence-text').textContent = status === 'online' ? (n === 1 ? 'Bara du här just nu' : `${n} här just nu`)
-      : status === 'full' ? `Rummet är fullt (${players.map.size}) – du tittar på` : status === 'connecting' ? 'Ansluter…' : 'Ingen anslutning – försöker igen…';
+    $('presence-text').textContent = status === 'online' ? S.presenceOnline(n)
+      : status === 'full' ? S.presenceFull(players.map.size) : status === 'connecting' ? S.presenceConnecting : S.presenceOffline;
     const ul = $('people'); ul.innerHTML = '';
     const add = (name, color, mine) => {
       const li = document.createElement('li'); const i = document.createElement('i'); i.style.background = color;
-      li.append(i, document.createTextNode(mine ? `${name || 'Du'} (du)` : name)); ul.appendChild(li);
+      li.append(i, document.createTextNode(mine ? S.youSuffix(name || S.you) : name)); ul.appendChild(li);
     };
     if (status === 'online') add(serverName || myName(), me.look.shirt, true);
     for (const p of players.map.values()) add(p.name, p.look?.shirt || '#888', false);
@@ -75,7 +76,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
 
   // ---------- Chatt ----------
   const log = $('chat-log'), input = $('chat-input'), form = $('chat-form'), chatEl = $('chat');
-  const fmt = (iso) => new Date(iso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+  const fmt = (iso) => new Date(iso).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
   function line(li) {
     log.appendChild(li);
     while (log.children.length > 50) log.firstChild.remove();
@@ -98,8 +99,8 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   function renderChatInput() {
     const can = status === 'online';
     input.disabled = !can;
-    input.placeholder = can ? (isTouch ? 'Skriv något…' : 'Skriv något… (Enter skickar, Esc stänger)')
-      : status === 'full' ? 'Rummet är fullt – du kan läsa men inte skriva än' : 'Ingen anslutning just nu…';
+    input.placeholder = can ? S.chatPlaceholder(isTouch)
+      : status === 'full' ? S.chatPlaceholderFull : S.chatPlaceholderOffline;
   }
   const chatOpen = () => chatEl.classList.contains('open');
   function openChat() {
@@ -110,7 +111,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   form.onsubmit = (e) => {
     e.preventDefault();
     const text = input.value.trim();
-    if (text) { if (!net.sendChat(text)) toast('Ingen anslutning just nu.'); input.value = ''; }
+    if (text) { if (!net.sendChat(text)) toast(S.noConnection); input.value = ''; }
     if (!isTouch || !text) closeChat(); // dator: Enter skickar och stänger
   };
   input.addEventListener('keydown', (e) => {
@@ -172,7 +173,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       const model = await loadAvatarModel();
       if (!av.avatar) { av.avatar = new Avatar(model, av.draft, ''); av.scene.add(av.avatar.root); }
       av.avatar.setLook(av.draft);
-    } catch { toast('Kunde inte ladda gubben just nu.'); }
+    } catch { toast(S.avatarLoadFailed); }
     const clock = new THREE.Clock();
     const loop = () => {
       if (!av.open) return;
@@ -204,7 +205,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     saveMyAvatar(me.name, me.look);
     net.sendLook(myName(), me.look);
     closeAvatarPanel(); renderPeople();
-    toast('Din gubbe är sparad. De andra ser den direkt.', 2200);
+    toast(S.avatarSaved, 2200);
   };
 
   // Inget eget namn i Min gubbe? Då används artistnamnet, och ändras det får de andra veta direkt.

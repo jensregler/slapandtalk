@@ -24,7 +24,7 @@ button.danger { background: #b3261e; border-color: #b3261e; }
 .hint { margin: -4px 0 0; font-size: 12px; color: #888; }
 .help { font-size: 12.5px; color: #bbb; }
 #tray { display: flex; flex-wrap: wrap; gap: 6px; }
-#tray:empty::before { content: "Ingen klibba vald än."; font-size: 12px; color: #777; }
+#tray:empty::before { content: attr(data-empty); font-size: 12px; color: #777; }
 #tray button { width: 54px; height: 54px; padding: 3px; border-radius: 8px; background: #333 repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 50%/12px 12px; }
 #tray button.sel { outline: 3px solid #ffd400; }
 #tray img { width: 100%; height: 100%; object-fit: contain; display: block; }
@@ -97,7 +97,7 @@ body.view-mode #crosshair { width: 4px; height: 4px; margin: -2px 0 0 -2px; bord
 .history-head { font-size: 13px; display: flex; justify-content: space-between; }
 #history-count { color: #999; }
 #history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow: auto; }
-#history-list:empty::before { content: "Inga egna klibbor här än."; font-size: 12px; color: #777; }
+#history-list:empty::before { content: attr(data-empty); font-size: 12px; color: #777; }
 #history-list li { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 8px; background: #222; cursor: pointer; font-size: 13px; }
 #history-list li:hover, #history-list li.hl { background: #3a3520; }
 #history-list img { width: 34px; height: 34px; object-fit: contain; border-radius: 6px; background: #333 repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 50%/8px 8px; }
@@ -207,7 +207,7 @@ body.touch #avatar-panel .swatches.colors button { width: 32px; height: 32px; }
 #rec-toggle { border-color: #b3261e; }
 #rec-toggle.on { background: #b3261e; color: #fff; font-weight: 700; }
 #cam-list, #rec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-#cam-list:empty::before { content: "Inga kameror än."; font-size: 12px; color: #777; }
+#cam-list:empty::before { content: attr(data-empty); font-size: 12px; color: #777; }
 #cam-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; background: #222; border-radius: 8px; padding: 4px; }
 #cam-list .cam-name { flex: 1 1 100%; min-width: 0; padding: 4px 6px; font-size: 13px; }
 #cam-list .cam-look { margin-left: auto; }
@@ -231,12 +231,12 @@ body.touch #rec-badge { top: 56px; }
   padding: 6px 8px 6px 14px; border-radius: 10px; display: flex; align-items: center; gap: 8px; border: 1px solid #d0101c; }
 #camview-hud[hidden] { display: none; }
 #camview-hud button { padding: 4px 10px; }
-body.camview #panel, body.camview #panel-toggle, body.camview #chat, body.camview #chat-btn, body.camview #design-hud,
+body.camview #panel, body.camview #more-panel, body.camview #panel-toggle, body.camview #chat, body.camview #chat-btn, body.camview #design-hud,
 body.camview #mode-hud, body.camview #room-hud, body.camview #crosshair, body.camview #joystick, body.camview #mode-btn,
 body.camview #peel-btn, body.camview #design-btn { display: none !important; }
 
 /* ---------- Uppspelaren (?replay=) ---------- */
-body.replay #panel, body.replay #panel-toggle, body.replay #chat, body.replay #chat-btn, body.replay #design-hud, body.replay #mode-hud,
+body.replay #panel, body.replay #more-panel, body.replay #panel-toggle, body.replay #chat, body.replay #chat-btn, body.replay #design-hud, body.replay #mode-hud,
 body.replay #room-hud, body.replay #crosshair, body.replay #joystick, body.replay #mode-btn, body.replay #peel-btn, body.replay #design-btn,
 body.replay #full-banner, body.replay #admin-banner { display: none !important; }
 #replay-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; background: rgba(18,18,18,.9); border-top: 1px solid #333;
@@ -257,3 +257,37 @@ body.replay #full-banner, body.replay #admin-banner { display: none !important; 
 #rp-chat li { background: rgba(0,0,0,.6); border-radius: 8px; padding: 3px 8px; font-size: 13px; }
 #rp-chat .tm { color: #888; margin-right: 6px; font-size: 11px; }
 #rp-chat .n { font-weight: 700; color: #ffd400; margin-right: 6px; }
+
+/* ---------- Det viktigaste först: rumsraden, rumsmenyn, lägesväljaren och ⚙ Mer ---------- */
+.brand-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.icon-btn { padding: 4px 9px; border-radius: 9px; font-size: 16px; line-height: 1.2; background: transparent; border-color: #444; }
+.room-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.room-line .room { flex: 1; min-width: 0; }
+#room-menu-btn { padding: 5px 10px; font-size: 13px; flex: none; }
+#room-menu[hidden] { display: none; }
+#room-box { display: flex; flex-direction: column; gap: 6px; }
+#room-box #presence { margin: 0; }
+.seg { display: flex; border: 1px solid #555; border-radius: 10px; overflow: hidden; }
+.seg button { flex: 1; border: 0; border-radius: 0; padding: 8px 6px; font-size: 14px; background: #222; color: #bbb; }
+.seg button + button { border-left: 1px solid #555; }
+.seg button[aria-pressed="true"] { background: #ffd400; color: #111; font-weight: 700; }
+#more-btn { background: transparent; border-color: #444; color: #ccc; padding: 8px 10px; }
+#more-btn[aria-expanded="true"] { background: #333; color: #fff; }
+#more-panel { position: fixed; top: 12px; left: 324px; width: 320px; max-height: calc(100% - 24px); overflow: auto;
+  background: rgba(20,20,20,.92); border: 1px solid #333; border-radius: 14px; padding: 12px 16px 16px;
+  backdrop-filter: blur(6px); display: flex; flex-direction: column; gap: 10px; z-index: 6; }
+#more-panel[hidden], body.locked #more-panel { display: none; }
+.more-head { display: flex; align-items: center; justify-content: space-between; }
+.more-head h2 { font-size: 17px; margin: 0; }
+.more-sec { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #333; padding-top: 8px; }
+.more-sec h3, #history .history-head b, #rec-box > .history-head b { font-size: 13px; margin: 0; color: #ddd; text-transform: none; }
+.more-sec h3 { text-transform: uppercase; letter-spacing: .6px; color: #999; font-size: 11.5px; }
+#people { margin: 0; }
+/* Mobil: ⚙ Mer blir ett ark nerifrån som täcker spelytan tills man stänger det. */
+body.touch #more-panel { left: 8px; right: 8px; top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); width: auto; max-height: 72%; z-index: 9; }
+body.touch.more-open #joystick, body.touch.more-open #mode-btn, body.touch.more-open #peel-btn, body.touch.more-open #design-btn,
+body.touch.more-open #chat-btn { display: none !important; }
+@media (max-width: 680px) { body:not(.touch) #more-panel { left: 12px; z-index: 7; } }
+.nowrap { white-space: nowrap; }
+/* Mobil: ☰-knappen ligger ovanför menyn, inte över ljudknappen. */
+body.touch #panel { top: calc(60px + env(safe-area-inset-top)); max-height: calc(62% - 48px); }

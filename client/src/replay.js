@@ -10,6 +10,7 @@ import { StampLayer } from './stamps.js';
 import { Avatar, loadAvatarModel } from './avatars.js';
 import { CameraLayer, poseCamera, renderFramed } from './cameras.js';
 import { FirstPersonControls } from './controls.js';
+import { S, LOCALE } from './strings.js';
 import { parseRecording, buildTimeline, snapshotAt, participants } from '../../shared/replay.mjs';
 
 const $ = (id) => document.getElementById(id);
@@ -114,9 +115,9 @@ function apply(t, dt = 0, jumped = false) {
 // ---------- Vy: fri kamera, en placerad kamera eller någons ögon ----------
 let lastOptions = '';
 function renderViewOptions(s) {
-  const opts = [['free', '🎥 Fri kamera (dra för att titta, WASD = gå)']];
-  for (const c of s.cameras) opts.push([`cam:${c.id}`, `📷 ${c.name}${c.aspect ? ' · ' + c.aspect : ''}`]);
-  for (const p of participants(rp.tl)) opts.push([`pov:${p.id}`, `👀 ${s.players.find((x) => x.id === p.id)?.name || p.name}s ögon${s.players.some((x) => x.id === p.id) ? '' : ' (inte här nu)'}`]);
+  const opts = [['free', S.viewFree]];
+  for (const c of s.cameras) opts.push([`cam:${c.id}`, S.viewCam(c)]);
+  for (const p of participants(rp.tl)) opts.push([`pov:${p.id}`, S.viewPov(s.players.find((x) => x.id === p.id)?.name || p.name, s.players.some((x) => x.id === p.id))]);
   const key = JSON.stringify(opts); if (key === lastOptions) return; lastOptions = key;
   const sel = $('rp-view'); sel.innerHTML = '';
   for (const [v, label] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o); }
@@ -131,7 +132,7 @@ function viewPose() {
     if (c) return { p: c.p, yaw: c.yaw, pitch: c.pitch, fov: c.fov, aspect: c.aspect || '', label: c.name };
   } else if (rp.view.startsWith('pov:')) {
     const p = s.players.find((x) => x.id === rp.view.slice(4));
-    if (p) return { p: p.p, yaw: p.y, pitch: p.pi, fov: EYE_FOV, aspect: '', label: `${p.name}s ögon` };
+    if (p) return { p: p.p, yaw: p.y, pitch: p.pi, fov: EYE_FOV, aspect: '', label: S.povLabel(p.name) };
   }
   return null;
 }
@@ -142,8 +143,8 @@ $('rp-seek').oninput = (e) => seek(Number(e.target.value));
 $('rp-speed').onchange = (e) => { rp.speed = Number(e.target.value) || 1; };
 $('rp-view').onchange = (e) => setView(e.target.value);
 $('rp-video').onclick = () => (rp.recorder ? stopVideo() : startVideo());
-function play() { if (rp.t >= rp.tl.duration) rp.t = 0; rp.playing = true; $('rp-play').textContent = '⏸'; $('rp-play').title = 'Pausa (mellanslag)'; }
-function pause() { rp.playing = false; $('rp-play').textContent = '▶'; $('rp-play').title = 'Spela (mellanslag)'; }
+function play() { if (rp.t >= rp.tl.duration) rp.t = 0; rp.playing = true; $('rp-play').textContent = '⏸'; $('rp-play').title = S.pause; }
+function pause() { rp.playing = false; $('rp-play').textContent = '▶'; $('rp-play').title = S.play; }
 function seek(t) { rp.t = Math.max(0, Math.min(rp.tl.duration, t)); apply(rp.t, 0, true); return rp.t; }
 addEventListener('keydown', (e) => {
   if (e.target.closest && e.target.closest('input, select, textarea')) return;
@@ -160,7 +161,7 @@ canvas.addEventListener('pointerup', () => { drag = null; });
 
 // ---------- Spela in video (test av renderingen) ----------
 function startVideo() {
-  if (!canvas.captureStream || typeof MediaRecorder === 'undefined') { toast('Webbläsaren kan inte spela in video.'); return false; }
+  if (!canvas.captureStream || typeof MediaRecorder === 'undefined') { toast(S.noVideo); return false; }
   const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
   const chunks = [];
   const mr = new MediaRecorder(canvas.captureStream(30), type ? { mimeType: type, videoBitsPerSecond: 6e6 } : {});
@@ -168,18 +169,18 @@ function startVideo() {
   rp.videoDone = new Promise((resolve) => { mr.onstop = () => {
     const blob = new Blob(chunks, { type: 'video/webm' });
     const a = $('rp-download'); a.href = URL.createObjectURL(blob); a.download = `slapandtalk-${ROOM}-${REC}.webm`; a.hidden = false;
-    a.textContent = `⬇ Ladda ner video (${(blob.size / 1e6).toFixed(1)} MB)`;
+    a.textContent = S.downloadVideo((blob.size / 1e6).toFixed(1));
     resolve(blob);
   }; });
   mr.start(1000); rp.recorder = mr;
-  $('rp-video').textContent = '⏹ Stoppa video'; $('rp-video').classList.add('on');
+  $('rp-video').textContent = S.stopVideo; $('rp-video').classList.add('on');
   if (!rp.playing) play();
   return true;
 }
 function stopVideo() {
   if (!rp.recorder) return rp.videoDone || null; // redan stoppad (t.ex. när uppspelningen tog slut)
   rp.recorder.stop(); rp.recorder = null;
-  $('rp-video').textContent = '⏺ Spela in video'; $('rp-video').classList.remove('on');
+  $('rp-video').textContent = S.recordVideo; $('rp-video').classList.remove('on');
   return rp.videoDone;
 }
 
@@ -198,7 +199,7 @@ function frame() {
     }
     apply(rp.t, rp.playing ? dt * rp.speed : dt);
     const pose = viewPose();
-    $('rp-viewlabel').textContent = pose ? pose.label : (rp.view === 'free' ? '' : 'Inte i rummet just nu – fri kamera');
+    $('rp-viewlabel').textContent = pose ? pose.label : (rp.view === 'free' ? '' : S.notHereNow);
     cams.update(pose ? null : camera.position);
     if (pose) { poseCamera(view, pose); view.fov = pose.fov; renderFramed(renderer, scene, view, pose.aspect); } else {
       controls.update(dt); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
@@ -211,20 +212,20 @@ function frame() {
 
 async function load() {
   try {
-    if (!REC) throw new Error('Ingen inspelning vald.');
+    if (!REC) throw new Error(S.replayNone);
     const [metaRes, logRes] = await Promise.all([fetch(`/api/rooms/${ROOM}/recordings/${REC}`), fetch(`/api/rooms/${ROOM}/recordings/${REC}/log`)]);
-    if (!logRes.ok) throw new Error(logRes.status === 404 ? 'Inspelningen finns inte (kanske försvann den när servern startade om).' : `Fel ${logRes.status}`);
+    if (!logRes.ok) throw new Error(logRes.status === 404 ? S.replayMissing : S.replayError(logRes.status));
     rp.meta = metaRes.ok ? await metaRes.json() : null;
     const rec = parseRecording(await logRes.text());
     rp.tl = buildTimeline(rec);
     rp.loading = new Set();
-    const when = new Date(rec.header.startedAt).toLocaleString('sv-SE', { dateStyle: 'medium', timeStyle: 'short' });
-    $('rp-title').textContent = `Uppspelning · ${ROOM === 'stad' ? 'Staden' : 'rum ' + ROOM} · ${when} · ${fmt(rp.tl.duration)}${rp.meta?.status === 'recording' ? ' (pågår – visar det som hunnit spelas in)' : ''}`;
+    const when = new Date(rec.header.startedAt).toLocaleString(LOCALE, { dateStyle: 'medium', timeStyle: 'short' });
+    $('rp-title').textContent = S.replayTitle(ROOM, when, fmt(rp.tl.duration), rp.meta?.status === 'recording');
     $('rp-seek').max = String(Math.max(1, Math.round(rp.tl.duration)));
     if (!model) model = await loadAvatarModel().catch(() => null);
     seek(0);
     window.replay.ready = true;
-  } catch (err) { $('rp-title').textContent = 'Kunde inte spela upp: ' + err.message; toast(err.message, 6000); window.replay.error = err.message; }
+  } catch (err) { $('rp-title').textContent = S.replayFailed(err.message); toast(err.message, 6000); window.replay.error = err.message; }
 }
 frame();
 load();

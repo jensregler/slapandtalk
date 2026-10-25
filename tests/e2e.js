@@ -28,6 +28,10 @@ async function makeTestSticker() {
 }
 
 const count = (page) => page.evaluate(() => window.klibb.stamps.count);
+// Det mesta ligger under ⚙ More, och rumsknapparna under "Room ▾": öppna dem innan man klickar.
+const openMore = (page) => page.evaluate(() => window.klibb.openMore());
+const closeMore = (page) => page.evaluate(() => window.klibb.closeMore());
+const openRoomMenu = (page) => page.evaluate(() => { if (document.getElementById('room-menu').hidden) document.getElementById('room-menu-btn').click(); });
 const waitReady = (page) => page.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 20000 });
 
 (async () => {
@@ -43,7 +47,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await page.goto(`${BASE}/?room=${ROOM}`);
     await waitReady(page);
     assert(await page.evaluate(() => !!document.querySelector('canvas').getContext), 'sidan laddades');
-    await page.fill('#artist', 'Testaren');
+    await openMore(page); await page.fill('#artist', 'Testaren'); await closeMore(page);
 
     await page.setInputFiles('#file', demoPng);
     await page.waitForFunction(() => window.klibb.state.selected);
@@ -258,24 +262,24 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const roomUi = () => page.evaluate(() => ({ room: window.klibb.room, badge: document.getElementById('room-type').textContent,
       hud: document.getElementById('room-hud').textContent, note: document.getElementById('room-note').textContent,
       toStad: !document.getElementById('to-stad').hidden }));
-    await page.click('#new-room');
+    await page.click('#room-menu-btn'); await page.click('#new-room');
     await page.waitForSelector('#style-panel', { state: 'visible' });
     await page.click('#style-ok');
     await page.waitForURL(/\?room=[a-z2-9]{6}$/); await waitReady(page);
     const q = await roomUi();
-    assert(q.badge === 'Snabbrum' && q.hud === `Snabbrum · ${q.room}` && q.toStad && /24 timmar/.test(q.note) && (await count(page)) === 0,
+    assert(q.badge === 'Quick room' && q.hud === `Quick room · ${q.room}` && q.toStad && /24 hours/.test(q.note) && (await count(page)) === 0,
       `knappen Nytt snabbrum skapar ett tomt rum (${q.room}) och visar typen`);
     const qInfo = await (await fetch(`${BASE}/api/rooms/${q.room}`)).json();
     assert(qInfo.room.type === 'quick' && qInfo.room.createdAt, 'snabbrummet är sparat på servern som typ quick');
-    await page.click('#share-room');
+    await openRoomMenu(page); await page.click('#share-room');
     const clip = await page.evaluate(() => navigator.clipboard.readText());
     assert(clip === `${new URL(BASE).origin}/?room=${q.room}`, `Dela länk kopierar länken (${clip})`);
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(SHOTS, '11-rum-meny.png') });
-    await page.click('#to-stad');
+    await openRoomMenu(page); await page.click('#to-stad');
     await page.waitForURL((u) => !u.search.includes('room=')); await waitReady(page);
     const st = await roomUi();
-    assert(st.room === 'stad' && st.badge === 'Staden' && st.hud === 'Staden' && !st.toStad, 'Till Staden tar en tillbaka till Staden');
+    assert(st.room === 'stad' && st.badge === 'The City' && st.hud === 'The City' && !st.toStad, 'Till Staden tar en tillbaka till Staden');
 
     // Admin-läget: rätt nyckel visar bannern, fel nyckel gör det inte
     await page.goto(`${BASE}/?room=${ROOM}&admin=fel`); await waitReady(page);
@@ -295,7 +299,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await m.waitForFunction(() => window.klibb.state.selected);
     created.add(await m.evaluate(() => window.klibb.state.selected.id));
     await m.screenshot({ path: path.join(SHOTS, '05-mobil-meny.png') });
-    assert((await m.textContent('#room-hud')) === 'Snabbrum · e2e-test' && await m.isVisible('#new-room'), 'mobil: rumsmenyn och rumsetiketten syns');
+    await m.tap('#room-menu-btn');
+    assert((await m.textContent('#room-hud')) === 'Quick room · e2e-test' && await m.isVisible('#new-room'), 'mobil: rumsmenyn (Room ▾) och rumsetiketten syns');
     await m.waitForFunction(() => !document.getElementById('toast').classList.contains('show'), null, { timeout: 5000 });
     await m.waitForTimeout(300);
     await m.screenshot({ path: path.join(SHOTS, '12-rum-meny-mobil.png') });
@@ -430,7 +435,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const del = (id) => fetch(`${BASE}/api/stickers/${id}`, { method: 'DELETE', headers: { 'x-admin-token': TOKEN } });
     await del(five[0]); await del(five[1]);
     await d.reload(); await waitReady(d);
-    await d.waitForFunction(() => /laddades upp igen/.test(document.getElementById('toast').textContent), null, { timeout: 8000 });
+    await d.waitForFunction(() => /uploaded again/.test(document.getElementById('toast').textContent), null, { timeout: 8000 });
     const onServer = await (await fetch(`${BASE}/api/stickers?ids=${five.join(',')}`)).json();
     assert((await mineIds()).join() === five.join() && Object.keys(onServer.images).length === 5,
       'designs som servern tappat laddas upp igen automatiskt, alla 5 kvar med samma id');
@@ -456,7 +461,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       r.toast = document.getElementById('toast').textContent;
       return r;
     });
-    assert(cap.max === 400 && cap.sliderMax === '400' && cap.after === 4 && cap.slider === '400' && /Max storlek/.test(cap.toast),
+    assert(cap.max === 400 && cap.sliderMax === '400' && cap.after === 4 && cap.slider === '400' && /Max size/.test(cap.toast),
       `storleken stannar vid väggens höjd, räknad ur rummet (${cap.max} cm), med meddelande`);
     // Scrollhjulet: låst mus, scrolla uppåt många gånger
     await d.evaluate(() => { window.klibb.setSize(300); window.klibb.moveTo(0, 0); window.klibb.look(0, 0); });
@@ -504,15 +509,16 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await peelBy(() => d.keyboard.press('z'));
     const h5 = await hist();
     await d.evaluate(() => window.klibb.setMode('slap', { quiet: true }));
-    assert(h2.count === h1.count - 1 && /Peelad/.test(h2.toast) && h3.count === h1.count - 2 && h4.count === h1.count - 3 && h4.n === 0,
+    assert(h2.count === h1.count - 1 && /^Peeled$/.test(h2.toast) && h3.count === h1.count - 2 && h4.count === h1.count - 3 && h4.n === 0,
       `Z, Ctrl+Z och Cmd+Z peelar senaste klibban en i taget (även i Tittläge)`);
-    assert(h5.count === h4.count && /Inga fler egna klibbor här/.test(h5.toast), 'när inga egna finns kvar: "Inga fler egna klibbor här"');
+    assert(h5.count === h4.count && /No more of your stickers here/.test(h5.toast), 'när inga egna finns kvar: "No more of your stickers here"');
     // Z medan man skriver: ingen peel
     await stampN(1);
-    await d.fill('#artist', ''); await d.type('#artist', 'Zorro');
+    await openMore(d); await d.fill('#artist', ''); await d.type('#artist', 'Zorro');
     const hz = await hist();
     assert(hz.n === 1 && hz.count === h5.count + 1, 'Z gör ingenting medan man skriver');
     await d.fill('#artist', 'Testaren'); await d.evaluate(() => document.activeElement.blur());
+    // (⚙ More är öppen härifrån: historiklistan och "Peel all" finns där)
     // Någon annans stämpel: finns inte i min historik, och fel nyckel nekas
     const otherStamp = await (await fetch(`${BASE}/api/rooms/${ROOM}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageId: four[0], position: [3, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.5, surface: 'vägg-norr' }) })).json();
@@ -535,10 +541,10 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const pre = await hist();
     await d.click('#peel-all'); await d.waitForTimeout(300);
     const ask = await d.evaluate(() => [document.getElementById('peel-all').textContent, window.klibb.stamps.count]);
-    assert(/Säker/.test(ask[0]) && ask[1] === pre.count, '"Peela alla" frågar först och tar inte bort något');
+    assert(/^Sure\? Tap again/.test(ask[0]) && ask[1] === pre.count, '"Peela alla" frågar först och tar inte bort något');
     await d.click('#peel-all'); await d.waitForTimeout(800);
     const allGone = await hist();
-    assert(allGone.n === 0 && allGone.items === 0 && allGone.count === pre.count - pre.n && /Peelade/.test(allGone.toast),
+    assert(allGone.n === 0 && allGone.items === 0 && allGone.count === pre.count - pre.n && /^Peeled \d+ stickers?$/.test(allGone.toast),
       `"Peela alla" (andra trycket) tar bort alla mina ${pre.n} men inga andras`);
     // Historik för stämplar som inte finns längre rensas tyst bort
     await d.evaluate(() => { const h = JSON.parse(localStorage.getItem('klibb.history') || '[]');
@@ -555,10 +561,10 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.mouse.click(900, 400); // första klicket låser musen (stämplar inte)
     await d.waitForTimeout(300);
     const m0 = await modeInfo();
-    assert(m0.locked && m0.mode === 'slap' && m0.hud === 'Klibbläge · V' && m0.preview, 'Klibbläge från början: pekaren syns');
+    assert(m0.locked && m0.mode === 'slap' && m0.hud === 'Slap mode · V' && m0.preview, 'Klibbläge från början: pekaren syns');
     await d.keyboard.press('v'); await d.waitForTimeout(200);
     const m1 = await modeInfo();
-    assert(m1.mode === 'view' && m1.hud === 'Tittläge · V' && !m1.preview, 'V slår på Tittläge och döljer pekaren');
+    assert(m1.mode === 'view' && m1.hud === 'Look mode · V' && !m1.preview, 'V slår på Tittläge och döljer pekaren');
     await d.mouse.click(900, 400); await d.waitForTimeout(400);
     await d.mouse.wheel(0, 300); await d.keyboard.press('q'); await d.keyboard.press('e'); await d.keyboard.press('q');
     await d.waitForTimeout(200);
@@ -578,12 +584,86 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     assert(m4.mode === 'slap' && m4.preview && m4.count === m3.count + 1, 'V igen: Klibbläge, pekaren syns och klick stämplar igen');
     await d.evaluate(() => window.klibb.controls.unlock()); // som Esc
     await d.waitForFunction(() => !window.klibb.controls.locked);
-    await d.fill('#artist', ''); await d.type('#artist', 'Viva');
+    await openMore(d); await d.fill('#artist', ''); await d.type('#artist', 'Viva');
     const typed = await d.evaluate(() => [window.klibb.state.mode, document.getElementById('artist').value]);
     assert(typed[0] === 'slap' && typed[1] === 'Viva', 'V gör ingenting medan man skriver i ett textfält');
     await d.keyboard.press('Control+v'); // klistra in: ska inte heller växla
     assert((await d.evaluate(() => window.klibb.state.mode)) === 'slap', 'Ctrl+V växlar inte läge');
-    await d.fill('#artist', 'Testaren');
+    await d.fill('#artist', 'Testaren'); await d.evaluate(() => document.activeElement.blur());
+
+    // ---------- Enkel första vy: bara det viktigaste syns, resten under ⚙ More ----------
+    await d.reload(); await waitReady(d);
+    const vis = (ids) => d.evaluate((ids) => ids.map((id) => { const el = document.getElementById(id); const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; }), ids);
+    const ESSENTIAL = ['file', 'tray', 'mode-slap', 'mode-look', 'more-btn', 'room-menu-btn', 'enter', 'sound-btn'];
+    const ADVANCED = ['size', 'rot', 'artist', 'history', 'people', 'my-avatar', 'room-style', 'sound-on', 'new-room', 'share-room'];
+    await d.waitForTimeout(800); await d.screenshot({ path: path.join(SHOTS, '35-start-dator.png') });
+    const ess = await vis(ESSENTIAL.filter((x) => x !== 'file').concat(['more-btn'])), adv = await vis(ADVANCED);
+    const fileLabel = await d.isVisible('label.upload span');
+    assert(ess.every(Boolean) && fileLabel && adv.every((v) => !v), `första vyn: uppladdning, designer, Slap/Look, chatt och rumsmeny syns, inget annat (${ADVANCED.filter((_, i) => adv[i]).join(',') || 'ok'})`);
+    const texts = await d.evaluate(() => [document.title, document.documentElement.lang, document.querySelector('label.upload span').textContent, document.getElementById('more-btn').textContent,
+      document.getElementById('mode-slap').textContent, document.getElementById('mode-look').textContent, document.getElementById('room-menu-btn').textContent]);
+    assert(texts.join('|') === 'Slap and Talk|en|⬆ Upload sticker|⚙ More|Slap mode|Look mode|Room ▾', `sidan är på engelska (${texts.join(' | ')})`);
+    const swedish = await d.evaluate(() => { const t = document.body.innerText + ' ' + [...document.querySelectorAll('[title],[placeholder],[aria-label]')].map((e) => [e.title, e.placeholder, e.getAttribute('aria-label')].join(' ')).join(' ');
+      return t.match(/[åäöÅÄÖ]|\b(klibba|klibbor|Stämpla|Peela|Snabbrum|Staden|Tittläge|Klibbläge|Skicka|Avbryt|Spara|Gäst|Kamera)\b/g) || []; });
+    assert(swedish.length === 0, `ingen svensk text kvar i rummet (${swedish.slice(0, 5).join(', ')})`);
+    await d.click('#room-menu-btn');
+    assert(await d.isVisible('#new-room') && await d.isVisible('#share-room'), 'Room ▾ visar Nytt rum och Dela länk');
+    await d.click('#room-menu-btn');
+    await d.click('#more-btn'); await d.waitForTimeout(200);
+    const adv2 = await vis(ADVANCED.filter((x) => !['new-room', 'share-room'].includes(x)));
+    assert(adv2.every(Boolean), '⚙ More visar storlek, rotation, artistnamn, mina klibbor, folk, Min gubbe, rummets utseende och ljud');
+    await d.screenshot({ path: path.join(SHOTS, '36-mer-panel-dator.png') });
+    await d.click('#mode-look');
+    const ml = await d.evaluate(() => [window.klibb.state.mode, document.getElementById('mode-look').getAttribute('aria-pressed')]);
+    await d.click('#mode-slap');
+    assert(ml[0] === 'view' && ml[1] === 'true' && (await d.evaluate(() => window.klibb.state.mode)) === 'slap', 'Slap mode / Look mode-knapparna byter läge');
+    await d.mouse.click(900, 400); await d.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
+    assert(!(await d.evaluate(() => window.klibb.moreOpen())), '⚙ More stängs när man går in i rummet');
+    await d.evaluate(() => window.klibb.controls.unlock()); await d.waitForTimeout(200);
+
+    // ---------- Ljud: klibba, peel, andras ljud i rummet (tystare på avstånd), ljud av ----------
+    await d.evaluate(() => { const k = window.klibb; k.moveTo(0, -3.5); k.look(0, 0); });
+    await d.waitForTimeout(200); // lyssnaren följer kameran varje bildruta
+    const slog = () => d.evaluate(() => window.klibb.soundLog());
+    const ctxOk = await d.evaluate(() => !!window.klibb.sound.ctx && window.klibb.sound.ctx.state);
+    const n0 = (await slog()).length;
+    const mineStamp = await d.evaluate(() => window.klibb.stampAt(0, 0).then((x) => x && x.id));
+    await d.waitForTimeout(600);
+    const l1 = (await slog()).slice(n0);
+    assert(ctxOk && mineStamp && l1.length === 1 && l1[0].kind === 'slap' && !l1[0].remote && l1[0].rate >= 0.9 && l1[0].rate <= 1.12,
+      `egen klibba: ett "slap"-ljud direkt (Web Audio: ${ctxOk}, tonhöjd ${l1[0] && l1[0].rate}), inte ett till när servern skickar ut stämpeln`);
+    // Andras klibbor: en nära och en långt bort
+    const post = (position, normal) => fetch(`${BASE}/api/rooms/${ROOM}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageId: four[1], position, normal, quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' }) }).then((r) => r.json());
+    const n1 = (await slog()).length;
+    const near = await post([0.5, 1.5, -5], [0, 0, 1]);
+    await d.waitForFunction((n) => window.klibb.soundLog().length > n, n1, { timeout: 4000 });
+    const far = await post([0, 1.5, 5], [0, 0, -1]);
+    await d.waitForFunction((n) => window.klibb.soundLog().length > n + 1, n1, { timeout: 4000 });
+    const [rn, rf] = (await slog()).slice(n1);
+    assert(rn.kind === 'slap' && rn.remote && rf.remote && rn.distance < 2 && rf.distance > 7 && rf.gain < rn.gain / 3,
+      `andras klibbor hörs från där de sitter: nära ${rn.distance} m (styrka ${rn.gain}), långt bort ${rf.distance} m (styrka ${rf.gain})`);
+    const n2 = (await slog()).length;
+    await fetch(`${BASE}/api/rooms/${ROOM}/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ id: near.stamp.id, token: near.peelToken }, { id: far.stamp.id, token: far.peelToken }] }) });
+    await d.waitForFunction((n) => window.klibb.soundLog().length >= n + 2, n2, { timeout: 4000 });
+    const rp2 = (await slog()).slice(n2);
+    const n3 = (await slog()).length;
+    await d.evaluate(() => window.klibb.peelLast()); await d.waitForTimeout(800);
+    const lp = (await slog()).slice(n3);
+    assert(rp2.every((e) => e.kind === 'peel' && e.remote) && lp.length === 1 && lp[0].kind === 'peel' && !lp[0].remote,
+      'peel låter mjukare "rrrip": andras peel hörs i rummet, min egen en gång');
+    // Ljud av: knappen, sparas till nästa gång, M slår på igen
+    await d.click('#sound-btn');
+    const muted = await d.evaluate(() => [window.klibb.sound.muted, localStorage.getItem('klibb.muted'), document.getElementById('sound-btn').textContent]);
+    await d.reload(); await waitReady(d);
+    const afterReload = await d.evaluate(() => [window.klibb.sound.muted, document.getElementById('sound-btn').textContent, document.getElementById('sound-on').checked]);
+    await d.evaluate(() => window.klibb.stampAt(0, 0)); await d.waitForTimeout(300);
+    const mutedEntry = (await slog()).at(-1);
+    await d.mouse.click(900, 400); await d.waitForTimeout(200); await d.keyboard.press('m');
+    const unm = await d.evaluate(() => [window.klibb.sound.muted, localStorage.getItem('klibb.muted')]);
+    await d.evaluate(() => window.klibb.controls.unlock());
+    assert(muted.join() === 'true,1,🔇' && afterReload.join() === 'true,🔇,false' && mutedEntry.muted && unm.join() === 'false,0',
+      'ljud av (🔇) sparas och gäller efter omladdning, M slår på igen');
     await dctx.close();
 
     // ---------- Rummets utseende ----------
@@ -598,8 +678,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v === 'canvas' || v.startsWith('data:') ? 'canvas' : v.split('/').pop()]));
     };
     const def = await sp.evaluate(() => window.klibb.currentStyle());
-    assert(def.floor === 'klassisk' && def.wall === 'klassisk' && !(await sp.isVisible('#edit-style')), 'äldre rum utan utseende får standardutseendet, och bara skaparen/admin kan ändra');
-    await sp.click('#new-room');
+    assert(def.floor === 'klassisk' && def.wall === 'klassisk' && (await sp.evaluate(() => document.getElementById('edit-style').hidden)), 'äldre rum utan utseende får standardutseendet, och bara skaparen/admin kan ändra');
+    await openRoomMenu(sp); await sp.click('#new-room');
     await sp.waitForSelector('#style-panel', { state: 'visible' });
     const seeded = await sp.evaluate(() => [document.getElementById('style-seed').value, window.klibb.styleFromSeed(document.getElementById('style-seed').value)]);
     assert(/^[a-z2-9]{5}$/.test(seeded[0]), `panelen öppnas med en slumpad kod (${seeded[0]})`);
@@ -610,7 +690,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await sp.click('#sw-color button[data-id="gron"]'); await sp.click('#sw-ceiling button[data-id="vit"]');
     await sp.waitForTimeout(800);
     const live = await surfMap();
-    assert(live.golv === 'parkett.webp' && live['vägg-norr'] === 'canvas' && (await sp.inputValue('#style-seed')) === '' && /Parkett golv · Målad grön vägg/.test(await sp.textContent('#style-name')),
+    assert(live.golv === 'parkett.webp' && live['vägg-norr'] === 'canvas' && (await sp.inputValue('#style-seed')) === '' && /Parquet floor · Painted green walls/.test(await sp.textContent('#style-name')),
       'valen syns direkt i rummet bakom panelen (förhandsvisning), egen stil = ingen kod');
     await sp.evaluate(() => window.klibb.moveTo(-1, 2)); await sp.waitForTimeout(300);
     await sp.screenshot({ path: path.join(SHOTS, '21-utseende-dator.png') });
@@ -619,7 +699,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const styled = await sp.evaluate(() => [window.klibb.room, window.klibb.currentStyle()]);
     const styledApi = await (await fetch(`${BASE}/api/rooms/${styled[0]}`)).json();
     assert(styled[1].floor === 'parkett' && styled[1].wall === 'malad' && styled[1].wallColor === 'gron' && styledApi.room.style.floor === 'parkett'
-      && !JSON.stringify(styledApi).includes('keyHash') && (await sp.isVisible('#edit-style')), `rummet ${styled[0]} skapas med valt utseende och sparas, skaparen kan ändra det`);
+      && !JSON.stringify(styledApi).includes('keyHash') && !(await sp.evaluate(() => document.getElementById('edit-style').hidden)), `rummet ${styled[0]} skapas med valt utseende och sparas, skaparen kan ändra det`);
     // En annan besökare ser samma rum men kan inte ändra det
     const octx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const op = await octx.newPage();
@@ -627,7 +707,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const other = await op.evaluate(() => [window.klibb.currentStyle(), document.getElementById('edit-style').hidden, document.getElementById('room-style').textContent]);
     const hack = await op.evaluate((id) => fetch(`/api/rooms/${id}/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': 'gissning' },
       body: JSON.stringify({ style: { floor: 'asfalt', wall: 'tegel', ceiling: 'vit' } }) }).then((r) => r.status), styled[0]);
-    assert(JSON.stringify(other[0]) === JSON.stringify(styled[1]) && other[1] && /Parkett/.test(other[2]) && hack === 403,
+    assert(JSON.stringify(other[0]) === JSON.stringify(styled[1]) && other[1] && /Parquet/.test(other[2]) && hack === 403,
       'andra ser samma utseende, har ingen ändra-knapp och nekas (403) om de försöker');
     // Slump-kod: samma kod ger samma rum, i olika webbläsare
     const seedsA = await sp.evaluate(() => ['k7m2q', 'jens', 'sylvester', 'abc12'].map((s) => window.klibb.styleFromSeed(s)));
@@ -637,7 +717,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const accepted = await Promise.all(randoms.slice(0, 5).map(([s]) => fetch(`${BASE}/api/rooms/${styled[0]}/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-admin-token': TOKEN }, body: JSON.stringify({ style: s }) }).then((r) => r.status)));
     assert(randoms.every((r) => r[1]) && accepted.every((x) => x === 200) && new Set(randoms.map((r) => r[0].floor)).size >= 4, 'slumpade rum är alltid giltiga (och servern godtar dem)');
     // Skaparen ändrar: 🎲 Slumpa och Spara
-    await sp.click('#edit-style'); await sp.waitForSelector('#style-panel', { state: 'visible' });
+    await openMore(sp); await sp.click('#edit-style'); await sp.waitForSelector('#style-panel', { state: 'visible' });
     await sp.click('#style-random'); await sp.waitForTimeout(300);
     const rseed = await sp.inputValue('#style-seed');
     await sp.click('#style-ok'); await sp.waitForTimeout(600);
@@ -690,19 +770,19 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const seeOne = (pg) => pg.waitForFunction(() => window.klibb.players().length === 1 && window.klibb.players()[0].built, null, { timeout: 15000 });
     await seeOne(A); await seeOne(B);
     const stA = await A.evaluate(() => [window.klibb.net.status, document.getElementById('presence-text').textContent, document.querySelectorAll('#people li').length]);
-    assert(stA[0] === 'online' && /2 här/.test(stA[1]) && stA[2] === 2, `två spelare i samma rum ser varandra (${stA[1]})`);
+    assert(stA[0] === 'online' && /2 here/.test(stA[1]) && stA[2] === 2, `två spelare i samma rum ser varandra (${stA[1]})`);
     // Namn: två gäster utan namn får olika gästnamn, och namnskylten visar samma namn som servern
     const nmA = await A.evaluate(() => [window.klibb.me().shownAs, window.klibb.players()[0].tag]);
     const nmB = await B.evaluate(() => [window.klibb.me().shownAs, window.klibb.players()[0].tag]);
-    assert(/^Gäst \d+$/.test(nmA[0]) && /^Gäst \d+$/.test(nmB[0]) && nmA[0] !== nmB[0] && nmA[1] === nmB[0] && nmB[1] === nmA[0],
+    assert(/^Guest \d+$/.test(nmA[0]) && /^Guest \d+$/.test(nmB[0]) && nmA[0] !== nmB[0] && nmA[1] === nmB[0] && nmB[1] === nmA[0],
       `två gäster utan namn får olika namn på namnskylten (${nmA[0]} och ${nmB[0]})`);
     // B skriver bara ett artistnamn: det blir namnet på B:s gubbe direkt
-    await B.fill('#artist', '  Bosse  ');
-    await B.evaluate(() => document.activeElement.blur()); // annars står markören kvar i fältet (och T/Enter skriver där)
+    await openMore(B); await B.fill('#artist', '  Bosse  ');
+    await B.evaluate(() => document.activeElement.blur()); await closeMore(B); // annars står markören kvar i fältet (och T/Enter skriver där)
     await A.waitForFunction(() => window.klibb.players()[0].tag === 'Bosse', null, { timeout: 5000 });
     assert(true, 'artistnamnet blir namnet på gubben för de andra direkt (om man inte valt ett annat i Min gubbe)');
     // Min gubbe: A väljer kläder, färger och keps i panelen
-    await A.click('#my-avatar');
+    await openMore(A); await A.click('#my-avatar');
     await A.waitForSelector('#avatar-panel', { state: 'visible' });
     await A.fill('#av-name', '   Ulla   <3 ');
     await A.click('#av-outfit button[data-id="kostym"]'); await A.click('#av-hair button[data-id="lang"]');
@@ -717,8 +797,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     assert(blocked && (await A.evaluate(() => JSON.parse(localStorage.getItem('klibb.avatar')).look.outfit)) === 'kostym', 'Min gubbe: valen sparas på enheten och syns för den andra direkt');
     const tagB = await B.evaluate(() => [window.klibb.players()[0].tag, [...document.querySelectorAll('#people li')].map((l) => l.textContent), [...document.querySelectorAll('#chat-log li.sys')].map((l) => l.textContent)]);
     const shownA = await A.waitForFunction(() => window.klibb.me().shownAs === 'Ulla <3', null, { timeout: 5000 }).then(() => true, () => false);
-    assert(tagB[0] === 'Ulla <3' && tagB[1].includes('Ulla <3') && tagB[2].some((t) => t === `${nmA[0]} heter nu Ulla <3`) && shownA,
-      'valt namn (Ulla) syns på namnskylten och i listan för den andra direkt när man sparar ("Gäst N heter nu Ulla <3")');
+    assert(tagB[0] === 'Ulla <3' && tagB[1].includes('Ulla <3') && tagB[2].some((t) => t === `${nmA[0]} is now Ulla <3`) && shownA,
+      'valt namn (Ulla) syns på namnskylten och i listan för den andra direkt när man sparar ("Guest N is now Ulla <3")');
     // B går: A ser B röra sig (mjukt, med gå-animation) och sedan stå still
     let sawWalk = false;
     for (let i = 0; i <= 20; i++) {
@@ -779,7 +859,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await A.reload(); await waitReady(A);
     const meAfter = await A.evaluate(() => window.klibb.me());
     await B.waitForFunction(() => { const p = window.klibb.players(); return p.length === 1 && p[0].name === 'Ulla <3' && p[0].look.outfit === 'kostym' && p[0].look.hair === 'lang'; }, null, { timeout: 8000 });
-    assert((await B.evaluate(() => window.klibb.players()[0].tag)) === 'Ulla <3' && (await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent))).filter((t) => t === 'Ulla <3 kom in').length >= 1,
+    assert((await B.evaluate(() => window.klibb.players()[0].tag)) === 'Ulla <3' && (await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent))).filter((t) => t === 'Ulla <3 joined').length >= 1,
       'efter omladdning kommer A in igen som "Ulla <3" (namnskylt och "kom in"-rad)');
     assert(meAfter.name === 'Ulla <3' && meAfter.look.hat && meAfter.look.hatColor === '#ffd400', 'Min gubbe finns kvar efter omladdning och syns likadan för de andra');
     // Servern startar om: båda kopplar upp sig igen av sig själva och ser varandra igen
@@ -794,7 +874,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // A går: B ser att A försvinner
     await actx.close();
     await B.waitForFunction(() => window.klibb.players().length === 0, null, { timeout: 8000 });
-    assert([...(await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent)))].some((t) => /Ulla <3 gick/.test(t)), 'när A stänger sidan försvinner gubben för B ("Ulla <3 gick")');
+    assert([...(await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent)))].some((t) => /Ulla <3 left/.test(t)), 'när A stänger sidan försvinner gubben för B ("Ulla <3 left")');
     await bctx.close();
 
     // Inspelning, kameror och uppspelning (tests/e2e-recording.js)
@@ -814,7 +894,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await F.goto(`${BASE}/?room=${fullRoom}`); await waitReady(F);
     await F.waitForFunction(() => window.klibb.net.status === 'full', null, { timeout: 8000 });
     const fullUi = await F.evaluate(() => [document.getElementById('full-banner').hidden, window.klibb.players().length, document.getElementById('chat-input').disabled]);
-    assert(!fullUi[0] && fullUi[1] === 10 && fullUi[2], 'fullt rum (10): den elfte ser "Rummet är fullt", kan titta på alla 10 men inte chatta');
+    assert(!fullUi[0] && fullUi[1] === 10 && fullUi[2], 'fullt rum (10): den elfte ser "The room is full", kan titta på alla 10 men inte chatta');
     await F.waitForFunction(() => window.klibb.players().every((p) => p.built), null, { timeout: 10000 });
     await F.evaluate(() => { const k = window.klibb; k.moveTo(0, 3.6); k.look(0, -0.1); document.getElementById('panel').style.visibility = 'hidden'; });
     await F.waitForTimeout(800);
@@ -829,7 +909,16 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const mpctx = await browser.newContext({ ...devices['Pixel 7'] });
     const M = await mpctx.newPage();
     await M.goto(`${BASE}/?room=${fullRoom}`); await waitReady(M);
-    await M.tap('#my-avatar');
+    await M.waitForTimeout(800);
+    await M.screenshot({ path: path.join(SHOTS, '37-mobil-start.png') });
+    await M.tap('#more-btn'); await M.waitForSelector('#more-panel', { state: 'visible' }); await M.waitForTimeout(300);
+    const sheet = await M.locator('#more-panel').boundingBox();
+    await M.screenshot({ path: path.join(SHOTS, '38-mobil-mer.png') });
+    assert(sheet.width <= M.viewportSize().width && sheet.y + sheet.height <= M.viewportSize().height + 1 && !(await M.isVisible('#joystick')),
+      'mobil: ⚙ More öppnas som ett ark nerifrån (styrspaken göms så länge)');
+    await M.tap('#more-close'); await M.waitForTimeout(200);
+    assert(await M.isVisible('#joystick') && await M.isHidden('#more-panel'), 'mobil: ✕ stänger ⚙ More och styrspaken är tillbaka');
+    await openMore(M); await M.tap('#my-avatar');
     await M.waitForSelector('#avatar-panel', { state: 'visible' });
     await M.tap('#av-random'); await M.evaluate(() => { document.getElementById('avatar-panel').scrollTop = 0; }); await M.waitForTimeout(1200);
     const mPanel = await M.locator('#avatar-panel').boundingBox();

@@ -7,6 +7,7 @@
 //  - ritade i webbläsaren (målat, kakel, linoleum, klinker, klassisk), lätta och skarpa.
 // Alla texturer läggs ut i verklig skala: "scale" = hur många meter en textur täcker.
 import * as THREE from 'three';
+import { S } from './strings.js';
 import CATALOG from '../../shared/styles.json';
 
 export { CATALOG };
@@ -47,8 +48,7 @@ export function styleFromSeed(seed) {
 export function styleName(s) {
   s = normalizeStyle(s);
   const w = CATALOG.walls[s.wall];
-  const wall = w.name + (s.wallColor ? ` ${CATALOG.wallColors[s.wallColor].name.toLowerCase()}` : '');
-  return `${CATALOG.floors[s.floor].name} golv · ${wall} vägg`;
+  return S.styleName(CATALOG.floors[s.floor].name, w.name, s.wallColor ? CATALOG.wallColors[s.wallColor].name : '');
 }
 
 // ---------- Texturer ----------
