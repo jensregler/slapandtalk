@@ -6,7 +6,9 @@ const os = require('os');
 const path = require('path');
 const sharp = require('sharp');
 const { LocalAdapter } = require('../server/storage/local');
-const { S3Adapter } = require('../server/storage/s3');
+const { S3Adapter, buildS3Config, normalizeEndpoint } = require('../server/storage/s3');
+const { safeStep, checkStorage, installProcessGuards } = require('../server/startup');
+const { EventEmitter } = require('events');
 const { createAdapter } = require('../server/storage');
 const { createStore } = require('../server/store');
 const { createApp } = require('../server/app');
@@ -95,6 +97,52 @@ async function roomLifecycle(name, adapter) {
     await legacy.put('images.json', Buffer.from(JSON.stringify({ aaaaaaaaaaaaaaaa: { id: 'aaaaaaaaaaaaaaaa', url: '/uploads/aaaaaaaaaaaaaaaa.webp' } })));
     const ls = createStore(legacy);
     assert((await ls.migrate()) === 1 && (await ls.getImage('aaaaaaaaaaaaaaaa')) && !(await legacy.exists('images.json')), 'gamla images.json flyttas automatiskt');
+
+    // ---------- R2-kompatibel S3-klient ----------
+    const ACC = 'https://85fe7ec7db7112e86d5654721a7f63e5.r2.cloudflarestorage.com';
+    const cfg = buildS3Config({ bucket: 'slapandtalk', endpoint: ACC, accessKeyId: 'a', secretAccessKey: 'b' });
+    assert(cfg.forcePathStyle === true && cfg.region === 'auto' && cfg.endpoint === ACC && cfg.requestChecksumCalculation === 'WHEN_REQUIRED' && cfg.responseChecksumValidation === 'WHEN_REQUIRED',
+      'S3-inställningar för R2: path-style, region auto, checksummor bara när det krävs');
+    assert(normalizeEndpoint(ACC + '/slapandtalk/', 'slapandtalk') === ACC && normalizeEndpoint(ACC + '/', 'slapandtalk') === ACC
+      && normalizeEndpoint('https://slapandtalk.85fe7ec7db7112e86d5654721a7f63e5.r2.cloudflarestorage.com', 'slapandtalk') === ACC
+      && normalizeEndpoint('85fe7ec7db7112e86d5654721a7f63e5.r2.cloudflarestorage.com', 'slapandtalk') === ACC && normalizeEndpoint('', 'x') === undefined
+      && buildS3Config({ bucket: 'b', region: 'eu-north-1' }).region === 'eu-north-1',
+      'S3_ENDPOINT städas: bucket-sökväg, snedstreck och bucket-subdomän tas bort, https:// läggs till');
+    // Riktig S3Client: anropet ska gå till kontots värd med bucketen i sökvägen (stoppas innan nätverk).
+    const real = new S3Adapter({ bucket: 'slapandtalk', endpoint: ACC + '/slapandtalk', accessKeyId: 'a', secretAccessKey: 'b' });
+    let seen = null;
+    real.client.middlewareStack.add(() => async (args) => { seen = args.request; const e = new Error('stopp'); e.name = 'Stopp'; throw e; }, { step: 'finalizeRequest', name: 'fanga', priority: 'low' });
+    await real.get('rooms/x.json').catch(() => {});
+    assert(seen && seen.hostname === '85fe7ec7db7112e86d5654721a7f63e5.r2.cloudflarestorage.com' && seen.path === '/slapandtalk/rooms/x.json' && !('x-amz-checksum-mode' in (seen.headers || {})),
+      `S3Client anropar ${seen && seen.hostname}${seen && seen.path} (path-style, ingen bucket-subdomän)`);
+
+    // ---------- Lagringsfel kraschar aldrig starten ----------
+    const tlsErr = () => Object.assign(new Error('write EPROTO ssl3_read_bytes:tlsv1 alert handshake failure SSL alert number 40'), { code: 'EPROTO', $metadata: { attempts: 1 } });
+    const broken = { kind: 's3', get: async () => { throw tlsErr(); }, put: async () => { throw tlsErr(); }, delete: async () => { throw tlsErr(); }, exists: async () => { throw tlsErr(); }, list: async () => { throw tlsErr(); } };
+    const logs = [];
+    const quiet = { log: (...a) => logs.push(a.join(' ')), error: (...a) => logs.push(a.join(' ')) };
+    const bstore = createStore(broken);
+    const mig = await safeStep('Flytt', () => bstore.migrate(), { log: quiet, fallback: 0 });
+    const ok = await checkStorage(broken, { log: quiet });
+    const hung = await checkStorage({ kind: 's3', list: () => new Promise(() => {}) }, { log: quiet, timeoutMs: 50 });
+    assert(mig === 0 && ok === false && hung === false && logs.some((l) => l.includes('EPROTO')), 'trasig lagring (TLS-fel, eller inget svar) kastar inte ut ur starten utan loggas');
+    const fakeProc = new EventEmitter();
+    installProcessGuards({ log: quiet, proc: fakeProc });
+    fakeProc.emit('unhandledRejection', tlsErr());
+    assert(fakeProc.listenerCount('unhandledRejection') === 1 && logs.some((l) => l.includes('Ohanterat')), 'ohanterade promise-fel loggas i stället för att döda processen');
+    const bapp = createApp(bstore, { quickTtlHours: 24 }).listen(0);
+    try {
+      const bbase = `http://127.0.0.1:${bapp.address().port}`;
+      const origErr = console.error; console.error = () => {};
+      let g1, g2, p1;
+      try {
+        g1 = await fetch(`${bbase}/api/rooms/stad/stamps`); g2 = await fetch(`${bbase}/api/rooms/stad`);
+        p1 = await fetch(`${bbase}/api/rooms/stad/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: 'aaaaaaaaaaaaaaaa', position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' }) });
+      } finally { console.error = origErr; }
+      const j1 = await g1.json(), j2 = await g2.json();
+      assert(g1.status === 200 && j1.stamps.length === 0 && j1.storageUnavailable === true && g2.status === 200 && j2.storageUnavailable === true && p1.status >= 400,
+        'när lagringen inte svarar visas rummet tomt (200), och nya klibbor nekas i stället för att skriva över');
+    } finally { bapp.close(); }
 
     // HTTP: skapa snabbrum, profilrum (bara admin), samma bild = samma design, bilder via adaptern
     const s3a = new S3Adapter({ bucket: 'test', client: fakeS3() });

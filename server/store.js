@@ -227,7 +227,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   }
 
   return {
-    adapter, clock, getRoom, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
+    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
     deleteStampsWithImage, cleanupRooms, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, migrate,
   };

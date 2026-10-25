@@ -8,6 +8,9 @@ const { createStore } = require('./store');
 const { createApp } = require('./app');
 const { attachRealtime } = require('./realtime');
 const { createRecorder } = require('./recorder');
+const { safeStep, checkStorage, installProcessGuards } = require('./startup');
+
+installProcessGuards();
 
 const PORT = Number(process.env.PORT || 8787);
 const QUICK_TTL_HOURS = Number(process.env.QUICK_ROOM_TTL_HOURS || 24);
@@ -31,7 +34,11 @@ async function cleanup() {
   } catch (e) { console.error('Städningen misslyckades:', e.message); }
 }
 
-store.migrate().then((n) => { if (n) console.log(`Flyttade ${n} bilder från images.json till images/`); }).finally(() => {
+(async () => {
+  await checkStorage(adapter);
+  const n = await safeStep('Flytt av images.json', () => store.migrate(), { fallback: 0 });
+  if (n) console.log(`Flyttade ${n} bilder från images.json till images/`);
+})().catch((e) => console.error('[start] Oväntat fel före start:', e)).finally(() => {
   const server = app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind}, max ${MAX_PLAYERS} per rum)`));
   // Flerspelarläget (WebSocket på /ws) går på samma port som webbappen.
   const realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder });

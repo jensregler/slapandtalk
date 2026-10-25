@@ -167,9 +167,19 @@ app.post('/api/admin/rooms', express.json(), wrap(async (req, res) => {
   } catch (e) { res.status(e.code === 'EXISTS' ? 409 : 400).json({ error: e.message }); }
 }));
 
+// Om lagringen inte svarar (t.ex. R2 nere) visas rummet tomt i stället för ett serverfel.
+// Inget skrivs: nästa klibba går genom vanliga vägen och får ett fel tills lagringen är tillbaka,
+// så befintliga klibbor aldrig skrivs över av ett tomt rum.
+function emptyRoomOnStorageError(id, e) {
+  console.error(`[lagring] Kunde inte läsa rum ${id}, visar det tomt: ${e && (e.name || '')} ${e && e.message}`);
+  return { ...store.emptyRoom(id), exists: false, storageUnavailable: true };
+}
+
 app.get('/api/rooms/:room', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
-  res.json({ room: roomPublic(await store.roomOrEmpty(id)) });
+  let room;
+  try { room = await store.roomOrEmpty(id); } catch (e) { room = emptyRoomOnStorageError(id, e); }
+  res.json({ room: roomPublic(room), ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });
 }));
 
 // Klienten säger till med jämna mellanrum att någon är i rummet, så det inte städas bort.
@@ -182,7 +192,9 @@ app.post('/api/rooms/:room/visit', rateLimit(60), wrap(async (req, res) => {
 // ---------- Stämplar ----------
 app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
-  const room = (await store.touchRoom(id)) || (await store.roomOrEmpty(id)); // att ladda rummet räknas som ett besök
+  let room;
+  try { room = (await store.touchRoom(id)) || (await store.roomOrEmpty(id)); } // att ladda rummet räknas som ett besök
+  catch (e) { room = emptyRoomOnStorageError(id, e); }
   // Stämplar vars bild saknas hoppas över, så de inte blir trasiga/osynliga i rummet.
   const images = {};
   const ok = new Map();
@@ -192,7 +204,7 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
     if (m) images[s.imageId] = m;
     return !!m;
   }).map((s) => publicStamp(isNum(s.size) && s.size > MAX_STAMP_SIZE ? { ...s, size: MAX_STAMP_SIZE } : s)); // gamla för stora stämplar
-  res.json({ room: id, info: roomPublic(room), stamps, images, cameras: room.cameras || [] });
+  res.json({ room: id, info: roomPublic(room), stamps, images, cameras: room.cameras || [], ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });
 }));
 
 const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
