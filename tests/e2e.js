@@ -11,6 +11,7 @@ const { execSync } = require('child_process');
 const WebSocket = require('ws');
 const { recordingE2E } = require('./e2e-recording');
 const { fabricE2E } = require('./e2e-fabric');
+const { peelsE2E } = require('./e2e-peels');
 
 const BASE = process.env.BASE_URL || 'http://localhost:8787';
 const ROOM = 'e2e-test';
@@ -1159,6 +1160,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // Inspelning, kameror och uppspelning (tests/e2e-recording.js)
     await recordingE2E({ browser, BASE, SHOTS, assert, waitReady, testPng });
     await fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN });
+    await peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN });
 
     // Fullt rum: 10 är max. Den elfte får titta, och kommer in när någon går.
     const fullRoom = (await (await fetch(`${BASE}/api/rooms`, { method: 'POST' })).json()).room.id;

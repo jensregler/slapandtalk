@@ -15,6 +15,8 @@ import { S, LOCALE } from './strings.js';
 import { Sounds } from './sound.js';
 import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView } from './chasecam.js';
 import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
+import { PeelLayer } from './peels.js';
+import { PEEL, peelPlan, onFloor, stampDims } from '../../shared/peels.mjs';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -41,6 +43,16 @@ camera.position.x += (Math.random() - 0.5) * 3; camera.position.z += (Math.rando
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
 controls.attachJoystick($('joystick'), $('stick'));
 const stamps = new StampLayer(scene, room.surfaces);
+// Peels: baksidespappret som faller till golvet vid varje slap (när rummet har det på), peels.js.
+const peelLayer = new PeelLayer(scene);
+let nopes = 0;
+// Klibbor fastnar inte på baksidespapper: ett litet "nej" och en axelryckning. (Påskägg, står inte i hjälpen.)
+function nope() {
+  nopes++; sound.play('nope');
+  let el = document.getElementById('nope-shrug');
+  if (!el) { el = document.createElement('div'); el.id = 'nope-shrug'; el.textContent = '🤷'; el.setAttribute('aria-hidden', 'true'); document.body.appendChild(el); }
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+}
 const preview = new StampPreview(scene, stamps.faces);
 const cams = new CameraLayer(scene); // virtuella kameror (för inspelning)
 const viewCam = new THREE.PerspectiveCamera(60, 1, 0.05, 100); // "Titta genom kamera"
@@ -313,6 +325,12 @@ async function stampAt(ndc) {
   if (!state.selected) { toast(S.pickFirst); return null; }
   const h = hitSurface(ndc); if (!h) return null;
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
+  const slapSize = Math.min(state.size, MAX_SIZE_CM / 100);
+  // På golvet: ligger den nya klibban mest på baksidespapper fastnar den inte (servern kollar samma sak).
+  if (peelLayer.on && peelLayer.count && onFloor(h.surface, h.normal.toArray())) {
+    const frac = await peelLayer.overlap(state.selected, { position: h.point.toArray(), quaternion: q.toArray(), size: slapSize });
+    if (frac > PEEL.refuseOverlap) { nope(); return null; }
+  }
   pendingJitter = (Math.random() - 0.5) * 30;
   // Min gubbe slår handen mot väggen i samma bildruta som klibban syns (bara i tredjepersonsvy).
   together.selfGesture('slap', h.point, h.normal);
@@ -324,14 +342,21 @@ async function stampAt(ndc) {
   const body = { nonce, owner: deviceId(), ...(together.net.id ? { by: together.net.id } : {}), // by: så de andra ser min gubbe slappa
     imageId: design.id,
     position: h.point.toArray(), normal: h.normal.toArray(), quaternion: q.toArray(),
-    size: Math.min(state.size, MAX_SIZE_CM / 100), rotation: state.rotation, surface: h.surface, artist: state.artist,
+    size: slapSize, rotation: state.rotation, surface: h.surface, artist: state.artist,
+    peelFrom: { p: [camera.position.x, camera.position.z], yaw: controls.yaw }, // var baksidespappret föds (peels)
     ...(state.artistLink ? { artistLink: state.artistLink } : {}),
   };
   // Klibban syns direkt (med ett tillfälligt id) och byts till serverns stämpel när svaret
   // kommer, via HTTP-svaret eller WebSocket, det som kommer först. Går det fel tas den bort.
   const tempId = 'tmp-' + nonce;
   const temp = { ...body, id: tempId, order: stamps.topOrder() + 1, createdAt: new Date().toISOString(), pending: true };
-  delete temp.owner; delete temp.nonce; delete temp.by;
+  delete temp.owner; delete temp.nonce; delete temp.by; delete temp.peelFrom;
+  // Peels på: pappret börjar falla direkt (samma bana som servern räknar ut, seed = nonce).
+  const tempPeel = 'tmp-' + nonce;
+  if (peelLayer.on) {
+    const [pw, ph] = stampDims(design, slapSize);
+    peelLayer.add({ id: tempPeel, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, { x: camera.position.x, z: camera.position.z, yaw: controls.yaw }, body.position) }, design, { animate: true });
+  }
   let settle; const settled = new Promise((r) => { settle = r; });
   pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled });
   stamps.add(temp, design).then(updateCount);
@@ -349,6 +374,7 @@ async function stampAt(ndc) {
       addHistory({ room: ROOM, stampId: res.stamp.id, token: res.peelToken, designId: res.image.id, url: res.image.url, time: res.stamp.createdAt || new Date().toISOString() });
     }
     confirmSlap(nonce, res.stamp, res.image); updateCount(); renderHistory();
+    if (res.peel) { if (!peelLayer.confirm(tempPeel, res.peel)) peelLayer.add(res.peel, res.image, { animate: true }); } else peelLayer.remove([tempPeel]);
     // Peelad (↩/Z) innan servern hann svara: peela den riktiga nu, tyst (den är redan borta på skärmen).
     if (peelWhenSaved.delete(res.stamp.id)) {
       const h = roomHistory(ROOM).find((x) => x.stampId === res.stamp.id);
@@ -356,8 +382,8 @@ async function stampAt(ndc) {
     }
     return res.stamp;
   } catch (err) {
-    dropPending(nonce);
-    toast(err.message);
+    dropPending(nonce); peelLayer.remove([tempPeel]);
+    if (err.nope) nope(); else toast(err.message);
     return null;
   } finally { settle(); }
 }
@@ -802,9 +828,30 @@ const canEditStyle = () => !!state.adminToken || (roomType !== 'stad' && !!roomK
 function updateStyleUi() {
   $('edit-style').hidden = !canEditStyle();
   $('rec-box').hidden = !canEditStyle();
+  updatePeelUi();
   const s = currentStyle;
   $('room-style').textContent = S.roomStyleLine(styleName(s), s.seed);
 }
+// Peels-knappen i Room ▾: bara för den som får ändra rummet (skaparen eller admin).
+function updatePeelUi() {
+  const box = document.getElementById('peels-box'); if (!box) return;
+  box.hidden = !canEditStyle();
+  $('peels-on').checked = peelLayer.on;
+  $('peels-clear').hidden = !peelLayer.on;
+}
+$('peels-on').onchange = async (e) => {
+  const on = e.target.checked;
+  try {
+    await api.setPeels(ROOM, on, { key: roomKeys()[ROOM], admin: state.adminToken });
+    peelLayer.setOn(on);
+    if (on) { const r = await api.loadRoom(ROOM); syncPeels(r.info, r.peels, r.images); }
+    toast(on ? S.peelsOnToast : S.peelsOffToast, 1800);
+  } catch (err) { e.target.checked = !on; toast(err.message); }
+  updatePeelUi();
+};
+$('peels-clear').onclick = async () => {
+  try { await api.clearPeels(ROOM, { key: roomKeys()[ROOM], admin: state.adminToken }); peelLayer.clear(); toast(S.peelsCleared, 1500); } catch (err) { toast(err.message); }
+};
 async function showStyle(s) {
   try { return await applyStyle(room.surfaces, s); } catch { toast(S.texturesFailed); return null; }
 }
@@ -888,8 +935,10 @@ setInterval(() => { if (document.visibilityState === 'visible') api.visit(ROOM).
 // ---------- Ladda rummet ----------
 async function loadRoom() {
   try {
-    const { stamps: list, images, info, cameras } = await api.loadRoom(ROOM);
+    const { stamps: list, images, info, cameras, peels } = await api.loadRoom(ROOM);
     showRoomInfo(info);
+    peelLayer.setOn(!!info?.peels);
+    for (const p of peels || []) peelLayer.add(p, images[p.imageId]);
     cams.set(cameras || []); renderCams();
     if (!sp.open) await showStyle(currentStyle);
     pruneHistory(list.map((s) => s.id));
@@ -905,7 +954,8 @@ function onRoomEvent(e) {
   if (!e || typeof e.type !== 'string') return;
   if (e.type === 'stamp:add' && e.stamp && e.image) {
     // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
-    if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); return; } // min egen, redan synlig
+    if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); if (e.peel) peelLayer.confirm('tmp-' + e.nonce, e.peel); return; } // min egen, redan synlig
+    if (e.peel && !(e.nonce && myNonces.has(e.nonce))) peelLayer.add(e.peel, e.image, { animate: true }); // någon annans papper faller
     if (!(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id)) sound.play('slap', e.stamp.position);
     // Någon annans slap: deras gubbe slår handen mot väggen samtidigt som klibban dyker upp.
     // (by saknas från äldre klienter: då syns bara klibban, som förut.)
@@ -918,7 +968,11 @@ function onRoomEvent(e) {
     stamps.peelAway(e.id).then(updateCount);
     if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); scheduleHistory(); }
   } else if (e.type === 'room:reset') onRoomReset(e);
-  else if (e.type === 'image:remove') { stamps.removeImage(e.id); updateCount(); }
+  else if (e.type === 'image:remove') { stamps.removeImage(e.id); peelLayer.removeImage(e.id); updateCount(); }
+  else if (e.type === 'room:peels') {
+    if (e.on) api.loadRoom(ROOM).then((r) => syncPeels(r.info, r.peels, r.images)).catch(() => {});
+    else { peelLayer.setOn(false); updatePeelUi(); }
+  } else if (e.type === 'peels:clear') peelLayer.clear();
   else if (e.type === 'room:style' && e.style) {
     currentStyle = normalizeStyle(e.style); updateStyleUi();
     if (!sp.open) { showStyle(currentStyle); toast(S.styleChanged, 1800); }
@@ -928,10 +982,18 @@ function onRoomEvent(e) {
   else if (e.type === 'rec:stop') setRec(null, { announce: 'stop', reason: e.reason });
 }
 // Efter ett avbrott (t.ex. servern startade om): hämta rummet igen och visa det vi missat.
+// Peels efter ett avbrott eller när någon slår på dem: lägg till det som saknas, ta bort det som sopats.
+function syncPeels(info, peels = [], images = {}) {
+  peelLayer.setOn(!!info?.peels); updatePeelUi();
+  const alive = new Set(peels.map((p) => p.id));
+  peelLayer.remove(peelLayer.info().peels.map((p) => p.id).filter((id) => !alive.has(id) && !id.startsWith('tmp-')));
+  for (const p of peels) peelLayer.add(p, images[p.imageId]);
+}
 async function resyncRoom() {
   try {
-    const { stamps: list, images, info, cameras } = await api.loadRoom(ROOM);
+    const { stamps: list, images, info, cameras, peels } = await api.loadRoom(ROOM);
     cams.set(cameras || []); renderCams();
+    syncPeels(info, peels, images);
     const alive = new Set(list.map((s) => s.id));
     for (const id of [...stamps.meshes.keys()]) if (!alive.has(id) && !id.startsWith('tmp-')) stamps.remove(id); // väntande klibbor får vara kvar
     await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
@@ -1102,6 +1164,7 @@ function frame() {
   // gubbar precis vid kameran döljs, och min egen om kameran kommer för nära (t.ex. mot en vägg)
   together.update(dt, eyeCam.position, { hideSelf: !tp || chase.dist < CHASE.hideBelow });
   cams.update(cv ? null : eyeCam.position);
+  peelLayer.update();
   updateHover(performance.now());
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
@@ -1153,6 +1216,7 @@ window.klibb = {
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
-  setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
+  setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
+  peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, maxSizeCm: MAX_SIZE_CM,
 };

@@ -13,6 +13,8 @@ const { broadcast, cleanName } = require('./realtime');
 
 // Konstnärens namn och länk (samma regler som i webbläsaren). ESM-modul, så den laddas med import().
 const artistLinkMod = import('../shared/artistlink.mjs');
+// Peels (baksidespapper): samma beräkningar som i webbläsaren (fallbana, landning, överlapp).
+const peelsMod = import('../shared/peels.mjs');
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
@@ -168,7 +170,7 @@ function cleanStyle(s) {
   return out;
 }
 const styleOf = (r) => r.style || { ...STYLES.default }; // äldre rum: dagens utseende
-const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt, style: styleOf(r),
+const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt, style: styleOf(r), peels: !!r.peelsOn,
   quickTtlHours: r.type === 'quick' ? quickTtlHours : null });
 
 // Skapa ett nytt snabbrum (inget konto behövs). Svarar med en kort kod, t.ex. "k7m2qx".
@@ -248,7 +250,15 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
     if (m) images[s.imageId] = m;
     return !!m;
   }).map((s) => publicStamp(isNum(s.size) && s.size > MAX_STAMP_SIZE ? { ...s, size: MAX_STAMP_SIZE } : s)); // gamla för stora stämplar
-  res.json({ room: id, info: roomPublic(room), stamps, images, cameras: room.cameras || [], ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });
+  // Baksidespapper på golvet (bara när rummet har peels på). Bilden behövs för formen.
+  let peels = [];
+  if (room.peelsOn && Array.isArray(room.peels) && room.peels.length) {
+    const pIds = [...new Set(room.peels.map((p) => p.imageId))].filter((i) => !ok.has(i));
+    const pMetas = await Promise.all(pIds.map((i) => imageAvailable(i)));
+    pIds.forEach((i, n) => ok.set(i, pMetas[n]));
+    peels = room.peels.filter((p) => { const m = ok.get(p.imageId); if (m) images[p.imageId] = m; return !!m; });
+  }
+  res.json({ room: id, info: roomPublic(room), stamps, peels, images, cameras: room.cameras || [], ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });
 }));
 
 const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
@@ -272,6 +282,13 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   if (!image) return res.status(410).json({ error: 'That design is no longer on the server. Please upload it again.', gone: true });
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Invalid position' });
   if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
+  // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).
+  const P = await peelsMod;
+  let peelSt = await store.peelState(room);
+  if (peelSt.on && peelSt.peels.length && P.onFloor(String(b.surface || ''), b.normal)) {
+    const frac = await floorOverlap(P, image, b, peelSt.peels);
+    if (frac > P.PEEL.refuseOverlap) return res.status(409).json({ error: 'Nope.', nope: true, overlap: Math.round(frac * 1000) / 1000 });
+  }
   // Peel-nyckel: bara den som stämplade får den. Servern sparar bara en hash av den.
   const peelToken = crypto.randomBytes(24).toString('base64url');
   // Vem stämplade (för gränsen på 20 peel-bara per person och rum): en slumpad enhets-id från
@@ -292,8 +309,77 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   // by: vem i rummet (WebSocket-id) som slappade, så de andras webbläsare kan visa gubbens slap.
   // Sparas inte med klibban. Äldre klienter skickar inget och bryr sig inte om fältet.
   const by = playerId(b.by);
-  broadcast(room, { type: 'stamp:add', stamp, image, ...(nonce ? { nonce } : {}), ...(by ? { by } : {}) });
-  res.json({ stamp, image, peelToken });
+  // Peels på: baksidespappret faller från den som slappade (fallet räknas ut av klienterna från seed).
+  let peel = null;
+  if (peelSt.on || (await store.peelState(room)).on) {
+    const from = cleanFrom(b.peelFrom) || fallbackFrom(b.position, b.normal);
+    const seed = nonce && /^[A-Za-z0-9_-]{1,40}$/.test(nonce) ? nonce : saved.id;
+    const { side, ...plan } = P.peelPlan(seed, from, b.position);
+    const [w, h] = P.stampDims(image, stamp.size);
+    peel = await store.addPeel(room, { id: saved.id, imageId: image.id, w: Math.round(w * 1e4) / 1e4, h: Math.round(h * 1e4) / 1e4, seed, ...plan }, P.PEEL.maxPerRoom);
+  }
+  broadcast(room, { type: 'stamp:add', stamp, image, ...(nonce ? { nonce } : {}), ...(by ? { by } : {}), ...(peel ? { peel } : {}) });
+  res.json({ stamp, image, peelToken, ...(peel ? { peel } : {}) });
+}));
+
+// Var stod den som slappade? { p: [x, z], yaw } från klienten, inom rummet. Annars gissar vi:
+// en bit framför klibban (längs normalen), vänd mot den.
+function cleanFrom(f) {
+  if (!f || typeof f !== 'object' || !isVec(f.p, 2) || !isNum(f.yaw)) return null;
+  const hx = ROOM_SIZE.width / 2, hz = ROOM_SIZE.depth / 2;
+  return { x: Math.min(hx, Math.max(-hx, f.p[0])), z: Math.min(hz, Math.max(-hz, f.p[1])), yaw: f.yaw };
+}
+function fallbackFrom(pos, n) {
+  const horiz = Math.hypot(n[0], n[2]);
+  const nx = horiz > 0.3 ? n[0] / horiz : 0, nz = horiz > 0.3 ? n[2] / horiz : 1;
+  const x = pos[0] + nx * 0.8, z = pos[2] + nz * 0.8;
+  return cleanFrom({ p: [x, z], yaw: Math.atan2(nx, nz) });
+}
+// Formen (alfamask) per design, för överlappet på golvet. Cachas (en design ändras aldrig).
+const maskCache = new Map();
+async function imageMask(P, id) {
+  if (maskCache.has(id)) return maskCache.get(id);
+  const buf = await store.getImageFile(id);
+  let mask = null;
+  if (buf) {
+    const n = P.PEEL.maskSize;
+    const raw = await sharp(buf).ensureAlpha().resize(n, n, { fit: 'fill' }).extractChannel(3).raw().toBuffer();
+    mask = P.maskFromAlpha(raw, n);
+  }
+  if (maskCache.size > 2000) maskCache.delete(maskCache.keys().next().value);
+  maskCache.set(id, mask);
+  return mask;
+}
+async function floorOverlap(P, image, b, peels) {
+  const [w, h] = P.stampDims(image, clampSize(b.size));
+  const { u, v } = P.stampFrame(b.quaternion);
+  const sticker = { x: b.position[0], z: b.position[2], w, h, u, v };
+  const R = Math.hypot(w, h) / 2;
+  const near = peels.filter((p) => Math.hypot(p.x - sticker.x, p.z - sticker.z) < R + Math.hypot(p.w, p.h) / 2);
+  if (!near.length) return 0;
+  sticker.mask = await imageMask(P, image.id);
+  const withMasks = await Promise.all(near.map(async (p) => ({ ...p, mask: await imageMask(P, p.imageId) })));
+  return P.overlapFraction(sticker, withMasks);
+}
+
+// Peels på/av (rummets skapare med rumsnyckeln, eller admin; Staden bara admin). { on: true|false }
+app.put('/api/rooms/:room/peels', rateLimit(30), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  if (typeof req.body?.on !== 'boolean') return res.status(400).json({ error: 'on must be true or false' });
+  const r = await store.setPeelsOn(id, req.body.on, canEditRoom(req));
+  if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can change this' });
+  broadcast(id, { type: 'room:peels', on: req.body.on });
+  res.json({ ok: true, on: req.body.on });
+}));
+// Sopa golvet: allt baksidespapper bort. Samma rättighet.
+app.post('/api/rooms/:room/peels/clear', rateLimit(20), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  const r = await store.clearPeels(id, canEditRoom(req));
+  if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can change this' });
+  broadcast(id, { type: 'peels:clear' });
+  res.json({ ok: true, removed: r });
 }));
 
 // Peela egna stämplar: { items: [{ id, token }, ...] } (högst 200 åt gången, t.ex. "Peela alla").

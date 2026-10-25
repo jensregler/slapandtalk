@@ -45,7 +45,7 @@ export class Sounds {
       L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0;
     } else if (L.setPosition) { L.setPosition(pos.x, pos.y, pos.z); L.setOrientation(forward.x, forward.y, forward.z, 0, 1, 0); }
   }
-  // kind: 'slap' | 'peel'. at = [x, y, z] for someone else's sound (spatial), or null for my own.
+  // kind: 'slap' | 'peel' | 'nope'. at = [x, y, z] for someone else's sound (spatial), or null for my own.
   play(kind, at = null) {
     const rate = 0.9 + Math.random() * 0.22; // small random pitch variation
     const remote = !!at;
@@ -72,6 +72,7 @@ export class Sounds {
     }
     const t = ctx.currentTime + 0.005;
     if (kind === 'slap') this.slap(ctx, out, t, rate, remote ? 0.9 : 0.75);
+    else if (kind === 'nope') this.nope(ctx, out, t, 0.5);
     else this.peel(ctx, out, t, rate, remote ? 0.6 : 0.45);
     return entry;
   }
@@ -96,6 +97,17 @@ export class Sounds {
     const g3 = ctx.createGain();
     g3.gain.setValueAtTime(0.0001, t + 0.012); g3.gain.exponentialRampToValueAtTime(vol * 0.25, t + 0.016); g3.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
     n2.connect(bp2).connect(g3).connect(out); n2.start(t, Math.random() * 0.5); n2.stop(t + 0.08);
+  }
+  // "Nope": two short descending buzzy blips ("uh-uh"), the sticker refusing to stick.
+  nope(ctx, out, t, vol) {
+    for (const [dt, f0, f1] of [[0, 330, 290], [0.13, 260, 200]]) {
+      const o = ctx.createOscillator(); o.type = 'square';
+      o.frequency.setValueAtTime(f0, t + dt); o.frequency.exponentialRampToValueAtTime(f1, t + dt + 0.1);
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + dt); g.gain.exponentialRampToValueAtTime(vol * 0.35, t + dt + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.11);
+      o.connect(lp).connect(g).connect(out); o.start(t + dt); o.stop(t + dt + 0.12);
+    }
   }
   peel(ctx, out, t, rate, vol) {
     const dur = 0.26 / rate;

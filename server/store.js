@@ -13,6 +13,9 @@
 //   { id, type, owner, createdAt, lastVisitAt, style, stamps: [...], cameras: [...] }
 //   cameras = virtuella kameror för inspelning: { id, name, p, yaw, pitch, fov, aspect, createdAt }
 //   owner = null, eller { id, name } när konton finns.
+//   peelsOn = true om rummet har "peels" på (baksidespappret faller till golvet vid varje slap), annars saknas fältet.
+//   peels = [{ id, imageId, w, h, seed, start, x, z, yaw, order, createdAt }] (högst maxPerRoom, de äldsta försvinner).
+//     Peelar man klibban från väggen ligger pappret kvar. Saknas i äldre rum (= inga).
 //
 // Bilder (designs) sparas EN gång och stämplarna pekar på dem med imageId.
 //   "images/<id>.json"  metadata  { id, url, width, height, artist, createdAt }
@@ -201,6 +204,45 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
     });
   }
 
+  // Peels på/av. canEdit som för utseendet. Svar: 'ok', 'notfound' eller 'forbidden'.
+  async function setPeelsOn(id, on, canEdit) {
+    return withLock(id, async () => {
+      let room = await loadRoom(id);
+      if (!room && id === PUBLIC_ROOM) room = normalize(id, { createdAt: iso() });
+      if (!room) return 'notfound';
+      if (!canEdit(room)) return 'forbidden';
+      if (on) room.peelsOn = true; else delete room.peelsOn;
+      await saveRoom(room);
+      return 'ok';
+    });
+  }
+  // Ta bort allt baksidespapper på golvet. Svar: antal, 'notfound' eller 'forbidden'.
+  async function clearPeels(id, canEdit) {
+    return withLock(id, async () => {
+      const room = await loadRoom(id);
+      if (!room) return 'notfound';
+      if (!canEdit(room)) return 'forbidden';
+      const n = (room.peels || []).length;
+      if (n) { room.peels = []; await saveRoom(room); }
+      return n;
+    });
+  }
+  // Ett nytt papper på golvet (bara om rummet har peels på). Svar: pappret eller null.
+  async function addPeel(id, peel, max = 300) {
+    return withLock(id, async () => {
+      const room = await loadRoom(id);
+      if (!room || !room.peelsOn) return null;
+      room.peels = Array.isArray(room.peels) ? room.peels : [];
+      const p = { order: (room.peels.at(-1)?.order ?? 0) + 1, createdAt: iso(), ...peel };
+      room.peels.push(p);
+      if (room.peels.length > max) room.peels.splice(0, room.peels.length - max);
+      await saveRoom(room);
+      return p;
+    });
+  }
+  // Läs peels-läget utan kopia (bara för att läsa, t.ex. vid varje slap på golvet).
+  async function peelState(id) { const r = await loadRoom(id); return { on: !!r?.peelsOn, peels: r?.peels || [] }; }
+
   // Ändra rummets kameror. fn(cameras, room) ändrar listan och returnerar svaret.
   // Svar: fn:s svar, 'notfound' eller 'forbidden'. Staden skapas om admin lägger en kamera där.
   async function editCameras(id, canEdit, fn) {
@@ -295,9 +337,10 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       await withLock(id, async () => {
         const room = await loadRoom(id);
         if (!room) return;
-        const before = room.stamps.length;
+        const before = room.stamps.length, peelsBefore = (room.peels || []).length;
         room.stamps = room.stamps.filter((s) => s.imageId !== imageId);
-        if (room.stamps.length !== before) { removed += before - room.stamps.length; await saveRoom(room); }
+        if (room.peels) room.peels = room.peels.filter((p) => p.imageId !== imageId);
+        if (room.stamps.length !== before || (room.peels || []).length !== peelsBefore) { removed += before - room.stamps.length; await saveRoom(room); }
       });
     }
     return removed;
@@ -355,7 +398,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
 
   return {
     adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
-    deleteStampsWithImage, cleanupRooms, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
+    deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, addPeel, peelState, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, migrate, flush, pendingWrites, evictIdle,
   };
 }

@@ -356,3 +356,12 @@ a.btn { display: flex; flex: 1; min-height: 44px; align-items: center; justify-c
   padding: 10px 12px; border-radius: 10px; border: 1px solid #555; background: #2a2a2a; color: #eee; font: inherit; cursor: pointer; }
 a.btn.primary { background: #fff; color: #111; font-weight: 700; border-color: #fff; }
 #artist-link-msg.bad { color: #ff8a80; }
+
+/* Peels: knappen i Room ▾ och axelryckningen när en klibba inte fastnar */
+#peels-box { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid #333; padding-top: 6px; }
+#peels-box[hidden], #peels-clear[hidden] { display: none; }
+#peels-box label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
+#nope-shrug { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.6); font-size: 34px; pointer-events: none; opacity: 0; z-index: 20; }
+#nope-shrug.show { animation: nope-shrug .75s ease-out; }
+@keyframes nope-shrug { 0% { opacity: 0; transform: translate(-50%, -40%) scale(.6) rotate(0); } 20% { opacity: 1; transform: translate(-50%, -110%) scale(1) rotate(-10deg); }
+  45% { transform: translate(-50%, -110%) scale(1) rotate(10deg); } 70% { opacity: 1; transform: translate(-50%, -120%) scale(1) rotate(0); } 100% { opacity: 0; transform: translate(-50%, -150%) scale(.9); } }

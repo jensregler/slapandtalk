@@ -1,7 +1,7 @@
 // Alla anrop till servern samlade på ett ställe.
 async function json(res) {
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || `Fel ${res.status}`), { status: res.status, gone: !!data.gone });
+  if (!res.ok) throw Object.assign(new Error(data.error || `Fel ${res.status}`), { status: res.status, gone: !!data.gone, nope: !!data.nope });
   return data;
 }
 
@@ -65,4 +65,7 @@ Object.assign(api, {
   addCamera: (room, cam, auth) => send('POST', `/api/rooms/${room}/cameras`, cam, auth),
   updateCamera: (room, id, patch, auth) => send('PUT', `/api/rooms/${room}/cameras/${id}`, patch, auth),
   removeCamera: (room, id, auth) => send('DELETE', `/api/rooms/${room}/cameras/${id}`, undefined, auth),
+  // Peels (baksidespapper) på/av och sopa golvet. Samma rättighet som rummets utseende.
+  setPeels: (room, on, auth) => send('PUT', `/api/rooms/${room}/peels`, { on }, auth),
+  clearPeels: (room, auth) => send('POST', `/api/rooms/${room}/peels/clear`, {}, auth),
 });

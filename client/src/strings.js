@@ -151,6 +151,9 @@ export const EN = {
   avatarName: 'Name (shown above your head)', avatarNamePlaceholder: 'e.g. Jens',
   outfit: 'Outfit', hair: 'Hair', shirt: 'Top', pants: 'Trousers', hairColor: 'Hair colour', skin: 'Skin', cap: 'Cap',
   capColour: 'Cap colour',
+  // Peels (backing paper on the floor)
+  peelsToggle: '🧻 Peels: backing paper falls to the floor', peelsTitle: 'Every slap drops the sticker’s backing paper on the floor, like for real',
+  peelsClear: '🧹 Sweep up the peels', peelsOnToast: 'Peels on: the backing paper lands on the floor.', peelsOffToast: 'Peels off.', peelsCleared: 'The floor is swept.',
   // Fabrics: an image repeated over a body part instead of the colour
   fabColour: 'Colour', fabFabric: 'Fabric', fabModeAria: (part) => `${part}: colour or fabric`,
   fabUpload: '📷 Upload image', fabUploadTitle: 'Use a picture from your device as fabric (it gets repeated)',
