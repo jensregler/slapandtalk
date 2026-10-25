@@ -101,7 +101,7 @@ function tokenMatches(token, hash) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 // Det som visas för alla: aldrig peel-hashen.
-const publicStamp = ({ peelHash, ...s }) => s;
+const publicStamp = ({ peelHash, peelOwner, ...s }) => s; // peel-nyckel och ägare visas aldrig
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // Vilka av de här bilderna finns kvar? ?ids=a,b,c  ->  { images: { a: {...}, c: {...} } }
@@ -204,8 +204,11 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
   // Peel-nyckel: bara den som stämplade får den. Servern sparar bara en hash av den.
   const peelToken = crypto.randomBytes(24).toString('base64url');
+  // Vem stämplade (för gränsen på 20 peel-bara per person och rum): en slumpad enhets-id från
+  // webbläsaren, annars IP-adressen. Bara en hash sparas.
+  const owner = typeof b.owner === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(b.owner) ? 'd:' + b.owner : 'ip:' + req.ip;
   const saved = await store.addStamp(room, {
-    peelHash: hashToken(peelToken),
+    peelHash: hashToken(peelToken), peelOwner: hashToken(owner).slice(0, 24),
     imageId: image.id,
     position: b.position, normal: b.normal, quaternion: b.quaternion,
     size: clampSize(b.size), rotation: isNum(b.rotation) ? b.rotation : 0,

@@ -53,6 +53,17 @@ klibban (servern sparar bara en hash av den, och den syns aldrig för andra). Ny
 webbläsaren, så byter du enhet eller rensar webbläsaren kan du inte längre peela de gamla.
 Admin kan fortfarande ta bort allt. Andra som är i rummet ser att klibban försvinner direkt.
 
+**Bara de senaste 20:** du kan peela dina **20 senaste** klibbor i varje rum (*You can peel your
+last 20 slaps in this room*). Äldre sitter kvar för gott (bara admin kan ta bort dem). Servern
+sparar bara peel-nycklar för de 20 senaste per person och rum (person = en slumpad id för
+enheten, `klibb.device`, annars IP-adressen; bara en hash sparas och den visas aldrig), och
+webbläsaren sparar bara 20 per rum. *Peel all* peelar alltså högst 20.
+
+**Snabb peel:** trycker du Z/↩ så fort du kan peelas klibban på skärmen direkt (med ljud), och
+anropen till servern slås ihop: högst ett anrop åt gången, med allt som hunnit peelas under
+tiden. Svarar servern att en klibba inte gick att peela (för gammal) eller blir det fel på nätet,
+kommer den tillbaka på väggen.
+
 **Slap mode och Look mode (V):** du börjar i *Slap mode*: den genomskinliga pekaren visar var
 klibban hamnar och ett klick stämplar. Tryck **V** (eller knappen *Look mode*) när du vill kliva
 tillbaka och beundra väggen: pekaren och siktet försvinner (kvar är bara en liten prick), klick

@@ -23,6 +23,7 @@ const crypto = require('crypto');
 const ROOM_TYPES = ['stad', 'quick', 'profile'];
 const PUBLIC_ROOM = 'stad';
 const VISIT_WRITE_MS = 60_000; // skriv "senast besökt" högst en gång i minuten per rum
+const PEEL_KEEP = 20; // så många av sina senaste stämplar per rum kan man peela
 
 const newId = () => crypto.randomBytes(8).toString('hex');
 const contentId = (buf) => crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
@@ -123,6 +124,12 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
       const room = (await getRoom(roomId)) || normalize(roomId, { createdAt: iso() });
       const s = { id: newId(), order: (room.stamps.at(-1)?.order ?? 0) + 1, createdAt: iso(), ...stamp };
       room.stamps.push(s);
+      // Bara de senaste PEEL_KEEP stämplarna per person och rum går att peela: äldre tappar sin
+      // peel-nyckel (då kan bara admin ta bort dem).
+      if (s.peelOwner) {
+        const mine = room.stamps.filter((x) => x.peelOwner === s.peelOwner && x.peelHash);
+        for (const old of mine.slice(0, Math.max(0, mine.length - PEEL_KEEP))) { delete old.peelHash; delete old.peelOwner; }
+      }
       room.lastVisitAt = iso();
       await saveRoom(room);
       return s;
@@ -215,4 +222,4 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   };
 }
 
-module.exports = { createStore, newId, contentId, roomCode, ROOM_TYPES, PUBLIC_ROOM };
+module.exports = { createStore, newId, contentId, roomCode, ROOM_TYPES, PUBLIC_ROOM, PEEL_KEEP };

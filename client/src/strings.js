@@ -74,6 +74,7 @@ export const EN = {
   // ---------- Peel and history ----------
   myslaps: 'My slaps in this room',
   historyEmpty: 'No slaps of yours here yet.',
+  historyLimit: (n) => `You can peel your last ${n} slaps in this room.`,
   historyItemTitle: 'Point or tap to see where it is',
   peelThis: 'Peel this one', peelThisAria: 'Peel this sticker',
   peelLast: '↩ Peel last', peelLastTitle: 'Peel your last sticker (Z)',

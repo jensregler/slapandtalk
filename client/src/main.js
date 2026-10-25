@@ -7,7 +7,7 @@ import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { api } from './api.js';
 import { foldStamp } from './fold.js';
-import { readHistory, addHistory, removeHistory, roomHistory, HISTORY_KEY } from './history.js';
+import { readHistory, addHistory, removeHistory, roomHistory, trimHistory, deviceId, HISTORY_KEY, PER_ROOM } from './history.js';
 import { readMine, addMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob } from './designs.js';
 import { initTogether } from './together.js';
 import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed } from './cameras.js';
@@ -285,7 +285,7 @@ async function stampAt(ndc) {
   sound.play('slap'); // direkt, utan att vänta på servern: det ska kännas som en riktig klibba
   const nonce = Math.random().toString(36).slice(2, 12);
   myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
-  const body = { nonce,
+  const body = { nonce, owner: deviceId(),
     imageId: design.id,
     position: h.point.toArray(), normal: h.normal.toArray(), quaternion: q.toArray(),
     size: Math.min(state.size, MAX_SIZE_CM / 100), rotation: state.rotation, surface: h.surface, artist: state.artist,
@@ -382,53 +382,80 @@ $('mode-look').onclick = () => { if (state.mode !== 'view') setMode('view'); };
 
 // ---------- Peel (ångra) och historik ----------
 // Peel tar bort en av MINA stämplar: servern kräver den hemliga nyckeln som bara den här
-// enheten fick när stämpeln sattes. Upprepade peel går bakåt i historiken.
-let peelQueue = Promise.resolve();
-const queuePeel = (fn) => (peelQueue = peelQueue.then(fn, fn));
+// enheten fick när stämpeln sattes. Upprepade peel går bakåt i historiken. Bara de senaste
+// 20 i rummet går att peela (history.js och servern).
+//
+// Snabbt och jämnt även när man trycker Z/↩ så fort man kan: klibban peelas på skärmen DIREKT
+// (med ljud), och anropen till servern slås ihop. Det går högst ett anrop åt gången; allt som
+// hunnit peelas under tiden skickas i nästa anrop, i en klump. Tidigare väntade varje tryck på
+// sitt eget anrop + animationen i en kö, så 40 snabba tryck blev 40 anrop i rad (många sekunder
+// efter att man slutat trycka), och servern svarade "för många" efter 60 i minuten.
+const peeling = new Map(); // stampId -> historikpost: peelad på skärmen, servern har inte svarat än
+let peelOutbox = []; // väntar på att skickas
+let peelInFlight = null;
+const peelable = () => roomHistory(ROOM).filter((h) => !peeling.has(h.stampId));
 
-// Peela de här posterna. Returnerar antal som togs bort. Stämplar som inte finns längre
-// (eller vars nyckel inte stämmer) tas tyst bort ur historiken.
-async function peelEntries(entries) {
-  if (!entries.length) return 0;
-  // Före anropet: servern kan hinna skicka ut "borttagen" innan svaret kommer, och då ska
-  // det inte låta som någon annans peel.
-  for (const h of entries) { myPeels.add(h.stampId); setTimeout(() => myPeels.delete(h.stampId), 60_000); }
-  let results;
-  try { ({ results } = await api.peel(ROOM, entries.map((h) => ({ id: h.stampId, token: h.token })))); } catch (err) {
-    toast(err.status === 429 ? S.slowDown : S.peelFailed); return -1;
+// Peela de här posterna direkt på skärmen och skicka dem till servern. Returnerar antal.
+function startPeel(entries) {
+  const fresh = entries.filter((h) => !peeling.has(h.stampId));
+  if (!fresh.length) return 0;
+  for (const h of fresh) {
+    peeling.set(h.stampId, h);
+    // Servern skickar ut "borttagen" till alla, även mig: det ska inte låta som någon annans peel.
+    myPeels.add(h.stampId); setTimeout(() => myPeels.delete(h.stampId), 60_000);
+    stamps.highlight(h.stampId, false);
+    stamps.peelAway(h.stampId);
   }
-  const done = entries.filter((h) => results[h.stampId] === 'ok');
-  if (done.length) sound.play('peel');
-  removeHistory(entries.filter((h) => results[h.stampId]).map((h) => h.stampId));
-  await Promise.all(done.map((h) => stamps.peelAway(h.stampId)));
-  updateCount(); renderHistory();
-  return done.length;
+  peelOutbox.push(...fresh);
+  sound.play('peel');
+  updateCount(); scheduleHistory();
+  flushPeels();
+  return fresh.length;
 }
+function flushPeels() {
+  if (peelInFlight) return peelInFlight;
+  if (!peelOutbox.length) return Promise.resolve();
+  const batch = peelOutbox.splice(0, 200);
+  peelInFlight = (async () => {
+    let results = null;
+    try { ({ results } = await api.peel(ROOM, batch.map((h) => ({ id: h.stampId, token: h.token })))); } catch (err) {
+      toast(err.status === 429 ? S.slowDown : S.peelFailed);
+    }
+    // ok = borta. notfound = fanns redan inte. forbidden = nyckeln gäller inte längre (för gammal):
+    // den finns kvar i rummet. Ett fel (nätet, för många): de finns kvar, och kan peelas igen.
+    if (results) removeHistory(batch.filter((h) => results[h.stampId]).map((h) => h.stampId));
+    const back = batch.filter((h) => !results || results[h.stampId] === 'forbidden');
+    for (const h of batch) peeling.delete(h.stampId);
+    if (back.length) { for (const h of back) stamps.gone.delete(h.stampId); await resyncRoom(); }
+    updateCount(); scheduleHistory();
+    peelInFlight = null;
+    return flushPeels();
+  })();
+  return peelInFlight;
+}
+// Vänta tills allt som peelats har bekräftats av servern.
+async function peelSettled() { while (peelInFlight || peelOutbox.length) await flushPeels(); }
 
 function peelLast() {
-  return queuePeel(async () => {
-    // Gå bakåt tills något faktiskt peelas (hoppa över sådant som redan är borta).
-    for (let tries = 0; tries < 20; tries++) {
-      const next = roomHistory(ROOM)[0];
-      if (!next) { toast(S.nothingToPeel); return false; }
-      const n = await peelEntries([next]);
-      if (n < 0) return false;
-      if (n > 0) { toast(S.peeled, 900); return true; }
-    }
-    return false;
-  });
+  const list = peelable();
+  // Helst en som syns i rummet (gamla poster som redan är borta städas bort av servern).
+  const next = list.find((h) => stamps.meshes.has(h.stampId)) || list[0];
+  if (!next) { toast(S.nothingToPeel); return Promise.resolve(false); }
+  startPeel([next]); toast(S.peeled, 900);
+  return peelSettled().then(() => true);
 }
 
 function peelAll() {
-  return queuePeel(async () => {
-    const all = roomHistory(ROOM);
-    if (!all.length) { toast(S.nothingToPeel); return 0; }
-    let total = 0;
-    for (let i = 0; i < all.length; i += 200) { const n = await peelEntries(all.slice(i, i + 200)); if (n < 0) return total; total += n; }
-    toast(total ? S.peeledN(total) : S.nothingToPeel);
-    return total;
-  });
+  const all = peelable();
+  if (!all.length) { toast(S.nothingToPeel); return Promise.resolve(0); }
+  const n = startPeel(all);
+  toast(S.peeledN(n));
+  return peelSettled().then(() => n);
 }
+
+// Historiklistan ritas om högst en gång per bildruta, hur många peel det än blir.
+let historyRaf = 0;
+function scheduleHistory() { if (!historyRaf) historyRaf = requestAnimationFrame(() => { historyRaf = 0; renderHistory(); }); }
 
 function fmtTime(iso) {
   const d = new Date(iso), now = new Date();
@@ -436,11 +463,11 @@ function fmtTime(iso) {
   return d.toDateString() === now.toDateString() ? t : `${d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' })} ${t}`;
 }
 function renderHistory() {
-  const list = roomHistory(ROOM);
+  const list = peelable();
   const ul = $('history-list'); ul.innerHTML = '';
   $('history-count').textContent = list.length ? String(list.length) : '';
   $('peel-last').disabled = $('peel-all').disabled = !list.length;
-  for (const h of list.slice(0, 200)) {
+  for (const h of list) {
     const li = document.createElement('li');
     li.dataset.id = h.stampId;
     li.title = S.historyItemTitle;
@@ -449,11 +476,7 @@ function renderHistory() {
     li.onmouseenter = () => hl(true);
     li.onmouseleave = () => hl(false);
     li.onclick = (e) => { if (e.target.closest('button')) return; hl(true); setTimeout(() => hl(false), 1200); };
-    li.querySelector('button').onclick = () => queuePeel(async () => {
-      hl(false);
-      const n = await peelEntries([h]);
-      if (n > 0) toast(S.peeled, 900); else if (n === 0) renderHistory();
-    });
+    li.querySelector('button').onclick = () => { hl(false); if (startPeel([h])) toast(S.peeled, 900); };
     ul.appendChild(li);
   }
 }
@@ -462,7 +485,7 @@ let peelAllTimer;
 $('peel-all').onclick = () => {
   const b = $('peel-all');
   if (!b.classList.contains('confirm')) {
-    b.classList.add('confirm'); b.textContent = S.peelAllConfirm(roomHistory(ROOM).length);
+    b.classList.add('confirm'); b.textContent = S.peelAllConfirm(peelable().length);
     clearTimeout(peelAllTimer);
     peelAllTimer = setTimeout(() => { b.classList.remove('confirm'); b.textContent = S.peelAll; }, 4000);
     return;
@@ -472,7 +495,9 @@ $('peel-all').onclick = () => {
 };
 $('peel-last').onclick = () => peelLast();
 $('peel-btn').onclick = (e) => { e.preventDefault(); peelLast(); };
-addEventListener('storage', (e) => { if (e.key === HISTORY_KEY) renderHistory(); });
+addEventListener('storage', (e) => { if (e.key === HISTORY_KEY) scheduleHistory(); });
+trimHistory(); // äldre listor kan ha fler än 20 per rum
+$('history-limit').textContent = S.historyLimit(PER_ROOM);
 // Efter att rummet laddats: glöm stämplar som inte finns kvar på servern (raderade, städade).
 function pruneHistory(stampIds) {
   const alive = new Set(stampIds);
@@ -684,7 +709,7 @@ function onRoomEvent(e) {
     const m = stamps.meshes.get(e.id);
     if (m && !myPeels.has(e.id)) sound.play('peel', m.userData.stamp.position);
     stamps.peelAway(e.id).then(updateCount);
-    if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); renderHistory(); }
+    if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); scheduleHistory(); }
   } else if (e.type === 'image:remove') { stamps.removeImage(e.id); updateCount(); }
   else if (e.type === 'room:style' && e.style) {
     currentStyle = normalizeStyle(e.style); updateStyleUi();
@@ -874,5 +899,5 @@ window.klibb = {
   cameras: () => cams.list(), camerasVisible: () => [...cams.map.values()].some((e) => e.obj.visible), addCamera: addCam, updateCamera: updateCam, removeCamera: removeCam,
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
-  nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => roomHistory(ROOM), setSize, maxSizeCm: MAX_SIZE_CM,
+  nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, maxSizeCm: MAX_SIZE_CM,
 };

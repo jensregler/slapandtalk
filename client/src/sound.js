@@ -33,11 +33,16 @@ export class Sounds {
   setListener(pos, forward) {
     this.listener = { p: [pos.x, pos.y, pos.z], f: [forward.x, forward.y, forward.z] };
     const ctx = this.ctx; if (!ctx) return;
-    const L = ctx.listener, t = ctx.currentTime;
+    // Bara när något ändrats, och med .value (inte setValueAtTime): en automationshändelse per
+    // bildruta och parameter gör att ljudtrådens tidslinjer växer hela tiden.
+    const L = ctx.listener;
+    const key = this.listener.p.concat(this.listener.f).map((n) => n.toFixed(2)).join();
+    if (key === this.listenerKey) return;
+    this.listenerKey = key;
     if (L.positionX) {
-      L.positionX.setValueAtTime(pos.x, t); L.positionY.setValueAtTime(pos.y, t); L.positionZ.setValueAtTime(pos.z, t);
-      L.forwardX.setValueAtTime(forward.x, t); L.forwardY.setValueAtTime(forward.y, t); L.forwardZ.setValueAtTime(forward.z, t);
-      L.upX.setValueAtTime(0, t); L.upY.setValueAtTime(1, t); L.upZ.setValueAtTime(0, t);
+      L.positionX.value = pos.x; L.positionY.value = pos.y; L.positionZ.value = pos.z;
+      L.forwardX.value = forward.x; L.forwardY.value = forward.y; L.forwardZ.value = forward.z;
+      L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0;
     } else if (L.setPosition) { L.setPosition(pos.x, pos.y, pos.z); L.setOrientation(forward.x, forward.y, forward.z, 0, 1, 0); }
   }
   // kind: 'slap' | 'peel'. at = [x, y, z] for someone else's sound (spatial), or null for my own.
@@ -51,12 +56,19 @@ export class Sounds {
     this.log.push(entry); if (this.log.length > 50) this.log.shift();
     if (this.muted) return entry;
     const ctx = this.ensure(); if (!ctx) return entry;
+    // Högst 12 ljud samtidigt: trycker någon Z väldigt fort hoppas resten över i stället för att
+    // ljudtråden fylls med noder.
+    const now = ctx.currentTime;
+    this.voices = (this.voices || []).filter((end) => end > now);
+    if (this.voices.length >= 12) { entry.skipped = true; return entry; }
+    this.voices.push(now + 0.4);
     let out = this.master;
     if (remote) {
       const p = ctx.createPanner();
       p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 1.6; p.rolloffFactor = 1; p.maxDistance = 30;
       if (p.positionX) { p.positionX.value = at[0]; p.positionY.value = at[1]; p.positionZ.value = at[2]; } else p.setPosition(...at);
       p.connect(this.master); out = p;
+      setTimeout(() => p.disconnect(), 800); // när ljudet är slut
     }
     const t = ctx.currentTime + 0.005;
     if (kind === 'slap') this.slap(ctx, out, t, rate, remote ? 0.9 : 0.75);

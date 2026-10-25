@@ -175,6 +175,19 @@ async function roomLifecycle(name, adapter) {
       const after = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
       assert(batch.results[mine2.stamp.id] === 'forbidden' && batch.results.ffffffffffffffff === 'notfound' && batch2.results[mine2.stamp.id] === 'ok'
         && !after.stamps.some((x) => x.id === mine1.stamp.id || x.id === mine2.stamp.id) && after.stamps.length === 3, 'flera på en gång (Peela alla): bara rätt nyckel räknas');
+      // ---------- Bara de senaste 20 per person och rum går att peela ----------
+      const a25 = []; for (let i = 0; i < 25; i++) a25.push(await post({ owner: 'enhet-anna-123' }));
+      const b2 = [await post({ owner: 'enhet-bosse-456' }), await post({ owner: 'enhet-bosse-456' })];
+      const raw2 = (await s3a.get(`rooms/${r.room.id}.json`)).toString();
+      const list2 = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).text();
+      const ids2 = new Set([...a25, ...b2].map((x) => x.stamp.id)); const keyed = JSON.parse(raw2).stamps.filter((x) => x.peelHash && ids2.has(x.id));
+      assert(keyed.length === 22 && !raw2.includes('enhet-anna') && !list2.includes('peelOwner') && !a25[0].stamp.peelOwner,
+        `servern sparar peel-nycklar bara för de senaste 20 per person (${keyed.length} = 20 + 2), och ägaren syns aldrig`);
+      const pAll = await (await fetch(`${base}/api/rooms/${r.room.id}/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: [...a25, ...b2].map((x) => ({ id: x.stamp.id, token: x.peelToken })) }) })).json();
+      const resA = a25.map((x) => pAll.results[x.stamp.id]);
+      assert(resA.slice(0, 5).every((x) => x === 'forbidden') && resA.slice(5).every((x) => x === 'ok') && b2.every((x) => pAll.results[x.stamp.id] === 'ok'),
+        'de 5 äldsta av 25 går inte längre att peela (403), de senaste 20 går, och en annan persons gräns är egen');
       assert(st.status === 200 && room.stamps.length === 1 && room.stamps[0].imageId === i1.id && room.images[i1.id], 'stämplar pekar på designen med imageId');
     } finally { server.close(); }
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
