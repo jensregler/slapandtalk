@@ -110,6 +110,30 @@ export class StampLayer {
     this.meshes.set(stamp.id, mesh);
   }
 
+  // Högsta numret bland klibborna (en ny tillfällig klibba hamnar överst).
+  topOrder() {
+    let max = 0;
+    for (const m of this.meshes.values()) max = Math.max(max, m.userData.stamp.order || 0);
+    return max;
+  }
+
+  // En tillfällig klibba (visad direkt vid slap) blir serverns stämpel: samma mesh, nytt id.
+  // Svar: false om den tillfälliga inte finns (än), då får man lägga till stämpeln vanligt.
+  confirm(tempId, stamp, image) {
+    const m = this.meshes.get(tempId);
+    if (!m) { this.gone.add(tempId); return false; } // laddas den fortfarande ska den inte dyka upp
+    this.meshes.delete(tempId); this.gone.add(tempId);
+    if (this.meshes.has(stamp.id) || this.gone.has(stamp.id)) { // redan där, eller peelad
+      this.scene.remove(m); m.geometry.dispose(); if (m.userData.ownMaterial) m.material.dispose();
+      return true;
+    }
+    const hl = m.userData.hl;
+    m.userData = { stamp, image, ...(hl ? { hl } : {}) };
+    m.renderOrder = 10 + stamp.order + (hl ? 1e5 : 0);
+    this.meshes.set(stamp.id, m);
+    return true;
+  }
+
   remove(stampId) {
     this.gone.add(stampId);
     const m = this.meshes.get(stampId);

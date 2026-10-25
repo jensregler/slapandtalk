@@ -80,6 +80,76 @@ async function roomLifecycle(name, adapter) {
   assert((await store.getRoom('stad')).stamps.length === 1, `${name}: stämplarna i Staden finns kvar`);
 }
 
+// ---------- Snabb klibba: svaret väntar inte på lagringen (R2 ligger långt bort) ----------
+// En "långsam S3" (varje anrop tar 150 ms, som Render i USA mot R2 i Europa). En stämpling ska
+// ändå svara och skickas ut direkt, skrivas till lagringen strax efter, försöka igen om det
+// misslyckas, och allt ska finnas kvar efter flush() (det servern gör vid SIGTERM).
+async function writeBehind() {
+  const LAG = 150;
+  const s3 = fakeS3();
+  const calls = [];
+  let failPuts = 0;
+  const slow = {
+    objects: s3.objects,
+    async send(cmd) {
+      calls.push(cmd.constructor.name + ' ' + (cmd.input.Key || cmd.input.Prefix));
+      await new Promise((r) => setTimeout(r, LAG));
+      if (cmd.constructor.name === 'PutObjectCommand' && cmd.input.Key.startsWith('rooms/') && failPuts > 0) { failPuts--; throw Object.assign(new Error('R2 svarar inte'), { code: 'ECONNRESET' }); }
+      return s3.send(cmd);
+    },
+  };
+  const adapter = new S3Adapter({ bucket: 'test', client: slow });
+  const errs = [];
+  const store = createStore(adapter, { writeDelayMs: 50, retryMs: 50, log: { error: (m) => errs.push(m), log: () => {} } });
+  const app = createApp(store, { quickTtlHours: 24 });
+  const server = app.listen(0);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const png = await sharp({ create: { width: 32, height: 32, channels: 4, background: '#ff00aa' } }).png().toBuffer();
+    const fd = new FormData(); fd.append('file', new Blob([png], { type: 'image/png' }), 'k.png');
+    const img = await (await fetch(`${base}/api/stickers`, { method: 'POST', body: fd })).json();
+    await (await fetch(`${base}/api/rooms/snabb/stamps`)).json(); // rummet laddas (som när man går in)
+    const slap = (x) => fetch(`${base}/api/rooms/snabb/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageId: img.id, position: [x, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' }) }).then((r) => r.json());
+    calls.length = 0;
+    const t0 = Date.now();
+    const first = await slap(0);
+    const ms = Date.now() - t0;
+    assert(first.stamp && ms < LAG && calls.length === 0, `en klibba svarar direkt (${ms} ms) utan att vänta på lagringen (${LAG} ms per anrop, ${calls.length} anrop före svaret)`);
+    const burst = await Promise.all([1, 2, 3, 4, 5].map(slap));
+    assert(burst.every((b) => b.stamp) && new Set(burst.map((b) => b.stamp.order)).size === 5, 'fem klibbor samtidigt får var sitt nummer');
+    assert(!s3.objects.has('rooms/snabb.json') && store.pendingWrites() === 1, 'när svaren kommit är inget skrivet än: skrivningen sker i bakgrunden');
+    await new Promise((r) => setTimeout(r, 50 + LAG * 3));
+    const puts = calls.filter((c) => c === 'PutObjectCommand rooms/snabb.json').length;
+    const saved = JSON.parse(s3.objects.get('rooms/snabb.json')).stamps.length;
+    assert(saved === 6 && puts <= 3, `strax efter ligger alla 6 i lagringen, sparade i ${puts} skrivningar (ihopsamlade, inte en per klibba)`);
+    assert(!calls.some((c) => c.includes('images/') || c.includes('uploads/')), 'designen hämtas eller laddas inte upp igen vid varje klibba');
+    // Lagringen strular: klibban syns ändå, och sparas när lagringen svarar igen.
+    failPuts = 2;
+    const during = await slap(7);
+    await new Promise((r) => setTimeout(r, 50 + 4 * (LAG + 200)));
+    const after = JSON.parse(s3.objects.get('rooms/snabb.json')).stamps;
+    assert(during.stamp && after.some((x) => x.id === during.stamp.id) && errs.length >= 2 && store.pendingWrites() === 0,
+      `misslyckad skrivning försöks igen tills den lyckas (${errs.length} fel loggade, sparad till slut)`);
+    // Avstängning: det som inte hunnit skrivas skrivs av flush().
+    const last = await slap(8);
+    assert(store.pendingWrites() === 1, 'en ny klibba väntar på att skrivas');
+    const fl = await store.flush();
+    const fresh = createStore(adapter); // som en ny server efter omstart
+    const reloaded = await fresh.getRoom('snabb');
+    assert(fl.failed === 0 && reloaded.stamps.length === 8 && reloaded.stamps.some((x) => x.id === last.stamp.id) && store.pendingWrites() === 0,
+      'flush() (vid SIGTERM) skriver ut allt som väntar: efter omstart finns alla 8 klibbor kvar');
+    // Borttaget rum: syns inte i listan och kommer inte tillbaka från en sen skrivning.
+    await store.deleteRoom('snabb');
+    assert(!(await store.getRoom('snabb')) && !s3.objects.has('rooms/snabb.json') && !(await store.listRooms()).includes('snabb'), 'ett borttaget rum är borta både i minnet och i lagringen');
+    // Kopian utåt går inte att ändra av misstag.
+    await store.addStamp('kopia', { imageId: img.id, size: 0.3 });
+    const c1 = await store.getRoom('kopia'); c1.stamps.length = 0;
+    assert((await store.getRoom('kopia')).stamps.length === 1, 'getRoom ger en kopia: rummet i minnet ändras inte utifrån');
+    await store.flush();
+  } finally { server.close(); }
+}
+
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-'));
   try {
@@ -184,6 +254,7 @@ async function roomLifecycle(name, adapter) {
       const sty = { floor: 'parkett', wall: 'malad', wallColor: 'bla', ceiling: 'vit', seed: 'abc12' };
       const made = await (await mk({ style: sty })).json();
       const seen = await (await fetch(`${base}/api/rooms/${made.room.id}`)).json();
+      await store.flush(); // rummen skrivs i bakgrunden
       const rawRoom = (await s3a.get(`rooms/${made.room.id}.json`)).toString();
       assert(made.roomKey && Object.keys(sty).every((k) => seen.room.style[k] === sty[k]) && !JSON.stringify(seen).includes('keyHash') && !rawRoom.includes(made.roomKey) && rawRoom.includes('keyHash'),
         'rum skapas med utseende och en hemlig rumsnyckel (bara hash sparas)');
@@ -208,6 +279,7 @@ async function roomLifecycle(name, adapter) {
       const mine1 = await post({}), mine2 = await post({});
       assert(typeof mine1.peelToken === 'string' && mine1.peelToken.length >= 30 && !('peelHash' in mine1.stamp), 'ny stämpel ger en hemlig peel-nyckel (bara till den som stämplade)');
       const listing = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).text();
+      await store.flush(); // rummen skrivs i bakgrunden
       const raw = (await s3a.get(`rooms/${r.room.id}.json`)).toString();
       assert(!listing.includes(mine1.peelToken) && !listing.includes('peelHash') && !raw.includes(mine1.peelToken) && raw.includes('peelHash'),
         'nyckeln syns aldrig i rummets lista, och servern sparar bara en hash');
@@ -226,6 +298,7 @@ async function roomLifecycle(name, adapter) {
       // ---------- Bara de senaste 20 per person och rum går att peela ----------
       const a25 = []; for (let i = 0; i < 25; i++) a25.push(await post({ owner: 'enhet-anna-123' }));
       const b2 = [await post({ owner: 'enhet-bosse-456' }), await post({ owner: 'enhet-bosse-456' })];
+      await store.flush(); // rummen skrivs i bakgrunden
       const raw2 = (await s3a.get(`rooms/${r.room.id}.json`)).toString();
       const list2 = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).text();
       const ids2 = new Set([...a25, ...b2].map((x) => x.stamp.id)); const keyed = JSON.parse(raw2).stamps.filter((x) => x.peelHash && ids2.has(x.id));
@@ -277,5 +350,6 @@ async function roomLifecycle(name, adapter) {
         'Staden kan bara admin nollställa; admin kan nollställa alla rum; okänt rum ger 404');
       assert(st.status === 200 && room.stamps.length === 1 && room.stamps[0].imageId === i1.id && room.images[i1.id], 'stämplar pekar på designen med imageId');
     } finally { server.close(); }
+    await writeBehind();
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 })().catch((e) => { console.error(e); process.exit(1); });

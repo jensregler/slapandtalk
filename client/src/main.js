@@ -305,25 +305,54 @@ async function stampAt(ndc) {
     size: Math.min(state.size, MAX_SIZE_CM / 100), rotation: state.rotation, surface: h.surface, artist: state.artist,
     ...(state.artistLink ? { artistLink: state.artistLink } : {}),
   };
+  // Klibban syns direkt (med ett tillfälligt id) och byts till serverns stämpel när svaret
+  // kommer, via HTTP-svaret eller WebSocket, det som kommer först. Går det fel tas den bort.
+  const tempId = 'tmp-' + nonce;
+  const temp = { ...body, id: tempId, order: stamps.topOrder() + 1, createdAt: new Date().toISOString(), pending: true };
+  delete temp.owner; delete temp.nonce;
+  let settle; const settled = new Promise((r) => { settle = r; });
+  pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled });
+  stamps.add(temp, design).then(updateCount);
   try {
     let res;
     try { res = await api.addStamp(ROOM, body); } catch (err) {
       if (!err.gone) throw err;
       // Servern har tappat just den här designen: ladda upp den igen och stämpla en gång till.
       const fresh = await restoreDesign(design).catch(() => undefined);
-      if (!fresh) { if (fresh === null) await handleMissing([design]); else toast(S.slapFailed); return null; }
+      if (!fresh) { dropPending(nonce); if (fresh === null) await handleMissing([design]); else toast(S.slapFailed); return null; }
       res = await api.addStamp(ROOM, { ...body, imageId: fresh.id });
     }
     endShown = false; // ny klibba: nästa gång man peelar förbi slutet visas rutan igen
     if (res.peelToken) {
       addHistory({ room: ROOM, stampId: res.stamp.id, token: res.peelToken, designId: res.image.id, url: res.image.url, time: res.stamp.createdAt || new Date().toISOString() });
     }
-    await stamps.add(res.stamp, res.image); updateCount(); renderHistory();
+    confirmSlap(nonce, res.stamp, res.image); updateCount(); renderHistory();
+    // Peelad (↩/Z) innan servern hann svara: peela den riktiga nu, tyst (den är redan borta på skärmen).
+    if (peelWhenSaved.delete(res.stamp.id)) {
+      const h = roomHistory(ROOM).find((x) => x.stampId === res.stamp.id);
+      if (h) startPeel([h], { quiet: true });
+    }
     return res.stamp;
   } catch (err) {
+    dropPending(nonce);
     toast(err.message);
     return null;
-  }
+  } finally { settle(); }
+}
+// Väntande klibbor: nonce -> { tempId, image }
+const pendingSlaps = new Map();
+const peelWhenSaved = new Set(); // serverns id för klibbor som peelades medan de väntade
+function confirmSlap(nonce, stamp, image) {
+  const p = pendingSlaps.get(nonce);
+  if (!p) { if (!peelWhenSaved.has(stamp.id)) stamps.add(stamp, image).then(updateCount); return; }
+  pendingSlaps.delete(nonce);
+  if (p.peel) { stamps.gone.add(p.tempId); stamps.gone.add(stamp.id); peelWhenSaved.add(stamp.id); return; }
+  if (!stamps.confirm(p.tempId, stamp, image)) stamps.add(stamp, image).then(updateCount);
+}
+function dropPending(nonce) {
+  const p = pendingSlaps.get(nonce);
+  if (!p) return;
+  pendingSlaps.delete(nonce); stamps.remove(p.tempId); updateCount();
 }
 
 // ---------- Admin (dold): öppna sidan med ?admin=NYCKEL ----------
@@ -412,7 +441,7 @@ let peelInFlight = null;
 const peelable = () => roomHistory(ROOM).filter((h) => !peeling.has(h.stampId));
 
 // Peela de här posterna direkt på skärmen och skicka dem till servern. Returnerar antal.
-function startPeel(entries) {
+function startPeel(entries, { quiet = false } = {}) {
   const fresh = entries.filter((h) => !peeling.has(h.stampId));
   if (!fresh.length) return 0;
   for (const h of fresh) {
@@ -423,7 +452,7 @@ function startPeel(entries) {
     stamps.peelAway(h.stampId);
   }
   peelOutbox.push(...fresh);
-  sound.play('peel');
+  if (!quiet) sound.play('peel');
   updateCount(); scheduleHistory();
   flushPeels();
   return fresh.length;
@@ -453,6 +482,15 @@ function flushPeels() {
 async function peelSettled() { while (peelInFlight || peelOutbox.length) await flushPeels(); }
 
 function peelLast() {
+  // Den senaste klibban väntar fortfarande på servern: peela den direkt på skärmen, och på
+  // riktigt så fort servern har svarat (annars skulle ↩ ta klibban före).
+  const pend = [...pendingSlaps.values()].filter((p) => !p.peel).at(-1);
+  if (pend) {
+    pend.peel = true;
+    stamps.peelAway(pend.tempId).then(updateCount);
+    sound.play('peel'); toast(S.peeled, 900);
+    return pend.settled.then(() => peelSettled()).then(() => true);
+  }
   const list = peelable();
   // Helst en som syns i rummet (gamla poster som redan är borta städas bort av servern).
   const next = list.find((h) => stamps.meshes.has(h.stampId)) || list[0];
@@ -839,6 +877,7 @@ function onRoomEvent(e) {
   if (!e || typeof e.type !== 'string') return;
   if (e.type === 'stamp:add' && e.stamp && e.image) {
     // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
+    if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); return; } // min egen, redan synlig
     if (!(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id)) sound.play('slap', e.stamp.position);
     stamps.add(e.stamp, e.image).then(updateCount);
   } else if (e.type === 'stamp:remove') {
@@ -862,7 +901,7 @@ async function resyncRoom() {
     const { stamps: list, images, info, cameras } = await api.loadRoom(ROOM);
     cams.set(cameras || []); renderCams();
     const alive = new Set(list.map((s) => s.id));
-    for (const id of [...stamps.meshes.keys()]) if (!alive.has(id)) stamps.remove(id);
+    for (const id of [...stamps.meshes.keys()]) if (!alive.has(id) && !id.startsWith('tmp-')) stamps.remove(id); // väntande klibbor får vara kvar
     await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
     if (info && JSON.stringify(normalizeStyle(info.style)) !== JSON.stringify(currentStyle)) { showRoomInfo(info); if (!sp.open) showStyle(currentStyle); }
     updateCount();
@@ -1031,6 +1070,7 @@ window.klibb = {
   look(yaw, pitch) { controls.yaw = yaw; controls.pitch = pitch; controls.apply(); },
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
+  pendingSlaps: () => pendingSlaps.size, // klibbor som syns men inte är bekräftade av servern än
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
   net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
   openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),

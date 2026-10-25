@@ -31,6 +31,7 @@ async function cleanup() {
   try {
     const deleted = await store.cleanupRooms({ quickTtlMs: QUICK_TTL_HOURS * 3600_000 });
     if (deleted.length) console.log(`Städning: tog bort ${deleted.length} tomma snabbrum (${deleted.join(', ')})`);
+    store.evictIdle(2 * 3600_000); // rum ingen använt på 2 h släpps ur minnet (de finns kvar i lagringen)
   } catch (e) { console.error('Städningen misslyckades:', e.message); }
 }
 
@@ -45,9 +46,17 @@ async function cleanup() {
   // Vid omstart (pm2, Render): säg till alla anslutna att servern startar om, så kopplar
   // deras webbläsare upp sig igen av sig själva när den nya servern är igång.
   // Pågående inspelningar avslutas och sparas först (stoppskäl "shutdown").
+  // Rummen skrivs till lagringen i bakgrunden: skriv ut allt som väntar innan vi stänger.
+  const flushStore = () => store.flush().then(({ written, failed }) => {
+    if (written || failed) console.log(`[lagring] Sparade ${written} rum vid avstängning${failed ? `, ${failed} misslyckades` : ''}`);
+  }).catch((e) => console.error('[lagring] Kunde inte spara vid avstängning:', e.message));
   const stop = () => {
-    setTimeout(() => process.exit(0), 3000).unref();
-    recorder.close().catch(() => {}).finally(() => { realtime.close(); server.close(() => process.exit(0)); });
+    setTimeout(() => process.exit(0), 15_000).unref();
+    recorder.close().catch(() => {}).finally(() => {
+      realtime.close();
+      server.close();
+      flushStore().finally(() => process.exit(0));
+    });
   };
   process.once('SIGTERM', stop); process.once('SIGINT', stop);
   cleanup();

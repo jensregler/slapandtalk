@@ -89,11 +89,13 @@ app.post('/api/stickers', rateLimit(20), (req, res) => {
 // Finns bilden på riktigt? På Renders gratisnivå är disken tillfällig: efter en omstart
 // kan både bildfilen och listan över bilder vara borta, medan webbläsaren fortfarande
 // minns designen (och visar en gammal kopia ur sin cache).
-async function imageAvailable(id) {
+// fresh: kontrollera bildfilen i lagringen även om vi redan vet att den fanns (när rummet laddas).
+// En klibba (POST) litar på det servern redan vet, så den slipper vänta på lagringen.
+async function imageAvailable(id, { fresh = false } = {}) {
   id = String(id || '');
   if (!/^[a-f0-9]{16}$/.test(id)) return null;
   const meta = await store.getImage(id);
-  if (!meta || !(await store.hasImageFile(id))) return null;
+  if (!meta || !(await store.hasImageFile(id, { fresh }))) return null;
   return meta;
 }
 // Peel-nycklar: sparas bara som SHA-256, jämförs i konstant tid.
@@ -198,7 +200,10 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
   // Stämplar vars bild saknas hoppas över, så de inte blir trasiga/osynliga i rummet.
   const images = {};
   const ok = new Map();
-  for (const s of room.stamps) if (!ok.has(s.imageId)) ok.set(s.imageId, await imageAvailable(s.imageId));
+  // Alla bilder kontrolleras samtidigt (mot R2 tar varje fråga en stund).
+  const ids = [...new Set(room.stamps.map((s) => s.imageId))];
+  const metas = await Promise.all(ids.map((i) => imageAvailable(i, { fresh: true })));
+  ids.forEach((i, n) => ok.set(i, metas[n]));
   const stamps = room.stamps.filter((s) => {
     const m = ok.get(s.imageId);
     if (m) images[s.imageId] = m;

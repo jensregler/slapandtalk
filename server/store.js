@@ -31,9 +31,16 @@ const contentId = (buf) => crypto.createHash('sha256').update(buf).digest('hex')
 const CODE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
 const roomCode = (n = 6) => [...crypto.randomBytes(n)].map((b) => CODE_CHARS[b % CODE_CHARS.length]).join('');
 
-function createStore(adapter, { clock = () => Date.now() } = {}) {
+// SNABBHET (sedan R2): rummen hålls i minnet och är "sanningen" medan servern kör.
+// En stämpling ändrar bara minnet och svarar direkt; själva skrivningen till lagringen
+// sker strax efteråt i bakgrunden (write-behind), samlad om många stämplar kommer tätt,
+// med nya försök om lagringen inte svarar. Vid avstängning (SIGTERM) skrivs allt ut: flush().
+// Servern kör som EN process (Render), så minnet kan vara sanningen.
+//   writeDelayMs   hur länge vi väntar innan ett ändrat rum skrivs (samlar ihop klibbor)
+//   retryMs        första väntan efter ett misslyckat försök (dubblas, max 30 s)
+function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, retryMs = 1000, log = console } = {}) {
   const locks = new Map();
-  // Ett rum i taget skrivs: annars kan två samtidiga stämplingar skriva över varandra.
+  // Ett rum i taget ändras: annars kan två samtidiga ändringar skriva över varandra.
   function withLock(key, fn) {
     const prev = locks.get(key) || Promise.resolve();
     const run = prev.then(fn, fn);
@@ -56,20 +63,122 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
     return room;
   }
 
-  async function getRoom(id) { const r = await readJson(roomKey(id)); return r ? normalize(id, r) : null; }
+  // ---------- Rum i minnet + skrivning i bakgrunden ----------
+  // cache: id -> { room (null = borttaget), dirty, timer, failures, usedAt }
+  const cache = new Map();
+  const loading = new Map(); // id -> Promise (så två samtidiga läsningar bara frågar lagringen en gång)
+  const chains = new Map(); // id -> Promise: skrivningar per rum i ordning
+  const delays = new Set(); // väntande försöks-timers (så flush() kan avbryta dem)
+
+  async function loadRoom(id) {
+    const hit = cache.get(id);
+    if (hit) { hit.usedAt = clock(); return hit.room; }
+    if (!loading.has(id)) {
+      const p = readJson(roomKey(id)).then((r) => {
+        const room = r ? normalize(id, r) : null;
+        // Även "finns inte" kommer vi ihåg (room: null), så första klibban i ett nytt rum inte
+        // behöver fråga lagringen igen. Bara den här servern skriver rummen.
+        if (!cache.has(id)) cache.set(id, { room, dirty: false, timer: null, failures: 0, usedAt: clock() });
+        return cache.has(id) ? cache.get(id).room : room;
+      }).finally(() => loading.delete(id));
+      loading.set(id, p);
+    }
+    return loading.get(id);
+  }
+
+  function queue(id, fn) {
+    const run = (chains.get(id) || Promise.resolve()).then(fn);
+    const tail = run.catch(() => {});
+    chains.set(id, tail);
+    tail.then(() => { if (chains.get(id) === tail) chains.delete(id); });
+    return run;
+  }
+  function schedule(id, ms = writeDelayMs) {
+    const e = cache.get(id);
+    if (!e || e.timer) return;
+    e.timer = setTimeout(() => { e.timer = null; writeRoom(id).catch(() => {}); }, ms);
+  }
+  // Skriver rummet om det är ändrat. Misslyckas det ligger ändringen kvar i minnet och
+  // ett nytt försök planeras (1 s, 2 s, 4 s … max 30 s).
+  function writeRoom(id) {
+    return queue(id, async () => {
+      const e = cache.get(id);
+      if (!e || !e.dirty) return;
+      if (e.timer) { clearTimeout(e.timer); e.timer = null; }
+      e.dirty = false;
+      const del = e.room === null;
+      const body = del ? null : Buffer.from(JSON.stringify(e.room, null, 1));
+      try {
+        if (del) await adapter.delete(roomKey(id)); else await adapter.put(roomKey(id), body, 'application/json');
+        e.failures = 0;
+      } catch (err) {
+        if (cache.get(id) === e) {
+          e.dirty = true; e.failures++;
+          const wait = Math.min(30_000, retryMs * 2 ** (e.failures - 1));
+          log.error(`[lagring] Kunde inte spara rummet ${id} (försök ${e.failures}), provar igen om ${wait} ms: ${err && err.message}`);
+          schedule(id, wait);
+        }
+        throw err;
+      }
+    });
+  }
+  function markDirty(id, room) {
+    let e = cache.get(id);
+    if (!e) { e = { room, dirty: false, timer: null, failures: 0, usedAt: clock() }; cache.set(id, e); }
+    e.room = room; e.dirty = true; e.usedAt = clock();
+    schedule(id);
+  }
+  // Skriv ut alla ändrade rum nu (vid avstängning). Svar: { written, failed }.
+  async function flush() {
+    const ids = [...cache.keys()].filter((id) => cache.get(id).dirty || chains.has(id));
+    let failed = 0;
+    await Promise.all(ids.map(async (id) => {
+      const e = cache.get(id);
+      if (e && e.timer) { clearTimeout(e.timer); e.timer = null; }
+      try { await writeRoom(id); } catch { failed++; }
+      const left = cache.get(id);
+      if (left && left.timer) { clearTimeout(left.timer); left.timer = null; } // inga fler försök efter flush
+    }));
+    return { written: ids.length - failed, failed };
+  }
+  // Hur många rum väntar på att skrivas (för hälsokoll och tester).
+  const pendingWrites = () => [...cache.entries()].filter(([id, e]) => e.dirty || chains.has(id)).length;
+  // Släpp rum ur minnet som är sparade och inte använts på maxIdleMs (så minnet inte växer).
+  function evictIdle(maxIdleMs) {
+    let n = 0;
+    for (const [id, e] of cache) if (!e.dirty && !chains.has(id) && !locks.has(id) && clock() - e.usedAt > maxIdleMs) { cache.delete(id); n++; }
+    return n;
+  }
+
+  // Utåt lämnas en kopia: ingen utanför store.js kan råka ändra rummet i minnet.
+  async function getRoom(id) { const r = await loadRoom(id); return r && structuredClone(r); }
+  // Läs ett rum utan att spara det i minnet (och utan att räkna det som använt).
+  async function peekRoom(id) {
+    const e = cache.get(id);
+    if (e) return e.room;
+    if (loading.has(id)) return loading.get(id);
+    const r = await readJson(roomKey(id));
+    return r ? normalize(id, r) : null;
+  }
   // Som getRoom, men ger ett tomt (osparat) rum om det inte finns.
   async function roomOrEmpty(id) { return (await getRoom(id)) || { ...normalize(id, null), exists: false }; }
-  async function saveRoom(room) { const { exists, ...data } = room; await writeJson(roomKey(room.id), data); return data; }
+  async function saveRoom(room) { const { exists, ...data } = room; markDirty(data.id, data); return data; }
+  // Tar bort rummet från minnet och lagringen (väntar på lagringen, sker sällan).
+  async function removeRoom(id) {
+    markDirty(id, null);
+    await writeRoom(id);
+  }
+  const roomTaken = async (c) => { const e = cache.get(c); if (e) return e.room !== null; return adapter.exists(roomKey(c)); };
 
   async function createRoom({ id, type = 'quick', owner = null, style = null, keyHash = null } = {}) {
     if (!ROOM_TYPES.includes(type)) throw new Error('Unknown room type');
     for (let tries = 0; !id && tries < 20; tries++) {
       const c = roomCode();
-      if (c !== PUBLIC_ROOM && !(await adapter.exists(roomKey(c)))) id = c;
+      if (c !== PUBLIC_ROOM && !(await roomTaken(c))) id = c;
     }
     if (!id) throw new Error('Could not find a free room code');
     return withLock(id, async () => {
-      if (await getRoom(id)) throw Object.assign(new Error('That room already exists'), { code: 'EXISTS' });
+      if (await loadRoom(id)) throw Object.assign(new Error('That room already exists'), { code: 'EXISTS' });
       const now = iso();
       const extra = {};
       if (style) extra.style = style;
@@ -82,7 +191,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   // Svar: 'ok', 'forbidden' (eller rummet skapas om det är staden och admin frågar).
   async function setRoomStyle(id, style, canEdit) {
     return withLock(id, async () => {
-      let room = await getRoom(id);
+      let room = await loadRoom(id);
       if (!room && id === PUBLIC_ROOM) room = normalize(id, { createdAt: iso() });
       if (!room) return 'notfound';
       if (!canEdit(room)) return 'forbidden';
@@ -96,7 +205,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   // Svar: fn:s svar, 'notfound' eller 'forbidden'. Staden skapas om admin lägger en kamera där.
   async function editCameras(id, canEdit, fn) {
     return withLock(id, async () => {
-      let room = await getRoom(id);
+      let room = await loadRoom(id);
       if (!room && id === PUBLIC_ROOM) room = normalize(id, { createdAt: iso() });
       if (!room) return 'notfound';
       if (!canEdit(room)) return 'forbidden';
@@ -110,18 +219,18 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   // Någon är i rummet: uppdatera "senast besökt" (bara rum som finns, plus staden).
   async function touchRoom(id) {
     return withLock(id, async () => {
-      let room = await getRoom(id);
+      let room = await loadRoom(id);
       if (!room && id !== PUBLIC_ROOM) return null;
       if (!room) room = normalize(id, { createdAt: iso() });
       const last = room.lastVisitAt ? Date.parse(room.lastVisitAt) : 0;
       if (clock() - last >= VISIT_WRITE_MS) { room.lastVisitAt = iso(); await saveRoom(room); }
-      return room;
+      return structuredClone(room);
     });
   }
 
   async function addStamp(roomId, stamp) {
     return withLock(roomId, async () => {
-      const room = (await getRoom(roomId)) || normalize(roomId, { createdAt: iso() });
+      const room = (await loadRoom(roomId)) || normalize(roomId, { createdAt: iso() });
       const s = { id: newId(), order: (room.stamps.at(-1)?.order ?? 0) + 1, createdAt: iso(), ...stamp };
       room.stamps.push(s);
       // Bara de senaste PEEL_KEEP stämplarna per person och rum går att peela: äldre tappar sin
@@ -137,7 +246,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   }
   async function deleteStamp(roomId, stampId) {
     return withLock(roomId, async () => {
-      const room = await getRoom(roomId);
+      const room = await loadRoom(roomId);
       if (!room) return false;
       const before = room.stamps.length;
       room.stamps = room.stamps.filter((s) => s.id !== stampId);
@@ -149,7 +258,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   // Allt sker i rummets skrivkö. Svar per stämpel: 'ok', 'notfound' eller 'forbidden'.
   async function peelStamps(roomId, items, check) {
     return withLock(roomId, async () => {
-      const room = await getRoom(roomId);
+      const room = await loadRoom(roomId);
       const result = {};
       const remove = new Set();
       for (const { id, token } of items) {
@@ -165,7 +274,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   // Ta bort alla stämplar i rummet. Svar: hur många som togs bort.
   async function resetStamps(roomId) {
     return withLock(roomId, async () => {
-      const room = await getRoom(roomId);
+      const room = await loadRoom(roomId);
       if (!room || !room.stamps.length) return 0;
       const n = room.stamps.length;
       room.stamps = []; room.lastVisitAt = iso();
@@ -173,15 +282,18 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
       return n;
     });
   }
+  // Rummen i lagringen plus de i minnet som inte hunnit skrivas, minus borttagna.
   async function listRooms() {
-    return (await adapter.list('rooms/')).filter((k) => k.endsWith('.json')).map((k) => k.slice(6, -5));
+    const ids = new Set((await adapter.list('rooms/')).filter((k) => k.endsWith('.json')).map((k) => k.slice(6, -5)));
+    for (const [id, e] of cache) { if (e.room === null) ids.delete(id); else ids.add(id); }
+    return [...ids];
   }
-  async function deleteRoom(id) { return withLock(id, () => adapter.delete(roomKey(id))); }
+  async function deleteRoom(id) { return withLock(id, () => removeRoom(id)); }
   async function deleteStampsWithImage(imageId) {
     let removed = 0;
     for (const id of await listRooms()) {
       await withLock(id, async () => {
-        const room = await getRoom(id);
+        const room = await loadRoom(id);
         if (!room) return;
         const before = room.stamps.length;
         room.stamps = room.stamps.filter((s) => s.imageId !== imageId);
@@ -198,23 +310,38 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
     const deleted = [];
     for (const id of await listRooms()) {
       await withLock(id, async () => {
-        const room = await getRoom(id);
+        const room = await peekRoom(id); // städningen läser utan att lägga alla rum i minnet
         if (!room || room.type !== 'quick') return;
         if (!room.lastVisitAt) { room.lastVisitAt = iso(); await saveRoom(room); return; }
-        if (clock() - Date.parse(room.lastVisitAt) > quickTtlMs) { await adapter.delete(roomKey(id)); deleted.push(id); }
+        if (clock() - Date.parse(room.lastVisitAt) > quickTtlMs) { await removeRoom(id); deleted.push(id); }
       });
     }
     return deleted;
   }
 
   // ---------- Bilder ----------
-  const getImage = (id) => readJson(`images/${id}.json`);
-  const addImage = async (img) => { await writeJson(`images/${img.id}.json`, img); return img; };
-  const deleteImage = (id) => adapter.delete(`images/${id}.json`);
-  const putImageFile = (id, buf) => adapter.put(`uploads/${id}.webp`, buf, 'image/webp');
+  // En design ändras aldrig (id = hash av innehållet), så det vi vet finns kommer vi ihåg:
+  // en klibba behöver då inte fråga lagringen om bilden varje gång.
+  const imageMeta = new Map(); // id -> metadata
+  const imageFiles = new Set(); // id:n vars bildfil vi vet finns
+  const getImage = async (id) => {
+    if (imageMeta.has(id)) return imageMeta.get(id);
+    const m = await readJson(`images/${id}.json`);
+    if (m) imageMeta.set(id, m);
+    return m;
+  };
+  const addImage = async (img) => { await writeJson(`images/${img.id}.json`, img); imageMeta.set(img.id, img); return img; };
+  const deleteImage = async (id) => { imageMeta.delete(id); await adapter.delete(`images/${id}.json`); };
+  const putImageFile = async (id, buf) => { await adapter.put(`uploads/${id}.webp`, buf, 'image/webp'); imageFiles.add(id); };
   const getImageFile = (id) => adapter.get(`uploads/${id}.webp`);
-  const hasImageFile = (id) => adapter.exists(`uploads/${id}.webp`);
-  const deleteImageFile = (id) => adapter.delete(`uploads/${id}.webp`);
+  // fresh: fråga lagringen ändå (när rummet laddas), annars räcker det vi redan vet.
+  const hasImageFile = async (id, { fresh = false } = {}) => {
+    if (!fresh && imageFiles.has(id)) return true;
+    const ok = await adapter.exists(`uploads/${id}.webp`);
+    if (ok) imageFiles.add(id); else { imageFiles.delete(id); }
+    return ok;
+  };
+  const deleteImageFile = async (id) => { imageFiles.delete(id); await adapter.delete(`uploads/${id}.webp`); };
 
   // Engångsflytt: äldre versioner sparade alla bilder i en fil, images.json.
   async function migrate() {
@@ -229,7 +356,7 @@ function createStore(adapter, { clock = () => Date.now() } = {}) {
   return {
     adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
     deleteStampsWithImage, cleanupRooms, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
-    deleteImageFile, migrate,
+    deleteImageFile, migrate, flush, pendingWrites, evictIdle,
   };
 }
 

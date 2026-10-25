@@ -319,6 +319,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const mBefore = await m.evaluate(() => window.klibb.stamps.count);
     await m.touchscreen.tap(vp.width * 0.7, vp.height * 0.35);
     await m.waitForFunction((n) => window.klibb.stamps.count === n + 1, mBefore, { timeout: 5000 });
+    await m.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 5000 }); // servern har bekräftat
     assert(true, 'mobil: tryck på skärmen stämplar');
     // Styrspaken flyttar kameran
     const before = await m.evaluate(() => window.klibb.camera.position.z);
@@ -356,6 +357,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await m.tap('#mode-btn'); await m.waitForTimeout(200);
     await m.touchscreen.tap(vp.width * 0.4, vp.height * 0.3);
     await m.waitForFunction((n) => window.klibb.stamps.count === n + 1, mvc, { timeout: 5000 });
+    await m.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 5000 }); // servern har bekräftat
     assert((await m.evaluate(() => window.klibb.state.mode)) === 'slap', 'mobil: 👁 igen ger Klibbläge och tryck stämplar');
     // Mobil: ↩ peelar min senaste
     const pc = await m.evaluate(() => [window.klibb.stamps.count, window.klibb.roomHistory().length]);
@@ -584,8 +586,36 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.keyboard.press('v'); await d.waitForTimeout(200);
     await d.mouse.click(900, 400);
     await d.waitForFunction((n) => window.klibb.stamps.count === n + 1, m3.count, { timeout: 5000 });
+    await d.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 5000 }); // servern har bekräftat
     const m4 = await modeInfo();
     assert(m4.mode === 'slap' && m4.preview && m4.count === m3.count + 1, 'V igen: Klibbläge, pekaren syns och klick stämplar igen');
+    // ---------- Klibban syns direkt, även när servern (lagringen) är långsam ----------
+    const SLOW = 1500;
+    const slowStamps = async (route) => { if (route.request().method() === 'POST') await new Promise((r) => setTimeout(r, SLOW)); return route.continue(); };
+    await d.route('**/api/rooms/*/stamps', slowStamps);
+    const o0 = await d.evaluate(() => window.klibb.stamps.count);
+    const tSlap = Date.now();
+    await d.evaluate(() => { window.__slap = window.klibb.stampAt(0, 0); });
+    await d.waitForFunction((n) => window.klibb.stamps.count === n + 1, o0, { timeout: 1000 });
+    const shownMs = Date.now() - tSlap;
+    const o1 = await d.evaluate(() => [window.klibb.pendingSlaps(), window.klibb.soundLog().at(-1)]);
+    assert(shownMs < SLOW / 2 && o1[0] === 1, `en klibba syns direkt (${shownMs} ms) fast servern svarar först efter ${SLOW} ms`);
+    const o2 = await d.evaluate(async () => { const st = await window.__slap; return { id: st && st.id, pending: window.klibb.pendingSlaps(), count: window.klibb.stamps.count, has: window.klibb.stamps.meshes.has(st && st.id), tmp: [...window.klibb.stamps.meshes.keys()].filter((k) => k.startsWith('tmp-')).length }; });
+    assert(o2.id && o2.pending === 0 && o2.count === o0 + 1 && o2.has && o2.tmp === 0, 'när servern svarat byts den tillfälliga klibban mot serverns (samma klibba, ingen dubblett)');
+    // ↩ medan klibban väntar på servern: det är DEN som peelas, inte den före.
+    const hist0 = await d.evaluate(() => window.klibb.roomHistory().length);
+    await d.evaluate(() => { window.__slap = window.klibb.stampAt(0.1, 0); });
+    await d.waitForFunction((n) => window.klibb.stamps.count === n + 1, o0 + 1, { timeout: 1000 });
+    const pr = await d.evaluate(async () => { const p = window.klibb.peelLast(); await new Promise((r) => setTimeout(r, 300)); const mid = window.klibb.stamps.count; await p; const st = await window.__slap; return { mid, count: window.klibb.stamps.count, id: st && st.id, hist: window.klibb.roomHistory().length }; });
+    const srv = await (await fetch(`${BASE}/api/rooms/${ROOM}/stamps`)).json();
+    assert(pr.mid === o0 + 1 && pr.count === o0 + 1 && pr.id && !srv.stamps.some((x) => x.id === pr.id) && srv.stamps.some((x) => x.id === o2.id) && pr.hist === hist0,
+      '↩ direkt efter en klibba peelar den nya (på skärmen direkt, på servern när den svarat), den före ligger kvar');
+    // Servern säger nej: klibban tas bort igen och man får veta det.
+    await d.unroute('**/api/rooms/*/stamps', slowStamps);
+    await d.route('**/api/rooms/*/stamps', (route) => route.request().method() === 'POST' ? route.fulfill({ status: 429, contentType: 'application/json', body: '{"error":"Easy now – wait a minute."}' }) : route.continue());
+    const rj = await d.evaluate(async () => { const st = await window.klibb.stampAt(0.2, 0); return { st, count: window.klibb.stamps.count, pending: window.klibb.pendingSlaps(), toast: document.getElementById('toast').textContent }; });
+    assert(rj.st === null && rj.count === o0 + 1 && rj.pending === 0 && /Easy now/.test(rj.toast), 'nekad klibba (t.ex. för många) försvinner igen med ett meddelande');
+    await d.unroute('**/api/rooms/*/stamps');
     await d.evaluate(() => window.klibb.controls.unlock()); // som Esc
     await d.waitForFunction(() => !window.klibb.controls.locked);
     await openMore(d); await d.fill('#artist', ''); await d.type('#artist', 'Viva');
