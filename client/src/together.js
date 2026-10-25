@@ -59,8 +59,8 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
 
   // Skicka min position ~12 gånger per sekund, men bara när jag faktiskt rör mig.
   let last = null, acc = 0;
-  function sendMove(dt) {
-    acc += dt; if (acc < 1 / SEND_HZ) return; acc = 0;
+  function sendMove(dt, force = false) {
+    acc += dt; if (!force && acc < 1 / SEND_HZ) return; acc = 0;
     if (net.status !== 'online') return;
     // Blickriktningen upp/ner (pitch) skickas också, så en inspelning kan visas med någons ögon.
     const p = camera.position, y = controls.yaw, pi = controls.pitch;
@@ -288,6 +288,8 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     },
     update(dt, eye = camera.position, { hideSelf = false } = {}) { sendMove(dt); players.update(dt, eye); updateSelf(dt, { hide: hideSelf }); },
     showSelf,
+    // Skicka min position nu (före en slap när rummet har peels: servern kollar räckvidden).
+    flushMove: () => sendMove(0, true),
     // Min gubbe slappar/peelar (syns bara i tredjepersonsvy). De andra får veta via servern (by = net.id).
     selfGesture: (kind, point, normal) => !!(self.want && self.avatar && (kind === 'peel' ? self.avatar.peel(point, normal) : self.avatar.slap(point, normal))),
     freezeGestures(ms) { if (self.avatar) self.avatar.gesture.freeze = ms; for (const p of players.map.values()) if (p.avatar) p.avatar.gesture.freeze = ms; },

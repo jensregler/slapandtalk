@@ -1,7 +1,7 @@
 // Alla anrop till servern samlade på ett ställe.
 async function json(res) {
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || `Fel ${res.status}`), { status: res.status, gone: !!data.gone, nope: !!data.nope });
+  if (!res.ok) throw Object.assign(new Error(data.error || `Fel ${res.status}`), { status: res.status, gone: !!data.gone, nope: !!data.nope, tooFar: !!data.tooFar });
   return data;
 }
 

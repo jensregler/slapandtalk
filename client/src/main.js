@@ -16,7 +16,7 @@ import { Sounds } from './sound.js';
 import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView } from './chasecam.js';
 import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
 import { PeelLayer } from './peels.js';
-import { PEEL, peelPlan, onFloor, stampDims } from '../../shared/peels.mjs';
+import { PEEL, peelPlan, onFloor, stampDims, SLAP_REACH, inReach } from '../../shared/peels.mjs';
 import { entitlements, loadEntitlements } from './entitlements.js';
 import { Footsteps } from './steps.js';
 import { loadSoundLook, initSoundUI } from './soundui.js';
@@ -64,6 +64,18 @@ function nope() {
   if (!el) { el = document.createElement('div'); el.id = 'nope-shrug'; el.textContent = '🤷'; el.setAttribute('aria-hidden', 'true'); document.body.appendChild(el); }
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
 }
+// Peels på: man når bara SLAP_REACH meter (ögonen → träffpunkten), så pappret landar nära slappen.
+// För långt bort: ingen klibba, ett tyst litet "nej" (inte påskäggets axelryckning) och klibban man
+// håller i visas blek och grå där man siktade en kort stund (på mobilen syns den annars inte).
+let farSlaps = 0, farSoundAt = 0, farFlash = null;
+const outOfReach = (point) => peelLayer.on && !(window.klibb && window.klibb.skipReachCheck) && !inReach(camera.position.toArray(), point.toArray());
+function tooFar(h) {
+  farSlaps++;
+  const now = performance.now();
+  if (now - farSoundAt > 450) { farSoundAt = now; sound.play('nope', null, { volume: 0.3 }); }
+  if (h && state.selected) farFlash = { h, design: state.selected, until: now + 700 };
+}
+function setFarUi(far) { preview.setFar(far); document.body.classList.toggle('out-of-reach', !!far); }
 const preview = new StampPreview(scene, stamps.faces);
 const cams = new CameraLayer(scene); // virtuella kameror (för inspelning)
 const viewCam = new THREE.PerspectiveCamera(60, 1, 0.05, 100); // "Titta genom kamera"
@@ -336,6 +348,7 @@ function nextRotation() { return state.rotation + (state.jitter ? pendingJitter 
 async function stampAt(ndc) {
   if (!state.selected) { toast(S.pickFirst); return null; }
   const h = hitSurface(ndc); if (!h) return null;
+  if (outOfReach(h.point)) { tooFar(h); return null; } // peels på: för långt bort
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
   const slapSize = Math.min(state.size, MAX_SIZE_CM / 100);
   // På golvet: ligger den nya klibban mest på baksidespapper fastnar den inte (servern kollar samma sak).
@@ -372,6 +385,7 @@ async function stampAt(ndc) {
   let settle; const settled = new Promise((r) => { settle = r; });
   pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled });
   stamps.add(temp, design).then(updateCount);
+  if (peelLayer.on) together.flushMove(); // servern mäter räckvidden från där den senast hörde att jag stod
   try {
     let res;
     try { res = await api.addStamp(ROOM, body); } catch (err) {
@@ -395,7 +409,7 @@ async function stampAt(ndc) {
     return res.stamp;
   } catch (err) {
     dropPending(nonce); peelLayer.remove([tempPeel]);
-    if (err.nope) nope(); else toast(err.message);
+    if (err.tooFar) tooFar(); else if (err.nope) nope(); else toast(err.message);
     return null;
   } finally { settle(); }
 }
@@ -1205,9 +1219,17 @@ function frame() {
     const h = hitSurface(CENTER);
     if (h) {
       const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, MAX_SIZE_CM / 100));
+      setFarUi(outOfReach(h.point));
       preview.show(h.point, h.normal, StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh, h.surface);
-    } else preview.hide();
-  }
+    } else { preview.hide(); setFarUi(false); }
+    farFlash = null;
+  } else if (farFlash) {
+    // Utan sikte (mobilen, eller pekaren släppt): en blek, grå skugga där man försökte, en kort stund.
+    if (performance.now() < farFlash.until && state.mode === 'slap') {
+      const { h, design } = farFlash, [w, hh] = StampLayer.dims(design, Math.min(state.size, MAX_SIZE_CM / 100));
+      setFarUi(true); preview.show(h.point, h.normal, StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh, h.surface);
+    } else { farFlash = null; preview.hide(); setFarUi(false); }
+  } else if (document.body.classList.contains('out-of-reach')) setFarUi(false);
   if (cv) renderFramed(renderer, scene, viewCam, cv.aspect || '');
   else { if (camView) exitCamView(); renderer.render(scene, tp ? tpCam : camera); }
   requestAnimationFrame(frame);
@@ -1255,6 +1277,8 @@ window.klibb = {
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
+  reach: SLAP_REACH, farSlaps: () => farSlaps, skipReachCheck: false,
+  reachState: () => ({ peels: peelLayer.on, far: preview.far, crosshairDim: document.body.classList.contains('out-of-reach'), flash: !!farFlash, visible: preview.mesh.visible, opacity: preview.mat.opacity }),
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, maxSizeCm: MAX_SIZE_CM,
 };

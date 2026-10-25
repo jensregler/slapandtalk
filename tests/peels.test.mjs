@@ -5,7 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
-import { PEEL, peelPlan, peelPose, pathParams, overlapFraction, slapSide, flatQuat, stampFrame, peelFrame, maskFromAlpha } from '../shared/peels.mjs';
+import { PEEL, peelPlan, peelPose, pathParams, overlapFraction, slapSide, flatQuat, stampFrame, peelFrame, maskFromAlpha, SLAP_REACH, REACH_TOLERANCE, inReach, reachDistance } from '../shared/peels.mjs';
 
 const require = createRequire(import.meta.url);
 const sharp = require('sharp');
@@ -36,10 +36,34 @@ const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
     const outward = ((p.start[0] - f.x) * rx + (p.start[2] - f.z) * rz) * side > 0;
     const d = Math.hypot(p.x - p.start[0], p.z - p.start[2]);
     drifts.push(d); durs.push(pathParams('s' + i).dur);
-    const inside = Math.abs(p.x) <= ROOM.width / 2 - PEEL.wallMargin + 1e-9 && Math.abs(p.z) <= ROOM.depth / 2 - PEEL.wallMargin + 1e-9;
-    if (outward && p.side === side && inside && d >= PEEL.driftMin - 1e-3 && d <= PEEL.driftMax + 1e-3 && p.yaw >= 0 && p.yaw < Math.PI * 2) ok++;
+    const mx = ROOM.width / 2 - PEEL.wallMargin, mz = ROOM.depth / 2 - PEEL.wallMargin;
+    const inside = Math.abs(p.x) <= mx + 1e-9 && Math.abs(p.z) <= mz + 1e-9;
+    const clamped = Math.abs(Math.abs(p.x) - mx) < 1e-3 || Math.abs(Math.abs(p.z) - mz) < 1e-3;
+    // född på linjen mot slappen (högst birthSide vid sidan), högst birthAlongMax ut
+    const dx = (t[0] - f.x) / 2, dz = (t[2] - f.z) / 2, sx = p.start[0] - f.x, sz = p.start[2] - f.z;
+    const along = sx * dx + sz * dz, offLine = Math.abs(sx * dz - sz * dx);
+    const onLine = along > 0 && along <= PEEL.birthAlongMax + PEEL.birthSide + 1e-3 && offLine <= PEEL.birthSide + 1e-3;
+    const nearFoot = Math.hypot(p.x - t[0], p.z - t[2]) <= PEEL.footBack + PEEL.footScatter + 1e-3;
+    if (outward && p.side === side && inside && onLine && (nearFoot || clamped) && p.yaw >= 0 && p.yaw < Math.PI * 2) ok++;
   }
-  assert(ok === 300, 'föds på samma sida som armen som slappar, driver 0,3–1,0 m och landar inne i rummet med slumpad vridning');
+  assert(ok === 300, 'föds i höfthöjd på linjen mot slappen (armens sida), landar vid foten av slappen inne i rummet med slumpad vridning');
+  // Golvklibba: pappret landar lite framför klibban (mot den som slappade), inte ovanpå den
+  let floorOk = 0;
+  for (let i = 0; i < 100; i++) {
+    const f = { x: 0, z: 0, yaw: i * 0.5 }, t = [Math.cos(i) * 1.5, 0, Math.sin(i) * 1.5];
+    const p = peelPlan('g' + i, f, t), foot = [t[0] * (1 - PEEL.footBackFloor / 1.5), t[2] * (1 - PEEL.footBackFloor / 1.5)];
+    if (Math.hypot(p.x - foot[0], p.z - foot[1]) <= PEEL.footScatter + 1e-3) floorOk++;
+  }
+  assert(floorOk === 100, `golvklibba: pappret landar ${PEEL.footBackFloor} m framför den (±${PEEL.footScatter} m), inte ovanpå`);
+  // Takklibba rakt ovanför: pappret faller nästan rakt ner, bredvid gubben
+  const up = peelPlan('tak', { x: 1, z: 1, yaw: 0 }, [1.2, 4, 1]);
+  assert(Math.hypot(up.x - 1.2, up.z - 1) <= PEEL.footBack + PEEL.footScatter && up.start[1] === PEEL.birthHeight, 'takklibba: pappret landar under slappen');
+  // Räckvidden
+  assert(SLAP_REACH >= 2 && SLAP_REACH <= 2.5 && inReach([0, 1.6, 0], [0, 1.6, -SLAP_REACH]) && !inReach([0, 1.6, 0], [0, 1.6, -SLAP_REACH - 0.01])
+    && inReach([0, 1.6, 0], [0, 1.6, -SLAP_REACH - 0.3], REACH_TOLERANCE) && near(reachDistance([0, 0, 0], [3, 4, 0]), 5),
+    `räckvidden med peels: ${SLAP_REACH} m från ögonen till träffpunkten (servern ger ${REACH_TOLERANCE} m extra)`);
+  assert(inReach([0, 1.6, 0], [0, 4, -0.6]) && !inReach([0, 1.6, 0], [0, 4, -1]) && inReach([0, 1.6, 0], [0, 0, -1.85]) && !inReach([0, 1.6, 0], [0, 0, -2]),
+    'taket (4 m) nås nästan rakt ovanför, golvet knappt 1,9 m framför');
   assert(Math.min(...durs) >= PEEL.fallMin && Math.max(...durs) <= PEEL.fallMax, `falltiden är ${PEEL.fallMin}–${PEEL.fallMax} s`);
   const peel = { seed: 'abc123', ...a };
   const p0 = peelPose(peel, 0), p1 = peelPose(peel, 1), mid = peelPose(peel, 0.5);
@@ -98,7 +122,8 @@ try {
     c.ready = new Promise((r) => ws.on('open', r)).then(() => ws.send(JSON.stringify({ t: 'hello', name: 'B' })));
     return c;
   };
-  const b = client(R); await b.ready; await b.wait((m) => m.t === 'welcome');
+  const b = client(R); await b.ready; const bid = (await b.wait((m) => m.t === 'welcome')).id;
+  const stand = async (x, z, y = 1.6) => { b.ws.send(JSON.stringify({ t: 'move', p: [x, y, z], y: 0, pi: 0 })); await sleep(60); };
   const info0 = await call('GET', `/api/rooms/${R}`);
   assert(info0.room.peels === false, 'peels är av från början');
   const no = await call('PUT', `/api/rooms/${R}/peels`, { on: true });
@@ -110,14 +135,47 @@ try {
   assert(on.status === 200 && ev && ev.e.on === true && (await call('GET', `/api/rooms/${R}`)).room.peels === true, 'peels på: alla i rummet får veta det direkt (WebSocket) och rummet minns det');
 
   const FLOOR_Q = [-Math.SQRT1_2, 0, 0, Math.SQRT1_2]; // platt på golvet, bilden uppåt = −z
-  const slap = (body) => call('POST', `/api/rooms/${R}/stamps`, { imageId: img.id, size: 1, normal: [0, 1, 0], quaternion: FLOOR_Q, surface: 'golv', ...body });
+  const slap = (body) => call('POST', `/api/rooms/${R}/stamps`, { imageId: img.id, size: 1, normal: [0, 1, 0], quaternion: FLOOR_Q, surface: 'golv', by: bid, ...body });
+  await stand(2.2, -3.5);
   const wall = await slap({ position: [2, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr', nonce: 'nonce0001', peelFrom: { p: [2.2, -3.5], yaw: 0 } });
   const expect = peelPlan('nonce0001', { x: 2.2, z: -3.5, yaw: 0 }, [2, 1.5, -5]);
   const evp = await b.wait((m) => m.t === 'event' && m.e.type === 'stamp:add' && m.e.peel);
   assert(wall.peel && wall.peel.seed === 'nonce0001' && wall.peel.x === expect.x && wall.peel.z === expect.z && wall.peel.yaw === expect.yaw && wall.peel.w === 1 && wall.peel.h === 1
     && evp && JSON.stringify(evp.e.peel) === JSON.stringify(wall.peel), 'en slap ger ett papper: servern räknar ut samma landning som klienten (seed = nonce) och skickar det till alla');
+  assert(Math.hypot(wall.peel.x - 2, wall.peel.z + 5) <= PEEL.footBack + PEEL.footScatter + PEEL.wallMargin && wall.peel.z >= -(ROOM.depth / 2 - PEEL.wallMargin) - 1e-9,
+    `pappret landar vid väggens fot under klibban (${wall.peel.x}, ${wall.peel.z})`);
+  await stand(-2, -3.8);
   const old = await slap({ position: [-2, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr' });
-  assert(old.peel && old.peel.seed === old.stamp.id && Math.hypot(old.peel.start[0] + 2, old.peel.start[2] + 4.2) < 0.6, 'äldre klienter (inget peelFrom/nonce): pappret föds framför klibban, seed = stämpelns id');
+  assert(old.peel && old.peel.seed === old.stamp.id && Math.hypot(old.peel.start[0] + 2, old.peel.start[2] + 3.8) < 1.1, 'äldre klienter (inget peelFrom/nonce): pappret föds från där servern vet att man står, seed = stämpelns id');
+
+  // ---------- Räckvidden (bara med peels på) ----------
+  const countNow = async () => (await call('GET', `/api/rooms/${R}/stamps`)).stamps.length;
+  const n0 = await countNow();
+  b.msgs.length = 0;
+  await stand(0, 3);
+  const far = await slap({ position: [0, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr', nonce: 'farfar001', peelFrom: { p: [0, 3], yaw: 0 } });
+  await sleep(100);
+  assert(far.status === 409 && far.tooFar === true && (await countNow()) === n0 && !b.msgs.some((m) => m.t === 'event' && m.e.type === 'stamp:add'),
+    `för långt bort (${far.distance} m): servern nekar (409 tooFar), ingen klibba sparas och inget skickas ut`);
+  await stand(0, -2.2);
+  const tol = await slap({ position: [0, 1.6, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr', peelFrom: { p: [0, -2.2], yaw: 0 } });
+  await stand(0, -1.8);
+  const tol2 = await slap({ position: [0, 1.6, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr', peelFrom: { p: [0, -1.8], yaw: 0 } });
+  assert(tol.status === 200 && tol2.status === 409 && tol2.tooFar, `servern ger ${REACH_TOLERANCE} m marginal (2,8 m går, 3,2 m nekas)`);
+  await stand(0, 3);
+  const t0 = Date.now();
+  const spoof = await slap({ position: [0, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr', peelFrom: { p: [0, -3.5], yaw: 0 } });
+  assert(spoof.status === 409 && spoof.tooFar && Date.now() - t0 >= 350, 'att ljuga om var man står (peelFrom) hjälper inte: servern mäter från sin egen position');
+  const noBy = await slap({ position: [0, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr', by: undefined, peelFrom: { p: [0, -3.5], yaw: 0 } });
+  const otherBy = await slap({ position: [0, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr', by: 'abcdef0123', peelFrom: { p: [0, -3.5], yaw: 0 } });
+  assert(noBy.status === 409 && noBy.tooFar && otherBy.status === 409, 'utan anslutning till rummet (inget by, eller någon annans) vet servern inte var man står: nekas');
+  // Servern hörde min position lite efter slappen (WebSocket och HTTP i otakt): den väntar på nästa move
+  const lateP = slap({ position: [0, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr', nonce: 'late00001', peelFrom: { p: [0.3, -3.4], yaw: 0.2 } });
+  await sleep(80); b.ws.send(JSON.stringify({ t: 'move', p: [0.3, 1.6, -3.4], y: 0.2, pi: 0 }));
+  const late = await lateP;
+  const lateExp = peelPlan('late00001', { x: 0.3, z: -3.4, yaw: 0.2 }, [0, 1.5, -5]);
+  assert(late.status === 200 && late.peel.x === lateExp.x && late.peel.z === lateExp.z, 'positionen kommer strax efter slappen: servern väntar på den och pappret landar där klienten räknade');
+  await call('POST', `/api/rooms/${R}/peel`, { items: [tol, late].map((x) => ({ id: x.stamp.id, token: x.peelToken })) });
   // Peela klibban: pappret ligger kvar
   await call('POST', `/api/rooms/${R}/peel`, { items: [{ id: wall.stamp.id, token: wall.peelToken }] });
   const after = await call('GET', `/api/rooms/${R}/stamps`);
@@ -126,13 +184,18 @@ try {
   // Överlapp på golvet: lägg ett papper exakt i mitten (1 × 1 m) och slappa bredvid
   await store.clearPeels(R, () => true);
   await store.addPeel(R, { id: 'testpeel00000001', imageId: img.id, w: 1, h: 1, seed: 't', start: [0, 1, 0], x: 0, z: 0, yaw: 0 });
-  const ok39 = await slap({ position: [0.61, 0, 0], peelFrom: { p: [4.5, 4.5], yaw: 0 } }); // dess papper hamnar långt bort
-  const no41 = await slap({ position: [0.59, 0, 0], peelFrom: { p: [4.5, 4.5], yaw: 0 } });
+  await stand(1.8, 0);
+  const no41 = await slap({ position: [0.59, 0, 0], peelFrom: { p: [1.8, 0], yaw: Math.PI / 2 } });
+  const ok39 = await slap({ position: [0.61, 0, 0], peelFrom: { p: [1.8, 0], yaw: Math.PI / 2 } });
   assert(ok39.status === 200 && no41.status === 409 && no41.nope === true && near(no41.overlap, 0.41, 1e-3), 'servern: 39 % på papper fastnar, 41 % nekas (409, går inte att komma runt från klienten)');
+  await stand(0, -3.5);
   const wallOk = await slap({ position: [0, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr' });
   assert(wallOk.status === 200, 'på väggen spelar papperet på golvet ingen roll');
   const offAgain = await call('PUT', `/api/rooms/${R}/peels`, { on: false }, { 'x-room-key': KEY });
+  await stand(0, 4.5);
   const offSlap = await slap({ position: [0.1, 0, 0] });
+  const offFar = await slap({ position: [0, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], surface: 'vägg-norr', by: undefined });
+  assert(offFar.status === 200 && !offFar.peel, 'peels av: ingen räckviddsgräns alls (9,5 m bort, utan anslutning, går fint)');
   const offRoom = await call('GET', `/api/rooms/${R}/stamps`);
   assert(offAgain.status === 200 && offSlap.status === 200 && !offSlap.peel && offRoom.peels.length === 0 && offRoom.info.peels === false, 'peels av: inga nya papper, inget nekas och golvet visas utan papper');
   await call('PUT', `/api/rooms/${R}/peels`, { on: true }, { 'x-room-key': KEY });

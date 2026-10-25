@@ -1,22 +1,37 @@
 // Peels (backing paper): when a room has peels on, every slap drops the sticker's glossy
 // backing paper, a pure-white copy with the same silhouette, which flutters to the floor and stays.
 // Shared by the browser, the server and the tests, so everyone computes the same thing:
-//   - peelPlan(seed, from, target): where it is born (hip height, slapping-arm side) and where it lands.
-//     Deterministic from the seed (the slap's nonce, or the stamp id), the server stores the result.
+//   - peelPlan(seed, from, target): where it is born (hip height, on the line from the slapper towards
+//     the slap) and where it lands (near the foot of the slap: the wall base, or just short of a floor
+//     sticker). Deterministic from the seed (the slap's nonce, or the stamp id), the server stores it.
+//   - SLAP_REACH / inReach(eye, target): with peels on, you can only slap what is within arm's reach
+//     (so the paper lands near the slap). Checked in the browser and, with a little slack, on the server.
 //   - peelPose(peel, u): position + rotation along the scripted fall path at u = 0..1 (no physics).
 //   - overlapFraction(sticker, peels): how much of a new floor sticker lies on peels (easter egg:
 //     stickers don't stick on backing paper; more than PEEL.refuseOverlap is refused).
 // All the tweakable numbers are in PEEL.
 import ROOM from './room.json' with { type: 'json' };
 
+// With peels on, the furthest you can slap: metres from the avatar's eyes to the hit point (3D).
+// 2.5 m reaches a wall at eye height from 2.5 m, the floor up to ~1.9 m ahead and the 4 m ceiling
+// when standing almost under the spot. With peels off there is no reach limit at all.
+export const SLAP_REACH = 2.5;
+// The server measures from the last position it heard over the WebSocket, which can be a step
+// behind (moves are sent ~12×/s), so it allows this much extra before it refuses.
+export const REACH_TOLERANCE = 0.6;
+export const reachDistance = (eye, target) => Math.hypot(target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]);
+export const inReach = (eye, target, slack = 0) => reachDistance(eye, target) <= SLAP_REACH + slack;
+
 export const PEEL = {
   maxPerRoom: 300,          // oldest peels go first
   refuseOverlap: 0.4,       // a floor sticker more than this much on peels doesn't stick
   birthHeight: 1.0,         // m: hip height of the slapping player
-  birthSide: 0.32,          // m: out to the side of the slapping arm
-  birthForward: 0.1,        // m: a bit in front of the hip
-  driftMin: 0.3, driftMax: 1.0,          // m: how far it drifts sideways/forward while falling
-  driftSpread: 1.1,         // rad: how much the drift direction varies (around side/forward)
+  birthAlong: 0.5,          // born this fraction of the way from the slapper towards the slap …
+  birthAlongMax: 0.9,       // m: … but at most this far out (it comes off at the hand, at hip height)
+  birthSide: 0.12,          // m: a little to the side of the slapping arm
+  footBack: 0.22,           // m: lands this far back from the foot of a wall slap (towards the slapper)
+  footBackFloor: 0.4,       // m: a floor slap's paper lands this much short of the sticker (not on it)
+  footScatter: 0.25,        // m: random scatter around that spot
   curve: 0.35,              // the drift bends this much (fraction of the distance), random sign
   fallMin: 0.8, fallMax: 1.4,            // s: fall time
   swayAmp: 0.13,            // m: side-to-side flutter at the start (fades out)
@@ -64,19 +79,23 @@ export function pathParams(seed) {
 
 // from = { x, z, yaw } of the slapping player, target = [x, y, z] where the sticker landed.
 // Returns the stored part: start (born), x/z/yaw (resting place), side (+1 right / −1 left).
+// Born at hip height on the line from the slapper towards the slap; lands near the foot of the
+// slap (the wall base, right under a ceiling slap, just short of a floor sticker).
 export function peelPlan(seed, from, target, room = ROOM) {
   const r = seeded('land:' + seed);
   const side = slapSide(from, target);
-  const [fx, fz] = forwardOf(from.yaw), [rx, rz] = rightOf(from.yaw);
-  const hx = clamp(from.x, -room.width / 2 + PEEL.wallMargin, room.width / 2 - PEEL.wallMargin);
-  const hz = clamp(from.z, -room.depth / 2 + PEEL.wallMargin, room.depth / 2 - PEEL.wallMargin);
-  const start = [hx + rx * PEEL.birthSide * side + fx * PEEL.birthForward, PEEL.birthHeight, hz + rz * PEEL.birthSide * side + fz * PEEL.birthForward];
-  // Drift: mostly outwards on the arm's side, a bit forward, with some spread.
-  const base = Math.atan2(rz * side + fz * 0.6, rx * side + fx * 0.6);
-  const a = base + (r() - 0.5) * PEEL.driftSpread;
-  const d = lerp(PEEL.driftMin, PEEL.driftMax, r());
+  const [rx, rz] = rightOf(from.yaw);
   const mx = room.width / 2 - PEEL.wallMargin, mz = room.depth / 2 - PEEL.wallMargin;
-  const x = clamp(start[0] + Math.cos(a) * d, -mx, mx), z = clamp(start[2] + Math.sin(a) * d, -mz, mz);
+  const hx = clamp(from.x, -mx, mx), hz = clamp(from.z, -mz, mz);
+  let dx = target[0] - hx, dz = target[2] - hz;
+  const D = Math.hypot(dx, dz);
+  if (D > 0.05) { dx /= D; dz /= D; } else [dx, dz] = forwardOf(from.yaw); // rakt upp/ner: framåt
+  const a = Math.min(D * PEEL.birthAlong, PEEL.birthAlongMax);
+  const start = [hx + dx * a + rx * PEEL.birthSide * side, PEEL.birthHeight, hz + dz * a + rz * PEEL.birthSide * side];
+  const floor = target[1] < 0.15;
+  const back = Math.min(floor ? PEEL.footBackFloor : PEEL.footBack, D);
+  const ang = r() * Math.PI * 2, rad = Math.sqrt(r()) * PEEL.footScatter;
+  const x = clamp(target[0] - dx * back + Math.cos(ang) * rad, -mx, mx), z = clamp(target[2] - dz * back + Math.sin(ang) * rad, -mz, mz);
   const yaw = r() * Math.PI * 2;
   return { start: start.map(round), x: round(x), z: round(z), yaw: round(yaw), side };
 }
@@ -98,7 +117,7 @@ export function peelPose(peel, u, params = pathParams(peel.seed)) {
   const [sx, sy, sz] = peel.start, ex = peel.x, ez = peel.z;
   const dx = ex - sx, dz = ez - sz, dist = Math.hypot(dx, dz) || 1e-6, px = -dz / dist, pz = dx / dist;
   // Curved drift (quadratic) + a flutter sideways that fades out.
-  const bend = 4 * u * (1 - u) * params.curve * dist;
+  const bend = 4 * u * (1 - u) * params.curve * Math.min(dist, 1); // longer falls don't swing wider
   const sway = Math.sin(params.swayPhase + u * params.swayCycles * Math.PI * 2) * PEEL.swayAmp * (1 - u) * (1 - u) - Math.sin(params.swayPhase) * PEEL.swayAmp * (1 - u) * (1 - u) * (1 - u);
   const e = u * u * (3 - 2 * u) * 0.55 + u * 0.45; // drifts out fast-ish, settles softly
   const x = sx + dx * e + px * (bend + sway), z = sz + dz * e + pz * (bend + sway);

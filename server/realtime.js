@@ -30,6 +30,15 @@ const listeners = new Set();
 // Anropas av app.js. roomId '*' = alla rum (t.ex. när admin tar bort en bild helt).
 function broadcast(roomId, event) { for (const fn of listeners) fn(roomId, event); }
 function onBroadcast(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+// Var står spelaren (WebSocket-id) i rummet just nu, enligt det senaste den skickade?
+// { p: [x, y, z] (ögonen), y: yaw, moves: hur många move som kommit } eller null.
+// app.js använder det för räckvidden när rummet har peels på (går inte att fuska med från klienten).
+const finders = new Set();
+function playerPosition(roomId, id) {
+  if (typeof id !== 'string') return null;
+  for (const f of finders) { const p = f(roomId, id); if (p) return p; }
+  return null;
+}
 
 const ROOM_RE = /^[a-z0-9-]{1,40}$/;
 const CHAT_KEEP = 50;
@@ -153,6 +162,12 @@ function attachRealtime(server, {
   const everyone = (r) => [...r.players.values(), ...r.watchers];
   const toRoom = (r, msg, except) => { const s = JSON.stringify(msg); for (const c of everyone(r)) if (c !== except) send(c, s); };
 
+  const finder = (roomId, id) => {
+    const r = rooms.get(roomId); if (!r) return null;
+    const c = r.players.get(id) || r.watchers.find((w) => w.id === id);
+    return c && c.p && c.ws.readyState === 1 ? { p: c.p.slice(), y: c.y, moves: c.moves || 0 } : null;
+  };
+  finders.add(finder);
   const off = onBroadcast((roomId, e) => {
     const list = roomId === '*' ? [...rooms.values()] : rooms.has(roomId) ? [rooms.get(roomId)] : [];
     for (const r of list) toRoom(r, { t: 'event', e });
@@ -209,9 +224,10 @@ function attachRealtime(server, {
     }
     if (!c.joined) return;
     if (m.t === 'move') {
-      if (!c.player || !c.moveLimit()) return;
+      if (!c.moveLimit()) return;
       const p = cleanPos(m.p, bounds); if (!p) return;
-      c.p = p; c.y = isNum(m.y) ? round(m.y) : c.y; c.pi = m.pi === undefined ? c.pi : cleanPitch(m.pi);
+      c.p = p; c.y = isNum(m.y) ? round(m.y) : c.y; c.pi = m.pi === undefined ? c.pi : cleanPitch(m.pi); c.moves = (c.moves || 0) + 1;
+      if (!c.player) return; // den som väntar syns inte, men servern vet var den står (räckvidden med peels)
       rec(r.id, 'move', { id: c.id, p: c.p, y: c.y, pi: c.pi });
       return toRoom(r, { t: 'move', id: c.id, p: c.p, y: c.y, pi: c.pi }, c);
     }
@@ -280,11 +296,11 @@ function attachRealtime(server, {
     stats: () => Object.fromEntries([...rooms.values()].map((r) => [r.id, { players: r.players.size, watchers: r.watchers.length, chat: r.chat.length }])),
     // Vid omstart: säg till alla att servern startar om (kod 1012), så de kopplar upp sig igen.
     close(code = 1012, reason = 'Servern startar om') {
-      clearInterval(hb); off(); server.off('upgrade', onUpgrade);
+      clearInterval(hb); off(); finders.delete(finder); server.off('upgrade', onUpgrade);
       for (const ws of wss.clients) ws.close(code, reason);
       wss.close();
     },
   };
 }
 
-module.exports = { broadcast, onBroadcast, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };
+module.exports = { broadcast, onBroadcast, playerPosition, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };
