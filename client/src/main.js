@@ -755,7 +755,57 @@ $('credit-link').addEventListener('click', () => setTimeout(hideCredit, 0));
 // ---------- Inmatning ----------
 const CENTER = new THREE.Vector2(0, 0);
 $('enter').onclick = () => controls.lock();
+
+// ---------- Esc toggles: game ⇄ menu (desktop) ----------
+// In the game, Esc is the browser's own "leave pointer lock" (→ the menu). In the menu, Esc
+// closes the topmost open thing first (dialog, chat, Sound settings, My avatar, room look,
+// ⚙ More, Room ▾); on the plain menu it goes back into the game.
+// Browser limits: Esc is not a "user activation" key, and Chrome refuses a new pointer lock for
+// ~1 s after the user left it with Esc. So we try, and if the lock doesn't come we still leave
+// the menu and show "Click to enter" – the next click locks (no errors, no toasts).
+var escGate = { unlockedAt: -1e9 }; // eslint-disable-line no-var
+let resuming = false;
+function setResuming(on) {
+  resuming = !!on;
+  document.body.classList.toggle('resuming', resuming);
+  $('resume-hint').hidden = !resuming;
+}
+function tryLock() {
+  try {
+    const r = controls.canvas.requestPointerLock?.();
+    if (r && typeof r.catch === 'function') r.catch(() => {}); // refused: the hint stays, quietly
+  } catch { /* old browsers: same */ }
+}
+document.addEventListener('pointerlockerror', () => {}, { passive: true }); // handled by the hint
+function resumeGame() { setResuming(true); tryLock(); }
+// The topmost thing Esc should close, or null.
+function escTarget() {
+  if (camView) return () => exitCamView();
+  if (!$('sound-panel').hidden) return () => soundUi.close();
+  if (!$('avatar-panel').hidden) return () => $('av-cancel').click();
+  if (sp.open) return () => closeStylePanel(true);
+  if (!$('more-panel').hidden) return () => closeMore();
+  if (!$('room-menu').hidden) return () => closeRoomMenu();
+  if (credit.id) return () => hideCredit();
+  return null;
+}
+function onEscape(e) {
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  if (endDlg.open || linkDlg.open) return;          // <dialog> closes itself on Esc
+  if (together.chatOpen()) return;                   // the chat input closes itself (together.js)
+  if (isTyping(e)) { e.target.blur(); return; }      // first Esc just leaves the text field
+  const close = escTarget();
+  if (close) { e.preventDefault(); close(); return; }
+  if (isTouch) return;
+  if (controls.locked) return;                       // the browser handles this one (→ menu)
+  if (e.repeat || performance.now() - escGate.unlockedAt < 500) return; // the Esc that opened the menu
+  e.preventDefault();
+  if (resuming) setResuming(false); else resumeGame();
+}
+addEventListener('keydown', onEscape);
 controls.onLockChange = (locked) => {
+  if (!locked) escGate.unlockedAt = performance.now();
+  if (locked) setResuming(false);
   document.body.classList.toggle('locked', locked);
   if (locked) { closeMore(); closeRoomMenu(); }
   $('crosshair').hidden = !locked;
@@ -1152,7 +1202,7 @@ function exitCamView() {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
 }
 $('camview-exit').onclick = () => exitCamView();
-addEventListener('keydown', (e) => { if (e.key === 'Escape' && camView) { e.preventDefault(); exitCamView(); } });
+// (Esc out of a camera view: see onEscape)
 
 // ---------- Första eller tredje person (C, knappen i ⚙ More, 👤 på mobilen) ----------
 // Förstapersonsläget är precis som förut (ingen hand syns). I tredjepersonsvy står kameran bakom
@@ -1252,7 +1302,7 @@ if ('serviceWorker' in navigator) {
 
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 window.klibb = {
-  soundUi: () => soundUi, synthShared: () => synthShared, soundSteps: () => sound.steps, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
+  soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => sound.steps, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,

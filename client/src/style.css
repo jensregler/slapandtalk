@@ -393,3 +393,9 @@ a.btn.primary { background: #fff; color: #111; font-weight: 700; border-color: #
 body.touch #sound-panel { left: 8px; right: 8px; width: auto; top: 8px; }
 #sound-design-btn[hidden] { display: none !important; }
 #sound-design-btn { margin-top: 6px; }
+
+/* Esc from the menu back to the game, when the browser didn't give the pointer lock right away */
+body.resuming #panel, body.resuming #more-panel { display: none; }
+#resume-hint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; pointer-events: none;
+  background: rgba(15,15,15,.72); color: #fff; padding: 8px 14px; border-radius: 999px; font-size: 14px; }
+#resume-hint[hidden] { display: none; }

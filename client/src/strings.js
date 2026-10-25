@@ -112,10 +112,11 @@ export const EN = {
 
   // ---------- Desktop / touch help ----------
   enter: 'Enter the room',
+  resumeHint: 'Click to enter',
   quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V look mode · C 3rd person · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
     + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = look mode on/off '
-    + '(hides the pointer, clicks do nothing; V again = slap mode), C = 1st/3rd person (see your avatar from behind), Esc = back to the menu. '
+    + '(hides the pointer, clicks do nothing; V again = slap mode), C = 1st/3rd person (see your avatar from behind), Esc = menu (Esc again = back into the room). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Back to the City takes you back. '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
