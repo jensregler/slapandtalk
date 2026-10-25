@@ -203,6 +203,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       const map = window.klibb.preview.mat.map; return !!map && map.image.src.includes(window.klibb.state.selected.id);
     });
     assert(previewOk, 'förhandsvisningen byter bild direkt');
+    const heldMat = await page.evaluate(() => { const m = window.klibb.preview.mat; return { o: m.opacity, a: m.alphaTest, dw: m.depthWrite, po: m.polygonOffset }; });
+    assert(heldMat.o === 1 && heldMat.a > 0 && !heldMat.dw && heldMat.po, 'klibban man håller i är helt ogenomskinlig, behåller formen (alphaTest) och flimrar inte mot väggen');
     await page.keyboard.press('r'); await page.waitForTimeout(200);
     await page.evaluate(() => { const k = window.klibb; k.moveTo(-1, -2.5); k.look(0.3, 0.1);
       k.preview.show(new k.camera.position.constructor(-1.4, 1.9, -5), new k.camera.position.constructor(0, 0, 1),
@@ -349,10 +351,10 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // Mobil: ögat växlar Tittläge, tryck stämplar inte då
     assert(await m.isVisible('#mode-btn'), 'mobil: ögonknappen syns');
     await m.tap('#mode-btn'); await m.waitForTimeout(200);
-    const mv = await m.evaluate(() => [window.klibb.state.mode, getComputedStyle(document.getElementById('design-btn')).opacity, window.klibb.stamps.count]);
+    const mv = await m.evaluate(() => [window.klibb.state.mode, getComputedStyle(document.getElementById('design-btn')).opacity, window.klibb.stamps.count, getComputedStyle(document.getElementById('design-btn')).borderTopStyle]);
     await m.touchscreen.tap(vp.width * 0.4, vp.height * 0.3); await m.waitForTimeout(700);
     const mvc = await m.evaluate(() => window.klibb.stamps.count);
-    assert(mv[0] === 'view' && Number(mv[1]) < 0.6 && mvc === mv[2], 'mobil: 👁 ger Tittläge, designknappen dämpas och tryck stämplar inte');
+    assert(mv[0] === 'view' && Number(mv[1]) === 1 && mv[3] === 'dashed' && mvc === mv[2], 'mobil: 👁 ger Tittläge, designknappen får streckad ram (inte genomskinlig) och tryck stämplar inte');
     await m.waitForFunction(() => !document.getElementById('toast').classList.contains('show'), null, { timeout: 5000 });
     await m.screenshot({ path: path.join(SHOTS, '14-tittlage-mobil.png') });
     await m.tap('#mode-btn'); await m.waitForTimeout(200);

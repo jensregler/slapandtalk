@@ -198,12 +198,20 @@ export class StampLayer {
   get count() { return this.meshes.size; }
 }
 
-// En genomskinlig förhandsvisning som följer siktet (bara på dator).
+// Hur genomskinlig klibban man håller i är. 1 = helt ogenomskinlig, som en riktig klibba
+// (Tittläget V finns för att se väggen utan klibban i vägen). Sätt t.ex. 0.55 för att gå tillbaka.
+export const HELD_OPACITY = 1;
+
+// Förhandsvisningen av klibban man håller i, som följer siktet (1:a och 3:e person).
 // Den viks på samma sätt som den riktiga klibban, så man ser hur den hamnar i hörn.
+// Formen på utskurna PNG:er behålls med alphaTest; opacity påverkar inte formen.
 export class StampPreview {
   constructor(scene, faces = null) {
     this.faces = faces;
-    this.mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8 });
+    this.mat = new THREE.MeshBasicMaterial({
+      transparent: true, opacity: HELD_OPACITY, alphaTest: 0.02, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8,
+    });
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat);
     this.mesh.renderOrder = 1e6;
     this.mesh.visible = false;

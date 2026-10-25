@@ -84,8 +84,9 @@ body.touch #mode-hud { left: auto; right: 20px; transform: none; bottom: calc(11
   border-radius: 50%; font-size: 26px; line-height: 1; background: rgba(20,20,20,.75); border: 2px solid rgba(255,255,255,.5);
   z-index: 4; touch-action: manipulation; }
 #mode-btn[aria-pressed="true"] { background: #ffd400; border-color: #ffd400; }
-body.view-mode #design-btn { opacity: .45; }
-body.view-mode #design-hud { opacity: .5; }
+/* I Tittläge dämpas inte klibban man håller i (klibbor är aldrig genomskinliga): streckad ram i stället */
+body.view-mode #design-btn { border-style: dashed; }
+body.view-mode #design-hud img { outline: 2px dashed rgba(255,255,255,.6); outline-offset: 2px; }
 /* I Tittläge: bara en liten prick i stället för siktet */
 body.view-mode #crosshair { width: 4px; height: 4px; margin: -2px 0 0 -2px; border: 0; background: rgba(255,255,255,.55); }
 
