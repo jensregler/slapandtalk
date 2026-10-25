@@ -46,7 +46,7 @@ export const EN = {
   pickThis: 'Pick this sticker',
   designLoadFailed: 'Could not load the design right now.',
   uploadFirst: 'Upload a sticker first.',
-  onlyOneDesign: 'You only have one design. Upload more to switch with R.',
+  onlyOneDesign: 'You only have one design. Upload more to switch with R/F.',
   designLost: (n) => (n === 1 ? 'An old design was gone from the server and could not be restored. Please upload it again.'
     : `${n} old designs were gone from the server and could not be restored. Please upload them again.`),
   designRestored: (n) => (n === 1 ? 'A design had vanished from the server and was uploaded again.' : `${n} designs had vanished from the server and were uploaded again.`),
@@ -58,7 +58,7 @@ export const EN = {
   uploadedDesktop: 'Done! Enter the room and click to slap it.',
   pickFirst: 'Upload or pick a sticker first.',
   slapFailed: 'Could not slap right now, try again.',
-  designHud: 'R: next design',
+  designHud: 'R/F: next/prev design',
   designBtn: 'Next design',
   size: 'Size', rotation: 'Rotation', jitter: 'A little random tilt (like for real)',
   artist: 'Your artist name (optional)', artistPlaceholder: 'e.g. Ulla K',
@@ -112,9 +112,9 @@ export const EN = {
 
   // ---------- Desktop / touch help ----------
   enter: 'Enter the room',
-  quickHelp: 'Click to enter · WASD walk · click = slap · R next design · Z peel · V look mode · C 3rd person · T chat',
+  quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V look mode · C 3rd person · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
-    + 'R = next design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = look mode on/off '
+    + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = look mode on/off '
     + '(hides the pointer, clicks do nothing; V again = slap mode), C = 1st/3rd person (see your avatar from behind), Esc = back to the menu. '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Back to the City takes you back. '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '

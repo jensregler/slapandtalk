@@ -178,12 +178,14 @@ async function select(img) {
   } catch { stamps.textures.delete(img.id); toast(S.designLoadFailed); }
 }
 
-// Byt till nästa uppladdade design (och börja om från början efter den sista).
-function nextDesign() {
+// Byt till nästa (R) eller förra (F) uppladdade design, runt i en ring (efter den sista kommer den första).
+function nextDesign() { return stepDesign(1); }
+function prevDesign() { return stepDesign(-1); }
+function stepDesign(dir) {
   const list = designs();
   if (!list.length) { toast(S.uploadFirst); return null; }
   const i = list.findIndex((d) => d.id === state.selected?.id);
-  const next = list[(i + 1) % list.length];
+  const next = list[i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length];
   select(next);
   if (list.length === 1) toast(S.onlyOneDesign);
   return next;
@@ -787,6 +789,7 @@ if (!isTouch) {
     if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
     if (state.mode === 'slap' && e.code === 'KeyE') setRot(state.rotation + 15);
     if (e.code === 'KeyR' && !e.repeat && !e.ctrlKey && !e.metaKey) nextDesign();
+    if (e.code === 'KeyF' && !e.repeat && !e.ctrlKey && !e.metaKey) prevDesign(); // F = förra designen (spegel av R)
   });
 } else {
   // Mobil: dra = titta, kort tryck = stämpla.
@@ -1280,5 +1283,5 @@ window.klibb = {
   reach: SLAP_REACH, farSlaps: () => farSlaps, skipReachCheck: false,
   reachState: () => ({ peels: peelLayer.on, far: preview.far, crosshairDim: document.body.classList.contains('out-of-reach'), flash: !!farFlash, visible: preview.mesh.visible, opacity: preview.mat.opacity }),
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
-  nextDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, maxSizeCm: MAX_SIZE_CM,
+  nextDesign, prevDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, maxSizeCm: MAX_SIZE_CM,
 };

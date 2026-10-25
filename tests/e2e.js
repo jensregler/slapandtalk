@@ -201,6 +201,14 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       assert(d.sel !== seen[seen.length - 2] && d.hud.includes(d.sel) && d.num === `${idx + 1}/3`, `R nr ${i + 1}: byter design och rutan visar den (${d.num})`);
     }
     assert(new Set(seen.slice(0, 3)).size === 3 && seen[3] === seen[0], 'R går igenom alla 3 designs och börjar om');
+    // F = förra designen: samma ring baklänges (från den första hoppar F till den sista)
+    const back = [];
+    for (let i = 0; i < 3; i++) { await page.keyboard.press('f'); await page.waitForTimeout(150); back.push((await designState()).sel); }
+    const lastNum = (await designState()).num;
+    assert(back[0] === seen[2] && back[1] === seen[1] && back[2] === seen[0] && lastNum === `${1 + (await page.evaluate((id) => window.klibb.designs().findIndex((x) => x.id === id), seen[0]))}/3`,
+      'F går baklänges genom samma 3 designs (runt från den första till den sista) och rutan följer med');
+    const hudHint = await page.evaluate(() => document.querySelector('#design-hud [data-t="designHud"]').textContent);
+    assert(hudHint === 'R/F: next/prev design', `designrutan visar båda tangenterna ("${hudHint}")`);
     const previewOk = await page.evaluate(() => {
       const map = window.klibb.preview.mat.map; return !!map && map.image.src.includes(window.klibb.state.selected.id);
     });
