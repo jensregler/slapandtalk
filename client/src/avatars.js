@@ -10,6 +10,9 @@ import AV from '../../shared/avatar.json';
 import { ArmGesture } from './slapanim.js';
 import { cleanFabrics } from '../../shared/fabric.mjs';
 import { acquireFabric, releaseFabric, makeFabricable, setFabric, tickFabric } from './fabrics.js';
+import { Mouth, MOUTH } from './mouth.js';
+const MOUTH_AT = MOUTH.at;
+import { quantLevel, openOf } from '../../shared/director.mjs';
 
 export const AVATAR = AV;
 export const AVATAR_URL = '/avatars/gubbe.glb';
@@ -163,6 +166,8 @@ export class Avatar {
     this.cap = new THREE.Group(); this.capMat = capMat;
     for (const g of capGeo) { const m = new THREE.Mesh(g, capMat); m.raycast = () => {}; this.cap.add(m); }
     this.root.add(this.cap);
+    // The talking mouth (mouth.js): follows the head bone like the cap, hidden while silent.
+    this.mouth = new Mouth(name || Math.random()); this.root.add(this.mouth.group); this.mouthT = null;
     // Tyger: varje färgplats kan bära en upprepad bild (fabrics.js). Huden har två material (mörkare skugga).
     for (const [role, list] of Object.entries(this.mats)) for (const m of list) makeFabricable(m, { tint: role === 'skinDark' ? 0.82 : 1 });
     makeFabricable(capMat);
@@ -224,10 +229,16 @@ export class Avatar {
     }
     if (!this.talk) return;
     this.talk.visible = !!on;
+    if (!on) this.setMouth(0, this.mouthT);
     this.talk.position.set(0, TOP + (this.tag ? 0.36 : 0.22), 0);
     const k = 1 + Math.min(1, level * 6) * 0.25; this.talk.scale.set(0.16 * k, 0.08 * k, 1);
   }
   get speaking() { return !!(this.talk && this.talk.visible); }
+  // The mouth: open = 0…1, or a raw voice level (rms / audioLevel) through talkLevel().
+  // t = the replay's timeline time (ms), so the glitches are the same every time it is played.
+  setMouth(open, t = null) { this.mouth.set(open, performance.now()); this.mouthT = t; }
+  talkLevel(rms) { this.setMouth(openOf(quantLevel(rms))); }
+  get mouthInfo() { return this.mouth.info; }
   // Pratbubbla ovanför huvudet i några sekunder.
   say(text, ms = 5000) {
     this.unsay();
@@ -266,9 +277,21 @@ export class Avatar {
       this.cap.position.copy(new THREE.Vector3(0, 0.205, 0.012).applyQuaternion(q).add(pos));
       this.cap.quaternion.copy(q);
     }
+    if (this.mouth && this.head) {
+      this.mouth.update(dt, this.mouthT);
+      if (this.mouth.group.visible) {
+        this.root.updateMatrixWorld(true);
+        const m = new THREE.Matrix4().copy(this.root.matrixWorld).invert().multiply(this.head.matrixWorld);
+        const pos = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+        m.decompose(pos, q, sc);
+        this.mouth.group.position.copy(new THREE.Vector3(...MOUTH_AT).applyQuaternion(q).add(pos));
+        this.mouth.group.quaternion.copy(q);
+      }
+    }
     if (this.bubble && performance.now() > this.bubbleUntil) this.unsay();
   }
   dispose() {
+    this.mouth?.dispose();
     this.unsay(); this.setName(''); if (this.talk) { this.root.remove(this.talk); this.talk.material.dispose(); this.talk = null; }
     this.disposed = true;
     for (const e of Object.values(this.fab)) if (e.ok) releaseFabric(e.id);
@@ -314,7 +337,7 @@ export class Players {
     const ids = id === '*' ? [...this.map.keys()] : [id];
     for (const i of ids) { const pl = this.map.get(i); if (!pl) continue; if (pl.avatar) { this.scene.remove(pl.avatar.root); pl.avatar.dispose(); } this.map.delete(i); }
   }
-  speaking(id, on, level = 0) { const pl = this.map.get(id); if (!pl) return false; pl.talking = !!on; pl.avatar?.setSpeaking(on, level); return true; }
+  speaking(id, on, level = 0) { const pl = this.map.get(id); if (!pl) return false; pl.talking = !!on; pl.avatar?.setSpeaking(on, level); if (on) pl.avatar?.talkLevel(level); return true; }
   say(id, text) { const pl = this.map.get(id); if (pl?.avatar) pl.avatar.say(text); }
   // Någon annan slappade (eller peelade): deras gubbe gör rörelsen mot klibban.
   gesture(id, kind, point, normal = null) {
@@ -348,6 +371,6 @@ export class Players {
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
       walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false,
-      gestures: p.gestures || 0, slot: p.slot, speaking: !!p.avatar?.speaking, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {} }));
+      gestures: p.gestures || 0, slot: p.slot, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {} }));
   }
 }

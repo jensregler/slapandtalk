@@ -12,7 +12,13 @@
 //     or carrier NATs) cannot connect: then voice silently does not work for that pair.
 // Perfect negotiation (https://w3c.github.io/webrtc-pc/#perfect-negotiation-example): either side
 // may (re)offer at any time; on a clash the "polite" side (the larger id) gives way.
-export const VOICE = { ice: [{ urls: 'stun:stun.l.google.com:19302' }], near: 1.8, floor: 0.3, talkOn: 0.012, talkOff: 0.006, holdMs: 350, statsMs: 200 };
+import { quantLevel } from '../../shared/director.mjs';
+
+export const VOICE = { ice: [{ urls: 'stun:stun.l.google.com:19302' }], near: 1.8, floor: 0.3, talkOn: 0.012, talkOff: 0.006, holdMs: 350, statsMs: 200, sendMs: 80 };
+// My own loudness while I talk goes to the server ~12 times a second as a number 0…15 (never
+// audio), and only while the room is being recorded (● REC shows): it ends up in the session
+// recording, for the mouth and the auto-director in the replay (shared/director.mjs).
+// Mic off or muted = nothing is sent.
 
 function rms(analyser, buf) { analyser.getFloatTimeDomainData(buf); let s = 0; for (const x of buf) s += x * x; return Math.sqrt(s / buf.length); }
 
@@ -50,8 +56,17 @@ export class Voice {
     })().finally(() => { this.starting = null; });
     return this.starting;
   }
+  // ~12 Hz while I talk, and one 0 when I stop (or mute, or turn the mic off).
+  sendLevel(q, now) {
+    if (q === 0 && !this.me.sentQ) return;
+    if (q > 0 && !(this.recording && this.recording())) return; // only into a running recording
+    if (q > 0 && now - (this.me.sentAt || 0) < VOICE.sendMs) return;
+    this.me.sentQ = q; this.me.sentAt = now;
+    if (this.net.sendTalk) this.net.sendTalk(q);
+  }
   setMuted(m) {
     if (!this.track) return;
+    if (m) this.sendLevel(0, performance.now());
     this.track.enabled = !m; this.state = m ? 'muted' : 'on';
     if (m && this.me.talking) { this.me.talking = false; this.onSpeaking('me', false, 0); }
     this.onState(this.state); this.toast(m ? 'muted' : 'on');
@@ -131,6 +146,7 @@ export class Voice {
     this.peers.delete(id);
   }
   closeAll() {
+    this.sendLevel(0, performance.now());
     for (const id of [...this.peers.keys()]) this.drop(id);
     if (this.stream) for (const t of this.stream.getTracks()) t.stop();
     this.stream = null; this.track = null; this.state = 'off'; this.onState(this.state);
@@ -158,12 +174,16 @@ export class Voice {
       if (p.gain) p.gain.gain.value = v; else if (p.audio && Math.abs(p.audio.volume - v) > 0.01) p.audio.volume = v;
     }
     if (this.me.analyser && this.state === 'on') {
-      this.talk(this.me, 'me', rms(this.me.analyser, this.me.buf), now);
+      const lvl = rms(this.me.analyser, this.me.buf);
+      this.talk(this.me, 'me', lvl, now);
+      this.sendLevel(this.me.talking ? Math.max(1, quantLevel(lvl)) : 0, now);
     }
+    // Their mouths: analyser levels every frame (cheap); the getStats fallback below is slower.
+    for (const p of this.peers.values()) if (p.analyser) this.talk(p, p.id, rms(p.analyser, p.buf), now);
     if (now - this.lastStats < VOICE.statsMs) return;
     this.lastStats = now;
     for (const p of this.peers.values()) {
-      if (p.analyser) { this.talk(p, p.id, rms(p.analyser, p.buf), now); continue; }
+      if (p.analyser) continue; // done every frame above
       if (!p.stream || p.statsBusy) continue;
       p.statsBusy = true;
       p.pc.getStats().then((st) => {

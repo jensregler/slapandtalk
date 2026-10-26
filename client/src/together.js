@@ -290,7 +290,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     setSpeaking(id, on, level = 0) {
       const was = talking.has(id);
       if (on) talking.add(id); else talking.delete(id);
-      if (id !== 'me') players.speaking(id, on, level);
+      if (id !== 'me') players.speaking(id, on, level); else if (self.avatar) { if (on) self.avatar.talkLevel(level); else self.avatar.setMouth(0); }
       if (was !== !!on) renderPeople();
     },
     talking: () => [...talking],
