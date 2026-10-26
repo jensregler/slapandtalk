@@ -1,0 +1,53 @@
+{
+ "_about": "Curated sticker library. Built by tools/import-library.mjs; the server seeds these into storage at start-up (server/library.js).",
+ "stickers": [
+  {
+   "id": "c5fb4c8edff9be29",
+   "file": "c5fb4c8edff9be29.webp",
+   "width": 512,
+   "height": 512,
+   "artist": "Placeholder",
+   "source": "Placeholder - blob.png"
+  },
+  {
+   "id": "3167f23a2835814d",
+   "file": "3167f23a2835814d.webp",
+   "width": 512,
+   "height": 512,
+   "artist": "Placeholder",
+   "source": "Placeholder - eye.png"
+  },
+  {
+   "id": "52b04e09796e75f0",
+   "file": "52b04e09796e75f0.webp",
+   "width": 512,
+   "height": 512,
+   "artist": "Placeholder",
+   "source": "Placeholder - hej.png"
+  },
+  {
+   "id": "75aecb60e4162208",
+   "file": "75aecb60e4162208.webp",
+   "width": 512,
+   "height": 512,
+   "artist": "Placeholder",
+   "source": "Placeholder - slap.png"
+  },
+  {
+   "id": "9a9db30b7658784a",
+   "file": "9a9db30b7658784a.webp",
+   "width": 512,
+   "height": 512,
+   "artist": "Placeholder",
+   "source": "Placeholder - star.png"
+  },
+  {
+   "id": "0c33943aa47caf8d",
+   "file": "0c33943aa47caf8d.webp",
+   "width": 512,
+   "height": 512,
+   "artist": "Placeholder",
+   "source": "Placeholder - talk.png"
+  }
+ ]
+}
