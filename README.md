@@ -19,7 +19,7 @@ samlad i `client/src/strings.js`, så det blir lätt att lägga till fler språk
 README:n (och koden) är fortfarande på svenska; knapparnas namn står här som de heter på sidan.
 
 **Första vyn är enkel:** i menyn syns bara det viktigaste: rummets namn och typ, **Room ▾**
-(*＋ New quick room*, *🔗 Share link*, *🏙 Back to the City*), vilka som är här,
+(*＋ New quick room*, *🔗 Share link*, *🏙 Visit the City*), vilka som är här,
 **⬆ Upload sticker**, dina designs, **Slap mode / Look mode**, **Enter the room** och **⚙ More**.
 Allt annat ligger under **⚙ More**: storlek, rotation, slumpvridning och artistnamn, *My slaps in
 this room* (historiken och peel), vilka som är här och **🧍 My avatar**, rummets utseende
@@ -168,13 +168,27 @@ inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) finns en 
 
 **Rum:** under **Room ▾** i menyn finns **＋ New quick room** (skapar ett eget rum med en kort kod, t.ex.
 `/?room=k7m2qx`), **🔗 Share link** (kopierar länken, eller öppnar dela-menyn på mobilen) och
-**🏙 Back to the City**. Högst upp i bild står vilket rum du är i. Ett nytt rum är alltid helt tomt.
+**🏙 Visit the City** (`/?room=stad`). Högst upp i bild står vilket rum du är i. Ett nytt rum är alltid helt tomt.
+
+**Den vanliga adressen (`/`, utan `?room=`) tar dig till ditt senast använda rum**, inte till Staden
+(`client/src/landing.js`, körs i `boot.js` före rummet). "Dina rum" = de rum den här webbläsaren har
+en nyckel till (`klibb.roomKeys`: du skapade det; `klibb.memberKeys`: en inbjudan släppte in dig)
+eller har öppnat (`klibb.rooms`: `{ rum: senaste besök }`, högst 100; Staden räknas inte). Servern
+säger vilka som finns och när något senast hände där: `GET /api/rooms/recent?ids=a,b,c` (högst 50
+id, svarar `{ rooms: [{ id, type, updatedAt }], missing: [...] }`, nyast först; `updatedAt` sätts
+vid varje sparning av rummet: klibba, peel, utseende, kamera, besök, men inte av städjobben).
+Rum som är borta (städade, ett utgånget demorum) hoppas över och glöms på enheten. Svarar inte
+servern avgör det senaste lokala besöket. Inga rum alls → ett nytt snabbrum skapas direkt (som
+*＋ New quick room* med standardutseendet). Adressen blir `/?room=<id>` med `history.replaceState`
+(ingen omladdning, ingen loop). Inte när adressen redan har `?room=` (även `?room=stad`),
+`?replay=` eller `?admin=` (admin landar i Staden som förut). **Demon** har sin egen regel (samma
+idé): `/` (och `?room=stad`) går till ditt eget demorum eller skapar ett (`client/src/demo.js`).
 
 Det finns tre sorters rum:
 
 | Typ | Vad | Sparas |
 |---|---|---|
-| **Staden** (`stad`, på sidan *The City*) | Det gemensamma rummet där alla hamnar | Alltid, rensas aldrig |
+| **Staden** (`stad`, på sidan *The City*) | Det gemensamma rummet som alla kan besöka (`/?room=stad`, *🏙 Visit the City*) | Alltid, rensas aldrig |
 | **Snabbrum** (*Quick room*) | Vem som helst kan skapa ett, inget konto behövs | Raderas automatiskt när ingen har varit där på 24 timmar |
 | **Profilrum** (*Profile room*) | Hör till en användare (förberett, konton finns inte än) | Sparas, rensas aldrig av städningen |
 

@@ -17,7 +17,7 @@ export const EN = {
   roomMenuTitle: 'New room, share link, back to the City',
   newRoom: '＋ New quick room', newRoomTitle: 'Make your own room with a short code you can share',
   shareRoom: '🔗 Share link', shareRoomTitle: 'Copy or share the link to this room',
-  toCity: '🏙 Back to the City', toCityTitle: 'Back to the shared room',
+  toCity: '🏙 Visit the City', toCityTitle: 'The shared room everyone can visit',
   editStyle: '🎨 Change room look',
   roomNoteQuick: (h) => `Your own room. Share the link to invite people. It is deleted when nobody has visited for ${h} hours.`,
   roomNoteProfile: (owner) => `Saved room${owner ? ` owned by ${owner}` : ''}.`,
@@ -128,7 +128,7 @@ export const EN = {
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
     + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = look mode on/off '
     + '(hides the pointer, clicks do nothing; V again = slap mode), C = 1st/3rd person (see your avatar from behind), P = 📷 photo of what you see, Esc = menu (Esc again = back into the room). '
-    + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Back to the City takes you back. '
+    + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Visit the City opens the shared room (the plain address takes you to your most recent room). '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
   helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look, tap = slap. The round button bottom right shows your design: tap it for the next one. '

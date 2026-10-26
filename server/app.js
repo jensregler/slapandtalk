@@ -329,6 +329,23 @@ function emptyRoomOnStorageError(id, e) {
   return { ...store.emptyRoom(id), exists: false, storageUnavailable: true };
 }
 
+// "Which of my rooms was used last?" The web app asks this when someone opens the site without
+// ?room= (client/src/landing.js): ids = the rooms this browser has keys for or has visited.
+// Answers only for rooms that exist (expired demo rooms count as gone) and only the activity time,
+// no names or content. ≤ 50 ids; the City is never part of it.
+app.get('/api/rooms/recent', (req, res, next) => (req.query.ids === undefined ? next('route') : next()), rateLimit(30), wrap(async (req, res) => {
+  // (without ?ids= it falls through to GET /api/rooms/:room, so a room called "recent" still works)
+  const ids = [...new Set(String(req.query.ids || '').toLowerCase().split(',').map((x) => x.trim()).filter((x) => ROOM_RE.test(x) && x !== 'stad'))].slice(0, 50);
+  const found = await store.lastActivity(ids);
+  const rooms = [], missing = [];
+  found.forEach((f, i) => {
+    if (!f || f.type === 'stad' || (demo && f.room.demo && demo.expired(f.room))) missing.push(ids[i]);
+    else rooms.push({ id: f.id, type: f.type, updatedAt: f.updatedAt });
+  });
+  rooms.sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)));
+  res.set('Cache-Control', 'no-store').json({ rooms, missing });
+}));
+
 app.get('/api/rooms/:room', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
   let room;

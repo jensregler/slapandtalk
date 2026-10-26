@@ -28,6 +28,7 @@ import { loadSoundLook, initSoundUI } from './soundui.js';
 import * as synthShared from '../../shared/synth.mjs';
 import { config } from './config.js';
 import * as demo from './demo.js';
+import { noteVisit } from './landing.js';
 import { Voice } from './voice.js';
 import { ArrayGhosts } from './arraydrag.js';
 import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
@@ -1219,7 +1220,8 @@ if (!isTouch) {
 
 // ---------- Rum: typ, nytt snabbrum, dela länk, till Staden ----------
 const TYPE_NAMES = S.roomTypes;
-function roomUrl(id) { return `${location.origin}/${id === 'stad' ? '' : '?room=' + id}`; }
+// The City too gets ?room=stad: the plain address now goes to your own most recent room (landing.js).
+function roomUrl(id) { return `${location.origin}/?room=${id}`; }
 function showRoomInfo(info) {
   const type = info?.type || (ROOM === 'stad' ? 'stad' : 'quick');
   const badge = $('room-type');
@@ -1359,7 +1361,8 @@ $('share-room').onclick = async () => {
   catch { prompt(S.copyLink, url); }
 };
 // Säg till servern med jämna mellanrum att någon är här, så rummet inte städas bort.
-setInterval(() => { if (document.visibilityState === 'visible') api.visit(ROOM).catch(() => {}); }, 10 * 60_000);
+setInterval(() => { if (document.visibilityState === 'visible') { api.visit(ROOM).catch(() => {}); noteVisit(ROOM); } }, 10 * 60_000);
+noteVisit(ROOM); // one of my rooms now (the City is not): the plain address brings me back here
 
 // ---------- Ladda rummet ----------
 async function loadRoom() {

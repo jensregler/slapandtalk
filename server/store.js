@@ -172,7 +172,9 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   }
   // Som getRoom, men ger ett tomt (osparat) rum om det inte finns.
   async function roomOrEmpty(id) { return (await getRoom(id)) || { ...normalize(id, null), exists: false }; }
-  async function saveRoom(room) { const { exists, ...data } = room; markDirty(data.id, data); return data; }
+  // Every save is activity (a sticker, an edit, a visit …) and stamps updatedAt, except the
+  // cleanup jobs (touch: false), so "my most recently updated room" means what people did there.
+  async function saveRoom(room, { touch = true } = {}) { const { exists, ...data } = room; if (touch) data.updatedAt = iso(); markDirty(data.id, data); return data; }
   // Tar bort rummet från minnet och lagringen (väntar på lagringen, sker sällan).
   async function removeRoom(id) {
     markDirty(id, null);
@@ -409,6 +411,18 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
     return [...ids];
   }
   async function deleteRoom(id) { return withLock(id, () => removeRoom(id)); }
+  // When was something last done in these rooms? (GET /api/rooms/recent) Reads without caching;
+  // older files without updatedAt: the latest of the last visit, the last sticker and creation.
+  // null = the room does not exist.
+  async function lastActivity(ids) {
+    return Promise.all(ids.map(async (id) => {
+      const r = await peekRoom(id);
+      if (!r) return null;
+      const t = [r.updatedAt, r.lastVisitAt, r.createdAt, r.stamps && r.stamps.length ? r.stamps[r.stamps.length - 1].createdAt : null]
+        .map((x) => (x ? Date.parse(x) : NaN)).filter(Number.isFinite);
+      return { id, type: r.type, updatedAt: t.length ? new Date(Math.max(...t)).toISOString() : null, room: r };
+    }));
+  }
   async function deleteStampsWithImage(imageId) {
     let removed = 0;
     for (const id of await listRooms()) {
@@ -418,7 +432,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
         const before = room.stamps.length, peelsBefore = (room.peels || []).length;
         room.stamps = room.stamps.filter((s) => s.imageId !== imageId);
         if (room.peels) room.peels = room.peels.filter((p) => p.imageId !== imageId);
-        if (room.stamps.length !== before || (room.peels || []).length !== peelsBefore) { removed += before - room.stamps.length; await saveRoom(room); }
+        if (room.stamps.length !== before || (room.peels || []).length !== peelsBefore) { removed += before - room.stamps.length; await saveRoom(room, { touch: false }); }
       });
     }
     return removed;
@@ -433,7 +447,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       await withLock(id, async () => {
         const room = await peekRoom(id); // städningen läser utan att lägga alla rum i minnet
         if (!room || room.type !== 'quick') return;
-        if (!room.lastVisitAt) { room.lastVisitAt = iso(); await saveRoom(room); return; }
+        if (!room.lastVisitAt) { room.lastVisitAt = iso(); await saveRoom(room, { touch: false }); return; }
         if (clock() - Date.parse(room.lastVisitAt) > quickTtlMs) { await removeRoom(id); deleted.push(id); }
       });
     }
@@ -485,7 +499,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   }
 
   return {
-    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, addStamps, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
+    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, addStamps, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom, lastActivity,
     deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, setGroove, addPeel, peelState, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle,
   };

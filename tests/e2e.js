@@ -294,9 +294,9 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(SHOTS, '11-rum-meny.png') });
     await openRoomMenu(page); await page.click('#to-stad');
-    await page.waitForURL((u) => !u.search.includes('room=')); await waitReady(page);
+    await page.waitForURL((u) => u.search === '?room=stad'); await waitReady(page); // the City is ?room=stad (the plain address = your own latest room)
     const st = await roomUi();
-    assert(st.room === 'stad' && st.badge === 'The City' && st.hud === 'The City' && !st.toStad, 'Till Staden tar en tillbaka till Staden');
+    assert(st.room === 'stad' && st.badge === 'The City' && st.hud === 'The City' && !st.toStad, '🏙 Visit the City tar en till Staden (?room=stad)');
 
     // Admin-läget: rätt nyckel visar bannern, fel nyckel gör det inte
     await page.goto(`${BASE}/?room=${ROOM}&admin=fel`); await waitReady(page);
