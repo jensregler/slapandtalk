@@ -10,6 +10,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const { contentId } = require('./store');
 const { broadcast, cleanName, playerPosition } = require('./realtime');
+const { createHidden, autoPruneOn } = require('./hidden');
 const { publicSticker } = require('./library');
 
 // Konstnärens namn och länk (samma regler som i webbläsaren). ESM-modul, så den laddas med import().
@@ -46,7 +47,7 @@ const { mountVideos, videoSettings } = require('./videos');
 const { createMailer } = require('./mail');
 
 // demo: the demo profile (server/demo.js createDemo) or null. library: loadLibrary() list.
-function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [] } = {}) {
+function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500 } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
@@ -413,7 +414,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
     surface: String(b.surface || '').slice(0, 40),
     // A library sticker always carries its own artist (whoever slaps it), so the credit is right.
     ...(await artistFields(image.library ? { artist: image.artist, artistLink: image.artistLink } : b)),
-  }, { onEvict: (ids) => evicted.push(...ids) });
+  }, { onEvict: (ids) => evicted.push(...ids), onLeave: (ids) => hidden.left(room, ids) });
   for (const id of evicted) broadcast(room, { type: 'stamp:remove', id });
   const stamp = publicStamp(saved);
   // nonce: en slumpad lapp från klienten, så den som stämplade känner igen sin egen stämpel
@@ -573,6 +574,31 @@ app.post('/api/rooms/:room/reset', rateLimit(20), wrap(async (req, res) => {
   res.json({ ok: true, removed });
 }));
 
+// ---------- Clear hidden stickers ("Clear history") ----------
+// Same rights as resetting the room (the creator with the room key, or admin; the City: admin only;
+// the demo: the creator). Removes every sticker that is (almost) fully covered by newer ones
+// (shared/coverage.mjs: ≥ 98 % of its opaque area), keeps the rest in order, and drops all peel keys,
+// so what you see becomes the room's new base layer. One locked step; everyone gets room:clear-hidden.
+const hidden = createHidden({
+  store, broadcast, log, auto: autoPrune, delayMs: pruneDelayMs,
+  imageMeta: (id) => imageAvailable(id),
+  imageMask: async (id) => imageMask(await peelsMod, id),
+});
+app.get('/api/rooms/:room/hidden', rateLimit(30), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  if (!(await rightsTo(req, res, id, 'clear hidden stickers'))) return;
+  res.json(await hidden.count(id) || { hidden: 0, total: 0 });
+}));
+app.post('/api/rooms/:room/clear-hidden', rateLimit(10), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  if (!(await rightsTo(req, res, id, 'clear hidden stickers'))) return;
+  const r = await hidden.clear(id);
+  if (!r) return res.status(404).json({ error: 'That room does not exist' });
+  const by = cleanBy(req.body?.by) || (isAdmin(req) ? 'Admin' : 'The room’s creator');
+  broadcast(id, { type: 'room:clear-hidden', ids: r.removed, by, kept: r.kept });
+  res.json({ ok: true, removed: r.removed.length, kept: r.kept, historyCleared: r.historyCleared });
+}));
+
 // ---------- Virtuella kameror ----------
 // { name, p: [x,y,z] (kamerans position), yaw, pitch (radianer), fov (lodrät bildvinkel, grader), aspect: '' | '16:9' | '9:16' }
 const ROOM_SIZE = require('../shared/room.json');
@@ -716,6 +742,7 @@ app.delete('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
 }));
 
 // ---------- Finished videos (see videos.js): upload, list, watch page, email the link ----------
+app.locals.hidden = hidden;
 app.locals.videos = mountVideos(app, { store, recorder, entitle, fromReq, mailer, rightsTo, roomParam, wrap, isAdmin, settings: videos, clock });
 
 // ---------- Admin (dold) ----------

@@ -293,7 +293,9 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
 
   // onEvict(ids): called (inside the room's lock) with the ids of the oldest stickers that were
   // dropped to stay within maxStamps, so the caller can broadcast stamp:remove for them.
-  async function addStamp(roomId, stamp, { maxStamps = MAX_STAMPS_PER_ROOM, onEvict = null } = {}) {
+  // onLeave(ids): the stickers that just left the peel history (nobody can peel them any more),
+  // for the automatic cleanup of hidden stickers (server/hidden.js).
+  async function addStamp(roomId, stamp, { maxStamps = MAX_STAMPS_PER_ROOM, onEvict = null, onLeave = null } = {}) {
     return withLock(roomId, async () => {
       const room = (await loadRoom(roomId)) || normalize(roomId, { createdAt: iso() });
       const s = { id: newId(), order: (room.stamps.at(-1)?.order ?? 0) + 1, createdAt: iso(), ...stamp };
@@ -307,7 +309,9 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       // peel-nyckel (då kan bara admin ta bort dem).
       if (s.peelOwner) {
         const mine = room.stamps.filter((x) => x.peelOwner === s.peelOwner && x.peelHash);
-        for (const old of mine.slice(0, Math.max(0, mine.length - PEEL_KEEP))) { delete old.peelHash; delete old.peelOwner; }
+        const left = mine.slice(0, Math.max(0, mine.length - PEEL_KEEP));
+        for (const old of left) { delete old.peelHash; delete old.peelOwner; }
+        if (onLeave && left.length) onLeave(left.map((x) => x.id));
       }
       room.lastVisitAt = iso();
       await saveRoom(room);

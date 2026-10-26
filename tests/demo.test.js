@@ -166,6 +166,9 @@ function client(base, room, hello = {}) {
     assert(okSlap.status === 200 && os1.stamp.artist === lib[1].artist, `a member slaps a library sticker: the stamp carries the library artist ("${os1.stamp.artist}"), not what the client sent`);
     const big = await J(await fetch(`${base}/api/rooms/${R}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-unlock': KEY }, body: JSON.stringify({ ...body(ow.id), size: 2.5 }) }));
     assert(big.stamp.size === 1, 'demo: stickers stay at most 1 m even with a full-version key');
+    const clr = (h = {}) => fetch(`${base}/api/rooms/${R}/clear-hidden`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ by: 'Jens' }) });
+    const clrNo = await clr(), clrOk = await J(await clr({ 'x-room-key': RK }));
+    assert(clrNo.status === 403 && clrOk.removed === 1 && clrOk.kept >= 1, `demo: only the creator can clear hidden stickers (the small one under the 1 m one goes: ${JSON.stringify(clrOk)})`);
 
     // ---------- Recording in the demo (videos with the auto-director) ----------
     const strangerRec = await fetch(`${base}/api/rooms/${R}/recording/start`, { method: 'POST' });

@@ -19,7 +19,7 @@ const FORMAT = 'slapandtalk-rec';
 const VERSION = 1;
 const REC_ID_RE = /^[a-f0-9]{16}$/;
 // Händelser från HTTP-API:t (app.js) som hör till rummet och ska med i loggen.
-const ROOM_EVENTS = new Set(['stamp:add', 'stamp:remove', 'room:reset', 'image:remove', 'room:style', 'camera:add', 'camera:update', 'camera:remove']);
+const ROOM_EVENTS = new Set(['stamp:add', 'stamp:remove', 'room:reset', 'room:clear-hidden', 'image:remove', 'room:style', 'camera:add', 'camera:update', 'camera:remove']);
 
 function createRecorder(store, {
   clock = () => Date.now(),
