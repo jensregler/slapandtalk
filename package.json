@@ -6,8 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "test": "node tests/rooms.test.js && node tests/demo.test.js && node tests/cap.test.js && node tests/realtime.test.js && node tests/recording.test.js && node tests/video.test.js && node tests/thirdperson.test.mjs && node tests/fabric.test.mjs && node tests/peels.test.mjs && node tests/synth.test.mjs && node tests/voice.test.mjs && node tests/pay.test.js && node tests/e2e.js && node tests/e2e-video.js && node tests/e2e-demo.js",
-    "test:demo": "node tests/e2e-demo.js"
+    "test": "node tests/rooms.test.js && node tests/demo.test.js && node tests/cap.test.js && node tests/realtime.test.js && node tests/recording.test.js && node tests/video.test.js && node tests/thirdperson.test.mjs && node tests/fabric.test.mjs && node tests/peels.test.mjs && node tests/synth.test.mjs && node tests/voice.test.mjs && node tests/director.test.mjs && node tests/pay.test.js && node tests/e2e.js && node tests/e2e-video.js && node tests/e2e-demo.js && node tests/e2e-director.js",
+    "test:demo": "node tests/e2e-demo.js && node tests/e2e-director.js"
   },
   "keywords": [],
   "author": "",

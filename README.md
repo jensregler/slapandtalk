@@ -196,6 +196,13 @@ Den som skapade rummet (eller admin; i Staden bara admin) ser **🎬 Recording**
   hastighet 0,5–4×, och välj vy: **fri kamera** (dra för att titta, WASD = gå), **en placerad
   kamera** eller **någons ögon** (POV). **⏺ Record video** gör en färdig video (se nedan).
   Länken till en uppspelning kan delas: id:t är slumpat och går inte att gissa.
+- **🎬 Director (auto-regissör) och munnar:** medan ● REC pågår loggas hur högt var och en pratar
+  (0–15, aldrig ljudet, bara när mikrofonen är på; den är av från början). I uppspelningen rör sig
+  gubbarnas munnar med flit dåligt och glitchigt i takt med talet, och vyn *🎬 Director* klipper
+  själv mellan närbild, halvbild och över axeln på den som pratar, och rummet när det är tyst.
+  *🎬 Shot list* laddar ner bildlistan (JSON med tider, talare och vinkel) för klippning; vyerna
+  *Close-up / Medium / Over the shoulder: <namn>* ger separata tagningar. Rösten finns **inte** med
+  i videorna (den går direkt mellan webbläsarna). Se `docs/recording-format.md`.
 - Formatet på inspelningarna (versionerat, förberett för ljudspår och rendering) beskrivs i
   [`docs/recording-format.md`](docs/recording-format.md).
 - **OBS på Render (gratisnivån):** disken är tillfällig, så inspelningarna försvinner när
@@ -525,9 +532,9 @@ uploads, room editing, the full version, the City etc. are all back.
 What changes (shared/demo.json holds the numbers):
 - **Name first.** "What's your name?" before anything loads; remembered per device. Each new person gets a random avatar; *My avatar* is hidden.
 - **Library only.** The palette is the curated library (`library/`), R/F browse it. `POST /api/stickers` → 403; no Instagram tag field. The artist comes from the library, so Look mode shows it on click.
-- **Rooms.** Opening the site creates your own room with the empty preset (tiles, concrete, classic ceiling); no style picker, no room editing, no sound settings, no recording, no City. *New quick room* goes straight into a new empty room.
+- **Rooms.** Opening the site creates your own room with the empty preset (tiles, concrete, classic ceiling); no style picker, no room editing, no sound settings, no placing cameras, no City. The room's creator can still **● REC** (and make videos with the 🎬 Director from the replay); recordings are deleted with the room, so make the video before the hour ends. *New quick room* goes straight into a new empty room.
 - **Invites.** Max 5 per room and 5 members. Nobody gets in without an invite: each member can make one single-use link (✉ Invite a friend). Asking again re-shares the same unused link; once it is used, that member cannot invite again. The server keeps only hashes (of the room key, member keys and invite tokens). Members get a member key in their browser, so reloads and new tabs get back in. Extra tabs of a member beyond 5 players watch.
-- **One hour.** A quiet timer at the top; a calm note at 5 minutes. At the end everyone sees "This room has closed", the sockets close (code 4010, no reconnect) and the room JSON (stamps, peels) and `recordings/<room>/` are deleted from storage. `videos/` is never touched. A sweep at start-up and every 5 minutes catches rooms that expired while the server was down.
+- **One hour.** A quiet timer at the top; a calm note at 5 minutes. At the end everyone sees "This room has closed", the sockets close (code 4010, no reconnect) and (after any running recording is stopped) the room JSON (stamps, peels) and `recordings/<room>/` are deleted from storage. `videos/` is never touched. A sweep at start-up and every 5 minutes catches rooms that expired while the server was down.
 - **Voice.** 🎙 (or B) – off by default, asks for the microphone on the first press, then mutes/unmutes. Browser-to-browser (WebRTC mesh) through the existing signal relay, public STUN only (no TURN: some strict networks cannot connect). Voice also works outside the demo.
 
 **Sticker library import** (runs locally, then commit `library/`):

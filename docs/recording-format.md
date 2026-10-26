@@ -16,6 +16,7 @@ Sparas via lagringslagret (lokal disk eller S3/R2):
 | --- | --- |
 | `recordings/<rum>/<recId>.jsonl` | Loggen. En JSON-rad per händelse (JSON Lines, UTF-8). |
 | `recordings/<rum>/<recId>.meta.json` | Sammanfattning: start/stopp, längd, storlek, deltagare. |
+| `recordings/<rum>/<recId>.shots.json` | Bildlistan (råmaterial för klippning), skrivs när inspelningen stoppas. Se *Bildlistan* nedan. |
 
 `recId` = 16 hex-tecken (slumpat). Medan inspelningen pågår skrivs båda filerna var 20:e sekund
 (hela filen skrivs om), och en sista gång när den stoppas. Startar servern om mitt i en inspelning
@@ -63,6 +64,7 @@ Varje rad: `{ "t": <ms sedan start>, "e": "<typ>", …data }`. Raderna står i t
 | `room:style` | `style` | Rummets utseende ändrades. |
 | `camera:add` / `camera:update` | `camera` (hela kameran) | En kamera placerades / flyttades / ändrades. |
 | `camera:remove` | `id` | En kamera togs bort. |
+| `talk` | `id, l` | Hur högt någon pratar, 0–15 (kvantiserat, `l=0` = tyst igen). Bara medan inspelningen pågår och mikrofonen är på och inte avstängd; högst ~12 per sekund och person, och bara när personen pratar. **Aldrig själva ljudet.** Driver munnen och auto-regissören. |
 | `end` | `reason` | Sista raden: `stop` (någon tryckte stopp), `time` (maxlängden), `size` (maxstorleken), `empty` (rummet tomt i 5 min), `shutdown` (servern stängdes). |
 
 ### Koordinater
@@ -86,6 +88,7 @@ Samma tid ger alltid samma resultat, oavsett om man spelar, spolar eller hoppar 
 
 ## Vad som INTE spelas in
 
+- Själva rösten/ljudet (röstchatten går direkt mellan webbläsarna, WebRTC). Bara nivån (`talk`) loggas.
 - Röstchattens signalering (`signal`-meddelanden: WebRTC offer/answer/ICE).
 - Peel-nycklar, rumsnyckeln, admin-nyckeln, IP-adresser.
 - Vem som tittar i rummet utan att vara med (när rummet är fullt).
@@ -115,6 +118,30 @@ och beskrivs i huvudet (`tracks`) eller, om ett spår startar senare, med en hä
 Nya händelsetyper läggs till inom version 1 (läsare hoppar över det de inte känner till).
 Ändras betydelsen av ett befintligt fält höjs `v`.
 
+## Bildlistan (auto-regissören)
+
+`shared/director.mjs` räknar fram, deterministiskt ur loggen, vilka bilder en klippare kan använda.
+Samma logg ger alltid samma lista (och samma bild i uppspelarens vy *🎬 Director*).
+
+```json
+{ "format": "slapandtalk-shots", "v": 1, "recId": "…", "room": "…", "durationMs": 61234, "introMs": 2800,
+  "speakers": [{ "id": "5e7d…", "name": "Jens", "talkMs": 21400 }],
+  "speech":   [{ "id": "5e7d…", "from": 1200, "to": 4800 }],
+  "shots":    [{ "from": 0, "to": 1200, "kind": "room" }, { "from": 1200, "to": 3900, "kind": "close", "speaker": "5e7d…", "name": "Jens" }],
+  "angles":   ["room", "close", "medium", "rear"], "params": { … } }
+```
+
+- Tider i ms i inspelningens klocka (en video från uppspelaren börjar med `introMs` logga-intro).
+- `kind`: `room` (hörnet, översikt, när ingen pratar), `close` (närbild på ansiktet), `medium`
+  (halvbild från sidan), `rear` (över axeln, bakifrån).
+- Regler: ett tal-segment börjar vid nivå ≥ 2, slutar efter 650 ms tystnad, kortare än 350 ms räknas
+  inte. En bild varar 2,2–5,2 s; vinkeln växlar närbild → halvbild → närbild → över axeln.
+  Någon annan tar över bilden först när den pratat 0,9 s (eller 0,3 s om den som visas varit tyst
+  i 650 ms). Tystnad i 1,2 s → rummet.
+- Hämtas med `GET /api/rooms/:rum/recordings/:recId/shots` (räknas fram ur loggen om filen inte finns
+  än, t.ex. medan inspelningen pågår) och med *🎬 Shot list* i uppspelaren. Separata tagningar per
+  vinkel spelas in med *⏺ Record video* och vyn *Close-up / Medium / Over the shoulder: <namn>*.
+
 ## Gränser
 
 | Variabel | Standard | Betydelse |
@@ -125,6 +152,7 @@ Nya händelsetyper läggs till inom version 1 (läsare hoppar över det de inte 
 
 Ungefärlig storlek: en rörelse ≈ 70 byte, alltså ≈ 0,7 kB/s per person som rör sig hela tiden
 (10 personer i 2 timmar ≈ 50 MB i värsta fall, oftast mycket mindre eftersom stillastående inte skickas).
+En `talk`-rad ≈ 40 byte, alltså ≈ 0,5 kB/s per person medan den pratar.
 
 ## API
 
@@ -133,6 +161,7 @@ Ungefärlig storlek: en rörelse ≈ 70 byte, alltså ≈ 0,7 kB/s per person so
 | `GET /api/rooms/:rum/recording` | alla | `{ recording: null \| { recId, startedAt, durationMs, bytes } }` |
 | `POST /api/rooms/:rum/recording/start` | skaparen / admin | `{ ok, already, recording }` |
 | `POST /api/rooms/:rum/recording/stop` | skaparen / admin | `{ ok, recording: meta }` (409 om ingen pågår) |
+| `GET /api/rooms/:rum/recordings/:recId/shots` | alla med id:t | bildlistan (se ovan) |
 | `GET /api/rooms/:rum/recordings` | skaparen / admin | `{ recordings: [meta, …] }` |
 | `GET /api/rooms/:rum/recordings/:recId` | alla med länken | meta |
 | `GET /api/rooms/:rum/recordings/:recId/log` | alla med länken | loggen (`application/x-ndjson`) |
