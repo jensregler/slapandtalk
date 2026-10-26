@@ -1,8 +1,8 @@
 // Uppspelaren: /?room=<rum>&replay=<recId>
 // Laddar en sessionsinspelning och spelar upp den i 3D-rummet: gubbar som går och tittar,
 // klibbor som kommer och peelas, chatten, kamerorna. Välj vy: fri kamera, en placerad kamera
-// eller någons ögon (POV). "⏺ Spela in video" spelar in det du ser till en .webm-fil
-// (ett första test av renderingen; riktig export kommer i steg 3).
+// eller någons ögon (POV). "⏺ Record video" makes a finished video: the logo intro, then what
+// you see (free version: + channel bug and link ticker), uploaded with a link to share.
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { applyStyle, normalizeStyle, DEFAULT_STYLE } from './roomstyle.js';
@@ -12,6 +12,8 @@ import { CameraLayer, poseCamera, renderFramed } from './cameras.js';
 import { FirstPersonControls } from './controls.js';
 import { S, LOCALE } from './strings.js';
 import { parseRecording, buildTimeline, snapshotAt, participants } from '../../shared/replay.mjs';
+import { createComposer, canRecordVideo } from './videocomposer.js';
+import { entitlements, loadEntitlements, unlockHeaders } from './entitlements.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -23,6 +25,7 @@ $('replay-bar').hidden = false;
 $('room-name').textContent = ROOM;
 $('rp-back').href = ROOM === 'stad' ? '/' : `/?room=${ROOM}`;
 
+const entitlementsReady = loadEntitlements(); // free = channel bug + ticker in finished videos
 const canvas = $('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -142,7 +145,7 @@ $('rp-play').onclick = () => (rp.playing ? pause() : play());
 $('rp-seek').oninput = (e) => seek(Number(e.target.value));
 $('rp-speed').onchange = (e) => { rp.speed = Number(e.target.value) || 1; };
 $('rp-view').onchange = (e) => setView(e.target.value);
-$('rp-video').onclick = () => (rp.recorder ? stopVideo() : startVideo());
+$('rp-video').onclick = () => (rp.recorder || rp.composing ? stopVideo() : startVideo());
 function play() { if (rp.t >= rp.tl.duration) rp.t = 0; rp.playing = true; $('rp-play').textContent = '⏸'; $('rp-play').title = S.pause; }
 function pause() { rp.playing = false; $('rp-play').textContent = '▶'; $('rp-play').title = S.play; }
 function seek(t) { rp.t = Math.max(0, Math.min(rp.tl.duration, t)); apply(rp.t, 0, true); return rp.t; }
@@ -159,30 +162,98 @@ canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clie
 canvas.addEventListener('pointermove', (e) => { if (!drag || rp.view !== 'free') return; controls.look((e.clientX - drag.x) * 0.005, (e.clientY - drag.y) * 0.005); drag = { x: e.clientX, y: e.clientY }; });
 canvas.addEventListener('pointerup', () => { drag = null; });
 
-// ---------- Spela in video (test av renderingen) ----------
+// ---------- Spela in video: logo intro + the replay (+ bug and ticker in the free version) ----------
+// videocomposer.js draws everything into one recording canvas; after recording the video is
+// uploaded (videos/<room>/<id>) and you get a link (/v/<id>) to copy or have emailed.
 function startVideo() {
-  if (!canvas.captureStream || typeof MediaRecorder === 'undefined') { toast(S.noVideo); return false; }
-  const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
-  const chunks = [];
-  const mr = new MediaRecorder(canvas.captureStream(30), type ? { mimeType: type, videoBitsPerSecond: 6e6 } : {});
-  mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-  rp.videoDone = new Promise((resolve) => { mr.onstop = () => {
-    const blob = new Blob(chunks, { type: 'video/webm' });
-    const a = $('rp-download'); a.href = URL.createObjectURL(blob); a.download = `slapandtalk-${ROOM}-${REC}.webm`; a.hidden = false;
-    a.textContent = S.downloadVideo((blob.size / 1e6).toFixed(1));
-    resolve(blob);
-  }; });
-  mr.start(1000); rp.recorder = mr;
+  if (rp.recorder || rp.composing) return false;
+  if (!canRecordVideo() || !rp.tl) { toast(S.noVideo); return false; }
+  rp.composing = true;
+  pause(); seek(0);
   $('rp-video').textContent = S.stopVideo; $('rp-video').classList.add('on');
-  if (!rp.playing) play();
-  return true;
+  setShare(null);
+  rp.videoReady = (async () => {
+    try {
+      await entitlementsReady;
+      const comp = await createComposer({ source: canvas, free: !entitlements.full.cleanVideo, onIntroEnd: () => { seek(0); play(); } });
+      rp.recorder = comp;
+      await comp.start(rp.tl.duration / rp.speed);
+      return true;
+    } catch (err) {
+      rp.recorder = null; $('rp-video').textContent = S.recordVideo; $('rp-video').classList.remove('on');
+      toast(S.videoFailed, 4000); console.error(err); return false;
+    } finally { rp.composing = false; }
+  })();
+  rp.videoDone = rp.videoReady.then((ok) => (ok ? new Promise((resolve) => { rp.resolveVideo = resolve; }) : null));
+  return rp.videoReady;
 }
-function stopVideo() {
-  if (!rp.recorder) return rp.videoDone || null; // redan stoppad (t.ex. när uppspelningen tog slut)
-  rp.recorder.stop(); rp.recorder = null;
+async function stopVideo() {
+  if (rp.composing) await rp.videoReady;
+  const comp = rp.recorder;
+  if (!comp) return rp.videoDone || null; // redan stoppad (t.ex. när uppspelningen tog slut)
+  rp.recorder = null;
   $('rp-video').textContent = S.recordVideo; $('rp-video').classList.remove('on');
-  return rp.videoDone;
+  pause();
+  const blob = await comp.stop();
+  const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+  const a = $('rp-download'); a.href = URL.createObjectURL(blob); a.download = `slapandtalk-${ROOM}-${REC}.${ext}`; a.hidden = false;
+  a.textContent = S.downloadVideo((blob.size / 1e6).toFixed(1));
+  rp.lastVideo = { blob, aspect: comp.state.aspect, durationMs: Math.round(rp.t / (rp.speed || 1)) + 2800, probe: { ...comp.state, bugCanvas: undefined } };
+  rp.upload = uploadVideo(rp.lastVideo);
+  if (rp.resolveVideo) rp.resolveVideo(blob);
+  return blob;
 }
+
+// ---------- Upload, link, email ----------
+let videoCfg = null;
+const loadVideoCfg = () => (videoCfg ||= fetch('/api/videos/config').then((r) => r.json()).catch(() => ({ email: false, retentionDays: 30, maxMB: 80 })));
+function setShare(state) {
+  const box = $('rp-share');
+  if (!state) { box.hidden = true; return; }
+  box.hidden = false;
+  $('rp-share-status').textContent = state.status || '';
+  $('rp-share-link-row').hidden = !state.url;
+  if (state.url) { $('rp-share-link').value = state.url; $('rp-share-open').href = state.url; }
+  $('rp-email-form').hidden = !(state.url && state.email);
+  $('rp-share-note').textContent = state.note || '';
+}
+function uploadVideo({ blob, aspect, durationMs }) {
+  return loadVideoCfg().then((cfg) => new Promise((resolve) => {
+    if (blob.size > cfg.maxMB * 1024 * 1024) { setShare({ status: S.videoTooBig(cfg.maxMB) }); return resolve(null); }
+    setShare({ status: S.videoUploading(0) });
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/rooms/${ROOM}/recordings/${REC}/videos?aspect=${encodeURIComponent(aspect)}&durationMs=${durationMs}`);
+    xhr.setRequestHeader('Content-Type', blob.type || 'video/webm');
+    for (const [k, v] of Object.entries(unlockHeaders())) xhr.setRequestHeader(k, v);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) setShare({ status: S.videoUploading(Math.round((e.loaded / e.total) * 100)) }); };
+    xhr.onload = () => {
+      let j = {}; try { j = JSON.parse(xhr.responseText); } catch { /* ok */ }
+      if (xhr.status !== 200 || !j.video) { setShare({ status: j.error || S.videoUploadFailed }); return resolve(null); }
+      rp.video = j.video;
+      setShare({ status: S.videoSaved, url: j.watchUrl, email: !!j.email, note: j.email ? S.videoKept(cfg.retentionDays) : S.videoSaveLink(cfg.retentionDays) });
+      resolve(j);
+    };
+    xhr.onerror = () => { setShare({ status: S.videoUploadFailed }); resolve(null); };
+    xhr.send(blob);
+  }));
+}
+$('rp-share-copy').onclick = async () => {
+  const v = $('rp-share-link').value;
+  try { await navigator.clipboard.writeText(v); toast(S.linkCopied); } catch { $('rp-share-link').select(); document.execCommand?.('copy'); toast(S.linkCopied); }
+};
+$('rp-email-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const input = $('rp-email'), btn = $('rp-email-send');
+  if (!rp.video) return;
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/videos/${rp.video.id}/email`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: input.value }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || S.videoEmailFailed);
+    input.value = ''; // the address is not kept, here either
+    $('rp-email-status').textContent = S.videoEmailed;
+  } catch (err) { $('rp-email-status').textContent = err.message; } finally { btn.disabled = false; }
+};
 
 let toastTimer;
 function toast(msg, ms = 2500) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms); }
@@ -195,7 +266,7 @@ function frame() {
     if (rp.playing) {
       // Uppspelningen följer klockan även om datorn bara orkar få bilder per sekund.
       rp.t = Math.min(rp.tl.duration, rp.t + Math.min(raw, 1) * 1000 * rp.speed);
-      if (rp.t >= rp.tl.duration) { pause(); if (rp.recorder) stopVideo(); }
+      if (rp.t >= rp.tl.duration) { pause(); if (rp.recorder && rp.recorder.state.phase === 'replay') stopVideo(); }
     }
     apply(rp.t, rp.playing ? dt * rp.speed : dt);
     const pose = viewPose();
@@ -206,6 +277,7 @@ function frame() {
       view.position.copy(camera.position); view.quaternion.copy(camera.quaternion); view.fov = EYE_FOV; view.aspect = camera.aspect;
       renderer.render(scene, camera);
     }
+    if (rp.recorder) rp.recorder.frame(); // the finished video: copy this frame right after it was drawn
   } else renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
@@ -245,4 +317,6 @@ window.replay = {
     chat: [...document.querySelectorAll('#rp-chat li')].map((l) => l.textContent),
   }),
   startVideo, stopVideo,
+  // Finished video (tests): the composer's state, the recording canvas, the upload result.
+  composer: () => rp.recorder, lastVideo: () => rp.lastVideo || null, upload: () => rp.upload || null, video: () => rp.video || null,
 };

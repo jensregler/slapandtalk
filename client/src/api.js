@@ -62,6 +62,8 @@ Object.assign(api, {
   startRec: (room, auth) => send('POST', `/api/rooms/${room}/recording/start`, {}, auth),
   stopRec: (room, auth) => send('POST', `/api/rooms/${room}/recording/stop`, {}, auth),
   listRecs: (room, auth) => fetch(`/api/rooms/${room}/recordings`, { headers: rights(auth) }).then(json),
+  // Finished videos of the room (videos.js on the server), newest first.
+  listVideos: (room, auth) => fetch(`/api/rooms/${room}/videos`, { headers: rights(auth) }).then(json),
   deleteRec: (room, id, auth) => send('DELETE', `/api/rooms/${room}/recordings/${id}`, undefined, auth),
   addCamera: (room, cam, auth) => send('POST', `/api/rooms/${room}/cameras`, cam, auth),
   updateCamera: (room, id, patch, auth) => send('PUT', `/api/rooms/${room}/cameras/${id}`, patch, auth),

@@ -192,6 +192,22 @@
       <button id="rp-video" type="button" data-t="recordVideo" data-t-title="recordVideoTitle">⏺ Record video</button>
       <a id="rp-download" hidden></a>
     </div>
+    <!-- After '⏺ Record video': the uploaded video's link (copy / email). -->
+    <div id="rp-share" hidden>
+      <span id="rp-share-status"></span>
+      <span id="rp-share-link-row" hidden>
+        <input id="rp-share-link" type="text" readonly data-t-aria="shareLinkAria" />
+        <button id="rp-share-copy" type="button" data-t="copyLink">Copy link</button>
+        <a id="rp-share-open" target="_blank" rel="noopener" data-t="videoOpen">Open</a>
+      </span>
+      <form id="rp-email-form" hidden>
+        <label for="rp-email" data-t="emailMeLabel">Email me the link</label>
+        <input id="rp-email" type="email" required maxlength="254" autocomplete="email" data-t-placeholder="emailPlaceholder" />
+        <button id="rp-email-send" type="submit" data-t="emailSend">Send</button>
+        <span id="rp-email-status" role="status"></span>
+      </form>
+      <span id="rp-share-note"></span>
+    </div>
     <ol id="rp-chat" data-t-aria="replayChat"></ol>
   </div>
   <div id="full-banner" hidden data-t="fullBanner"></div>

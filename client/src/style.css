@@ -319,6 +319,15 @@ body.replay #full-banner, body.replay #admin-banner { display: none !important; 
 .rp-controls select { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 8px; padding: 6px; font: inherit; max-width: 100%; }
 #rp-video.on { background: #b3261e; border-color: #b3261e; color: #fff; }
 #rp-download { color: #ffd400; font-weight: 600; }
+#rp-share { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; color: #ccc; }
+#rp-share[hidden], #rp-share [hidden] { display: none; }
+#rp-share-link-row, #rp-email-form { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+#rp-share input { background: #222; color: #eee; border: 1px solid #444; border-radius: 8px; padding: 5px 8px; font: inherit; }
+#rp-share-link { width: min(320px, 70vw); }
+#rp-email { width: min(220px, 60vw); }
+#rp-share button { padding: 5px 12px; }
+#rp-share a { color: #ffd400; text-decoration: none; font-weight: 600; }
+#rp-share-note, #rp-email-status { color: #999; }
 #rp-chat { position: fixed; left: 12px; bottom: 130px; margin: 0; padding: 0; list-style: none; max-width: min(420px, 80vw); display: flex; flex-direction: column; gap: 3px; z-index: 8; pointer-events: none; }
 #rp-chat li { background: rgba(0,0,0,.6); border-radius: 8px; padding: 3px 8px; font-size: 13px; }
 #rp-chat .tm { color: #888; margin-right: 6px; font-size: 11px; }
@@ -427,3 +436,7 @@ body.resuming #panel, body.resuming #more-panel { display: none; }
 #resume-hint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; pointer-events: none;
   background: rgba(15,15,15,.72); color: #fff; padding: 8px 14px; border-radius: 999px; font-size: 14px; }
 #resume-hint[hidden] { display: none; }
+
+/* Finished videos under each recording in 🎬 Recording → Recordings */
+.rec-videos { list-style: none; margin: 2px 0 4px 14px; padding: 0; font-size: 12px; }
+.rec-videos a, a.rec-video { color: #e8c25a; text-decoration: none; }

@@ -1255,8 +1255,9 @@ $('rec-toggle').onclick = async () => {
 };
 const fmtLen = S.fmtLen;
 async function renderRecs() {
-  let list = [];
+  let list = [], videos = [];
   try { ({ recordings: list } = await api.listRecs(ROOM, auth())); } catch { return; }
+  try { ({ videos } = await api.listVideos(ROOM, auth())); } catch { /* older server: no videos */ }
   $('rec-count').textContent = String(list.length);
   const ul = $('rec-list'); ul.innerHTML = '';
   for (const r of list) {
@@ -1265,7 +1266,27 @@ async function renderRecs() {
     a.textContent = `▶ ${new Date(r.startedAt).toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' })} · ${fmtLen(r.durationMs)}`;
     const info = document.createElement('span'); info.className = 't';
     info.textContent = S.recItemInfo(r.participants.length, (r.bytes / 1024).toFixed(0), r.status);
-    li.append(a, info); ul.appendChild(li);
+    li.append(a, info);
+    // Finished videos made from this recording (logo intro first), kept for VIDEO_RETENTION_DAYS.
+    const mine = videos.filter((v) => v.recId === r.recId);
+    if (mine.length) {
+      const vl = document.createElement('ul'); vl.className = 'rec-videos';
+      for (const v of mine) {
+        const vli = document.createElement('li');
+        const va = document.createElement('a'); va.href = v.url; va.target = '_blank'; va.rel = 'noopener'; va.className = 'rec-video';
+        va.textContent = `🎞 ${new Date(v.createdAt).toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' })} · ${fmtLen(v.durationMs)} · ${(v.bytes / 1e6).toFixed(1)} MB`;
+        vli.appendChild(va); vl.appendChild(vli);
+      }
+      li.appendChild(vl);
+    }
+    ul.appendChild(li);
+  }
+  // Videos whose recording is gone (deleted) still show, last.
+  for (const v of videos.filter((x) => !list.some((r) => r.recId === x.recId))) {
+    const li = document.createElement('li');
+    const va = document.createElement('a'); va.href = v.url; va.target = '_blank'; va.rel = 'noopener'; va.className = 'rec-video';
+    va.textContent = `🎞 ${new Date(v.createdAt).toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' })} · ${fmtLen(v.durationMs)}`;
+    li.appendChild(va); ul.appendChild(li);
   }
 }
 
