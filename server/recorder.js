@@ -20,7 +20,7 @@ const FORMAT = 'slapandtalk-rec';
 const VERSION = 1;
 const REC_ID_RE = /^[a-f0-9]{16}$/;
 // Händelser från HTTP-API:t (app.js) som hör till rummet och ska med i loggen.
-const ROOM_EVENTS = new Set(['stamp:add', 'stamp:remove', 'room:reset', 'room:clear-hidden', 'image:remove', 'room:style', 'camera:add', 'camera:update', 'camera:remove', 'room:groove']);
+const ROOM_EVENTS = new Set(['stamp:add', 'stamp:remove', 'room:reset', 'room:clear-hidden', 'image:remove', 'room:style', 'camera:add', 'camera:update', 'camera:remove', 'room:groove', 'room:peels', 'peels:clear']);
 
 function createRecorder(store, {
   clock = () => Date.now(),
@@ -119,6 +119,7 @@ function createRecorder(store, {
       format: FORMAT, v: VERSION, id: r.id, room, startedAt: iso(now), clock: 'ms', positions: 'eye',
       style: snap.style || null, stamps: snap.stamps || [], images: snap.images || {}, cameras: snap.cameras || [], players,
       groove: snap.groove || null, // the footstep groove (shared/groove.mjs); event room:groove when it changes
+      peelsOn: !!snap.peelsOn, peels: snap.peels || [], // backing paper on the floor; events room:peels / peels:clear, new ones ride on stamp:add
       tracks: [], // ljudspår per person kommer i steg 2 (se docs/recording-format.md)
       limits: { maxMs, maxBytes },
     };

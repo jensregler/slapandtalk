@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { applyStyle, normalizeStyle, DEFAULT_STYLE } from './roomstyle.js';
 import { StampLayer } from './stamps.js';
+import { PeelLayer } from './peels.js';
 import { Avatar, loadAvatarModel } from './avatars.js';
 import { CameraLayer, poseCamera, renderFramed, aspectRatio } from './cameras.js';
 import * as photo from './photo.js';
@@ -43,6 +44,9 @@ const controls = new FirstPersonControls(camera, canvas, room.bounds);
 controls.pitch = -0.22; controls.apply();
 const stamps = new StampLayer(scene, room.surfaces);
 const cams = new CameraLayer(scene);
+// Peels (backing paper): in the same scene, so every view, the finished video and 📷 photos have them.
+// Its clock is the replay time, so a fall looks the same at every play, seek and scrub.
+const peelLayer = new PeelLayer(scene, { now: () => (rp.snap ? rp.snap.t : 0) });
 const avatars = new Map(); // id -> { avatar, last: Vector3, speed }
 let model = null;
 loadAvatarModel().then((m) => { model = m; }).catch(() => {});
@@ -77,6 +81,19 @@ function syncStamps(list) {
       if (!rp.snap?.stamps.some((x) => x.stamp.id === id)) stamps.remove(id); // hann spola förbi
     });
   }
+}
+// Peels at the snapshot's time: add / remove to match, rewind the ones that should still be falling.
+function syncPeels(s) {
+  peelLayer.setOn(s.peelsOn);
+  const want = new Map(s.peels.map((p) => [p.peel.id, p]));
+  const gone = [...peelLayer.peels.keys()].filter((id) => !want.has(id));
+  if (gone.length) peelLayer.remove(gone);
+  for (const [id, p] of want) {
+    const born = p.age === Infinity ? -Infinity : s.t - p.age; // Infinity = already on the floor at the start
+    if (peelLayer.peels.has(id)) peelLayer.rewind(id, born);
+    else peelLayer.add(p.peel, p.image, { born });
+  }
+  peelLayer.update(s.t);
 }
 function syncPlayers(list, dt, jumped) {
   const seen = new Set();
@@ -121,6 +138,7 @@ function apply(t, dt = 0, jumped = false) {
   const s = snapshotAt(rp.tl, t); rp.snap = s;
   showStyle(s.style);
   syncStamps(s.stamps);
+  syncPeels(s);
   cams.set(s.cameras);
   syncPlayers(s.players, dt, jumped);
   syncChat(s.chat, prevT, t);
@@ -405,7 +423,7 @@ load();
 
 // För tester (och nyfikna i konsolen).
 window.replay = {
-  ready: false, room: ROOM, recId: REC, scene, renderer,
+  ready: false, room: ROOM, recId: REC, scene, renderer, peelLayer,
   get duration() { return rp.tl?.duration || 0; }, get t() { return rp.t; }, get view() { return rp.view; }, get playing() { return rp.playing; },
   seek, play, pause, setView, setSpeed: (s) => { rp.speed = s; $('rp-speed').value = String(s); },
   views: () => [...$('rp-view').options].map((o) => o.value),
@@ -413,6 +431,7 @@ window.replay = {
     t: rp.t, view: rp.view,
     players: [...avatars.entries()].map(([id, a]) => ({ id, name: a.avatar.name, pos: a.avatar.root.position.toArray().map((n) => +n.toFixed(3)), yaw: +(a.avatar.root.rotation.y - Math.PI).toFixed(3), visible: a.avatar.root.visible })),
     stamps: [...stamps.meshes.keys()].sort(), loading: rp.loading ? rp.loading.size : 0,
+    peels: (({ on, count, landed, falling, groups }) => ({ on, count, landed, falling, groups, visible: peelLayer.root.visible }))(peelLayer.info()),
     cameras: cams.list().map((c) => c.id), camerasVisible: [...cams.map.values()].some((e) => e.obj.visible),
     eye: { p: view.position.toArray().map((n) => +n.toFixed(3)), q: view.quaternion.toArray().map((n) => +n.toFixed(3)), fov: view.fov, aspect: +view.aspect.toFixed(3) },
     chat: [...document.querySelectorAll('#rp-chat li')].map((l) => l.textContent),

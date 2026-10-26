@@ -43,6 +43,10 @@ loggen går att spela upp fram till senaste skrivningen (en halv sista rad hoppa
   läggs bara till (aldrig ändrad betydelse) inom samma version; okända fält och okända
   händelsetyper ska hoppas över.
 - Klibbor är de publika fälten (aldrig peel-nyckeln). Bilderna hämtas via `url`.
+- `peelsOn` (true/false) och `peels`: baksidespappret på golvet när inspelningen startade,
+  `[{ id, imageId, w, h, seed, start, x, z, yaw, order, createdAt }]` (bilderna i `images`). Med även
+  när peels är av (slås de på igen syns samma papper, som live). Äldre inspelningar saknar fälten:
+  då räknas peels som på om någon `stamp:add` har `peel`.
 - `players` = de som var i rummet när inspelningen startade.
 
 ## Rad 2…: händelser
@@ -57,12 +61,14 @@ Varje rad: `{ "t": <ms sedan start>, "e": "<typ>", …data }`. Raderna står i t
 | `look` | `id, name, look` | Bytte gubbe eller namn. |
 | `move` | `id, p, y, pi` | Position och blick. Högst ~10 per sekund och person; den senaste kommer alltid med. |
 | `chat` | `id, name, text, mid` | Chattmeddelande (`id` = avsändaren, `mid` = meddelandets id). |
-| `stamp:add` | `stamp, image` | En klibba sattes. A sticker array (hold + drag) is one `stamp:add` per copy, with `batch: { g, i, n }` (g = the first sticker's id) and `stamp.group` = g. `stamp.artist` (högst 60 tecken) och `stamp.artistLink` (valfri, alltid en tvättad `https:`-länk, se `shared/artistlink.mjs`) säger vem som gjorde den. |
+| `stamp:add` | `stamp, image` | En klibba sattes. A sticker array (hold + drag) is one `stamp:add` per copy, with `batch: { g, i, n }` (g = the first sticker's id) and `stamp.group` = g. `stamp.artist` (högst 60 tecken) och `stamp.artistLink` (valfri, alltid en tvättad `https:`-länk, se `shared/artistlink.mjs`) säger vem som gjorde den. Peels på: `peel` = baksidespappret (samma fält som i huvudets `peels`); det faller från `t` (fallet = `peelPose` i shared/peels.mjs med `u = (t_nu − t) / dur`). I en array har bara de första `PEELS_PER_ARRAY` (4) kopiorna ett `peel`. |
 | `stamp:remove` | `id` | En klibba peelades eller togs bort. |
 | `image:remove` | `id` | Admin tog bort en bild helt: alla klibbor med den bilden försvinner. |
 | `room:clear-hidden` | `ids, by, kept` | *Clear hidden stickers*: klibborna i `ids` (helt dolda bakom nyare) försvann. (Den automatiska städningen syns som vanliga `stamp:remove`.) |
 | `room:reset` | `by`, `removed` | Rummets skapare (eller admin) nollställde rummet: alla klibbor försvinner. `by` = namnet som visades. |
 | `room:style` | `style` | Rummets utseende ändrades. |
+| `room:peels` | `on` | Peels slogs på/av. Av = pappret döljs (finns kvar), på = syns igen. |
+| `peels:clear` | – | *Sweep up the peels*: allt papper på golvet försvann. (`image:remove` tar också bildens papper; högst 300 på golvet, de äldsta försvinner först.) |
 | `room:groove` | `groove` | Fotstegs-groovens skala ändrades: `{ scale, at, phase }` (shared/groove.mjs). Huvudet har `groove` (null = 1,0×). |
 | `camera:add` / `camera:update` | `camera` (hela kameran) | En kamera placerades / flyttades / ändrades. |
 | `camera:remove` | `id` | En kamera togs bort. |
@@ -84,7 +90,9 @@ Varje rad: `{ "t": <ms sedan start>, "e": "<typ>", …data }`. Raderna står i t
 
 `snapshotAt(tidslinje, t)` ger läget vid tiden `t` som en ren funktion av `t`: vilka som är där,
 deras gubbe, position och blick, vilka klibbor som sitter, kamerorna, utseendet och de senaste
-chattmeddelandena. Positioner mellan två `move` glider linjärt under högst 200 ms före nästa
+chattmeddelandena, plus `peels` (`[{ peel, image, age }]`, `age` = ms sedan slappen, `Infinity` =
+låg redan där) och `peelsOn`. Uppspelaren (client/src/replay.js) ritar dem med samma `PeelLayer`
+som live, med uppspelningstiden som klocka, så fallet blir detsamma vid spolning. Positioner mellan två `move` glider linjärt under högst 200 ms före nästa
 position (står någon still skickas inget, så gubben ska inte glida under hela pausen).
 Samma tid ger alltid samma resultat, oavsett om man spelar, spolar eller hoppar bakåt.
 

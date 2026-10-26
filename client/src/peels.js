@@ -4,6 +4,9 @@
 // Peels draw before the stickers (renderOrder 4–5, stickers are 10+) and sit just above the floor
 // (PEEL.floorY + polygonOffset), so they never z-fight and later floor stickers end up on top.
 // The fall itself is shared/peels.mjs (peelPose), the same for everyone.
+// Time: live = performance.now(). The replay (client/src/replay.js) passes now = () => replay time
+// and gives every peel its born time (the slap's t), so the fall is a pure function of the
+// replay time: the same at every play, seek or scrub (rewind() puts a landed peel back in the air).
 import * as THREE from 'three';
 import { PEEL, peelPose, pathParams, maskFromAlpha, overlapFraction, stampDims, stampFrame } from '../../shared/peels.mjs';
 
@@ -12,7 +15,8 @@ const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quatern
 const FLAT = new THREE.Quaternion();
 
 export class PeelLayer {
-  constructor(scene) {
+  constructor(scene, { now = () => performance.now() } = {}) {
+    this.now = now;
     this.scene = scene; this.root = new THREE.Group(); this.root.name = 'peels'; this.root.visible = false; scene.add(this.root);
     this.on = false;
     this.groups = new Map(); // imageId -> { mesh, edge, items: [peel], tex, cap }
@@ -65,10 +69,10 @@ export class PeelLayer {
     g.mesh.count = g.edge.count = g.items.length;
   }
   // Pose instance i: falling = along the path, landed = flat on the floor.
-  place(g, it, i, now = performance.now()) {
+  place(g, it, i, now = this.now()) {
     const e = this.peels.get(it.id); if (!e) return;
     const P = e.peel;
-    const u = e.landed ? 1 : Math.min(1, (now - e.born) / (e.params.dur * 1000));
+    const u = e.landed ? 1 : Math.max(0, Math.min(1, (now - e.born) / (e.params.dur * 1000)));
     const pose = peelPose(P, u, e.params);
     _p.set(...pose.p); _q.set(...pose.q); _s.set(P.w, P.h, 1);
     g.mesh.setMatrixAt(i, _m.compose(_p, _q, _s));
@@ -81,14 +85,18 @@ export class PeelLayer {
   }
   // peel = { id, imageId, w, h, seed, start, x, z, yaw }. animate = fall from the hip (a new slap).
   // by: who slapped it ('me' or a player id) – the landing "duff" uses their sound (onLand).
-  async add(peel, image, { animate = false, by = null } = {}) {
+  // born (replay): when it was slapped, on the now() clock; it falls if that was < dur ago.
+  async add(peel, image, { animate = false, by = null, born = null } = {}) {
     if (!peel || !image || this.peels.has(peel.id)) return;
-    const e = { peel, image, born: performance.now(), params: pathParams(peel.seed), landed: !animate, by };
+    const params = pathParams(peel.seed);
+    if (born != null) animate = this.now() - born < params.dur * 1000;
+    const e = { peel, image, born: born ?? this.now(), params, landed: !animate, by };
     this.peels.set(peel.id, e);
     let g;
-    try { g = await this.group(image); } catch { this.peels.delete(peel.id); return; }
-    if (!this.peels.has(peel.id)) return;
-    if (animate) e.born = performance.now(); // fallet börjar när formen finns
+    try { g = await this.group(image); } catch { if (this.peels.get(peel.id) === e) this.peels.delete(peel.id); return; }
+    if (this.peels.get(peel.id) !== e) return; // removed (or removed and added again) while loading
+    if (born != null) { e.landed = !(animate = this.now() - born < params.dur * 1000); } // the replay may have moved on
+    else if (animate) e.born = this.now(); // fallet börjar när formen finns
     if (g.items.length >= g.cap) this.resize(g, g.cap * 2);
     g.items.push({ id: peel.id });
     g.mesh.count = g.edge.count = g.items.length;
@@ -115,11 +123,19 @@ export class PeelLayer {
     }
     for (const id of set) { const e = this.peels.get(id); if (e?.landed) this.landedCount--; this.peels.delete(id); this.falling.delete(id); }
   }
+  // Replay seek: born again at this time. A landed peel that should still be falling goes back in the air.
+  rewind(id, born) {
+    const e = this.peels.get(id); if (!e) return;
+    e.born = born;
+    if (e.landed && this.now() - born < e.params.dur * 1000 && this.groups.get(e.image.id)?.items.some((it) => it.id === id)) {
+      e.landed = false; this.landedCount--; this.falling.add(id);
+    }
+  }
   clear() { this.remove([...this.peels.keys()]); }
   removeImage(imageId) { this.remove([...this.peels.values()].filter((e) => e.image.id === imageId).map((e) => e.peel.id)); }
   // Högst maxPerRoom, de äldsta först bort (som servern).
   trim() { const n = this.peels.size - PEEL.maxPerRoom; if (n > 0) this.remove([...this.peels.keys()].slice(0, n)); }
-  update(now = performance.now()) {
+  update(now = this.now()) {
     if (!this.falling.size) return;
     for (const g of this.groups.values()) {
       let dirty = false;
@@ -148,7 +164,7 @@ export class PeelLayer {
   // Var är peelen just nu (för tester): position och om den har landat.
   poseOf(id) {
     const e = this.peels.get(id); if (!e) return null;
-    const u = e.landed ? 1 : Math.min(1, (performance.now() - e.born) / (e.params.dur * 1000));
+    const u = e.landed ? 1 : Math.max(0, Math.min(1, (this.now() - e.born) / (e.params.dur * 1000)));
     return { ...peelPose(e.peel, u, e.params), u, dur: e.params.dur };
   }
 }

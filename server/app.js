@@ -889,8 +889,15 @@ app.post('/api/rooms/:room/recording/start', rateLimit(20), wrap(async (req, res
           if (!(s.imageId in images)) images[s.imageId] = await imageAvailable(s.imageId);
           if (images[s.imageId]) stamps.push(publicStamp(s));
         }
+        // Peels (backing paper) on the floor, with their images (the replay draws their silhouettes).
+        // Kept even while peels are off: turning them on again shows the same paper (as live).
+        const peels = [];
+        for (const p of room.peels || []) {
+          if (!(p.imageId in images)) images[p.imageId] = await imageAvailable(p.imageId);
+          if (images[p.imageId]) peels.push(p);
+        }
         for (const k of Object.keys(images)) if (!images[k]) delete images[k];
-        return { style: styleOf(room), stamps, images, cameras: room.cameras || [], groove: room.groove || null };
+        return { style: styleOf(room), stamps, images, cameras: room.cameras || [], groove: room.groove || null, peelsOn: !!room.peelsOn, peels };
       },
     });
     res.json({ ok: true, already: r.already, recording: recorder.status(id) });
