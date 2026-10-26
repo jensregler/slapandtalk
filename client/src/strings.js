@@ -53,7 +53,7 @@ export const EN = {
   designLost: (n) => (n === 1 ? 'An old design was gone from the server and could not be restored. Please upload it again.'
     : `${n} old designs were gone from the server and could not be restored. Please upload them again.`),
   designRestored: (n) => (n === 1 ? 'A design had vanished from the server and was uploaded again.' : `${n} designs had vanished from the server and were uploaded again.`),
-  maxSize: (m, wall) => (wall ? `Max size: ${m} m (wall height)` : `Max size: ${m} m`),
+  maxSize: (m) => `Max size: ${m} m`,
   fileType: 'Only PNG, JPG or WebP, please.',
   fileTooBig: 'The file is too big (max 5 MB after shrinking).',
   uploading: 'Uploading…',
@@ -245,7 +245,7 @@ export const EN = {
   fullActive: 'The full version is on in this browser. Thank you for supporting Slap and Talk.',
   fullThanksIntro: 'Your key is in the receipt e-mail from Lemon Squeezy. Paste it below to unlock the full version in this browser.',
   fullThanksDone: 'The full version is on in this browser. Your key is also in the receipt e-mail, for your other devices.',
-  fullFeaturesHtml: '<li><b>Fabrics</b> – your own images as patterns on your avatar</li><li><b>Sound design</b> – a synth and effects for your own slap, peel and step sounds</li><li><b>Big stickers</b> – larger than 1 m, up to the wall height</li><li><b>Clean videos</b> – finished videos without the channel logo and link ticker</li><li>…and more as it comes</li>',
+  fullFeaturesHtml: '<li><b>Fabrics</b> – your own images as patterns on your avatar</li><li><b>Sound design</b> – a synth and effects for your own slap, peel and step sounds</li><li><b>Big stickers</b> – larger than 1 m</li><li><b>Clean videos</b> – finished videos without the channel logo and link ticker</li><li>…and more as it comes</li>',
   fullPrice: 'Pay what you want, from $1. One payment, no subscription.',
   fullBuy: 'Get the full version', fullBuyNote: 'Opens Lemon Squeezy (card, PayPal, Apple Pay, Google Pay).',
   fullHaveKey: 'I have a key', fullKeyPlaceholder: 'Paste your key', fullKeyOk: 'Unlock',

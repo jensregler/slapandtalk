@@ -1,7 +1,8 @@
 // Slap and Talk – startpunkten för webbappen. Här kopplas allt ihop:
 // rummet (room.js), styrningen (controls.js), stämplarna (stamps.js) och servern (api.js).
 import * as THREE from 'three';
-import { buildBoxRoom, wallHeight } from './room.js';
+import { buildBoxRoom } from './room.js';
+import { startSizeCm } from '../../shared/sizeprefix.mjs';
 import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl } from './roomstyle.js';
 import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
@@ -110,7 +111,7 @@ const state = {
   mine: readMine(),
   library: [], // the curated sticker library (GET /api/library); the palette in the demo
   favs: readFavs(), // favourite design ids ("staples")
-  size: 0.3, rotation: 0, jitter: false,
+  size: 0.1, rotation: 0, jitter: false, // size = the held size (longest side, m); each design starts at its own height (startSize)
   mode: 'slap', // 'slap' = Klibbläge (pekaren syns, klick stämplar), 'view' = Tittläge (bara titta)
   artist: localStorage.getItem('klibb.artist') || '',
   artistLink: cleanArtistLink(localStorage.getItem('klibb.artistLink') || ''),
@@ -254,7 +255,9 @@ addEventListener('storage', (e) => {
 });
 
 async function select(img) {
+  const changed = (img && img.id) !== (state.selected && state.selected.id);
   state.selected = img || null; renderTray(); renderDesignHud();
+  if (img && changed) startSize(img);
   if (!img) { preview.setTexture(null); return; }
   try {
     const tex = await stamps.texture(img);
@@ -306,7 +309,7 @@ function restoreDesign(img) {
     restoring.set(img.id, (async () => {
       const blob = await getBlob(img);
       if (!blob) return null;
-      const fresh = await api.uploadSticker(blob, img.artist || state.artist);
+      const fresh = await api.uploadSticker(blob, img.artist || state.artist, { startCm: img.startCm });
       if (fresh.id !== img.id) { await saveBlob(fresh.id, blob); deleteBlob(img.id); state.favs = moveFav(img.id, fresh.id); }
       state.mine = addMine(fresh, img.id);
       stamps.textures.delete(img.id);
@@ -349,17 +352,24 @@ async function validateDesigns() {
   await handleMissing(missing);
 }
 
-// Största klibban: längsta sidan får vara högst väggens höjd (även bredden, eftersom
-// klibban kan vridas så att bredden blir höjd). Storleken = klibbans längsta sida.
-// Free version: at most 1 m. Bigger (up to the wall height) is the full version's bigStickers.
-const WALL_MAX_CM = Math.floor(wallHeight(room.surfaces) * 100 + 1e-6);
-const FREE_MAX_CM = Math.min(100, WALL_MAX_CM);
-const maxSizeCm = () => (entitlements.full.bigStickers ? WALL_MAX_CM : FREE_MAX_CM);
+// Storleken = klibbans längsta sida. Free version: at most 1 m. The full version (bigStickers)
+// has NO upper limit, not even the room (Jens, 26 Oct 2026; he may add one back).
+// The slider only travels to SLIDER_FULL_CM (a range input needs a finite end); the wheel goes on
+// past it, and the label shows the real size.
+const FREE_MAX_CM = 100;
+const SLIDER_FULL_CM = 400; // slider travel only, not a limit
+const maxSizeCm = () => (entitlements.full.bigStickers ? Infinity : FREE_MAX_CM);
+const showSize = () => {
+  const cm = Math.round(state.size * 200) / 2;
+  $('size').value = String(Math.min(cm, Number($('size').max)));
+  $('size-val').textContent = `${cm.toLocaleString(LOCALE)} cm`;
+};
 function applySizeLimit() {
-  $('size').max = String(maxSizeCm());
-  if (state.size * 100 > maxSizeCm()) { $('size').value = maxSizeCm(); $('size').oninput({ target: $('size') }); }
+  $('size').max = String(Number.isFinite(maxSizeCm()) ? maxSizeCm() : SLIDER_FULL_CM);
+  if (state.size * 100 > maxSizeCm()) state.size = maxSizeCm() / 100;
+  showSize();
 }
-$('size').oninput = (e) => { state.size = e.target.value / 100; $('size-val').textContent = `${e.target.value} cm`; };
+$('size').oninput = (e) => { state.size = Number(e.target.value) / 100; showSize(); };
 $('rot').oninput = (e) => { state.rotation = Number(e.target.value); $('rot-val').textContent = `${e.target.value}°`; };
 applySizeLimit();
 $('jitter').onchange = (e) => { state.jitter = e.target.checked; };
@@ -379,15 +389,20 @@ $('artist-link').oninput = (e) => {
 };
 let maxToastAt = 0;
 function setSize(cm) {
-  const want = Math.round(cm);
+  if (!Number.isFinite(cm)) return; // sanity guard only (NaN / endless wheel), not a size limit
+  const want = Math.round(cm * 2) / 2; // 0.5 cm steps (the letter heights are 2.5 cm apart)
   const max = maxSizeCm();
-  cm = THREE.MathUtils.clamp(want, 5, max);
+  cm = Math.min(Math.max(want, 5), max);
   if (want > max && performance.now() - maxToastAt > 1500) {
     maxToastAt = performance.now();
-    toast(S.maxSize((max / 100).toLocaleString(LOCALE), max === WALL_MAX_CM), 1500);
+    toast(S.maxSize((max / 100).toLocaleString(LOCALE)), 1500);
   }
-  $('size').value = cm; $('size').oninput({ target: $('size') });
+  state.size = cm / 100; showSize();
 }
+// Each design starts at its own height (file-name letter prefix, shared/sizeprefix.mjs; no prefix
+// = 10 cm) whenever you switch to it: R/F, the palette, a new upload. Scaling after that is free,
+// as before, until you switch design again.
+function startSize(img) { setSize(startSizeCm(img, { maxCm: maxSizeCm() })); }
 function setRot(deg) { deg = ((deg + 540) % 360) - 180; $('rot').value = deg; $('rot').oninput({ target: $('rot') }); }
 
 // Bilden krymps i webbläsaren om den är stor, så uppladdningen går fort även på mobilen.
@@ -435,9 +450,10 @@ async function onFilePicked(input) {
     if (file.size > 20 * 1024 * 1024) return toast(S.fileTooBig);
     toast(S.uploading, 10000);
     const blob = await shrink(file);
-    const img = await api.uploadSticker(blob, state.artist);
+    const img = await api.uploadSticker(blob, state.artist, { name: file.name }); // the name carries the size prefix
     try { await saveBlob(img.id, blob); } catch { /* local copy is a nice-to-have (private mode Safari) */ }
     state.mine = addMine(img);
+    if (state.selected && state.selected.id === img.id) startSize(img); // the same picture again (maybe renamed): its start height
     await select(img);
     toast(isTouch ? S.uploadedTouch : S.uploadedDesktop);
   } catch (err) { toast(err && err.message ? err.message : S.uploadFailed); } finally {
@@ -1653,5 +1669,5 @@ window.klibb = {
   reach: SLAP_REACH, farSlaps: () => farSlaps, skipReachCheck: false,
   reachState: () => ({ peels: peelLayer.on, far: preview.far, crosshairDim: document.body.classList.contains('out-of-reach'), flash: !!farFlash, visible: preview.mesh.visible, opacity: preview.mat.opacity }),
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
-  nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, wallMaxCm: WALL_MAX_CM, freeMaxCm: FREE_MAX_CM,
+  nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, startSizeCm: (img) => startSizeCm(img, { maxCm: maxSizeCm() }),
 };

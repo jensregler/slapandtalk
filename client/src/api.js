@@ -9,9 +9,13 @@ async function json(res) {
 export const api = {
   loadRoom: (room) => fetch(`/api/rooms/${room}/stamps`).then(json),
 
-  uploadSticker: (blob, artist) => {
+  // name: the original file name (its letter prefix sets the start height, shared/sizeprefix.mjs);
+  // startCm: when re-uploading a lost design, the start height it already had.
+  uploadSticker: (blob, artist, { name, startCm } = {}) => {
     const fd = new FormData();
     fd.append('artist', artist || '');
+    if (name) fd.append('name', String(name).slice(0, 200));
+    if (typeof startCm === 'number') fd.append('startCm', String(startCm));
     fd.append('file', blob, 'klibba.png');
     return fetch('/api/stickers', { method: 'POST', body: fd }).then(json);
   },
