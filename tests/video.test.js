@@ -189,9 +189,16 @@ async function server() {
     assert(e2.status === 502 && e3.status === 429, 'email: a provider failure = 502; and it is rate-limited per IP');
 
     // The room disappears (demo rooms after an hour): rooms/ + recordings/ go, the video stays.
-    await store.deleteRoom(R);
-    for (const k of await adapter.list(`recordings/${R}/`)) await adapter.delete(k);
-    assert((await fetch(`${B}/v/${id}`)).status === 200 && (await fetch(`${B}/v/${id}/file`)).status === 200 && (await adapter.list(`recordings/${R}/`)).length === 0, 'the room and its recordings are deleted, the video still plays');
+    // Uses the demo profile's own expiry (server/demo.js) when it exists, so its room deletion is
+    // what's checked; otherwise the same steps by hand.
+    let viaDemo = false;
+    if (fs.existsSync(path.join(__dirname, '..', 'server', 'demo.js'))) {
+      const { createDemo } = require('../server/demo');
+      const demo = createDemo({ store, settings: { roomMs: 3600_000, warnMs: 0, maxPlayers: 5, maxMembers: 5, style: {} }, clock, log: { log() {}, error() {} } });
+      viaDemo = await demo.expire(R);
+    }
+    if (!viaDemo) { await store.deleteRoom(R); for (const k of await adapter.list(`recordings/${R}/`)) await adapter.delete(k); }
+    assert(!(await store.getRoom(R)) &&(await fetch(`${B}/v/${id}`)).status === 200 && (await fetch(`${B}/v/${id}/file`)).status === 200 && (await adapter.list(`recordings/${R}/`)).length === 0, `the room and its recordings are deleted${viaDemo ? ' (demo expiry, server/demo.js)' : ''}, the video still plays`);
 
     // Retention: after 30 days the video is gone and cleanup deletes the files.
     now += 29 * DAY;
