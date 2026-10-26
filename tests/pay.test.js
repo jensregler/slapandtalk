@@ -306,10 +306,13 @@ async function browserTests({ adapter, ls }) {
       assert(!r.entry && !r.panel && !/full version/i.test(r.text), `${name}: no Full version entry, nothing about buying anywhere`);
       await q.context().close();
     }
-    // …but someone who already has a key still sees their status
+    // The demo profile is the FREE version for everyone, keys included (Jens's demo brief: "disable
+    // room editing and synth/sound settings, even for entitled keys"; server/entitlements.js). So a
+    // key does nothing there and there is no status to find. Turn DEMO_PROFILE off and it all comes back.
     const k = await open(demo.base, `?unlock=${MANUAL}`);
     await k.evaluate(() => window.klibb.openMore());
-    assert(await k.isVisible('#full-entry'), 'a browser that already has the full version can still find its status (and forget the key)');
+    const kd = await k.evaluate(() => ({ full: Object.values(window.klibb.entitlements().full || {}).some(Boolean), entry: !document.getElementById('full-entry').hidden }));
+    assert(!kd.full && !kd.entry, 'demo profile: even a valid key unlocks nothing (the free version for everyone), and nothing about buying shows');
     await k.context().close();
   } finally {
     for (const s of servers) s.close();
