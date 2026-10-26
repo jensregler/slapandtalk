@@ -179,7 +179,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   }
   const roomTaken = async (c) => { const e = cache.get(c); if (e) return e.room !== null; return adapter.exists(roomKey(c)); };
 
-  async function createRoom({ id, type = 'quick', owner = null, style = null, keyHash = null } = {}) {
+  async function createRoom({ id, type = 'quick', owner = null, style = null, keyHash = null, extra: more = null } = {}) {
     if (!ROOM_TYPES.includes(type)) throw new Error('Unknown room type');
     for (let tries = 0; !id && tries < 20; tries++) {
       const c = roomCode();
@@ -192,6 +192,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       const extra = {};
       if (style) extra.style = style;
       if (keyHash) extra.keyHash = keyHash;
+      if (more) Object.assign(extra, more);
       return saveRoom(normalize(id, { type: id === PUBLIC_ROOM ? 'stad' : type, owner, createdAt: now, lastVisitAt: now, ...extra, stamps: [] }));
     });
   }
@@ -263,6 +264,20 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       return res;
     });
   }
+
+  // Generic locked edit of an existing room (demo: members, invites). fn(room) returns the answer;
+  // the room is saved unless the answer has save: false. Missing room: 'notfound'.
+  async function editRoom(id, fn) {
+    return withLock(id, async () => {
+      const room = await loadRoom(id);
+      if (!room) return 'notfound';
+      const res = await fn(room);
+      if (!res || res.save !== false) await saveRoom(room);
+      return res;
+    });
+  }
+  // Läs ett rum utan kopia och utan lås (bara för att läsa).
+  async function peek(id) { return structuredClone(await peekRoom(id)); }
 
   // Någon är i rummet: uppdatera "senast besökt" (bara rum som finns, plus staden).
   async function touchRoom(id) {
@@ -420,7 +435,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   }
 
   return {
-    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
+    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
     deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, addPeel, peelState, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle,
   };

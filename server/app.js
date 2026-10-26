@@ -10,6 +10,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const { contentId } = require('./store');
 const { broadcast, cleanName, playerPosition } = require('./realtime');
+const { publicSticker } = require('./library');
 
 // Konstnärens namn och länk (samma regler som i webbläsaren). ESM-modul, så den laddas med import().
 const artistLinkMod = import('../shared/artistlink.mjs');
@@ -44,7 +45,8 @@ const FREE_SIZE_SLACK = 0.01;
 const { mountVideos, videoSettings } = require('./videos');
 const { createMailer } = require('./mail');
 
-function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console } = {}) {
+// demo: the demo profile (server/demo.js createDemo) or null. library: loadLibrary() list.
+function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [] } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
@@ -104,7 +106,24 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype)),
 });
 
+// What the web app should be (the demo profile or the normal app). Never cached.
+app.get('/api/config', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(demo ? demo.publicConfig() : { demo: false });
+});
+// The curated sticker library (server/library.js).
+app.get('/api/library', (req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.json({ stickers: library.map(publicSticker) });
+});
+// The demo: no uploads, no room editing (admin still can). Same 403 shape everywhere.
+const demoBlocks = (req, res) => {
+  if (!demo || isAdmin(req)) return false;
+  res.status(403).json({ error: 'Not in this version.', demo: true }); return true;
+};
+
 app.post('/api/stickers', rateLimit(20), (req, res) => {
+  if (demo) return res.status(403).json({ error: 'Uploads are not part of this version.', demo: true });
   upload.single('file')(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'The file is larger than 5 MB.' : 'The upload failed.' });
     if (!req.file) return res.status(400).json({ error: 'Pick a PNG, JPG or WebP image.' });
@@ -240,7 +259,7 @@ function cleanStyle(s) {
 }
 const styleOf = (r) => r.style || { ...STYLES.default }; // äldre rum: dagens utseende
 const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt, style: styleOf(r), peels: !!r.peelsOn,
-  quickTtlHours: r.type === 'quick' ? quickTtlHours : null });
+  quickTtlHours: r.type === 'quick' ? quickTtlHours : null, ...(r.demo && r.demo.expiresAt ? { expiresAt: r.demo.expiresAt } : {}) });
 
 // Skapa ett nytt snabbrum (inget konto behövs). Svarar med en kort kod, t.ex. "k7m2qx".
 // Body (valfritt): { style: { floor, wall, wallColor?, ceiling?, seed? } }
@@ -249,13 +268,16 @@ const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, cre
 app.post('/api/rooms', rateLimit(10), wrap(async (req, res) => {
   let style = null;
   if (req.body && req.body.style !== undefined) { style = cleanStyle(req.body.style); if (!style) return res.status(400).json({ error: 'Unknown room look' }); }
+  if (demo) style = cleanStyle(demo.settings.style); // the demo: always the empty preset room (tiles, concrete, plain ceiling)
   const roomKey = crypto.randomBytes(24).toString('base64url');
-  const room = await store.createRoom({ type: 'quick', style, keyHash: hashToken(roomKey) });
+  const room = await store.createRoom({ type: 'quick', style, keyHash: hashToken(roomKey), extra: demo ? demo.newRoomFields() : null });
+  if (demo) demo.created(room);
   res.json({ room: roomPublic(room), roomKey });
 }));
 
 // Byt utseende: rummets skapare (nyckeln i x-room-key) eller admin. Staden: bara admin.
 app.put('/api/rooms/:room/style', rateLimit(30), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id) return;
   const style = cleanStyle(req.body && req.body.style);
   if (!style) return res.status(400).json({ error: 'Unknown room look' });
@@ -347,6 +369,12 @@ async function artistFields(b) {
 app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   const room = roomParam(req, res); if (!room) return;
   const b = { ...(req.body || {}) };
+  // The demo: only people actually in the room (connected over WebSocket, admitted with an
+  // invite or the room key) can slap, and only while the room's hour lasts.
+  if (demo && !isAdmin(req)) {
+    if ((await demo.roomOpen(room)) !== 'ok') return res.status(410).json({ error: 'This room has closed.', closed: true });
+    if (!playerPosition(room, playerId(b.by))) return res.status(403).json({ error: 'Join the room first.', demo: true });
+  }
   const image = await imageAvailable(b.imageId);
   if (!image) {
     if (await store.isRemoved(String(b.imageId || ''))) return res.status(410).json({ error: 'That design was removed.', gone: true, removed: true });
@@ -383,7 +411,8 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
     position: b.position, normal: b.normal, quaternion: b.quaternion,
     size: clampSize(b.size), rotation: isNum(b.rotation) ? b.rotation : 0,
     surface: String(b.surface || '').slice(0, 40),
-    ...(await artistFields(b)),
+    // A library sticker always carries its own artist (whoever slaps it), so the credit is right.
+    ...(await artistFields(image.library ? { artist: image.artist, artistLink: image.artistLink } : b)),
   }, { onEvict: (ids) => evicted.push(...ids) });
   for (const id of evicted) broadcast(room, { type: 'stamp:remove', id });
   const stamp = publicStamp(saved);
@@ -476,6 +505,7 @@ async function floorOverlap(P, image, b, peels) {
 
 // Peels på/av (rummets skapare med rumsnyckeln, eller admin; Staden bara admin). { on: true|false }
 app.put('/api/rooms/:room/peels', rateLimit(30), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id) return;
   if (typeof req.body?.on !== 'boolean') return res.status(400).json({ error: 'on must be true or false' });
   const r = await store.setPeelsOn(id, req.body.on, canEditRoom(req));
@@ -486,6 +516,7 @@ app.put('/api/rooms/:room/peels', rateLimit(30), wrap(async (req, res) => {
 }));
 // Sopa golvet: allt baksidespapper bort. Samma rättighet.
 app.post('/api/rooms/:room/peels/clear', rateLimit(20), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id) return;
   const r = await store.clearPeels(id, canEditRoom(req));
   if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
@@ -566,6 +597,7 @@ function cleanCamera(b, old = null) {
   return c;
 }
 app.post('/api/rooms/:room/cameras', rateLimit(60), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id) return;
   const cam = cleanCamera(req.body); if (!cam) return res.status(400).json({ error: 'Invalid camera' });
   const r = await store.editCameras(id, canEditRoom(req), (list) => {
@@ -584,6 +616,7 @@ app.post('/api/rooms/:room/cameras', rateLimit(60), wrap(async (req, res) => {
   res.json(r);
 }));
 app.put('/api/rooms/:room/cameras/:id', rateLimit(120), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id) return;
   const camId = String(req.params.id); if (!CAM_ID_RE.test(camId)) return res.status(400).json({ error: 'Invalid camera' });
   const r = await store.editCameras(id, canEditRoom(req), (list) => {
@@ -618,6 +651,7 @@ app.get('/api/rooms/:room/recording', wrap(async (req, res) => {
   res.json({ recording: recorder ? recorder.status(id) : null });
 }));
 app.post('/api/rooms/:room/recording/start', rateLimit(20), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
   if (!(await rightsTo(req, res, id))) return;
   try {

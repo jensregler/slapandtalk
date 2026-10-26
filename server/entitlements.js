@@ -40,10 +40,13 @@ function parseKeys(raw) {
 //   resolve(creds)        sync: manual keys, then what licenses already knows (memory), then dev.
 //   resolve.check(creds)  async: same, but first asks Lemon Squeezy about an unknown LS key.
 //   resolve.licenses      the licenses object (or null when LS isn't configured).
+// DEMO_PROFILE=1 (server/demo.js): the demo shows the FREE version, so every key is ignored.
 function makeEntitlements(env = process.env, { licenses = null } = {}) {
   const keys = parseKeys(env.FULL_ACCESS_KEYS);
-  const devAllowed = env.DEV_UNLOCK === '1';
+  const demo = env.DEMO_PROFILE === '1' || String(env.DEMO_PROFILE).toLowerCase() === 'true';
+  const devAllowed = env.DEV_UNLOCK === '1' && !demo;
   const resolve = ({ key, dev } = {}) => {
+    if (demo) return none();
     if (typeof key === 'string' && keys.has(key)) { const out = none(); for (const f of keys.get(key)) out[f] = true; return out; }
     if (licenses && typeof key === 'string' && licenses.peek(key)) return all(); // paid: the whole full version
     if (devAllowed && (dev === true || dev === '1')) return all();
@@ -58,6 +61,7 @@ function makeEntitlements(env = process.env, { licenses = null } = {}) {
   resolve.manualCount = keys.size;
   resolve.licenses = licenses;
   resolve.devAllowed = devAllowed;
+  resolve.demo = demo;
   return resolve;
 }
 // Credentials from an HTTP request (headers set by client/src/entitlements.js).

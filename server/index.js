@@ -11,13 +11,17 @@ const { createRecorder } = require('./recorder');
 const { makeEntitlements } = require('./entitlements');
 const { createLicenses } = require('./licenses');
 const { safeStep, checkStorage, installProcessGuards } = require('./startup');
+const { demoSettings, createDemo } = require('./demo');
+const { loadLibrary, seedLibrary } = require('./library');
 
 installProcessGuards();
 
 const PORT = Number(process.env.PORT || 8787);
 const QUICK_TTL_HOURS = Number(process.env.QUICK_ROOM_TTL_HOURS || 24);
 const CLEANUP_MINUTES = Number(process.env.ROOM_CLEANUP_INTERVAL_MINUTES || 60);
-const MAX_PLAYERS = Number(process.env.MAX_PLAYERS_PER_ROOM || 10);
+// The Thursday demo (free version): DEMO_PROFILE=1. See server/demo.js and README "Demo profile".
+const DEMO = demoSettings(process.env);
+const MAX_PLAYERS = DEMO ? DEMO.maxPlayers : Number(process.env.MAX_PLAYERS_PER_ROOM || 10);
 // Sessionsinspelning: max längd (minuter) och storlek (MB) per inspelning, och hur många samtidigt.
 const REC_MAX_MINUTES = Number(process.env.REC_MAX_MINUTES || 120);
 const REC_MAX_MB = Number(process.env.REC_MAX_MB || 32);
@@ -30,7 +34,21 @@ const recorder = createRecorder(store, { maxMs: REC_MAX_MINUTES * 60_000, maxByt
 const licenses = createLicenses({ adapter, env: process.env });
 const entitle = makeEntitlements(process.env, { licenses: licenses.enabled ? licenses : null });
 if (licenses.enabled) console.log('Full version: Lemon Squeezy keys on' + (process.env.LS_WEBHOOK_SECRET ? ' (webhook on)' : ' (no LS_WEBHOOK_SECRET: webhook off)'));
-const app = createApp(store, { adminToken: process.env.ADMIN_TOKEN || '', quickTtlHours: QUICK_TTL_HOURS, recorder, entitle });
+let realtime = null; // set when the server listens
+const demo = DEMO ? createDemo({ store, settings: DEMO, onExpire: (id) => { if (realtime) realtime.closeRoom(id, { type: 'room:closed' }); } }) : null;
+const library = loadLibrary();
+const app = createApp(store, { adminToken: process.env.ADMIN_TOKEN || '', quickTtlHours: QUICK_TTL_HOURS, recorder, entitle, demo, library });
+// Invites over the WebSocket (demo): { t: 'invite', action: 'create' | 'status' } → { t: 'invite', ok, token?, status }
+const gate = demo ? {
+  admit: (room, pass, name) => demo.admit(room, pass, name),
+  async onMessage(c, m, { send }) {
+    if (m.action === 'create') {
+      const r = await demo.createInvite(c.room, c.member);
+      return send(r.token ? { t: 'invite', ok: true, token: r.token, status: r.status } : { t: 'invite', ok: false, code: r.code, error: r.error, ...(r.name ? { name: r.name } : {}) });
+    }
+    send({ t: 'invite', ok: true, status: await demo.inviteStatus(c.room, c.member) });
+  },
+} : null;
 
 // Städjobbet: tar bort snabbrum som stått tomma längre än QUICK_ROOM_TTL_HOURS.
 async function cleanup() {
@@ -47,10 +65,12 @@ async function cleanup() {
   await checkStorage(adapter);
   const n = await safeStep('Flytt av images.json', () => store.migrate(), { fallback: 0 });
   if (n) console.log(`Flyttade ${n} bilder från images.json till images/`);
+  await safeStep('Sticker library', () => seedLibrary(store, library), { fallback: null });
 })().catch((e) => console.error('[start] Oväntat fel före start:', e)).finally(() => {
-  const server = app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind}, max ${MAX_PLAYERS} per rum)`));
+  const server = app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind}, max ${MAX_PLAYERS} per rum${DEMO ? ', DEMO' : ''})`));
   // Flerspelarläget (WebSocket på /ws) går på samma port som webbappen.
-  const realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder, entitle });
+  realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder, entitle, gate });
+  if (demo) { demo.start(); console.log(`[demo] DEMO_PROFILE on: free version, ${DEMO.maxPlayers} per room, invite-only, rooms close after ${DEMO.roomMs / 60_000} min`); }
   // Vid omstart (pm2, Render): säg till alla anslutna att servern startar om, så kopplar
   // deras webbläsare upp sig igen av sig själva när den nya servern är igång.
   // Pågående inspelningar avslutas och sparas först (stoppskäl "shutdown").

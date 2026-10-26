@@ -23,10 +23,24 @@
 // Röstchatt (nästa steg): ljudet går direkt mellan webbläsarna (WebRTC). Servern skickar
 // bara vidare "signal"-meddelanden (offer/answer/ice) till en annan spelare i samma rum.
 // Det finns redan här, så klienten kan byggas utan att servern behöver ändras.
+// Slot: every player gets the lowest free number in the room (0, 1, 2 …), kept while they stay.
+// The web app colours that player's sounds by it (shared/synth.mjs SLOT_COLOURS), so up to five
+// people in a demo room all sound a little different.
+//
+// Demo profile (server/demo.js): gate.admit(room, pass, name) decides if a hello may enter (invite
+// link, member key or room key). Refused: { t: 'denied', code, error } and the socket closes with
+// 4003 (the browser does not retry). gate.onMessage handles 'invite' messages. closeRoom(id) closes
+// everyone in a room (code 4010) when its hour is up.
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const AV = require('../shared/avatar.json');
 
+const DENIED = {
+  invite: 'This room is invite-only. Ask someone inside for an invite link.',
+  used: 'This invite link has already been used.',
+  full: 'This room is full.',
+  gone: 'This room has closed.',
+};
 const listeners = new Set();
 // Anropas av app.js. roomId '*' = alla rum (t.ex. när admin tar bort en bild helt).
 function broadcast(roomId, event) { for (const fn of listeners) fn(roomId, event); }
@@ -132,7 +146,7 @@ function bucket(rate, burst) {
 
 function attachRealtime(server, {
   maxPlayers = 10, path = '/ws', heartbeatMs = 15_000, maxPerIp = 30, clock = () => Date.now(),
-  roomSize = require('../shared/room.json'), recorder = null, entitle = makeEntitlements(process.env),
+  roomSize = require('../shared/room.json'), recorder = null, entitle = makeEntitlements(process.env), gate = null,
 } = {}) {
   const bounds = { x: roomSize.width / 2, y: roomSize.height, z: roomSize.depth / 2 };
   const wss = new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 }); // a look with custom sound patches can be ~10 kB
@@ -150,7 +164,13 @@ function attachRealtime(server, {
     if (!entitle.check || !creds || typeof creds.key !== 'string') return;
     entitle.check(creds).then((ent) => { if (replace || Object.values(ent).some(Boolean)) c.ent = ent; }).catch(() => {});
   };
-  const pub = (c) => ({ id: c.id, name: c.name, look: c.look, p: c.p, y: c.y, pi: c.pi || 0 });
+  const pub = (c) => ({ id: c.id, name: c.name, look: c.look, p: c.p, y: c.y, pi: c.pi || 0, slot: c.slot ?? 0 });
+  // The lowest slot no other player in the room has.
+  function takeSlot(c, r) {
+    const used = new Set([...r.players.values()].filter((o) => o !== c).map((o) => o.slot));
+    let n = 0; while (used.has(n)) n++;
+    c.slot = n;
+  }
   const rec = (roomId, e, data) => { if (recorder) recorder.log(roomId, e, data); };
   // Inspelningen frågar vilka som är i rummet när den startar (och om rummet står tomt).
   if (recorder) recorder.setPresence((id) => { const r = rooms.get(id); return r ? [...r.players.values()].map(pub) : []; });
@@ -182,7 +202,7 @@ function attachRealtime(server, {
   });
 
   function welcome(c, r) {
-    send(c, { t: 'welcome', id: c.id, you: { id: c.id, name: c.name }, full: !c.player, max: maxPlayers, count: r.players.size,
+    send(c, { t: 'welcome', id: c.id, you: { id: c.id, name: c.name, slot: c.slot ?? 0 }, full: !c.player, ...(c.extra || {}), max: maxPlayers, count: r.players.size,
       players: [...r.players.values()].filter((p) => p !== c).map(pub), chat: r.chat, rec: recorder ? recorder.status(r.id) : null });
   }
   // Någon gick: släpp in den som väntat längst (om rummet var fullt).
@@ -190,7 +210,7 @@ function attachRealtime(server, {
     while (r.players.size < maxPlayers && r.watchers.length) {
       const c = r.watchers.shift();
       if (c.ws.readyState !== 1) continue;
-      c.player = true; r.players.set(c.id, c);
+      takeSlot(c, r); c.player = true; r.players.set(c.id, c);
       welcome(c, r);
       toRoom(r, { t: 'join', player: pub(c) }, c);
       rec(r.id, 'join', pub(c));
@@ -210,7 +230,34 @@ function attachRealtime(server, {
     let r = room(c.room);
     if (m.t === 'ping') return send(c, { t: 'pong' });
     if (m.t === 'hello') {
-      if (c.joined) return;
+      if (c.joined || c.admitting) return;
+      if (gate) {
+        c.admitting = true;
+        Promise.resolve(gate.admit(c.room, m.pass && typeof m.pass === 'object' ? m.pass : {}, cleanName(m.name))).then((res) => {
+          c.admitting = false;
+          if (c.ws.readyState !== 1) return;
+          if (!res || !res.ok) {
+            send(c, { t: 'denied', code: (res && res.code) || 'invite', error: (res && res.error) || DENIED[(res && res.code) || 'invite'] || DENIED.invite });
+            return c.ws.close(4003, 'Not admitted');
+          }
+          c.member = res.memberId;
+          c.extra = { expiresAt: res.expiresAt, serverNow: new Date(clock()).toISOString(), member: res.memberId, ...(res.memberKey ? { pass: res.memberKey } : {}), ...(res.extra || {}) };
+          hello(c, m);
+        }).catch((e) => { c.admitting = false; console.error('[realtime] admit', e); try { c.ws.close(1011, 'Server error'); } catch { /* */ } });
+        return;
+      }
+      return hello(c, m);
+    }
+    if (!c.joined) return;
+    if (m.t === 'invite' && gate && gate.onMessage) {
+      if (!c.inviteLimit()) return send(c, { t: 'error', error: 'Easy now – wait a bit.' });
+      return gate.onMessage(c, m, { send: (msg) => send(c, msg) });
+    }
+    return onJoined(c, m, r);
+  }
+  function hello(c, m) {
+    let r = room(c.room);
+    {
       c.joined = true;
       // Samma flik som kopplar upp sig igen (sid = slumpat per sidladdning): den gamla, döda
       // anslutningen tas bort direkt, så ingen syns två gånger. Gästnumret behålls.
@@ -226,12 +273,12 @@ function attachRealtime(server, {
       upgradeEnt(c, fromHello(m)); // a paid key we haven't seen yet: ask Lemon Squeezy, then upgrade
       c.look = cleanLook(m.look, c.ent);
       c.p = cleanPos(m.p, bounds) || [0, 1.6, 3.5]; c.y = isNum(m.y) ? round(m.y) : 0; c.pi = cleanPitch(m.pi);
-      if (r.players.size < maxPlayers) { c.player = true; r.players.set(c.id, c); } else r.watchers.push(c);
+      if (r.players.size < maxPlayers) { takeSlot(c, r); c.player = true; r.players.set(c.id, c); } else r.watchers.push(c);
       welcome(c, r);
       if (c.player) { toRoom(r, { t: 'join', player: pub(c), ...(old ? { rejoin: true } : {}) }, c); rec(r.id, 'join', pub(c)); }
-      return;
     }
-    if (!c.joined) return;
+  }
+  function onJoined(c, m, r) {
     // "I have a key" in an open tab: new full-version flags without reconnecting.
     if (m.t === 'unlock') { if (c.lookLimit()) upgradeEnt(c, fromHello(m), true); return; }
     if (m.t === 'move') {
@@ -271,7 +318,7 @@ function attachRealtime(server, {
   wss.on('connection', (ws, req, roomId, ip) => {
     const c = {
       id: crypto.randomBytes(5).toString('hex'), ws, room: roomId, ip, joined: false, player: false, strikes: 0,
-      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60),
+      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10),
     };
     perIp.set(ip, (perIp.get(ip) || 0) + 1);
     ws.on('pong', () => { ws.klibbDead = false; });
@@ -304,6 +351,14 @@ function attachRealtime(server, {
 
   return {
     wss,
+    // Close a room for everyone (the demo's hour is up): they get the event first, then code 4010.
+    closeRoom(roomId, event = { type: 'room:closed' }) {
+      const r = rooms.get(roomId); if (!r) return 0;
+      const all = everyone(r);
+      toRoom(r, { t: 'event', e: event });
+      for (const c of all) { try { c.ws.close(4010, 'Room closed'); } catch { /* */ } }
+      return all.length;
+    },
     stats: () => Object.fromEntries([...rooms.values()].map((r) => [r.id, { players: r.players.size, watchers: r.watchers.length, chat: r.chat.length }])),
     // Vid omstart: säg till alla att servern startar om (kod 1012), så de kopplar upp sig igen.
     close(code = 1012, reason = 'Servern startar om') {
