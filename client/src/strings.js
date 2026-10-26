@@ -50,7 +50,7 @@ export const EN = {
   designLost: (n) => (n === 1 ? 'An old design was gone from the server and could not be restored. Please upload it again.'
     : `${n} old designs were gone from the server and could not be restored. Please upload them again.`),
   designRestored: (n) => (n === 1 ? 'A design had vanished from the server and was uploaded again.' : `${n} designs had vanished from the server and were uploaded again.`),
-  maxSize: (m) => `Max size: ${m} m (wall height)`,
+  maxSize: (m, wall) => (wall ? `Max size: ${m} m (wall height)` : `Max size: ${m} m`),
   fileType: 'Only PNG, JPG or WebP, please.',
   fileTooBig: 'The file is too big (max 5 MB after shrinking).',
   uploading: 'Uploading…',

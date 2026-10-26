@@ -22,7 +22,10 @@ const MAX_PX = 1024;
 const MAX_STAMP_SIZE = require('../shared/room.json').height;
 // Större stämplar krymps (i stället för att nekas), så äldre appar inte får fel.
 const clampSize = (s) => Math.min(s, MAX_STAMP_SIZE);
-const { makeEntitlements, fromReq } = require('./entitlements');
+const { makeEntitlements, fromReq, FREE_MAX_STICKER_M } = require('./entitlements');
+// Free version: new stickers are at most 1 m (+ a little rounding slack, then clamped to 1 m).
+// Bigger, up to the wall height, needs the full version (bigStickers). Old stickers stay as they are.
+const FREE_SIZE_SLACK = 0.01;
 
 function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env) } = {}) {
 const ADMIN_TOKEN = adminToken;
@@ -286,11 +289,13 @@ async function artistFields(b) {
 
 app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   const room = roomParam(req, res); if (!room) return;
-  const b = req.body || {};
+  const b = { ...(req.body || {}) };
   const image = await imageAvailable(b.imageId);
   if (!image) return res.status(410).json({ error: 'That design is no longer on the server. Please upload it again.', gone: true });
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Invalid position' });
   if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
+  // Same gate as fabrics: only the full version (bigStickers) may slap stickers bigger than 1 m.
+  if (b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK && !entitle(fromReq(req)).bigStickers) b.size = FREE_MAX_STICKER_M;
   // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).
   const P = await peelsMod;
   let peelSt = await store.peelState(room);

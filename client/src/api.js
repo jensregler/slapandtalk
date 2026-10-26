@@ -1,4 +1,5 @@
 // Alla anrop till servern samlade på ett ställe.
+import { unlockHeaders } from './entitlements.js';
 async function json(res) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || `Fel ${res.status}`), { status: res.status, gone: !!data.gone, nope: !!data.nope, tooFar: !!data.tooFar });
@@ -16,7 +17,7 @@ export const api = {
   },
 
   addStamp: (room, stamp) => fetch(`/api/rooms/${room}/stamps`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(stamp),
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...unlockHeaders() }, body: JSON.stringify(stamp), // bigStickers
   }).then(json),
 
   // Peela egna stämplar: items = [{ id, token }]. Svar: { results: { id: 'ok'|'notfound'|'forbidden' } }

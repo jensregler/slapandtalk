@@ -1,7 +1,7 @@
 // Full version flags in the browser (mirror of server/entitlements.js).
 // entitlements.full.<feature> is false until the server says otherwise, so the default
 // page is the calm, plain room. The server re-checks everything it receives.
-export const FEATURES = ['fabrics', 'soundDesign'];
+export const FEATURES = ['fabrics', 'soundDesign', 'bigStickers'];
 const KEY = 'klibb.unlock', DEV = 'klibb.devUnlock';
 export const entitlements = { full: Object.fromEntries(FEATURES.map((f) => [f, false])), devAllowed: false };
 

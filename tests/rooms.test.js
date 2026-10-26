@@ -12,6 +12,7 @@ const { EventEmitter } = require('events');
 const { createAdapter } = require('../server/storage');
 const { createStore } = require('../server/store');
 const { createApp } = require('../server/app');
+const { makeEntitlements, FEATURES, FREE_MAX_STICKER_M } = require('../server/entitlements');
 
 const assert = (c, m) => { if (!c) throw new Error('FEL: ' + m); console.log('✔ ' + m); };
 const HOUR = 3600_000;
@@ -217,7 +218,10 @@ async function writeBehind() {
     // HTTP: skapa snabbrum, profilrum (bara admin), samma bild = samma design, bilder via adaptern
     const s3a = new S3Adapter({ bucket: 'test', client: fakeS3() });
     const store = createStore(s3a);
-    const app = createApp(store, { adminToken: 'hemligt-test', quickTtlHours: 24 });
+    // bigStickers (full version): a full key, a partial fabrics+bigStickers key and a sound-only key.
+    const BIG_KEY = 'test-big-key-1234', PART_KEY = 'test-part-key-123', SOUND_KEY = 'test-sound-key-12';
+    const entitle = makeEntitlements({ FULL_ACCESS_KEYS: `${BIG_KEY},${PART_KEY}:fabrics+bigStickers,${SOUND_KEY}:soundDesign` });
+    const app = createApp(store, { adminToken: 'hemligt-test', quickTtlHours: 24, entitle });
     const server = app.listen(0);
     const base = `http://127.0.0.1:${server.address().port}`;
     try {
@@ -241,12 +245,23 @@ async function writeBehind() {
       const st = await fetch(`${base}/api/rooms/${r.room.id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' }) });
       const room = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
-      const big = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 6, surface: 'vägg-norr' }) })).json();
-      assert(big.stamp && big.stamp.size === 4, `servern krymper för stora klibbor till väggens höjd i stället för att neka (6 m → ${big.stamp && big.stamp.size} m)`);
+      const big = (await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-unlock': BIG_KEY },
+        body: JSON.stringify({ imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 6, surface: 'vägg-norr' }) })).json()).stamp;
+      // bigStickers i ett eget rum, så resten av testerna här räknar som förut
+      const sizeRoom = (await (await fetch(`${base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json()).room.id;
+      const slapSized = async (size, key) => (await (await fetch(`${base}/api/rooms/${sizeRoom}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(key ? { 'x-unlock': key } : {}) },
+        body: JSON.stringify({ imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size, surface: 'vägg-norr' }) })).json()).stamp;
+      assert(big && big.size === 4, `full version: servern krymper för stora klibbor till väggens höjd i stället för att neka (6 m → ${big && big.size} m)`);
+      const sized = { free6: (await slapSized(6)).size, free3: (await slapSized(3, 'wrong-key-123456')).size, freeTol: (await slapSized(1.005)).size,
+        free1: (await slapSized(1)).size, sound: (await slapSized(3, SOUND_KEY)).size, part: (await slapSized(3, PART_KEY)).size };
+      assert(sized.free6 === 1 && sized.free3 === 1 && sized.freeTol === 1.005 && sized.free1 === 1 && sized.sound === 1 && sized.part === 3,
+        `bigStickers: gratis klibbor krymps till 1 m (6 m, 3 m med fel nyckel, 3 m med bara soundDesign → 1 m; 1,005 m ryms i marginalen); nyckel:fabrics+bigStickers får 3 m (${JSON.stringify(sized)})`);
+      const free = makeEntitlements({ FULL_ACCESS_KEYS: `${BIG_KEY},${PART_KEY}:fabrics+bigStickers` });
+      assert(free({ key: BIG_KEY }).bigStickers && free({ key: PART_KEY }).bigStickers && free({ key: PART_KEY }).fabrics && !free({ key: PART_KEY }).soundDesign && !free({}).bigStickers && FEATURES.includes('bigStickers') && FREE_MAX_STICKER_M === 1,
+        'bigStickers: en ensam nyckel låser upp allt (även bigStickers), delnycklar bara det uppräknade, gratis = max 1 m');
       await store.addStamp(r.room.id, { imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 5, surface: 'vägg-norr' });
       const loaded = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
-      assert(loaded.stamps.length === 3 && loaded.stamps.every((x) => x.size <= 4) && loaded.stamps[2].size === 4, 'gamla sparade stämplar större än väggen krymps när rummet laddas');
+      assert(loaded.stamps.length === 3 && loaded.stamps.every((x) => x.size <= 4) && loaded.stamps[1].size === 4 && loaded.stamps[2].size === 4, 'gamla sparade stämplar större än väggen krymps när rummet laddas');
       room.stamps = loaded.stamps.slice(0, 1);
 
       // ---------- Rummets utseende ----------

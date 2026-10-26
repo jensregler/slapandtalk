@@ -29,8 +29,9 @@ du går in i rummet.
 
 **På datorn:** klicka på *⬆ Upload sticker*, välj en bild och klicka på *Enter the room*.
 Gå med **W A S D**, titta med musen och **klicka** för att stämpla (*slap*). Scrollhjulet ändrar storlek
-(från 5 cm upp till väggens höjd, 4 m; det gäller klibbans längsta sida, så den blir aldrig högre
-än väggen ens om du vrider den),
+(från 5 cm upp till 1 m i grundversionen; i fullversionen, `bigStickers`, upp till väggens höjd, 4 m. Det gäller
+klibbans längsta sida, så den blir aldrig högre än väggen ens om du vrider den. Klibbor som redan sitter
+uppe får behålla sin storlek),
 **Q/E** vrider klibban, **R** byter till nästa design, **F** till förra, **V** växlar mellan Slap mode och Look mode, **M**
 stänger av/slår på ljudet och **Esc** tar dig tillbaka till menyn.
 
@@ -336,7 +337,9 @@ npx pm2 restart slapandtalk-tunnel       # starta om tunneln (ny adress!)
 
 Grundversionen är ett lugnt, komplett klistermärkesrum: vanliga färger på gubben, egna (unika)
 standardljud och en diskret rumsakustik. Fullversionen lägger till de djupa menyerna ovanpå:
-**tyger** på gubben (`fabrics`) och **Sound settings** med synth och effekter (`soundDesign`).
+**tyger** på gubben (`fabrics`), **Sound settings** med synth och effekter (`soundDesign`) och
+**superstora klibbor** större än 1 m, upp till väggens höjd (`bigStickers`; servern krymper större
+gratisklibbor till 1 m).
 Allt sitter i en gemensam abstraktion, `entitlements.full.<funktion>` (server/entitlements.js och
 client/src/entitlements.js), så nya saker (t.ex. ljus) blir bara ett namn till i `FEATURES`.
 Standard är `false` för allt. Alla ser och hör andras tyger och ljud; bara att *skicka* egna kräver
@@ -346,7 +349,8 @@ flaggan, och servern stryker/nekar tyg- och patchdata från den som inte har den
 
 1. Hitta på en hemlig nyckel (minst 12 tecken, `A–Z a–z 0–9 _ . ~ -`), t.ex. `openssl rand -hex 16`.
 2. Lägg den i miljövariabeln `FULL_ACCESS_KEYS` på servern (Render → Environment). Flera nycklar
-   separeras med komma. `nyckel` ensam låser upp allt; `nyckel:fabrics+soundDesign` bara de uppräknade.
+   separeras med komma. `nyckel` ensam låser upp allt; `nyckel:fabrics+bigStickers` bara de uppräknade
+   (funktioner: `fabrics`, `soundDesign`, `bigStickers`).
 3. Öppna `https://<sajten>/?unlock=<nyckel>` en gång i webbläsaren. Nyckeln sparas i den
    webbläsaren (localStorage `klibb.unlock`) och tas bort ur adressfältet. `?unlock=off` glömmer den.
 

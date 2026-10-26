@@ -13,7 +13,9 @@
 //                     (localStorage "klibb.unlock") and sends it with requests.
 //   DEV_UNLOCK=1      dev/test servers only: a browser with localStorage "klibb.devUnlock" = "1"
 //                     gets everything. Ignored unless the server sets this.
-const FEATURES = ['fabrics', 'soundDesign'];
+// bigStickers: stickers larger than FREE_MAX_STICKER_M (up to the wall height). Free = max 1 m.
+const FEATURES = ['fabrics', 'soundDesign', 'bigStickers'];
+const FREE_MAX_STICKER_M = 1;
 const KEY_RE = /^[A-Za-z0-9_.~-]{12,128}$/;
 
 const none = () => Object.fromEntries(FEATURES.map((f) => [f, false]));
@@ -30,7 +32,7 @@ function parseKeys(raw) {
   return keys;
 }
 
-// resolver(env) -> ({ key, dev }) -> { fabrics, soundDesign, … }
+// resolver(env) -> ({ key, dev }) -> { fabrics, soundDesign, bigStickers, … }
 function makeEntitlements(env = process.env) {
   const keys = parseKeys(env.FULL_ACCESS_KEYS);
   const devAllowed = env.DEV_UNLOCK === '1';
@@ -47,4 +49,4 @@ const fromReq = (req) => ({ key: req.get('x-unlock') || undefined, dev: req.get(
 // … and from a WebSocket hello: { unlock: { key, dev } }.
 const fromHello = (m) => { const u = m && typeof m.unlock === 'object' && m.unlock ? m.unlock : {}; return { key: typeof u.key === 'string' ? u.key : undefined, dev: u.dev === true }; };
 
-module.exports = { FEATURES, makeEntitlements, fromReq, fromHello, none, all };
+module.exports = { FEATURES, FREE_MAX_STICKER_M, makeEntitlements, fromReq, fromHello, none, all };

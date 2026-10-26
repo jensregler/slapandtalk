@@ -262,10 +262,17 @@ async function validateDesigns() {
 
 // Största klibban: längsta sidan får vara högst väggens höjd (även bredden, eftersom
 // klibban kan vridas så att bredden blir höjd). Storleken = klibbans längsta sida.
-const MAX_SIZE_CM = Math.floor(wallHeight(room.surfaces) * 100 + 1e-6);
-$('size').max = String(MAX_SIZE_CM);
+// Free version: at most 1 m. Bigger (up to the wall height) is the full version's bigStickers.
+const WALL_MAX_CM = Math.floor(wallHeight(room.surfaces) * 100 + 1e-6);
+const FREE_MAX_CM = Math.min(100, WALL_MAX_CM);
+const maxSizeCm = () => (entitlements.full.bigStickers ? WALL_MAX_CM : FREE_MAX_CM);
+function applySizeLimit() {
+  $('size').max = String(maxSizeCm());
+  if (state.size * 100 > maxSizeCm()) { $('size').value = maxSizeCm(); $('size').oninput({ target: $('size') }); }
+}
 $('size').oninput = (e) => { state.size = e.target.value / 100; $('size-val').textContent = `${e.target.value} cm`; };
 $('rot').oninput = (e) => { state.rotation = Number(e.target.value); $('rot-val').textContent = `${e.target.value}°`; };
+applySizeLimit();
 $('jitter').onchange = (e) => { state.jitter = e.target.checked; };
 $('artist').value = state.artist;
 $('artist').oninput = (e) => { state.artist = e.target.value.trim(); localStorage.setItem('klibb.artist', state.artist); };
@@ -284,10 +291,11 @@ $('artist-link').oninput = (e) => {
 let maxToastAt = 0;
 function setSize(cm) {
   const want = Math.round(cm);
-  cm = THREE.MathUtils.clamp(want, 5, MAX_SIZE_CM);
-  if (want > MAX_SIZE_CM && performance.now() - maxToastAt > 1500) {
+  const max = maxSizeCm();
+  cm = THREE.MathUtils.clamp(want, 5, max);
+  if (want > max && performance.now() - maxToastAt > 1500) {
     maxToastAt = performance.now();
-    toast(S.maxSize((MAX_SIZE_CM / 100).toLocaleString(LOCALE)), 1500);
+    toast(S.maxSize((max / 100).toLocaleString(LOCALE), max === WALL_MAX_CM), 1500);
   }
   $('size').value = cm; $('size').oninput({ target: $('size') });
 }
@@ -381,7 +389,7 @@ async function stampAt(ndc) {
   const h = hitSurface(ndc); if (!h) return null;
   if (outOfReach(h.point)) { tooFar(h); return null; } // peels på: för långt bort
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
-  const slapSize = Math.min(state.size, MAX_SIZE_CM / 100);
+  const slapSize = Math.min(state.size, maxSizeCm() / 100);
   // På golvet: ligger den nya klibban mest på baksidespapper fastnar den inte (servern kollar samma sak).
   if (peelLayer.on && peelLayer.count && onFloor(h.surface, h.normal.toArray())) {
     const frac = await peelLayer.overlap(state.selected, { position: h.point.toArray(), quaternion: q.toArray(), size: slapSize });
@@ -1118,7 +1126,7 @@ const together = initTogether({
 });
 // Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
 const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); });
-function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; }
+function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; applySizeLimit(); }
 // Sound settings (soundui.js): only reachable with entitlements.full.soundDesign.
 const soundUi = initSoundUI({ $, sound, toast, onSave: () => together.soundChanged(), onOpenChange: (o) => { if (o) controls.unlock?.(); } });
 $('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { closeMore(); soundUi.open(); } };
@@ -1300,7 +1308,7 @@ function frame() {
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
     if (h) {
-      const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, MAX_SIZE_CM / 100));
+      const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100));
       setFarUi(outOfReach(h.point));
       preview.show(h.point, h.normal, StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh, h.surface);
     } else { preview.hide(); setFarUi(false); }
@@ -1308,7 +1316,7 @@ function frame() {
   } else if (farFlash) {
     // Utan sikte (mobilen, eller pekaren släppt): en blek, grå skugga där man försökte, en kort stund.
     if (performance.now() < farFlash.until && state.mode === 'slap') {
-      const { h, design } = farFlash, [w, hh] = StampLayer.dims(design, Math.min(state.size, MAX_SIZE_CM / 100));
+      const { h, design } = farFlash, [w, hh] = StampLayer.dims(design, Math.min(state.size, maxSizeCm() / 100));
       setFarUi(true); preview.show(h.point, h.normal, StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh, h.surface);
     } else { farFlash = null; preview.hide(); setFarUi(false); }
   } else if (document.body.classList.contains('out-of-reach')) setFarUi(false);
@@ -1362,5 +1370,5 @@ window.klibb = {
   reach: SLAP_REACH, farSlaps: () => farSlaps, skipReachCheck: false,
   reachState: () => ({ peels: peelLayer.on, far: preview.far, crosshairDim: document.body.classList.contains('out-of-reach'), flash: !!farFlash, visible: preview.mesh.visible, opacity: preview.mat.opacity }),
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
-  nextDesign, prevDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, maxSizeCm: MAX_SIZE_CM,
+  nextDesign, prevDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, wallMaxCm: WALL_MAX_CM, freeMaxCm: FREE_MAX_CM,
 };
