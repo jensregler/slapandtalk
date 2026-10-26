@@ -584,6 +584,35 @@ skiljer sig en aning i tonhöjd.
   sparas, spelas in), `tests/e2e-groove.js` (reglage, tangenter, synk, stegen på rutnätet; port 8846).
 
 
+### Sticker arrays: slap at A, hold, drag to B
+Slap as usual, **keep the mouse button held** and turn toward B: see-through ghosts repeat the sticker
+from A toward the crosshair, edge to edge. **Release** = all of them at once. **Esc**, **right-click**,
+leaving the pointer lock or switching to Look mode while holding = no copies (A stays). A plain click is
+exactly a slap, as before. **Desktop only**: on a phone a drag looks around (no long-press-drag yet).
+- **Spacing** (`shared/array.mjs`, the same in the web app and the server): every copy has A's size and
+  rotation, never turned to the drag direction. With d = the direction A→B on A's face in the sticker's
+  own axes (du, dv): `step = min(w/|du|, h/|dv|)`, so straight across the step is the width, straight up
+  the height, and on a diagonal the copies touch along one edge, like a staircase. Count =
+  `floor(|AB| / step) + 1` (A included), at most **200**. B is where the crosshair's ray meets A's wall
+  plane, so you can look past the wall's end. Copies whose centre falls off A's face aren't placed
+  (no wrapping round corners); one whose centre is on the face but overhangs folds like any sticker.
+- **Server:** `POST /api/rooms/:room/stamps/array` `{ anchor: { id, token }, to, nonce, by, peelFrom }`.
+  The anchor is your own just-slapped sticker (its peel key proves it). The server recomputes the row
+  from the saved anchor, so the size limits that hit A (free 15 cm–1 m) hold for every copy, and adds
+  all copies in one locked step. Copies that would land on backing paper on the floor are skipped.
+  Limits: 200 per drag, 30 drags and 1000 copies per IP and minute, the room cap of 3000 (oldest go),
+  the demo's room/membership rules. Reach (peels on) applies to A only; the row may run past it.
+  Each copy goes out as an ordinary `stamp:add` (with `batch: { g, i, n }` and nonce `<nonce>x<i>`),
+  so other players, recordings, replays and videos see it without changes; others hear one slap per row.
+- **One peel step:** the copies share A's peel key and are saved with `group` = A's id. In this browser
+  the row is one history entry (A + `extra` ids, shown as "×N"). **Z/↩ peels the whole row**; the
+  history list's ✕ too. It counts as one of the 20 peelable steps, and leaves the history (then
+  auto-prune/baking) as a whole. Z right after release (still on the way) takes the row and A at once.
+- **Peels (backing paper):** A drops its paper as usual, plus one for each of the first 4 copies
+  (5 at most per row) so a long row doesn't bury the floor.
+- **Sound:** A's normal slap on the way down, then a short soft rattle (three quiet taps) on release.
+- **Demo:** works the same (not a paid control). Tests: `tests/array.test.mjs`, `tests/e2e-array.js`.
+
 ### Startstorlek från filnamnet (A_, B_, … Z_)
 En bokstav och ett understreck först i bildens filnamn bestämmer klibbans **startstorlek**, alltså det värde
 storleksreglaget visar (Esc → Size, klibbans längsta sida): storlek = 15 cm + bokstavens nummer × 2,5 cm,
