@@ -507,6 +507,44 @@ feedback ≤ 0,95, wet, ping-pong), filter, bitcrush och distortion – per spel
 - Testerna: `tests/synth.test.mjs` och `tests/e2e-synth.js` (renderar alla patchar med
   `Tone.Offline` och kollar att de hörs och inte klipper).
 
+## Demo profile (the free version, DEMO_PROFILE=1)
+
+One switch on the server turns the app into the free demo. Nothing is deleted: turn it off and
+uploads, room editing, the full version, the City etc. are all back.
+
+**Render env vars (the web service):**
+
+| Variable | Value | Notes |
+|---|---|---|
+| `DEMO_PROFILE` | `1` | Required. Unset (or `0`) = the normal app. |
+| `DEMO_ROOM_MINUTES` | e.g. `60` | Optional, default 60. How long a room lives. |
+
+`MAX_PLAYERS_PER_ROOM` is ignored in the demo (always 5). Keys in `FULL_ACCESS_KEYS` and
+`DEV_UNLOCK` unlock nothing while the demo is on. Storage vars (`STORAGE`, `S3_*`) stay as they are.
+
+What changes (shared/demo.json holds the numbers):
+- **Name first.** "What's your name?" before anything loads; remembered per device. Each new person gets a random avatar; *My avatar* is hidden.
+- **Library only.** The palette is the curated library (`library/`), R/F browse it. `POST /api/stickers` → 403; no Instagram tag field. The artist comes from the library, so Look mode shows it on click.
+- **Rooms.** Opening the site creates your own room with the empty preset (tiles, concrete, classic ceiling); no style picker, no room editing, no sound settings, no recording, no City. *New quick room* goes straight into a new empty room.
+- **Invites.** Max 5 per room and 5 members. Nobody gets in without an invite: each member can make one single-use link (✉ Invite a friend). Asking again re-shares the same unused link; once it is used, that member cannot invite again. The server keeps only hashes (of the room key, member keys and invite tokens). Members get a member key in their browser, so reloads and new tabs get back in. Extra tabs of a member beyond 5 players watch.
+- **One hour.** A quiet timer at the top; a calm note at 5 minutes. At the end everyone sees "This room has closed", the sockets close (code 4010, no reconnect) and the room JSON (stamps, peels) and `recordings/<room>/` are deleted from storage. `videos/` is never touched. A sweep at start-up and every 5 minutes catches rooms that expired while the server was down.
+- **Voice.** 🎙 (or B) – off by default, asks for the microphone on the first press, then mutes/unmutes. Browser-to-browser (WebRTC mesh) through the existing signal relay, public STUN only (no TURN: some strict networks cannot connect). Voice also works outside the demo.
+
+**Sticker library import** (runs locally, then commit `library/`):
+
+```
+node tools/import-library.mjs <folder> [--csv artists.csv] [--artist "Name"] [--replace] [--dry-run]
+```
+
+Images: png, jpg, jpeg, webp, gif, avif, tiff. Artist per image, first match wins: the CSV
+(`file,artist[,link]`, file relative to the folder), else the subfolder name (`<folder>/Ulla K/star.png`),
+else the file name (`Ulla K - star.png` or `ulla_k__star.png`), else `--artist`. Each image is
+re-encoded like uploads (WebP, max 1024 px) and gets a content-hash id; duplicates are skipped.
+`--replace` starts from an empty library (otherwise new ones are added). The server seeds `library/`
+into storage at start-up. `node tools/make-placeholder-library.mjs` rebuilds the 6 placeholders.
+
+Tests: `npm run test:demo` (starts its own demo servers on 8817/8818).
+
 ## Admin: ta bort olagligt innehåll
 
 Det finns ingen förhandsgranskning, allt kommer upp direkt. Men den som driver en tjänst där
