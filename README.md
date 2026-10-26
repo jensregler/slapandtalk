@@ -189,8 +189,7 @@ Den som skapade rummet (eller admin; i Staden bara admin) ser **🎬 Recording**
 - **Inspelningar:** under *Recordings* i ⚙ More finns de som gjorts i rummet. **▶** öppnar
   uppspelaren (`/?room=<rum>&replay=<id>`): spela/pausa (mellanslag), spola (←/→ = 5 s),
   hastighet 0,5–4×, och välj vy: **fri kamera** (dra för att titta, WASD = gå), **en placerad
-  kamera** eller **någons ögon** (POV). **⏺ Record video** spelar in det du ser till en
-  `.webm`-fil (ett första test; riktig export av råfiler och klippta filmer kommer senare).
+  kamera** eller **någons ögon** (POV). **⏺ Record video** gör en färdig video (se nedan).
   Länken till en uppspelning kan delas: id:t är slumpat och går inte att gissa.
 - Formatet på inspelningarna (versionerat, förberett för ljudspår och rendering) beskrivs i
   [`docs/recording-format.md`](docs/recording-format.md).
@@ -334,13 +333,53 @@ npx pm2 restart slapandtalk-tunnel       # starta om tunneln (ny adress!)
 
 ---
 
+### Färdiga videor: logga-intro, kanallogga, länkar och e-post
+
+**⏺ Record video** i uppspelaren gör en färdig video (`client/src/videocomposer.js`):
+
+1. **Logga-introt först.** Allt ritas i en egen inspelningsduk: först introt (Jens animerade
+   logga, `client/public/intro/`, ca 2,8 s), sedan uppspelningen. Bildens form väljer fil:
+   16:9, 9:16 eller 1:1 (webm/VP9 där det går, annars mp4). Introts ljud (`sat-intro-ljud.wav`)
+   blandas in med WebAudio, så videon har ljud från början.
+2. **Kanallogga (gratisversionen).** Uppe till höger sitter en liten halvgenomskinlig
+   "slap and talk"-logga som en gammal tv-kanals logga: Jens S2-klistermärke (`bug-s2.png`),
+   lite mjuk, med skugga, svag fasning och tunna scanlines, ritat i koden.
+3. **Diskreta länkar (gratisversionen).** Längst ner glider en liten rad in ibland, t.ex.
+   "slapandtalk.com · make your own room", ca 4 s var 20–30:e sekund. **Texterna och tiderna
+   ändras i `shared/video.json`** (`ticker.lines`).
+4. **Uppladdning och länk.** När inspelningen är klar laddas videon upp
+   (`server/videos.js`) och man får en fast länk, `/v/<id>`: en enkel sida med videon,
+   *Download* och *Copy link*. Filen ligger på `/v/<id>/file` (med range requests, så man kan spola).
+   Videorna syns också under sin inspelning i *Recordings* i ⚙ More.
+5. **E-post med länken.** Är e-post påslagen (`RESEND_API_KEY` + `MAIL_FROM`) visas
+   *Email me the link*: servern skickar ett kort engelskt mejl i ren text (ingen spårning) via
+   Resend. Adressen sparas inte. Utan nyckel döljs fältet och man får *Copy link* och en tydlig
+   uppmaning att spara länken.
+
+Fullversionen (`cleanVideo`) får videor utan kanallogga och utan länkraden; introt är alltid med.
+
+**Lagring:** `videos/<rum>/<id>.webm` (eller `.mp4` från Safari) + `videos/<rum>/<id>.json`, och
+`videos/_index/<id>.json` så att länken hittar videon utan rummet. Allt ligger utanför `rooms/`
+och `recordings/`, så **videon finns kvar när demorummet raderas efter en timme**. Videor sparas
+`VIDEO_RETENTION_DAYS` dagar (standard 30) och städjobbet tar bort äldre. Uppladdningen strömmas
+till en temporär fil och vidare till R2, så den tar inte minne på Render (max `VIDEO_MAX_MB`,
+standard 80 MB, högst 2 samtidigt, 4 per minut och 20 per timme per IP).
+
+**Så får Jens e-posten att fungera:**
+1. Skapa ett konto på [resend.com](https://resend.com) och lägg till domänen (t.ex. `slapandtalk.com`).
+2. Resend visar några DNS-poster (SPF/DKIM, ev. MX för en underdomän). Lägg in dem hos
+   Porkbun (DNS) och vänta tills Resend säger *Verified*. Slå inte på open/click tracking.
+3. Skapa en API-nyckel (Sending access) och sätt i Render → Environment:
+   `RESEND_API_KEY=<nyckeln>`, `MAIL_FROM=Slap and Talk <video@slapandtalk.com>` och
+   `PUBLIC_URL=https://slapandtalk.com` (länken i mejlet). Starta om (Manual Deploy).
+
 ## Fullversionen (entitlements)
 
 Grundversionen är ett lugnt, komplett klistermärkesrum: vanliga färger på gubben, egna (unika)
 standardljud och en diskret rumsakustik. Fullversionen lägger till de djupa menyerna ovanpå:
 **tyger** på gubben (`fabrics`), **Sound settings** med synth och effekter (`soundDesign`) och
 **superstora klibbor** större än 1 m, upp till väggens höjd (`bigStickers`; servern krymper större
-gratisklibbor till 1 m).
+gratisklibbor till 1 m) och **färdiga videor utan kanallogga och länkrad** (`cleanVideo`).
 Allt sitter i en gemensam abstraktion, `entitlements.full.<funktion>` (server/entitlements.js och
 client/src/entitlements.js), så nya saker (t.ex. ljus) blir bara ett namn till i `FEATURES`.
 Standard är `false` för allt. Alla ser och hör andras tyger och ljud; bara att *skicka* egna kräver
@@ -351,7 +390,7 @@ flaggan, och servern stryker/nekar tyg- och patchdata från den som inte har den
 1. Hitta på en hemlig nyckel (minst 12 tecken, `A–Z a–z 0–9 _ . ~ -`), t.ex. `openssl rand -hex 16`.
 2. Lägg den i miljövariabeln `FULL_ACCESS_KEYS` på servern (Render → Environment). Flera nycklar
    separeras med komma. `nyckel` ensam låser upp allt; `nyckel:fabrics+bigStickers` bara de uppräknade
-   (funktioner: `fabrics`, `soundDesign`, `bigStickers`).
+   (funktioner: `fabrics`, `soundDesign`, `bigStickers`, `cleanVideo`).
 3. Öppna `https://<sajten>/?unlock=<nyckel>` en gång i webbläsaren. Nyckeln sparas i den
    webbläsaren (localStorage `klibb.unlock`) och tas bort ur adressfältet. `?unlock=off` glömmer den.
 
@@ -456,6 +495,11 @@ Id:t räknas fram ur bildens innehåll, så laddar två personer upp exakt samma
 | `REC_MAX_MB` | `32` | Största inspelning (MB logg) |
 | `REC_MAX_ACTIVE` | `4` | Hur många rum som kan spelas in samtidigt |
 | `ROOM_CLEANUP_INTERVAL_MINUTES` | `60` | Hur ofta städningen körs |
+| `VIDEO_RETENTION_DAYS` | `30` | Hur länge färdiga videor (`videos/`) sparas; städjobbet tar bort äldre |
+| `VIDEO_MAX_MB` | `80` | Största video som får laddas upp |
+| `RESEND_API_KEY` | – | Resend-nyckel för *Email me the link* (hemlig; utan den: bara *Copy link*) |
+| `MAIL_FROM` | – | Avsändare, t.ex. `Slap and Talk <video@slapandtalk.com>` (domänen verifierad i Resend) |
+| `PUBLIC_URL` | sajtens adress | Adressen i videolänkar och mejl, t.ex. `https://slapandtalk.com` |
 | `MAX_PLAYERS_PER_ROOM` | `10` | Hur många gubbar som får vara i ett rum samtidigt (fler kan titta) |
 
 **Slå på Cloudflare R2 senare:** skapa en bucket och en API-token (Object Read & Write) i

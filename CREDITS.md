@@ -32,3 +32,10 @@ Kepsen ritas i koden (`client/src/avatars.js`).
 Ljuden (slap när man stämplar, peel när man ångrar) skapas i webbläsaren med Web Audio i
 `client/src/sound.js` (filtrerat brus och en kort sinuston). Det finns inga ljudfiler och inga
 externa källor att kreditera.
+
+# Logga-introt och kanalloggan
+
+`client/public/intro/` är Jens Reglers egna filer (Slap and Talk-loggan): det animerade introt i
+16:9, 9:16 och 1:1 (`sat-intro-*.mp4`, plus `.webm`-kopior i VP9 utan ljud gjorda med ffmpeg),
+introts ljud (`sat-intro-ljud.wav`) och kanalloggan `bug-s2.png` (S2-klistermärket, nerskalat).
+Inget av det är AI-genererat.

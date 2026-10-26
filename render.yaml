@@ -19,3 +19,13 @@ services:
       # Sätts i Render-panelen (sync: false = värdet ligger inte i repot).
       - key: FULL_ACCESS_KEYS
         sync: false
+      # Färdiga videor (README "Färdiga videor"): hur länge de sparas, och e-post med länken.
+      - key: VIDEO_RETENTION_DAYS
+        value: "30"
+      # Sajtens adress i videolänkar och mejl, t.ex. https://slapandtalk.com (tomt = adressen i förfrågan).
+      - key: PUBLIC_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false

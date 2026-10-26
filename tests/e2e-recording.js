@@ -152,7 +152,7 @@ async function recordingE2E({ browser, BASE, SHOTS, assert, waitReady, testPng }
   // Spela in video av det man ser (webm)
   const video = await P.evaluate(async () => {
     window.replay.seek(0); window.replay.setSpeed(1);
-    if (!window.replay.startVideo()) return { ok: false };
+    if (!(await window.replay.startVideo())) return { ok: false }; // the logo intro first, then the replay
     await new Promise((r) => setTimeout(r, 2500));
     const blob = await window.replay.stopVideo();
     return { ok: !!blob, size: blob ? blob.size : 0, type: blob ? blob.type : null, link: !document.getElementById('rp-download').hidden, t: window.replay.t, d: window.replay.duration };
