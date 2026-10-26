@@ -17,7 +17,7 @@ const { createLicenses, verifySignature, hashKey } = require('../server/licenses
 const assert = (c, m) => { if (!c) throw new Error('FEL: ' + m); console.log('✔ ' + m); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-const ALL = { fabrics: true, soundDesign: true, bigStickers: true, cleanVideo: true }, NONE = { fabrics: false, soundDesign: false, bigStickers: false, cleanVideo: false };
+const ALL = { fabrics: true, soundDesign: true, bigStickers: true, cleanVideo: true, multiCam: true }, NONE = { fabrics: false, soundDesign: false, bigStickers: false, cleanVideo: false, multiCam: false };
 
 const STORE = 4711, PRODUCT = 90210;
 const K = {

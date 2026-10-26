@@ -1,7 +1,7 @@
 // Full version flags in the browser (mirror of server/entitlements.js).
 // entitlements.full.<feature> is false until the server says otherwise, so the default
 // page is the calm, plain room. The server re-checks everything it receives.
-export const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo'];
+export const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam'];
 const KEY = 'klibb.unlock', DEV = 'klibb.devUnlock';
 // buy = { url } only when the server wants the quiet "Full version" entry (LS_CHECKOUT_URL set,
 // and not the demo profile unless SHOW_BUY=1). Never shown as a popup or teaser.

@@ -94,8 +94,8 @@ try {
   // Gating: free players (no key, a wrong key, a sound-only key) can't upload fabrics
   const freeUp = [await post(await png(16, 16), 'image/png', 'f.png', '10.0.1.1', null), await post(await png(16, 16), 'image/png', 'f.png', '10.0.1.1', 'wrong-key-123456'), await post(await png(16, 16), 'image/png', 'f.png', '10.0.1.1', 'only-sound-key-1')];
   const ents = await Promise.all([{}, { 'x-unlock': FULL_KEY }, { 'x-unlock': 'only-sound-key-1' }, { 'x-dev-unlock': '1' }].map((h) => fetch(`${base}/api/entitlements`, { headers: h }).then((r) => r.json())));
-  assert(freeUp.every((r) => r.status === 403) && same(ents[0].full, { fabrics: false, soundDesign: false, bigStickers: false, cleanVideo: false }) && same(ents[1].full, { fabrics: true, soundDesign: true, bigStickers: true, cleanVideo: true })
-    && same(ents[2].full, { fabrics: false, soundDesign: true, bigStickers: false, cleanVideo: false }) && same(ents[3].full, { fabrics: false, soundDesign: false, bigStickers: false, cleanVideo: false }) && ents[0].devAllowed === false,
+  assert(freeUp.every((r) => r.status === 403) && same(ents[0].full, { fabrics: false, soundDesign: false, bigStickers: false, cleanVideo: false, multiCam: false }) && same(ents[1].full, { fabrics: true, soundDesign: true, bigStickers: true, cleanVideo: true, multiCam: true })
+    && same(ents[2].full, { fabrics: false, soundDesign: true, bigStickers: false, cleanVideo: false, multiCam: false }) && same(ents[3].full, { fabrics: false, soundDesign: false, bigStickers: false, cleanVideo: false, multiCam: false }) && ents[0].devAllowed === false,
     'full version: free by default; only a key from FULL_ACCESS_KEYS unlocks fabrics (403 otherwise); per-feature keys; dev unlock ignored unless DEV_UNLOCK=1');
   const devEnt = makeEntitlements({ DEV_UNLOCK: '1' });
   assert(devEnt({ dev: true }).fabrics && devEnt({ dev: true }).soundDesign && !devEnt({}).fabrics && devEnt.devAllowed && !makeEntitlements({ FULL_ACCESS_KEYS: 'short' })({ key: 'short' }).fabrics,

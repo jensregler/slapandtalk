@@ -47,10 +47,11 @@ function payConfig(env = process.env) {
 const FREE_SIZE_SLACK = 0.01;
 
 const { mountVideos, videoSettings } = require('./videos');
+const { mountPhotos, photoSettings } = require('./photos');
 const { createMailer } = require('./mail');
 
 // demo: the demo profile (server/demo.js createDemo) or null. library: loadLibrary() list.
-function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500 } = {}) {
+function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), photos = photoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500 } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
@@ -727,14 +728,35 @@ const ROOM_SIZE = require('../shared/room.json');
 const MAX_CAMERAS = 12;
 const CAM_ID_RE = /^[a-f0-9]{10}$/;
 const ASPECTS = ['', '16:9', '9:16'];
-// The auto cameraman (shared/autocam.mjs AUTO_CHOICES): a camera entry { auto: path } that nobody
-// places; the web app and the replay move it along the path. At most one per room.
+// The auto cameramen (shared/autocam.mjs): camera entries { auto, start?, seq } that nobody places;
+// the web app and the replay move them. Placed cameras (≤ MAX_CAMERAS) and cameramen
+// (≤ MAX_AUTO_CAMS) have separate budgets, so a room full of cameramen can still place cameras.
+//   free (also the demo): ONE cameraman, fully automatic – auto is always 'seeded', no start,
+//     no settings (PUT → 403). In the demo this is the one camera entry the creator may add.
+//   multiCam (full version): up to MAX_AUTO_CAMS, each with an optional start [x, z] (the click
+//     in the room) and an optional path choice (perimeter / diagonal / pushin; 'seeded' = automatic).
 const AUTO_CHOICES = ['perimeter', 'diagonal', 'pushin', 'seeded'];
+const MAX_AUTO_CAMS = 6;
 const wrapAngle = (a) => Math.round(Math.atan2(Math.sin(a), Math.cos(a)) * 1e4) / 1e4;
-function cleanCamera(b, old = null) {
+const isAutoBody = (b) => !!(b && typeof b === 'object' && b.auto !== undefined);
+function cleanCamera(b, old = null, { multi = false } = {}) {
   b = b && typeof b === 'object' ? b : {};
   const c = old ? { ...old } : { fov: 60, aspect: '', yaw: 0, pitch: 0, p: [0, 1.6, 0] };
-  if (b.p !== undefined || (!old && b.auto === undefined)) {
+  if (b.auto !== undefined || (old && old.auto)) {
+    if (old && !old.auto) return null; // a placed camera can't become a cameraman (or back)
+    const a = b.auto === undefined ? old.auto : String(b.auto);
+    if (!AUTO_CHOICES.includes(a)) return null;
+    c.auto = multi ? a : 'seeded';
+    if (multi && b.start !== undefined) {
+      if (b.start === null) delete c.start;
+      else if (!isVec(b.start, 2)) return null;
+      else { const hw = ROOM_SIZE.width / 2 - 0.6, hd = ROOM_SIZE.depth / 2 - 0.6, r = (n) => Math.round(n * 1000) / 1000; c.start = [r(Math.min(hw, Math.max(-hw, b.start[0]))), r(Math.min(hd, Math.max(-hd, b.start[1])))]; }
+    }
+    if (!multi) delete c.start;
+    c.p = [0, 1.6, 0]; c.yaw = 0; c.pitch = 0; c.fov = 50; c.aspect = '';
+    return c;
+  }
+  if (b.p !== undefined || !old) {
     if (!isVec(b.p, 3)) return null;
     const hw = ROOM_SIZE.width / 2 - 0.05, hd = ROOM_SIZE.depth / 2 - 0.05;
     const r = (n) => Math.round(n * 1000) / 1000;
@@ -745,29 +767,32 @@ function cleanCamera(b, old = null) {
   if (b.fov !== undefined) { if (!isNum(b.fov)) return null; c.fov = Math.round(Math.min(120, Math.max(15, b.fov))); }
   if (b.aspect !== undefined) { const a = b.aspect === null ? '' : String(b.aspect); if (!ASPECTS.includes(a)) return null; c.aspect = a; }
   if (b.name !== undefined) { const n = cleanName(b.name); if (n) c.name = n; }
-  if (b.auto !== undefined || (old && old.auto)) {
-    const a = b.auto === undefined ? old.auto : String(b.auto);
-    if (!AUTO_CHOICES.includes(a) || (old && !old.auto)) return null; // a placed camera can't become an auto one (or back)
-    c.auto = a; c.p = [0, 1.6, 0]; c.yaw = 0; c.pitch = 0; c.fov = 50; c.aspect = '';
-  }
   return c;
 }
 app.post('/api/rooms/:room/cameras', rateLimit(60), wrap(async (req, res) => {
-  if (demoBlocks(req, res)) return;
+  // The demo: placing cameras stays off, but the creator may switch on the one automatic cameraman.
+  if (!isAutoBody(req.body) && demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id) return;
-  const cam = cleanCamera(req.body); if (!cam) return res.status(400).json({ error: 'Invalid camera' });
+  const multi = !!(await entOf(req)).multiCam;
+  const cam = cleanCamera(req.body, null, { multi }); if (!cam) return res.status(400).json({ error: 'Invalid camera' });
   const r = await store.editCameras(id, canEditRoom(req), (list) => {
-    if (list.length >= MAX_CAMERAS) return { error: `At most ${MAX_CAMERAS} cameras per room`, save: false };
-    if (cam.auto && list.some((c) => c.auto)) return { error: 'The room already has an auto cameraman', save: false };
-    // Camera 1, 2, 3 … (det lägsta lediga numret)
-    const used = new Set(list.map((c) => /^Camera (\d+)$/.exec(c.name)?.[1]).filter(Boolean).map(Number));
+    const autos = list.filter((c) => c.auto);
+    if (cam.auto) {
+      if (!multi && autos.length >= 1) return { error: 'The room already has its auto cameraman', save: false };
+      if (autos.length >= MAX_AUTO_CAMS) return { error: `At most ${MAX_AUTO_CAMS} cameramen per room`, save: false };
+    } else if (list.length - autos.length >= MAX_CAMERAS) return { error: `At most ${MAX_CAMERAS} cameras per room`, save: false };
+    // Camera 1, 2, 3 … / Auto cameraman 1, 2, 3 … (the lowest free number)
+    const re = cam.auto ? /^Auto cameraman (\d+)$/ : /^Camera (\d+)$/;
+    const used = new Set(list.map((c) => re.exec(c.name)?.[1]).filter(Boolean).map(Number));
     let n = 1; while (used.has(n)) n++;
-    const c = { id: crypto.randomBytes(5).toString('hex'), name: cam.name || (cam.auto ? 'Auto cameraman' : `Camera ${n}`), p: cam.p, yaw: cam.yaw, pitch: cam.pitch, fov: cam.fov, aspect: cam.aspect, ...(cam.auto ? { auto: cam.auto } : {}), createdAt: new Date().toISOString() };
+    const seq = 1 + Math.max(0, ...autos.map((c) => c.seq || 0));
+    const c = { id: crypto.randomBytes(5).toString('hex'), name: cam.auto ? `Auto cameraman ${n}` : cam.name || `Camera ${n}`, p: cam.p, yaw: cam.yaw, pitch: cam.pitch, fov: cam.fov, aspect: cam.aspect,
+      ...(cam.auto ? { auto: cam.auto, seq, ...(cam.start ? { start: cam.start } : {}) } : {}), createdAt: new Date().toISOString() };
     list.push(c);
     return { camera: c };
   });
   if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
-  if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can place cameras' });
+  if (r === 'forbidden') return res.status(403).json({ error: cam.auto ? 'Only the room’s creator can switch on the auto cameraman' : 'Only the room’s creator can place cameras' });
   if (r.error) return res.status(400).json({ error: r.error });
   broadcast(id, { type: 'camera:add', camera: r.camera });
   res.json(r);
@@ -776,13 +801,16 @@ app.put('/api/rooms/:room/cameras/:id', rateLimit(120), wrap(async (req, res) =>
   if (demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id) return;
   const camId = String(req.params.id); if (!CAM_ID_RE.test(camId)) return res.status(400).json({ error: 'Invalid camera' });
+  const multi = !!(await entOf(req)).multiCam;
   const r = await store.editCameras(id, canEditRoom(req), (list) => {
     const i = list.findIndex((c) => c.id === camId); if (i < 0) return { missing: true, save: false };
-    const c = cleanCamera(req.body, list[i]); if (!c) return { bad: true, save: false };
+    if (list[i].auto && !multi) return { settings: true, save: false }; // free: no settings
+    const c = cleanCamera(req.body, list[i], { multi }); if (!c) return { bad: true, save: false };
     list[i] = c; return { camera: c };
   });
   if (r === 'notfound' || r.missing) return res.status(404).json({ error: 'That camera does not exist' });
   if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can change the cameras' });
+  if (r.settings) return res.status(403).json({ error: 'The auto cameraman has no settings in this version.' });
   if (r.bad) return res.status(400).json({ error: 'Invalid camera' });
   broadcast(id, { type: 'camera:update', camera: r.camera });
   res.json(r);
@@ -875,6 +903,8 @@ app.delete('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
 // ---------- Finished videos (see videos.js): upload, list, watch page, email the link ----------
 app.locals.hidden = hidden;
 app.locals.videos = mountVideos(app, { store, recorder, entitle, fromReq, mailer, rightsTo, roomParam, wrap, isAdmin, settings: videos, clock });
+// ---------- Photos (see photos.js): 📷 / P, live or from the replay; kept like videos, outlive the room ----------
+app.locals.photos = mountPhotos(app, { store, entitle, fromReq, rightsTo, roomParam, wrap, isAdmin, settings: photos, clock });
 
 // ---------- Admin (dold) ----------
 app.get('/api/admin/check', (req, res) => res.json({ ok: isAdmin(req) }));

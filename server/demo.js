@@ -21,7 +21,7 @@
 //   room.demo.expiresAt = createdAt + DEMO_ROOM_MINUTES (default 60). At that moment everyone in
 //   the room gets { type: 'room:closed' }, their connections close (code 4010), and the room's
 //   JSON (stickers, peels, members, invites) and its recordings/<room>/ logs are deleted from
-//   storage (R2). Library images and anything under videos/ stay (videos have their own retention).
+//   storage (R2). Library images and anything under videos/ or photos/ stay (they have their own retention).
 //   A sweep at start-up and every few minutes catches rooms that expired while the server slept.
 const crypto = require('crypto');
 const DEMO = require('../shared/demo.json');
@@ -137,8 +137,8 @@ function createDemo({ store, settings, clock = () => Date.now(), onExpire = () =
       // write cannot bring files back after they are deleted below.)
       try { await onExpire(id); } catch (e) { log.error('[demo] onExpire', e && e.message); }
       await store.deleteRoom(id);
-      // Session-recording logs of this room too (recordings/<room>/…). NEVER videos/: the finished
-      // videos have their own retention (video pipeline).
+      // Session-recording logs of this room too (recordings/<room>/…). NEVER videos/ or photos/: the
+      // finished videos and the photos have their own retention (they are the memories of the room).
       for (const k of await store.adapter.list(`recordings/${id}/`).catch(() => [])) {
         if (k.startsWith(`recordings/${id}/`)) await store.adapter.delete(k).catch(() => {});
       }

@@ -8,12 +8,13 @@ import { buildBoxRoom } from './room.js';
 import { applyStyle, normalizeStyle, DEFAULT_STYLE } from './roomstyle.js';
 import { StampLayer } from './stamps.js';
 import { Avatar, loadAvatarModel } from './avatars.js';
-import { CameraLayer, poseCamera, renderFramed } from './cameras.js';
+import { CameraLayer, poseCamera, renderFramed, aspectRatio } from './cameras.js';
+import * as photo from './photo.js';
 import { FirstPersonControls } from './controls.js';
 import { S, LOCALE } from './strings.js';
 import { parseRecording, buildTimeline, snapshotAt, participants } from '../../shared/replay.mjs';
 import { planShots, shotAt, shotPose, roomPose, speechSegments, openOf, TALK_LEVELS } from '../../shared/director.mjs';
-import { createAutoCam, stickerTargets, autoCamSpans, roomAutoPathAt, AUTO_PATHS, autoView } from '../../shared/autocam.mjs';
+import { createAutoCam, stickerTargets, recordingCrew, roomShotCamera, crewView, AUTO_PATHS, autoView } from '../../shared/autocam.mjs';
 import { createComposer, canRecordVideo } from './videocomposer.js';
 import { entitlements, loadEntitlements, unlockHeaders } from './entitlements.js';
 
@@ -50,11 +51,14 @@ function resize() { renderer.setSize(innerWidth, innerHeight, false); }
 addEventListener('resize', resize); resize();
 
 const fmt = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-const rp = { tl: null, meta: null, t: 0, playing: false, speed: 1, view: 'free', style: '', snap: null, chatShown: '', recorder: null, lastFrameT: 0, plan: null, speakers: [], shot: null, dirCam: null, dirDt: 0, auto: new Map(), autoSpans: [] };
+const rp = { tl: null, meta: null, t: 0, playing: false, speed: 1, view: 'free', style: '', snap: null, chatShown: '', recorder: null, lastFrameT: 0, plan: null, speakers: [], shot: null, dirCam: null, dirDt: 0, auto: new Map(), rc: null, curShot: null };
 // The auto cameraman (shared/autocam.mjs): one take per path, seeded by the recording id, so the
 // same recording always gives the same take (the server's shot list has the same ones).
+// The room's own cameramen (one or more camera entries { auto }) are a crew (recordingCrew): each
+// its own view 'autocam:<id>', seeded `${recId}:${id}`, the same as in the server's shot list.
 const autoPose = (path, t = rp.t) => rp.auto.get(path)?.poseAt(t) || null;
-const roomAuto = (t = rp.t) => roomAutoPathAt(rp.autoSpans, t, REC);
+const crewPose = (id, t = rp.t) => (rp.rc ? rp.rc.poseAt(id, t) : null);
+const crewSpan = (id, t = rp.t) => (rp.rc ? rp.rc.at(id, t) : null);
 
 // ---------- Synka scenen mot inspelningen vid tiden t ----------
 async function showStyle(style) {
@@ -130,8 +134,9 @@ let lastOptions = '';
 function renderViewOptions(s) {
   const opts = [['free', S.viewFree]];
   if (rp.speakers.length) opts.unshift(['director', S.viewDirector]);
-  const mine = roomAuto();
-  for (const p of AUTO_PATHS) opts.push([autoView(p), S.viewAuto(p, p === mine)]);
+  // Every cameraman the room had in this recording (off right now = "not here now"), then the generic paths.
+  if (rp.rc) for (const id of rp.rc.ids) { const sp = rp.rc.spans.filter((x) => x.id === id), now = crewSpan(id); opts.push([crewView(id), S.viewCrew((now || sp[sp.length - 1]).name, rp.rc.crew.get((now || sp[sp.length - 1]).key).path, !!now)]); }
+  for (const p of AUTO_PATHS) opts.push([autoView(p), S.viewAuto(p)]);
   // One take per speaker and angle: pick it and ⏺ Record video for raw material to cut between.
   for (const sp of rp.speakers) for (const k of ['close', 'medium', 'rear']) opts.push([`${k}:${sp.id}`, S.viewAngle(k, s.players.find((x) => x.id === sp.id)?.name || sp.name)]);
   for (const c of s.cameras) if (!c.auto) opts.push([`cam:${c.id}`, S.viewCam(c)]); // the room's auto cameraman = its auto: take above
@@ -153,8 +158,9 @@ function directedPose(kind, speakerId, key) {
   if (!want) {
     // The room shot between speakers: the room's auto cameraman while it is on (no smoothing: it
     // moves smoothly by itself), otherwise the fixed high corner.
-    const ap = roomAuto(), q = ap && autoPose(ap);
-    if (q) { rp.dirCam = null; rp.shot = { kind: 'room', speaker: null, key, camera: autoView(ap) }; return { ...q, aspect: '', label: `${S.shotLabel('room')} · ${S.autoLabel(ap, q.mm)}` }; }
+    // Several: they take turns, one per silence (shared/autocam.mjs roomShotCamera).
+    const sp = rp.rc && rp.curShot ? roomShotCamera(rp.rc, rp.plan, rp.curShot) : null, q = sp && crewPose(sp.id);
+    if (q) { rp.dirCam = null; rp.shot = { kind: 'room', speaker: null, key, camera: crewView(sp.id) }; return { ...q, aspect: '', label: `${S.shotLabel('room')} · ${S.crewLabel(sp.name, q.mm)}` }; }
     want = roomPose(roomBox()); label = S.shotLabel('room'); kind = 'room';
   }
   const c = rp.dirCam;
@@ -169,13 +175,15 @@ function directedPose(kind, speakerId, key) {
 }
 function viewPose() {
   const s = rp.snap;
-  rp.shot = null;
+  rp.shot = null; rp.curShot = null;
   if (rp.view === 'director' && rp.plan) {
-    const sh = shotAt(rp.plan, rp.t);
+    const sh = shotAt(rp.plan, rp.t); rp.curShot = sh;
     return directedPose(sh ? sh.kind : 'room', sh ? sh.speaker : null, sh ? `${sh.from}` : 'room');
   }
   const m = /^(close|medium|rear):(.+)$/.exec(rp.view);
   if (m) return directedPose(m[1], m[2], rp.view);
+  const cm = /^autocam:(\w+)$/.exec(rp.view);
+  if (cm) { const q = crewPose(cm[1]), sp = crewSpan(cm[1]); if (q) { rp.shot = { kind: 'auto', speaker: null, key: rp.view, camera: rp.view }; return { ...q, aspect: '', label: S.crewLabel(sp.name, q.mm) }; } return null; }
   const am = /^auto:(\w+)$/.exec(rp.view), aq = am && autoPose(am[1]);
   if (aq) { rp.shot = { kind: 'auto', speaker: null, key: rp.view, camera: rp.view }; return { ...aq, aspect: '', label: S.autoLabel(am[1], aq.mm) }; }
   if (rp.view.startsWith('cam:')) {
@@ -194,6 +202,30 @@ $('rp-seek').oninput = (e) => seek(Number(e.target.value));
 $('rp-speed').onchange = (e) => { rp.speed = Number(e.target.value) || 1; };
 $('rp-view').onchange = (e) => setView(e.target.value);
 $('rp-video').onclick = () => (rp.recorder || rp.composing ? stopVideo() : startVideo());
+// 📷 Photo (button or P): a still of the view you are watching right now – director, a speaker
+// angle, an auto cameraman, a placed camera, someone's eyes or the free camera – in that view's
+// own frame (9:16 stays 9:16), ≥ 1920 px wide, without the player UI. Saved like a live photo.
+let photoBusy = null, audio = null;
+function snapPhoto() {
+  if (photoBusy || !rp.tl) return photoBusy;
+  photoBusy = (async () => {
+    const pose = rp.view === 'free' ? null : viewPose();
+    if (!audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch { audio = null; } }
+    photo.flash(); photo.shutter(audio);
+    if (pose) { poseCamera(view, pose); view.fov = pose.fov; view.updateProjectionMatrix(); }
+    await entitlementsReady;
+    const shot = await photo.capture({ THREE, renderer, scene, camera: pose ? view : camera, aspect: pose ? aspectRatio(pose.aspect) : null, free: !entitlements.full.cleanVideo,
+      hide: () => { cams.setHideAll(true); return () => cams.setHideAll(rp.view !== 'free'); } });
+    const name = photo.photoName(ROOM);
+    photo.download(shot.blob, name);
+    rp.lastPhoto = { name, w: shot.w, h: shot.h, bytes: shot.blob.size, view: rp.view, upload: null, error: null };
+    try { const j = await photo.upload(shot.blob, { room: ROOM, source: 'replay', recId: REC, view: rp.view }); rp.lastPhoto.upload = j; toast(S.photoSaved(j.shareUrl), 4000); }
+    catch (err) { rp.lastPhoto.error = err.message; toast(S.photoFailed(err.message), 4000); }
+    return rp.lastPhoto;
+  })().finally(() => { photoBusy = null; });
+  return photoBusy;
+}
+$('rp-photo').onclick = () => snapPhoto();
 function play() { if (rp.t >= rp.tl.duration) rp.t = 0; rp.playing = true; $('rp-play').textContent = '⏸'; $('rp-play').title = S.pause; }
 function pause() { rp.playing = false; $('rp-play').textContent = '▶'; $('rp-play').title = S.play; }
 function seek(t) { rp.t = Math.max(0, Math.min(rp.tl.duration, t)); apply(rp.t, 0, true); return rp.t; }
@@ -203,6 +235,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'ArrowRight') seek(rp.t + 5000);
   if (e.code === 'ArrowLeft') seek(rp.t - 5000);
   if (e.code === 'Escape' && rp.view !== 'free') setView('free');
+  if (e.code === 'KeyP' && !e.repeat) snapPhoto(); // 📷 Photo
 });
 // Fri kamera: dra med musen eller fingret för att titta.
 let drag = null;
@@ -328,7 +361,7 @@ function frame() {
     }
     $('rp-viewlabel').textContent = pose ? pose.label : (rp.view === 'free' ? '' : S.notHereNow);
     // The room's own auto cameraman walks its path in the picture too (seen from the other views).
-    { const ap = roomAuto(); for (const c of rp.snap.cameras) if (c.auto && ap) cams.place(c.id, autoPose(ap)); }
+    for (const c of rp.snap.cameras) if (c.auto) { const q = crewPose(c.id); if (q) cams.place(c.id, q); }
     cams.update(pose ? null : camera.position);
     if (pose) { poseCamera(view, pose); view.fov = pose.fov; renderFramed(renderer, scene, view, pose.aspect); } else {
       controls.update(dt); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
@@ -353,11 +386,11 @@ async function load() {
     rp.plan = planShots(rp.tl);
     const targets = stickerTargets(rp.tl);
     for (const p of AUTO_PATHS) rp.auto.set(p, createAutoCam({ path: p, seed: `${REC}:${p}`, provider: targets }));
-    rp.autoSpans = autoCamSpans(rp.tl);
+    rp.rc = recordingCrew(rp.tl, { seed: REC, provider: targets });
     const segs = speechSegments(rp.tl);
     rp.speakers = participants(rp.tl).filter((p) => segs.some((x) => x.speaker === p.id));
     if (rp.speakers.length) { rp.view = 'director'; cams.setHideAll(true); }
-    else if (rp.autoSpans.length) { rp.view = autoView(roomAutoPathAt(rp.autoSpans, rp.autoSpans[0].from, REC)); cams.setHideAll(true); }
+    else if (rp.rc.ids.length) { rp.view = crewView(rp.rc.ids[0]); cams.setHideAll(true); }
     const sl = $('rp-shots'); sl.href = `/api/rooms/${ROOM}/recordings/${REC}/shots`; sl.download = `slapandtalk-${ROOM}-${REC}-shots.json`; sl.hidden = false;
     const when = new Date(rec.header.startedAt).toLocaleString(LOCALE, { dateStyle: 'medium', timeStyle: 'short' });
     $('rp-title').textContent = S.replayTitle(ROOM, when, fmt(rp.tl.duration), rp.meta?.status === 'recording');
@@ -387,8 +420,8 @@ window.replay = {
     speaking: [...avatars.entries()].filter(([, a]) => a.avatar.speaking).map(([id]) => id),
   }),
   plan: () => rp.plan, speakers: () => rp.speakers.slice(),
-  autoPose: (path, t) => autoPose(path, t), roomAuto: (t) => roomAuto(t),
-  startVideo, stopVideo,
+  autoPose: (path, t) => autoPose(path, t), crewPose: (id, t) => crewPose(id, t), crewIds: () => (rp.rc ? rp.rc.ids.slice() : []),
+  startVideo, stopVideo, photo: () => snapPhoto(), lastPhoto: () => rp.lastPhoto || null,
   // Finished video (tests): the composer's state, the recording canvas, the upload result.
   composer: () => rp.recorder, lastVideo: () => rp.lastVideo || null, upload: () => rp.upload || null, video: () => rp.video || null,
 };

@@ -1,14 +1,16 @@
-// The automatic cameraman (shared/autocam.mjs): speed limits, wall bounds, determinism, zoom range,
-// sticker targets, the shot-list takes; and the server's { auto } camera entry (API + recording +
-// GET …/shots). Run: node tests/autocam.test.mjs
+// The automatic cameramen (shared/autocam.mjs): speed limits, wall bounds, determinism, zoom range,
+// sticker targets; the crew (several at once, never colliding, a start → its own path); the shot
+// list (v2: one track per cameraman, round robin in the silences); and the server's { auto } entries
+// for free / full version (multiCam) / demo (API + recording + GET …/shots).
+// Run: node tests/autocam.test.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import {
-  AUTOCAM, AUTO_PATHS, AUTO_CHOICES, createAutoCam, trackOf, legProfile, mmToFov, fovToMm, resolvePath, roomBounds,
-  stickerTargets, liveStickerTargets, withAutoCam, autoCamSpans, roomAutoPathAt, autoCamTakes,
+  AUTOCAM, AUTO_PATHS, AUTO_CHOICES, MAX_AUTO_CAMS, createAutoCam, createAutoCrew, crewCells, trackOf, legProfile, mmToFov, fovToMm, resolvePath, roomBounds,
+  stickerTargets, liveStickerTargets, withAutoCam, autoCamSpans, autoCamTakes, recordingCrew, roomShotCamera,
 } from '../shared/autocam.mjs';
 import { buildTimeline, parseRecording } from '../shared/replay.mjs';
 import { shotList } from '../shared/director.mjs';
@@ -163,78 +165,148 @@ await test('the step-2 hook: any target provider steers the aim (here a fake "sp
   assert.equal(c.provider, 'fake-activity');
 });
 
-await test('shot list: auto takes per path (legs, beats, track with timestamps), the views to cut between, the director’s room shot uses the room’s auto cameraman', () => {
-  const talk = []; for (let t = 30000; t < 36000; t += 80) talk.push({ t, e: 'talk', id: 'p1', l: 8 });
-  const tl = rec([{ t: 1000, e: 'join', id: 'p1', name: 'Jens', p: [0, 1.6, 2], y: 0 }, ...talk]);
+await test('crew: 1–6 cells (whole room, halves, thirds, 2×2, 3×2), each track inside its own cell, ≥ 1.2 m from every other track', () => {
+  assert.equal(MAX_AUTO_CAMS, 6);
+  assert.deepEqual([1, 2, 3, 4, 5, 6].map((n) => crewCells(n, B).length), [1, 2, 3, 4, 6, 6]);
+  const c = createAutoCrew([{ key: 'a', seed: 'x' }]);
+  assert.equal(c.members[0].box, null, 'alone: the whole room, exactly like before');
+  const rnd = (i) => { let h = 2166136261; for (const ch of String(i)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return ((h >>> 0) % 10000) / 10000; };
+  let worst = Infinity;
+  for (let cfg = 0; cfg < 24; cfg++) {
+    const n = 2 + (cfg % 5);
+    const specs = Array.from({ length: n }, (_, i) => ({ key: `k${i}`, seed: `s${cfg}:${i}`, path: [...AUTO_CHOICES][(cfg + i) % 4],
+      ...(rnd(`${cfg}${i}`) < 0.5 ? { start: [(rnd(`x${cfg}${i}`) - 0.5) * (B.maxX - B.minX), (rnd(`z${cfg}${i}`) - 0.5) * (B.maxZ - B.minZ)] } : {}) }));
+    const crew = createAutoCrew(specs);
+    for (let t = 0; t <= 3 * 60000; t += 500) {
+      const ps = crew.members.map((m) => m.poseAt(t).p);
+      crew.members.forEach((m, i) => { const q = m.base(t).p; assert.ok(q[0] >= m.box.minX - 1e-3 && q[0] <= m.box.maxX + 1e-3 && q[2] >= m.box.minZ - 1e-3 && q[2] <= m.box.maxZ + 1e-3, `cfg ${cfg}: ${m.key} leaves its cell`); });
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) worst = Math.min(worst, Math.hypot(ps[i][0] - ps[j][0], ps[i][2] - ps[j][2]));
+    }
+  }
+  assert.ok(worst >= AUTOCAM.crewGapM - 0.08, `closest two cameramen came ${worst.toFixed(3)} m (sway included)`);
+});
+
+await test('a start (the click): the cameraman starts there, Automatic → a loop through the start, a chosen path keeps its shape', () => {
+  assert.equal(resolvePath('seeded', 'q', [1, 1]), 'loop');
+  assert.equal(resolvePath('diagonal', 'q', [1, 1]), 'diagonal');
+  for (const start of [[2, 1], [-3.5, -2.5], [0.4, -0.6]]) {
+    const solo = createAutoCam({ seed: 'st', start });
+    const p0 = solo.base(0).p;
+    assert.ok(solo.path === 'loop' && Math.hypot(p0[0] - start[0], p0[2] - start[1]) <= 0.45, `${start} → ${p0}`);
+    const legs = solo.legsUntil(60000);
+    assert.ok(legs.some((L) => L.kind === 'frame') && legs.some((L) => L.kind === 'walk'));
+    const pre = createAutoCam({ seed: 'st', start, path: 'perimeter' }), q0 = pre.base(0).p;
+    const seg = (L) => { const [ax, az] = L.a, [bx, bz] = L.b, dx = bx - ax, dz = bz - az, k = Math.max(0, Math.min(1, ((start[0] - ax) * dx + (start[1] - az) * dz) / (dx * dx + dz * dz || 1))); return Math.hypot(ax + k * dx - start[0], az + k * dz - start[1]); };
+    const nearest = Math.min(...pre.legsUntil(120000).map(seg));
+    assert.ok(pre.path === 'perimeter' && Math.hypot(q0[0] - start[0], q0[2] - start[1]) <= nearest + 0.45, `starts at the nearest point of its path (${nearest})`);
+  }
+  // two with starts in different halves get those halves, and stay apart
+  const crew = createAutoCrew([{ key: 'w', seed: 'a', start: [-3, 0] }, { key: 'e', seed: 'b', start: [3, 0] }]);
+  assert.ok(crew.get('w').box.maxX < 0 && crew.get('e').box.minX > 0, JSON.stringify(crew.members.map((m) => m.box)));
+  // determinism: the same crew = the same takes, whatever order they are asked in
+  const again = createAutoCrew([{ key: 'w', seed: 'a', start: [-3, 0] }, { key: 'e', seed: 'b', start: [3, 0] }]);
+  assert.deepEqual(again.get('e').poseAt(95000), crew.get('e').poseAt(95000));
+  assert.deepEqual(again.get('w').track(60000, 1000), crew.get('w').track(60000, 1000));
+});
+
+await test('shot list v2: one track per room cameraman (autocam:<id>), the generic takes stay, silences go round robin', () => {
+  const talk = []; for (const a of [12000, 40000, 66000]) for (let t = a; t < a + 6000; t += 80) talk.push({ t, e: 'talk', id: 'p1', l: 8 });
+  const tl = rec([{ t: 1000, e: 'join', id: 'p1', name: 'Jens', p: [0, 1.6, 2], y: 0 },
+    { t: 6000, e: 'camera:add', camera: { id: 'bbbbbbbbbb', name: 'Auto cameraman 2', auto: 'seeded', seq: 2, start: [3, 2], p: [0, 1.6, 0], yaw: 0, pitch: 0, fov: 50 } }, ...talk]);
   const spans = autoCamSpans(tl);
-  assert.equal(spans.length, 1); assert.equal(spans[0].from, 5000); assert.equal(roomAutoPathAt(spans, 3000, 'feedc0de00'), null); assert.equal(roomAutoPathAt(spans, 6000, 'feedc0de00'), 'pushin');
+  assert.deepEqual(spans.map((x) => [x.id, x.from, x.start]), [['aaaaaaaaaa', 5000, null], ['bbbbbbbbbb', 6000, [3, 2]]]);
   const list = withAutoCam(shotList(tl), tl);
-  assert.equal(list.format, 'slapandtalk-shots');
+  assert.ok(list.format === 'slapandtalk-shots' && list.autocam.v === 2 && !('room' in list.autocam));
+  assert.deepEqual(list.autocam.crew.map((c) => [c.view, c.label, c.on[0].path]), [['autocam:aaaaaaaaaa', 'Auto cameraman', 'pushin'], ['autocam:bbbbbbbbbb', 'Auto cameraman 2', 'loop']]);
   assert.deepEqual(list.autocam.takes.map((t) => t.view), ['auto:perimeter', 'auto:diagonal', 'auto:pushin']);
-  const pt = list.autocam.takes[2];
-  assert.ok(pt.label === 'Auto cameraman: Push-in' && pt.seed === 'feedc0de00:pushin' && pt.legs.length > 3 && pt.beats.length === Math.floor(90000 / 4000) + 1);
-  assert.deepEqual(pt.track.columns, ['t', 'x', 'y', 'z', 'yaw', 'pitch', 'mm']);
-  assert.ok(pt.track.samples.length === 91 && pt.track.samples[10][0] === 10000);
-  // the replay's take (the same seed) gives the very same pose as the shot list says
-  const replayCam = createAutoCam({ path: 'pushin', seed: 'feedc0de00:pushin', provider: stickerTargets(tl) });
-  const q = replayCam.poseAt(10000); assert.deepEqual(pt.track.samples[10], [10000, ...q.p, q.yaw, q.pitch, q.mm]);
-  assert.ok(list.views.some((v) => v.view === 'director') && list.views.some((v) => v.view === 'close:p1') && list.views.some((v) => v.view === 'auto:pushin'));
-  const room = list.shots.filter((s) => s.kind === 'room');
-  assert.ok(room.length >= 2 && room.every((s) => s.camera === (s.from >= 5000 ? 'auto:pushin' : 'room')), JSON.stringify(list.shots));
-  assert.ok(list.shots.some((s) => s.kind !== 'room' && s.camera === `${s.kind}:p1`));
-  assert.deepEqual(list.autocam.room, [{ from: 5000, to: 90000, choice: 'pushin', view: 'auto:pushin' }]);
+  for (const v of ['director', 'close:p1', 'autocam:aaaaaaaaaa', 'autocam:bbbbbbbbbb', 'auto:pushin']) assert.ok(list.views.some((x) => x.view === v), v);
+  const b = list.autocam.crew[1];
+  assert.ok(b.track.samples[0][0] === 6000 && b.beats[0].t >= 6000, 'its track starts when it was switched on');
+  const rc = recordingCrew(tl, { seed: 'feedc0de00' });
+  const q = rc.poseAt('bbbbbbbbbb', 10000); assert.deepEqual(b.track.samples.find((x) => x[0] === 10000), [10000, ...q.p, q.yaw, q.pitch, q.mm], 'the replay’s pose = the shot list');
+  const room = list.shots.filter((x) => x.kind === 'room' && x.from >= 6000);
+  assert.ok(room.length >= 2, JSON.stringify(list.shots.map((x) => [x.kind, x.from])));
+  assert.ok(new Set(room.map((x) => x.camera)).size === 2 && room.every((x) => x.camera.startsWith('autocam:')), 'they take turns: ' + room.map((x) => x.camera).join());
+  assert.deepEqual(room.map((x) => x.camera), room.map((x) => crewViewOf(roomShotCamera(rc, shotList(tl).shots, shotList(tl).shots.find((s) => s.from === x.from)))));
+  assert.ok(list.shots.filter((x) => x.kind === 'room' && x.from < 5000).every((x) => x.camera === 'room'), 'before any cameraman: the fixed corner');
   assert.deepEqual(JSON.parse(JSON.stringify(withAutoCam(shotList(tl), tl))), JSON.parse(JSON.stringify(list)), 'the same recording → the same shot list');
-  // an hour stays small: ≤ ~1200 samples per take
   const long = autoCamTakes({ ...tl, duration: 3600000 }, { seed: 'x', paths: ['perimeter'] });
   assert.ok(long[0].track.samples.length <= 1250 && long[0].track.stepMs === 3000);
 });
+function crewViewOf(s) { return s ? `autocam:${s.id}` : 'room'; }
 
-// ---------- Server: the { auto } camera entry ----------
+// ---------- Server: the { auto } camera entries – free / full version (multiCam) / demo ----------
 const { LocalAdapter } = require('../server/storage/local');
 const { createStore } = require('../server/store');
 const { createApp } = require('../server/app');
 const { attachRealtime } = require('../server/realtime');
 const { createRecorder } = require('../server/recorder');
-await test('server: one auto cameraman per room, path changes, no placed↔auto conversion, recorded, in GET …/shots', async () => {
+const { makeEntitlements } = require('../server/entitlements');
+const { demoSettings, createDemo } = require('../server/demo');
+const FULL = 'autocam-full-key-123456';
+async function serve(opts = {}, env = { FULL_ACCESS_KEYS: FULL }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-autocam-'));
   const store = createStore(new LocalAdapter(dir));
   const recorder = createRecorder(store, { flushMs: 100, tickMs: 20 });
-  const app = createApp(store, { adminToken: 'adm', recorder });
+  const demo = opts.demo ? createDemo({ store, settings: demoSettings({ DEMO_PROFILE: '1' }), log: { log() {}, error() {} } }) : null;
+  const app = createApp(store, { adminToken: 'adm', recorder, entitle: makeEntitlements(env), demo });
   const server = app.listen(0); const rt = attachRealtime(server, { maxPlayers: 5, heartbeatMs: 500, recorder });
   const base = `http://127.0.0.1:${server.address().port}`;
-  const api = (method, url, { key, body } = {}) => fetch(base + url, { method, headers: { 'Content-Type': 'application/json', ...(key ? { 'x-room-key': key } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const api = (method, url, { key, unlock, body } = {}) => fetch(base + url, { method, headers: { 'Content-Type': 'application/json', ...(key ? { 'x-room-key': key } : {}), ...(unlock ? { 'x-unlock': unlock } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const { room: { id: R }, roomKey: KEY } = await (await api('POST', '/api/rooms', { body: {} })).json();
+  return { api, R, KEY, close: async () => { await recorder.close(); rt.close(); server.close(); fs.rmSync(dir, { recursive: true, force: true }); } };
+}
+await test('server, free: ONE cameraman, always automatic (no path, no start), no settings, only the creator; recorded, in GET …/shots', async () => {
+  const { api, R, KEY, close } = await serve();
   try {
-    const { room: { id: R }, roomKey: KEY } = await (await api('POST', '/api/rooms', { body: {} })).json();
     const rs = await (await api('POST', `/api/rooms/${R}/recording/start`, { key: KEY })).json();
-    assert.equal((await api('POST', `/api/rooms/${R}/cameras`, { body: { auto: 'perimeter' } })).status, 403, 'only the creator');
+    assert.equal((await api('POST', `/api/rooms/${R}/cameras`, { body: { auto: 'seeded' } })).status, 403, 'only the creator');
     assert.equal((await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, body: { auto: 'spiral' } })).status, 400);
-    const a = await (await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, body: { auto: 'diagonal', p: [9, 9, 9] } })).json();
-    assert.ok(a.camera.auto === 'diagonal' && a.camera.name === 'Auto cameraman' && a.camera.p.join() === '0,1.6,0' && a.camera.fov === 50, JSON.stringify(a));
-    const again = await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, body: { auto: 'perimeter' } });
-    assert.equal(again.status, 400); assert.match((await again.json()).error, /already has an auto cameraman/);
-    const u = await (await api('PUT', `/api/rooms/${R}/cameras/${a.camera.id}`, { key: KEY, body: { auto: 'seeded', p: [1, 1, 1] } })).json();
-    assert.ok(u.camera.auto === 'seeded' && u.camera.p.join() === '0,1.6,0');
+    const a = await (await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, body: { auto: 'diagonal', start: [2, 2], p: [9, 9, 9] } })).json();
+    assert.ok(a.camera.auto === 'seeded' && !a.camera.start && a.camera.name === 'Auto cameraman 1' && a.camera.p.join() === '0,1.6,0' && a.camera.fov === 50, JSON.stringify(a));
+    const again = await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, body: { auto: 'seeded' } });
+    assert.equal(again.status, 400); assert.match((await again.json()).error, /already has its auto cameraman/);
+    const put = await api('PUT', `/api/rooms/${R}/cameras/${a.camera.id}`, { key: KEY, body: { auto: 'perimeter' } });
+    assert.equal(put.status, 403); assert.match((await put.json()).error, /no settings/);
     const fixed = await (await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, body: { p: [1, 1.6, 1], yaw: 0.3 } })).json();
-    assert.ok(fixed.camera && !fixed.camera.auto && fixed.camera.name === 'Camera 1');
-    assert.equal((await api('PUT', `/api/rooms/${R}/cameras/${fixed.camera.id}`, { key: KEY, body: { auto: 'perimeter' } })).status, 400, 'a placed camera stays placed');
-    const room = await (await api('GET', `/api/rooms/${R}/stamps`)).json();
-    assert.equal(room.cameras.filter((c) => c.auto).length, 1);
-    await new Promise((r) => setTimeout(r, 400));
+    assert.ok(fixed.camera && !fixed.camera.auto && fixed.camera.name === 'Camera 1', 'placed cameras have their own budget');
+    await new Promise((r) => setTimeout(r, 300));
     await api('POST', `/api/rooms/${R}/recording/stop`, { key: KEY });
     const shots = await (await api('GET', `/api/rooms/${R}/recordings/${rs.recording.recId}/shots`)).json();
-    assert.ok(shots.autocam && shots.autocam.takes.length === 3 && shots.autocam.room.length === 2 && shots.autocam.room[0].choice === 'diagonal' && shots.autocam.room[1].choice === 'seeded', JSON.stringify(shots.autocam?.room));
-    assert.ok(shots.views.some((v) => v.view === 'auto:perimeter'));
-  } finally { await recorder.close(); rt.close(); server.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+    assert.ok(shots.autocam.v === 2 && shots.autocam.crew.length === 1 && shots.autocam.crew[0].view === `autocam:${a.camera.id}` && shots.autocam.takes.length === 3, JSON.stringify(shots.autocam.crew.map((c) => c.view)));
+    assert.equal((await api('DELETE', `/api/rooms/${R}/cameras/${a.camera.id}`, { key: KEY })).status, 200, 'off = removed');
+  } finally { await close(); }
 });
-await test('demo: placing cameras stays off on the server, the auto cameraman entry too (the replay takes need no entry)', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-autocam-demo-'));
-  const store = createStore(new LocalAdapter(dir));
-  const app = createApp(store, { adminToken: 'adm', demo: { on: true, roomMs: 3600000, warnMs: 600000, maxPlayers: 5, maxMembers: 5, style: {} } });
-  const server = app.listen(0);
+await test('server, full version (multiCam key): up to 6 cameramen, each with a start and an optional path; the 7th → 400', async () => {
+  const { api, R, KEY, close } = await serve();
   try {
-    const base = `http://127.0.0.1:${server.address().port}`;
-    const r = await fetch(`${base}/api/rooms/abc/cameras`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ auto: 'perimeter' }) });
-    assert.equal(r.status, 403);
-  } finally { server.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+    const ids = [];
+    for (let i = 0; i < 6; i++) {
+      const r = await (await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, unlock: FULL, body: { auto: i === 1 ? 'pushin' : 'seeded', start: [i - 2.5, 30] } })).json();
+      assert.ok(r.camera && r.camera.name === `Auto cameraman ${i + 1}` && r.camera.seq === i + 1, JSON.stringify(r)); ids.push(r.camera);
+    }
+    assert.ok(ids[1].auto === 'pushin' && ids[0].start[0] === -2.5 && ids[0].start[1] < 5, 'start kept, clamped inside the room');
+    const seventh = await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, unlock: FULL, body: { auto: 'seeded' } });
+    assert.equal(seventh.status, 400); assert.match((await seventh.json()).error, /At most 6/);
+    const u = await (await api('PUT', `/api/rooms/${R}/cameras/${ids[0].id}`, { key: KEY, unlock: FULL, body: { auto: 'diagonal', start: null } })).json();
+    assert.ok(u.camera.auto === 'diagonal' && !u.camera.start);
+    assert.equal((await api('PUT', `/api/rooms/${R}/cameras/${ids[0].id}`, { key: KEY, body: { auto: 'perimeter' } })).status, 403, 'without the key: no settings');
+    await api('DELETE', `/api/rooms/${R}/cameras/${ids[2].id}`, { key: KEY });
+    const r = await (await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, unlock: FULL, body: { auto: 'seeded' } })).json();
+    assert.equal(r.camera.name, 'Auto cameraman 3', 'the lowest free number');
+  } finally { await close(); }
+});
+await test('server, demo: the creator may switch on the one automatic cameraman; placing cameras stays off; a key unlocks nothing', async () => {
+  const { api, R, KEY, close } = await serve({ demo: true }, { FULL_ACCESS_KEYS: FULL, DEMO_PROFILE: '1' });
+  try {
+    assert.equal((await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, body: { p: [1, 1.6, 1] } })).status, 403, 'placing a camera');
+    assert.equal((await api('POST', `/api/rooms/${R}/cameras`, { body: { auto: 'seeded' } })).status, 403, 'not the creator');
+    const a = await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, unlock: FULL, body: { auto: 'pushin', start: [1, 1] } });
+    const j = await a.json();
+    assert.ok(a.status === 200 && j.camera.auto === 'seeded' && !j.camera.start, JSON.stringify(j));
+    assert.equal((await api('POST', `/api/rooms/${R}/cameras`, { key: KEY, unlock: FULL, body: { auto: 'seeded' } })).status, 400, 'only one');
+    assert.equal((await api('PUT', `/api/rooms/${R}/cameras/${j.camera.id}`, { key: KEY, unlock: FULL, body: { auto: 'perimeter' } })).status, 403);
+    assert.equal((await api('DELETE', `/api/rooms/${R}/cameras/${j.camera.id}`, { key: KEY })).status, 200, 'and switch it off again');
+  } finally { await close(); }
 });
 console.log(`autocam: ${passed} passed`);

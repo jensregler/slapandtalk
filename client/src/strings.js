@@ -127,7 +127,7 @@ export const EN = {
   quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V look mode · C 3rd person · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
     + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = look mode on/off '
-    + '(hides the pointer, clicks do nothing; V again = slap mode), C = 1st/3rd person (see your avatar from behind), Esc = menu (Esc again = back into the room). '
+    + '(hides the pointer, clicks do nothing; V again = slap mode), C = 1st/3rd person (see your avatar from behind), P = 📷 photo of what you see, Esc = menu (Esc again = back into the room). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Back to the City takes you back. '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
@@ -208,12 +208,20 @@ export const EN = {
   camViewLabel: (c) => `📷 ${c.name}${c.aspect ? ' · ' + c.aspect : ''} · ${c.fov}°`,
   camViewEsc: '· Esc = back', back: 'Back',
   cameraDefault: 'Camera',
+  // 📷 Photo (client/src/photo.js, server/photos.js)
+  photoBtn: '📷 Photo', photoTitle: 'Take a photo of what you see (P) – downloaded and saved with a link',
+  photoSaved: (url) => `📷 Saved. Link: ${url}`, photoSaving: '📷 Click!', photoFailed: (msg) => `The photo was downloaded, but not saved online: ${msg}`,
+  photos: 'Photos',
   // The auto cameraman (shared/autocam.mjs): walks the room along a preset path, zooms gently.
-  autoPaths: { perimeter: 'Perimeter', diagonal: 'Diagonal sweep', pushin: 'Push-in', seeded: 'Any (picked per recording)' },
-  camAuto: '🎥 Auto cameraman', camAutoTitle: 'A camera that walks the room by itself along a path and zooms gently – no placing. In the replay it is a take of its own.',
-  camAutoOff: 'Off',
-  camAutoOn: (path) => `Auto cameraman on: ${EN.autoPaths[path] || path}.`,
-  camAutoName: (c) => `🎥 ${c.name} · ${EN.autoPaths[c.auto] || c.auto}`,
+  autoPaths: { perimeter: 'Perimeter', diagonal: 'Diagonal sweep', pushin: 'Push-in', seeded: 'Automatic', loop: 'Loop' },
+  camAuto: '🎥 Auto cameraman', camAutoTitle: 'A camera that walks the room by itself and zooms gently – nothing to set. In the replay it is a take of its own.',
+  camAutoOn: 'Auto cameraman on. It walks and films by itself.',
+  camAutoName: (c) => `🎥 ${c.name}${c.auto && c.auto !== 'seeded' ? ' · ' + (EN.autoPaths[c.auto] || c.auto) : ''}`,
+  camAutoAdd: '＋ Add cameraman', camAutoAddTitle: 'Then click the floor where it should start – it walks and films by itself from there',
+  camAutoPlace: (touch) => (touch ? 'Tap the floor where the cameraman should start.' : 'Aim at the floor where the cameraman should start and click. Esc = cancel.'),
+  camAutoPlaced: (name) => `${name} started. ✕ removes it.`,
+  camAutoPath: 'Path (Automatic = from where it started)',
+  camAutoMissed: 'Aim at the floor (or a wall) inside the room.',
 
   // ---------- Replay ----------
   replayBack: '← Back to the room', replayLoading: 'Loading the recording…',
@@ -229,8 +237,10 @@ export const EN = {
   povLabel: (name) => `${name}’s eyes`,
   // The auto-director (shared/director.mjs): cuts to whoever is talking.
   viewDirector: '🎬 Director (follows who talks)',
-  viewAuto: (path, roomOn) => `🎥 Auto cameraman: ${EN.autoPaths[path] || path}${roomOn ? ' (this room’s)' : ''}`,
+  viewAuto: (path) => `🎥 Auto cameraman: ${EN.autoPaths[path] || path}`,
   autoLabel: (path, mm) => `🎥 Auto cameraman · ${EN.autoPaths[path] || path} · ${Math.round(mm)} mm`,
+  viewCrew: (name, path, here) => `🎥 ${name} (${EN.autoPaths[path] || path})${here ? '' : ' (off now)'}`,
+  crewLabel: (name, mm) => `🎥 ${name} · ${Math.round(mm)} mm`,
   viewAngle: (kind, name) => `${{ close: '😮 Close-up', medium: '🧍 Medium', rear: '🔙 Over the shoulder' }[kind] || kind}: ${name}`,
   shotLabel: (kind, name) => (kind === 'room' || !name ? '🎬 The room' : `🎬 ${{ close: 'Close-up', medium: 'Medium', rear: 'Over the shoulder' }[kind] || kind} · ${name}`),
   shotList: '🎬 Shot list',

@@ -17,7 +17,7 @@ const timeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTim
 
 // The bug, prepared once: the logo, a soft shadow, a faint bevel light from the top and fine
 // scanlines, so it reads as a broadcast "dog" rather than a sticker.
-function makeBug(img, w, h) {
+export function makeBug(img, w, h) {
   const c = document.createElement('canvas'); c.width = Math.max(2, Math.round(w)); c.height = Math.max(2, Math.round(h));
   const g = c.getContext('2d');
   const pad = Math.max(1, Math.round(c.width * 0.04));

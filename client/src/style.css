@@ -498,3 +498,11 @@ body.demo #tray .fav-btn, body.demo #tray .del-btn { display: none !important; }
 #groove-chip { position: fixed; left: 12px; bottom: 12px; z-index: 5; pointer-events: none; font: 11px/1.4 system-ui, sans-serif; color: #fff;
   background: rgba(0,0,0,.35); padding: 2px 8px; border-radius: 10px; opacity: .55; font-variant-numeric: tabular-nums; transition: opacity .4s; }
 #groove-chip.flash { opacity: 1; }
+
+/* 📷 Photo: a short soft flash (client/src/photo.js) */
+#photo-flash { position: fixed; inset: 0; z-index: 50; pointer-events: none; background: #fff; opacity: 0; }
+#photo-flash.on { animation: photo-flash .32s ease-out; }
+@keyframes photo-flash { 0% { opacity: .55; } 100% { opacity: 0; } }
+body.placing-cam #crosshair { outline: 2px dashed #ff5a5a; outline-offset: 6px; border-radius: 50%; }
+.brand-row h1 { white-space: nowrap; }
+.brand-btns { gap: 4px; } .brand-btns .icon-btn { padding: 4px 7px; }

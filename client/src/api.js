@@ -62,8 +62,8 @@ export const api = {
 
 // ---------- Inspelning och kameror (rättighet: rumsnyckel eller admin, Staden bara admin) ----------
 const rights = ({ key, admin } = {}) => ({ ...(key ? { 'x-room-key': key } : {}), ...(admin ? { 'x-admin-token': admin } : {}) });
-const send = (method, url, body, auth) => fetch(url, {
-  method, headers: { 'Content-Type': 'application/json', ...rights(auth) }, body: body === undefined ? undefined : JSON.stringify(body),
+const send = (method, url, body, auth, extra = {}) => fetch(url, {
+  method, headers: { 'Content-Type': 'application/json', ...rights(auth), ...extra }, body: body === undefined ? undefined : JSON.stringify(body),
 }).then(json);
 Object.assign(api, {
   recStatus: (room) => fetch(`/api/rooms/${room}/recording`).then(json),
@@ -77,9 +77,11 @@ Object.assign(api, {
   listRecs: (room, auth) => fetch(`/api/rooms/${room}/recordings`, { headers: rights(auth) }).then(json),
   // Finished videos of the room (videos.js on the server), newest first.
   listVideos: (room, auth) => fetch(`/api/rooms/${room}/videos`, { headers: rights(auth) }).then(json),
+  listPhotos: (room, auth) => fetch(`/api/rooms/${room}/photos`, { headers: rights(auth) }).then(json),
   deleteRec: (room, id, auth) => send('DELETE', `/api/rooms/${room}/recordings/${id}`, undefined, auth),
-  addCamera: (room, cam, auth) => send('POST', `/api/rooms/${room}/cameras`, cam, auth),
-  updateCamera: (room, id, patch, auth) => send('PUT', `/api/rooms/${room}/cameras/${id}`, patch, auth),
+  // cameras: the unlock key too (multiCam: several cameramen, a start, a path choice)
+  addCamera: (room, cam, auth) => send('POST', `/api/rooms/${room}/cameras`, cam, auth, unlockHeaders()),
+  updateCamera: (room, id, patch, auth) => send('PUT', `/api/rooms/${room}/cameras/${id}`, patch, auth, unlockHeaders()),
   removeCamera: (room, id, auth) => send('DELETE', `/api/rooms/${room}/cameras/${id}`, undefined, auth),
   // Peels (baksidespapper) på/av och sopa golvet. Samma rättighet som rummets utseende.
   setPeels: (room, on, auth) => send('PUT', `/api/rooms/${room}/peels`, { on }, auth),

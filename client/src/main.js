@@ -11,8 +11,9 @@ import { foldStamp } from './fold.js';
 import { readHistory, addHistory, removeHistory, roomHistory, trimHistory, deviceId, HISTORY_KEY, PER_ROOM } from './history.js';
 import { readMine, addMine, insertMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob, readFavs, setFav, moveFav, FAV_KEY } from './designs.js';
 import { initTogether } from './together.js';
-import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed } from './cameras.js';
-import { createAutoCam, liveStickerTargets, AUTO_CHOICES, autoCamOf } from '../../shared/autocam.mjs';
+import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed, aspectRatio } from './cameras.js';
+import * as photo from './photo.js';
+import { createAutoCrew, liveStickerTargets, AUTO_CHOICES, autoCamsOf, MAX_AUTO_CAMS } from '../../shared/autocam.mjs';
 import { S, LOCALE } from './strings.js';
 import { Sounds } from './sound.js';
 import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView } from './chasecam.js';
@@ -1106,6 +1107,7 @@ document.addEventListener('pointerlockerror', () => {}, { passive: true }); // h
 function resumeGame() { setResuming(true); tryLock(); }
 // The topmost thing Esc should close, or null.
 function escTarget() {
+  if (placingCam) return () => cancelPlacingCam();
   if (camView) return () => exitCamView();
   if (fullUi?.isOpen()) return () => fullUi.close();
   if (!$('sound-panel').hidden) return () => soundUi.close();
@@ -1147,6 +1149,7 @@ if (!isTouch) {
     if (sp.open || together.busy()) return; // panelen för rummets utseende eller Min gubbe är öppen
     if (together.chatOpen()) { together.closeChat(); if (!controls.locked) controls.lock(); return; } // klick = stäng chatten, stämpla inte
     if (!controls.locked) controls.lock();
+    else if (placingCam) placeCamAt(CENTER); // ＋ Add cameraman: this click sets where it starts
     else if (state.mode === 'view') clickCredit(); // Look mode: click a sticker = who made it? (never slaps)
     else {
       // Hold the button and look/drag away: the sticker repeats toward the crosshair (sticker arrays).
@@ -1171,6 +1174,7 @@ if (!isTouch) {
     if (e.ctrlKey || e.metaKey || e.altKey) return; // inte Ctrl+V osv.
     if (e.code === 'KeyV' && !e.repeat) toggleMode();
     if (e.code === 'KeyM' && !e.repeat) setMuted(!sound.muted);
+    if (e.code === 'KeyP' && !e.repeat) snapPhoto(); // 📷 Photo
     if (e.code === 'KeyC' && !e.repeat) toggleView();
     if (e.code === 'KeyL' && !e.repeat && credit.shown?.link) openLink(credit.shown.link);
     if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
@@ -1195,7 +1199,8 @@ if (!isTouch) {
     const p = touches.get(e.pointerId); touches.delete(e.pointerId);
     if (p && !p.drag && performance.now() - p.t < 400 && e.type === 'pointerup') {
       const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-      if (state.mode === 'view' && !camView) {
+      if (placingCam) placeCamAt(ndc);
+      else if (state.mode === 'view' && !camView) {
         // Tittläge: tryck på en klibba = vem gjorde den?
         const c = creditOf(pickStampAt(ndc)?.stamp);
         if (c) { showCredit(c, { x: e.clientX, y: e.clientY }); credit.id = c.id; } else hideCredit();
@@ -1452,7 +1457,7 @@ const together = initTogether({
 });
 // Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
 const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); fullUi.ready(); });
-function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; applySizeLimit(); fullUi?.refreshEntry(); if (groove) updateGrooveUi(); }
+function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; applySizeLimit(); fullUi?.refreshEntry(); if (groove) updateGrooveUi(); renderCams(); }
 // Full version panel (fullversion.js): a quiet entry in ⚙ More → Help; a new key applies right away.
 var fullUi = initFullVersion({ // eslint-disable-line no-var
   $, onOpen: () => { closeMore(); controls.unlock?.(); },
@@ -1549,9 +1554,10 @@ $('rec-toggle').onclick = async () => {
 };
 const fmtLen = S.fmtLen;
 async function renderRecs() {
-  let list = [], videos = [];
+  let list = [], videos = [], photos = [];
   try { ({ recordings: list } = await api.listRecs(ROOM, auth())); } catch { return; }
   try { ({ videos } = await api.listVideos(ROOM, auth())); } catch { /* older server: no videos */ }
+  try { ({ photos } = await api.listPhotos(ROOM, auth())); } catch { /* older server: no photos */ }
   $('rec-count').textContent = String(list.length);
   const ul = $('rec-list'); ul.innerHTML = '';
   for (const r of list) {
@@ -1582,21 +1588,63 @@ async function renderRecs() {
     va.textContent = `🎞 ${new Date(v.createdAt).toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' })} · ${fmtLen(v.durationMs)}`;
     li.appendChild(va); ul.appendChild(li);
   }
+  // Photos (📷 / P, live or from a replay), next to the videos; each has its own /p/<id> link.
+  for (const p of photos) {
+    const li = document.createElement('li');
+    const pa = document.createElement('a'); pa.href = p.url; pa.target = '_blank'; pa.rel = 'noopener'; pa.className = 'rec-photo';
+    pa.textContent = `📷 ${new Date(p.createdAt).toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' })} · ${p.width}×${p.height}`;
+    li.appendChild(pa); ul.appendChild(li);
+  }
 }
+
+// ---------- 📷 Photo (button, P, and 📷 while looking through a camera) ----------
+// Exactly what you see (first or third person, or the camera you look through), re-rendered at
+// ≥ 1920 px without the aim preview and the camera models; downloaded at once and saved online.
+let photoBusy = null, lastPhoto = null;
+function snapPhoto() {
+  if (photoBusy) return photoBusy;
+  photoBusy = (async () => {
+    const cv = camView && cams.get(camView);
+    const cam = cv ? viewCam : third() ? tpCam : camera;
+    photo.flash(); photo.shutter(sound.ensure(), { muted: sound.muted });
+    const wasHidden = cams.hidden;
+    const shot = await photo.capture({ THREE, renderer, scene, camera: cam, aspect: cv ? aspectRatio(cv.aspect) : null, free: !entitlements.full.cleanVideo,
+      hide: () => { preview.hide(); cams.setHideAll(true); return () => cams.setHideAll(!!wasHidden); } });
+    const name = photo.photoName(ROOM);
+    photo.download(shot.blob, name);
+    lastPhoto = { name, w: shot.w, h: shot.h, bytes: shot.blob.size, upload: null, error: null };
+    try {
+      const j = await photo.upload(shot.blob, { room: ROOM, source: 'live', view: cv ? (cv.auto ? `autocam:${cv.id}` : `cam:${cv.id}`) : third() ? 'third' : 'eyes' });
+      lastPhoto.upload = j; toast(S.photoSaved(j.shareUrl), 4000);
+      if (canEditStyle() || canReset()) renderRecs();
+    } catch (err) { lastPhoto.error = err.message; toast(S.photoFailed(err.message), 4000); }
+    return lastPhoto;
+  })().finally(() => { photoBusy = null; });
+  return photoBusy;
+}
+$('photo-btn').onclick = (e) => { e.preventDefault(); snapPhoto(); };
+$('camview-photo').onclick = (e) => { e.preventDefault(); snapPhoto(); };
 
 // Kameror: "🎥 Placera kamera här" ställer en kamera där jag står, åt det håll jag tittar.
 function renderCams() {
   const ul = $('cam-list'); ul.innerHTML = '';
-  const sel = $('autocam-path');
-  if (!sel.options.length) for (const v of ['', ...AUTO_CHOICES]) { const o = document.createElement('option'); o.value = v; o.textContent = v ? S.autoPaths[v] : S.camAutoOff; sel.appendChild(o); }
-  sel.value = autoCamOf(cams.list())?.auto || '';
+  const multi = !!entitlements.full.multiCam, autos = autoCamsOf(cams.list());
+  $('autocam-free').hidden = multi; $('autocam-on').checked = autos.length > 0;
+  $('autocam-add').hidden = !multi; $('autocam-add').disabled = autos.length >= MAX_AUTO_CAMS;
   for (const c of cams.list()) {
     const li = document.createElement('li'); li.dataset.id = c.id;
-    if (c.auto) { // the auto cameraman: no name/fov/format/move, just look through it or switch it off
+    if (c.auto) { // a cameraman: no name/fov/format/move; the full version may pick its path
       const b = document.createElement('span'); b.className = 'cam-name'; b.textContent = S.camAutoName(c);
+      li.append(b);
+      if (multi) {
+        const sel = document.createElement('select'); sel.className = 'cam-path'; sel.title = S.camAutoPath;
+        for (const v of ['seeded', ...AUTO_CHOICES.filter((x) => x !== 'seeded')]) { const o = document.createElement('option'); o.value = v; o.textContent = S.autoPaths[v]; sel.appendChild(o); }
+        sel.value = c.auto; sel.onchange = () => updateCam(c.id, { auto: sel.value });
+        li.append(sel);
+      }
       const look = document.createElement('button'); look.type = 'button'; look.textContent = '👁'; look.title = S.camLook; look.className = 'cam-look'; look.onclick = () => enterCamView(c.id);
       const del = document.createElement('button'); del.type = 'button'; del.textContent = '✕'; del.title = S.camDel; del.className = 'cam-del'; del.onclick = () => removeCam(c.id);
-      li.append(b, look, del); ul.appendChild(li); continue;
+      li.append(look, del); ul.appendChild(li); continue;
     }
     const name = document.createElement('input'); name.type = 'text'; name.maxLength = 24; name.value = c.name; name.className = 'cam-name'; name.setAttribute('aria-label', S.camNameAria);
     name.onchange = () => updateCam(c.id, { name: name.value });
@@ -1627,27 +1675,50 @@ async function removeCam(id) {
   try { await api.removeCamera(ROOM, id, auth()); cams.remove(id); if (camView === id) exitCamView(); renderCams(); return true; } catch (err) { toast(err.message, 3000); return false; }
 }
 $('cam-add').onclick = () => addCam();
-// 🎥 Auto cameraman: off / a path. One per room, stored like a camera ({ auto: path }), so it is in
-// the recording and the replay can show its take (and the director can use it as the room shot).
-async function setAutoCam(path) {
-  const cur = autoCamOf(cams.list());
-  if (!path) return cur ? removeCam(cur.id) : true;
-  if (cur) return updateCam(cur.id, { auto: path });
-  try { const { camera: c } = await api.addCamera(ROOM, { auto: path }, auth()); cams.upsert(c); renderCams(); toast(S.camAutoOn(path), 2200); return c; }
+// 🎥 Auto cameraman. Stored like cameras ({ auto, start? }), so they are in the recording and the
+// replay shows each one's take (and the director uses them as the room shot in silences).
+//   free / demo: the checkbox = the one automatic cameraman on/off, nothing to set
+//   full version (multiCam): ＋ Add cameraman → click the floor where it starts (up to 6)
+async function addAutoCam(body = { auto: 'seeded' }) {
+  try { const { camera: c } = await api.addCamera(ROOM, body, auth()); cams.upsert(c); renderCams(); toast(body.start ? S.camAutoPlaced(c.name) : S.camAutoOn, 2400); return c; }
   catch (err) { toast(err.message, 3000); renderCams(); return null; }
 }
-$('autocam-path').onchange = (e) => setAutoCam(e.target.value);
-// Live it is a preview: the take restarts every hour (UTC), so everybody's preview agrees; the
-// recorded take is computed in the replay from the recording itself (deterministic).
-const liveAuto = { key: '', cam: null };
-function liveAutoPose(c) {
-  const t0 = Math.floor(Date.now() / 3600000) * 3600000, key = `${c.id}:${c.auto}:${t0}`;
-  if (liveAuto.key !== key) {
-    liveAuto.key = key;
-    liveAuto.cam = createAutoCam({ path: c.auto, seed: c.id, provider: liveStickerTargets(() => [...stamps.meshes.values()].map((m) => m.userData.stamp).filter((s) => s && !s.pending), t0) });
-  }
-  return liveAuto.cam.poseAt(Date.now() - t0);
+async function setAutoCam(on) {
+  const cur = autoCamsOf(cams.list());
+  if (!on) { for (const c of cur) await removeCam(c.id); return true; }
+  return cur.length ? cur[0] : addAutoCam();
 }
+$('autocam-on').onchange = (e) => setAutoCam(e.target.checked);
+// var: action() and the click handlers above use it.
+var placingCam = false; // eslint-disable-line no-var
+function startPlacingCam() {
+  if (autoCamsOf(cams.list()).length >= MAX_AUTO_CAMS) return false;
+  placingCam = true; document.body.classList.add('placing-cam'); closeMore();
+  toast(S.camAutoPlace(isTouch), 5000);
+  return true;
+}
+function cancelPlacingCam() { placingCam = false; document.body.classList.remove('placing-cam'); }
+// The click: the floor point under the crosshair (a wall: 1 m into the room in front of it).
+function placeCamAt(ndc) {
+  const h = hitSurface(ndc); cancelPlacingCam();
+  if (!h) { toast(S.camAutoMissed, 2500); return null; }
+  const p = h.point.clone(); if (Math.abs(h.normal.y) < 0.7) p.addScaledVector(h.normal, 1);
+  return addAutoCam({ auto: 'seeded', start: [+p.x.toFixed(3), +p.z.toFixed(3)] });
+}
+$('autocam-add').onclick = () => startPlacingCam();
+// Live it is a preview: the takes restart every hour (UTC), so everybody's preview agrees; the
+// recorded takes are computed in the replay from the recording itself (deterministic).
+const liveAuto = { key: '', crew: null, t0: 0 };
+function liveCrew() {
+  const list = autoCamsOf(cams.list()); if (!list.length) return null;
+  const t0 = Math.floor(Date.now() / 3600000) * 3600000, key = `${t0}|${list.map((c) => `${c.id}:${c.auto}:${c.start || ''}`).join(',')}`;
+  if (liveAuto.key !== key) {
+    liveAuto.key = key; liveAuto.t0 = t0;
+    liveAuto.crew = createAutoCrew(list.map((c) => ({ key: c.id, path: c.auto, seed: c.id, start: c.start })), { provider: liveStickerTargets(() => [...stamps.meshes.values()].map((m) => m.userData.stamp).filter((s) => s && !s.pending), t0) });
+  }
+  return liveAuto.crew;
+}
+function liveAutoPose(c) { const crew = liveCrew(), m = crew && crew.get(c.id); return m ? m.poseAt(Date.now() - liveAuto.t0) : null; }
 $('cam-show').checked = camShow;
 $('cam-show').onchange = (e) => { camShow = e.target.checked; localStorage.setItem('klibb.camShow', camShow ? '1' : '0'); cams.setVisible(state.mode !== 'view' && camShow); };
 
@@ -1808,10 +1879,9 @@ const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (!camView) controls.update(dt);
-  const ac = autoCamOf(cams.list()), acPose = ac && liveAutoPose(ac);
-  if (acPose) cams.place(ac.id, acPose);
+  for (const ac of autoCamsOf(cams.list())) { const q = liveAutoPose(ac); if (q) cams.place(ac.id, q); }
   let cv = camView && cams.get(camView);
-  if (cv && cv.auto && acPose && cv.id === ac.id) cv = { ...cv, ...acPose };
+  if (cv && cv.auto) { const q = liveAutoPose(cv); if (q) cv = { ...cv, ...q }; }
   if (cv) poseCamera(viewCam, { p: cv.p, yaw: cv.yaw, pitch: cv.pitch, fov: cv.fov });
   const tp = !cv && view === 'third';
   if (tp) updateChase(dt);
@@ -1893,7 +1963,9 @@ window.klibb = {
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
   net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
   openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
-  setAutoCam, autoCamPose: () => { const c = autoCamOf(cams.list()); return c ? liveAutoPose(c) : null; },
+  photo: () => snapPhoto(), lastPhoto: () => lastPhoto,
+  setAutoCam, startPlacingCam, placingCam: () => placingCam, autoCamPoses: () => Object.fromEntries(autoCamsOf(cams.list()).map((c) => [c.id, liveAutoPose(c)])),
+  autoCamPose: () => { const c = autoCamsOf(cams.list())[0]; return c ? liveAutoPose(c) : null; },
   cameras: () => cams.list(), camerasVisible: () => [...cams.map.values()].some((e) => e.obj.visible), addCamera: addCam, updateCamera: updateCam, removeCamera: removeCam,
   creditAtDot: () => creditOf(pickStampAt(CENTER)?.stamp), clickCredit,
   credit: () => ({ shown: !!credit.shown && !$('credit').hidden, name: $('credit-name').textContent, link: $('credit-link').getAttribute('href') || '',

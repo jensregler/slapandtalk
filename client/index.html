@@ -27,7 +27,8 @@
     <div class="brand-row">
       <h1 data-t="brand">Slap and Talk</h1>
       <span class="brand-btns"><button id="mic-btn" type="button" class="icon-btn mic" data-t-title="micTitleOff" aria-pressed="false" data-state="off">🎙</button>
-      <button id="sound-btn" type="button" class="icon-btn" data-t-title="soundToggleTitle" aria-pressed="false">🔊</button></span>
+      <button id="sound-btn" type="button" class="icon-btn" data-t-title="soundToggleTitle" aria-pressed="false">🔊</button>
+      <button id="photo-btn" type="button" class="icon-btn" data-t-title="photoTitle">📷</button></span>
     </div>
     <section id="room-box" aria-label="Room">
       <div class="room-line">
@@ -142,8 +143,12 @@
         <button id="rec-toggle" type="button" data-t="recStart">● Start recording</button>
         <button id="cam-add" type="button" class="no-demo" data-t="camAdd" data-t-title="camAddTitle">🎥 Place camera here</button>
       </div>
-      <!-- The auto cameraman (shared/autocam.mjs): on/off and the path; nothing to place. -->
-      <label class="check no-demo" id="autocam-row" data-t-title="camAutoTitle"><span data-t="camAuto">🎥 Auto cameraman</span> <select id="autocam-path" aria-label="Auto cameraman"></select></label>
+      <!-- The auto cameraman (shared/autocam.mjs). Free (and the demo): one, on/off, nothing to set.
+           Full version (multiCam): ＋ Add cameraman, then a click in the room sets where it starts. -->
+      <div id="autocam-row" class="room-btns" data-t-title="camAutoTitle">
+        <label class="check" id="autocam-free"><input id="autocam-on" type="checkbox" /> <span data-t="camAuto">🎥 Auto cameraman</span></label>
+        <button id="autocam-add" type="button" hidden data-t="camAutoAdd" data-t-title="camAutoAddTitle">＋ Add cameraman</button>
+      </div>
       <div class="history-head no-demo"><b data-t="cameras">Cameras</b> <span id="cam-count"></span></div>
       <ul id="cam-list" class="no-demo" data-t-empty="camerasEmpty"></ul>
       <label class="check no-demo"><input id="cam-show" type="checkbox" checked /> <span data-t="camShow">Show cameras in the room</span></label>
@@ -196,7 +201,7 @@
   <div id="rec-badge" hidden role="status" data-t-title="recBadgeTitle">● REC</div>
   <div id="rec-notice" hidden role="alert"><b data-t="recNoticeTitle"></b><span data-t="recNoticeText"></span><button id="rec-notice-ok" type="button" data-t="ok">OK</button></div>
   <!-- Looking through a camera -->
-  <div id="camview-hud" hidden><b id="camview-name"></b> <span class="desktop-only" data-t="camViewEsc"></span> <button id="camview-exit" type="button" data-t="back">Back</button></div>
+  <div id="camview-hud" hidden><b id="camview-name"></b> <span class="desktop-only" data-t="camViewEsc"></span> <button id="camview-photo" type="button" data-t-title="photoTitle">📷</button> <button id="camview-exit" type="button" data-t="back">Back</button></div>
   <!-- The replay page (?replay=<id>) -->
   <div id="replay-bar" hidden>
     <div class="rp-top"><a id="rp-back" href="/" data-t="replayBack">← Back to the room</a> <span id="rp-title" data-t="replayLoading"></span> <span id="rp-viewlabel"></span></div>
@@ -207,6 +212,7 @@
       <select id="rp-speed" data-t-aria="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
       <select id="rp-view" data-t-aria="view"></select>
       <button id="rp-video" type="button" data-t="recordVideo" data-t-title="recordVideoTitle">⏺ Record video</button>
+      <button id="rp-photo" type="button" data-t="photoBtn" data-t-title="photoTitle">📷 Photo</button>
       <a id="rp-download" hidden></a>
       <a id="rp-shots" hidden data-t="shotList" data-t-title="shotListTitle">🎬 Shot list</a>
     </div>
