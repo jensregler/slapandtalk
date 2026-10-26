@@ -143,6 +143,28 @@ Samma logg ger alltid samma lista (och samma bild i uppspelarens vy *🎬 Direct
   än, t.ex. medan inspelningen pågår) och med *🎬 Shot list* i uppspelaren. Separata tagningar per
   vinkel spelas in med *⏺ Record video* och vyn *Close-up / Medium / Over the shoulder: <namn>*.
 
+### Auto cameraman i bildlistan (`shared/autocam.mjs`)
+
+Bildlistan får tre tillägg (samma `v: 1`, äldre läsare hoppar över dem):
+
+```json
+{ "views": [{ "view": "director" }, { "view": "close:5e7d…" }, { "view": "auto:perimeter", "label": "Auto cameraman: Perimeter" }],
+  "shots": [{ "from": 0, "to": 1200, "kind": "room", "camera": "auto:pushin" }, { "kind": "close", "camera": "close:5e7d…" }],
+  "autocam": { "v": 1, "room": [{ "from": 5000, "to": 61234, "choice": "pushin", "view": "auto:pushin" }],
+    "params": { "walkMps": [0.5, 1], "frameMps": [0.18, 0.32], "mm": [35, 70], "beatMs": 4000 },
+    "takes": [{ "view": "auto:perimeter", "seed": "<recId>:perimeter", "eyeM": 1.62,
+      "legs": [{ "from": 0, "moveFrom": 2100, "to": 12800, "kind": "walk", "a": [-3.9, 3.9], "b": [-1.3, 3.9], "vMax": 0.81 }],
+      "beats": [{ "t": 0, "target": { "kind": "track", "p": [0, 1.4, -2] }, "mm": 35 }],
+      "track": { "stepMs": 1000, "columns": ["t", "x", "y", "z", "yaw", "pitch", "mm"], "samples": [[0, -3.9, 1.62, 3.9, 0.7, -0.03, 35]] } }] } }
+```
+
+- `views` = alla tagningar man kan klippa mellan (en vy i uppspelaren var, spelas in med ⏺ Record video).
+- `shots[].camera` = vilken tagning regissören använde: `auto:<bana>` för rumsbilden medan rummets auto
+  cameraman är på, annars `room` (det fasta hörnet), eller `<vinkel>:<talare>`.
+- `autocam.takes[]`: en per bana; `legs` (stå still `from`→`moveFrom`, gå → `to`), `beats` (var den
+  tittar och brännvidd var 4:e s), `track` (pose var `stepMs`, högst ~1200 rader). Seed = recId:bana,
+  så uppspelaren och listan ger exakt samma bild.
+
 ## Gränser
 
 | Variabel | Standard | Betydelse |

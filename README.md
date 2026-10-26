@@ -216,6 +216,27 @@ Den som skapade rummet (eller admin; i Staden bara admin) ser **🎬 Recording**
   *🎬 Shot list* laddar ner bildlistan (JSON med tider, talare och vinkel) för klippning; vyerna
   *Close-up / Medium / Over the shoulder: <namn>* ger separata tagningar. Rösten finns **inte** med
   i videorna (den går direkt mellan webbläsarna). Se `docs/recording-format.md`.
+- **🎥 Auto cameraman (steg 1):** en kamera som ingen behöver placera. I 🎬 Recording väljer du
+  *Off / Perimeter / Diagonal sweep / Push-in / Any* (en per rum, sparas som en kamera `{ auto }`,
+  så den kommer med i inspelningen). En simulerad fotograf går längs en färdig bana ur rummets mått
+  (`shared/room.json`): **Perimeter** runt rummet 1,1 m från väggarna, sakta längs mittersta
+  tredjedelen av varje sida; **Diagonal sweep** hörn till hörn genom mitten (sakta genom mitten),
+  längs en vägg, andra diagonalen tillbaka; **Push-in** sakta in mot en vägg (vald av seeden),
+  stanna, backa till ett nytt ställe längs väggen. Takt: 0,5–1,0 m/s när den går, 0,18–0,32 m/s
+  när den komponerar, mjuka S-kurvor (≤ 0,45 m/s²), stannar 1,4–3 s i hörnen, ögonhöjd 1,5–1,7 m,
+  lite handhållen gungning, aldrig närmare en vägg än 0,6 m. Zoom 35–70 mm (fullformat), högst
+  10 mm per 4 s: andas lugnt 35–43 mm när inget händer, går in mot väggytor med klibbor som satts de
+  senaste 30 s (de som sitter där från början räknas inte), panorerar ≤ 60°/s.
+  Deterministisk: samma inspelning (id:t är seed) ger samma tagning. I uppspelaren finns alltid
+  *🎥 Auto cameraman: Perimeter / Diagonal sweep / Push-in* som vyer (rummets egen märkt *this
+  room’s*; med ingen som pratar startar uppspelningen där), de spelas in med **⏺ Record video**, och
+  medan rummets auto cameraman är på använder 🎬 Director den som rumsbild i tystnaderna (annars det
+  fasta hörnet). Bildlistan har tagningarna med tider (se `docs/recording-format.md`). Live i
+  rummet är det en förhandsvisning (börjar om varje hel timme, samma för alla); 👁 tittar genom den.
+  **Demo:** att placera kameror är avstängt där, och auto-kameran som rumsinställning också (servern
+  säger 403 som för andra kameror), men tagningarna i uppspelaren kräver ingen inställning och finns
+  för skaparen även i demon. Koden: `shared/autocam.mjs`. Steg 2 (en smartare fotograf som följer
+  det som händer) är en ny *target provider* där, se kommentaren överst i filen.
 - Formatet på inspelningarna (versionerat, förberett för ljudspår och rendering) beskrivs i
   [`docs/recording-format.md`](docs/recording-format.md).
 - **OBS på Render (gratisnivån):** disken är tillfällig, så inspelningarna försvinner när
@@ -567,7 +588,7 @@ uploads, room editing, the full version, the City etc. are all back.
 What changes (shared/demo.json holds the numbers):
 - **Name first.** "What's your name?" before anything loads; remembered per device. Each new person gets a random avatar; *My avatar* is hidden.
 - **Library only.** The palette is the curated library (`library/`), R/F browse it. `POST /api/stickers` → 403; no Instagram tag field. The artist comes from the library, so Look mode shows it on click.
-- **Rooms.** Opening the site creates your own room with the empty preset (tiles, concrete, classic ceiling); no style picker, no room editing, no sound settings, no placing cameras, no City. The room's creator can still **● REC** (and make videos with the 🎬 Director from the replay); recordings are deleted with the room, so make the video before the hour ends. *New quick room* goes straight into a new empty room.
+- **Rooms.** Opening the site creates your own room with the empty preset (tiles, concrete, classic ceiling); no style picker, no room editing, no sound settings, no placing cameras, no City. The room's creator can still **● REC** (and make videos with the 🎬 Director or the 🎥 Auto cameraman takes from the replay; the auto cameraman needs no camera entry, so it works here); recordings are deleted with the room, so make the video before the hour ends. *New quick room* goes straight into a new empty room.
 - **Invites.** Max 5 per room and 5 members. Nobody gets in without an invite: each member can make one single-use link (✉ Invite a friend). Asking again re-shares the same unused link; once it is used, that member cannot invite again. The server keeps only hashes (of the room key, member keys and invite tokens). Members get a member key in their browser, so reloads and new tabs get back in. Extra tabs of a member beyond 5 players watch.
 - **One hour.** A quiet timer at the top; a calm note at 5 minutes. At the end everyone sees "This room has closed", the sockets close (code 4010, no reconnect) and (after any running recording is stopped) the room JSON (stamps, peels) and `recordings/<room>/` are deleted from storage. `videos/` is never touched. A sweep at start-up and every 5 minutes catches rooms that expired while the server was down.
 - **Voice.** 🎙 (or B) – off by default, asks for the microphone on the first press, then mutes/unmutes. Browser-to-browser (WebRTC mesh) through the existing signal relay, public STUN only (no TURN: some strict networks cannot connect). Voice also works outside the demo.
