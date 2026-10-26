@@ -47,6 +47,8 @@ camera.position.x += (Math.random() - 0.5) * 3; camera.position.z += (Math.rando
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
 controls.attachJoystick($('joystick'), $('stick'));
 const stamps = new StampLayer(scene, room.surfaces);
+// Mina peel-bara klibbor förblir egna meshar; äldre målas in i väggarna (se stamps.js).
+stamps.keepLive = () => roomHistory(ROOM).map((h) => h.stampId);
 // Peels: baksidespappret som faller till golvet vid varje slap (när rummet har det på), peels.js.
 const peelLayer = new PeelLayer(scene);
 // The backing paper lands: a soft "duff", louder and lower the bigger the paper, in the
@@ -816,8 +818,7 @@ function pickStampAt(ndc) {
   if (!p) return null;
   // Står en vägg/golv närmare än klibban (klibban på andra sidan)? Då syns den inte.
   const wall = raycaster.intersectObjects(room.surfaces, false)[0];
-  const hit = raycaster.intersectObjects([stamps.meshes.get(p.stamp.id)].filter(Boolean), false)[0];
-  if (wall && hit && wall.distance + 0.05 < hit.distance) return null;
+  if (wall && wall.distance + 0.05 < p.distance) return null;
   return p;
 }
 function showCredit(c, at = null) {
@@ -1447,7 +1448,7 @@ window.klibb = {
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
-  ready: false, room: ROOM, state, stamps, camera, controls, preview,
+  ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer,
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {
     const pieces = foldStamp(stamps.faces, { center: new THREE.Vector3(...position), quaternion: new THREE.Quaternion(...quaternion), w, h, surface });

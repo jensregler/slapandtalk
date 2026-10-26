@@ -141,6 +141,11 @@ inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) finns en 
   välja ett gästnamn själv). Namn rensas från osynliga tecken och dubbla mellanslag och får vara
   högst 24 tecken. Byter någon namn står det i chatten (*Guest 1 is now Ulla*), och *joined* /
   *left* visar alltid det namn personen har just då.
+- **Inmålade klibbor (prestanda):** bara de nyaste klibborna (de 30 senaste i rummet plus mina egna
+  peel-bara) är egna 3D-objekt. Äldre "målas in" i väggarna: de slås ihop till några få stora meshar med
+  alla designer i en gemensam texturlista, så ett rum med tusentals klibbor kostar bara ett par ritanrop.
+  Ritordning, vikning, utskurna kanter och ljus är som förut (`client/src/stamps.js`). Taket är
+  `MAX_STAMPS_PER_ROOM` (3000): då försvinner den äldsta tyst. Mät: `node tools/bench-stamps.js`.
 - **Fullt rum:** högst 10 gubbar per rum (`MAX_PLAYERS_PER_ROOM`). Den elfte ser rummet, alla
   gubbar och chatten, men kan inte skriva och syns inte, och kommer in automatiskt när någon går.
 - **Tappar du anslutningen** (mobilen byter nät, servern startar om eller Render vaknar) kopplar
@@ -501,6 +506,7 @@ Id:t räknas fram ur bildens innehåll, så laddar två personer upp exakt samma
 | `MAIL_FROM` | – | Avsändare, t.ex. `Slap and Talk <video@slapandtalk.com>` (domänen verifierad i Resend) |
 | `PUBLIC_URL` | sajtens adress | Adressen i videolänkar och mejl, t.ex. `https://slapandtalk.com` |
 | `MAX_PLAYERS_PER_ROOM` | `10` | Hur många gubbar som får vara i ett rum samtidigt (fler kan titta) |
+| `MAX_STAMPS_PER_ROOM` | `3000` | Högst så många klibbor per rum. En ny slap över taket tar tyst bort den äldsta (vanlig `stamp:remove`) |
 
 **Slå på Cloudflare R2 senare:** skapa en bucket och en API-token (Object Read & Write) i
 Cloudflare, sätt `STORAGE=s3` och S3-variablerna ovan i Render, och starta om. Befintliga

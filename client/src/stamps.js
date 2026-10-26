@@ -7,6 +7,95 @@ import { facesFromSurfaces, foldStamp, foldGeometry } from './fold.js';
 const loader = new THREE.TextureLoader();
 const DEPTH = 0.25; // hur "djup" projektionen är (meter)
 
+// ---------- "Inmålade" klibbor (prestanda) ----------
+// Varje klibba som egen mesh blir över tusen ritanrop per bildruta i ett fullt rum. Därför
+// "målas" klibbor som inte längre går att peela in i väggarna: de slås ihop till några få
+// stora meshar (en per sammanhängande nummerserie, CHUNK_MAX åt gången), med alla designer i
+// en gemensam texturlista (DataArrayTexture, ett lager per design). Ritordningen inne i en
+// sammanslagen mesh följer klibbornas nummer, så nyare hamnar fortfarande ovanpå äldre.
+// Bara de nyaste (LIVE_RECENT i rummet, plus mina egna peel-bara, keepLive) är egna meshar.
+export const LIVE_RECENT = 30;
+const BAKE_IDLE_MS = 700; // vänta tills det är lugnt en stund innan man målar in
+const BAKE_MAX_WAIT_MS = 3000; // ... men aldrig längre än så
+const CHUNK_MAX = 4096; // klibbor per sammanslagen mesh
+const PAGE_LAYERS_MAX = 64; // designer per texturlista (WebGL2 klarar minst 256)
+// Lagerstorlek: telefoner (grov pekare) 512 px, annars 1024 px (designerna är högst 1024 px).
+const layerSize = () => ((typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) ? 512 : 1024);
+
+// Samma material som de enskilda klibborna (ljus, alphaTest, polygonOffset), men bilden
+// hämtas ur texturlistan med lagret från vertexattributet stampLayer.
+function bakedMaterial(uniform) {
+  const m = new THREE.MeshStandardMaterial({
+    transparent: true, depthWrite: false, depthTest: true, alphaTest: 0.02,
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, roughness: 0.75,
+  });
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.stampTex = uniform;
+    sh.vertexShader = 'attribute float stampLayer;\nvarying vec3 vStampUv;\n'
+      + sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvStampUv = vec3(uv, stampLayer);');
+    // Lagren laddas upp uppifrån och ner (ingen flipY för 3D-texturer): v vänds här i stället.
+    sh.fragmentShader = 'uniform highp sampler2DArray stampTex;\nvarying vec3 vStampUv;\n'
+      + sh.fragmentShader.replace('#include <map_fragment>', 'diffuseColor *= texture(stampTex, vec3(vStampUv.x, 1.0 - vStampUv.y, vStampUv.z));');
+  };
+  m.customProgramCacheKey = () => 'klibb-baked-stamps';
+  return m;
+}
+
+let scratch = null; // en canvas för att skala om designerna till lagerstorleken
+class StampPage {
+  constructor(index, size) {
+    this.index = index; this.size = size;
+    this.layers = new Map(); // imageId -> lager
+    this.cap = 0; this.data = null; this.tex = null; this.uploaded = false;
+    this.uniform = { value: null };
+    this.material = bakedMaterial(this.uniform);
+  }
+  get full() { return this.layers.size >= PAGE_LAYERS_MAX; }
+  grow() {
+    const S = this.size, cap = Math.min(PAGE_LAYERS_MAX, this.cap + 8);
+    const data = new Uint8Array(S * S * 4 * cap);
+    if (this.data) data.set(this.data);
+    const tex = new THREE.DataArrayTexture(data, S, S, cap);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true; tex.anisotropy = 8;
+    tex.onUpdate = () => { this.uploaded = true; };
+    tex.needsUpdate = true;
+    if (this.tex) this.tex.dispose();
+    this.tex = tex; this.data = data; this.cap = cap; this.uploaded = false;
+    this.uniform.value = tex;
+  }
+  // Lagret för designen (läggs till vid behov). -1 om det inte går (listan full, bilden oläsbar).
+  layerOf(image, texture) {
+    if (this.layers.has(image.id)) return this.layers.get(image.id);
+    if (this.full) return -1;
+    const src = texture?.image;
+    if (!src || !(src.width || src.naturalWidth)) return -1;
+    const S = this.size;
+    let px;
+    try {
+      if (!scratch) scratch = document.createElement('canvas');
+      scratch.width = scratch.height = S;
+      const ctx = scratch.getContext('2d', { willReadFrequently: true });
+      ctx.clearRect(0, 0, S, S); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(src, 0, 0, S, S);
+      px = ctx.getImageData(0, 0, S, S).data;
+    } catch { return -1; }
+    const L = this.layers.size;
+    const grew = L >= this.cap;
+    if (grew) this.grow();
+    this.data.set(px, L * S * S * 4);
+    this.layers.set(image.id, L);
+    // Redan uppladdad: skicka bara det nya lagret. Annars laddas allt upp första gången den ritas.
+    if (!grew && this.uploaded) this.tex.addLayerUpdate(L);
+    this.tex.needsUpdate = true;
+    return L;
+  }
+  dispose() { this.tex?.dispose(); this.material.dispose(); }
+}
+
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _p = new THREE.Vector3();
+
 export class StampLayer {
   constructor(scene, surfaces) {
     this.scene = scene;
@@ -15,16 +104,31 @@ export class StampLayer {
     // Annars (t.ex. ett rum från Blender) används den gamla projektionen.
     this.faces = facesFromSurfaces(surfaces);
     this.textures = new Map(); // imageId -> Promise<Texture>
+    this.loaded = new Map(); // imageId -> Texture (när den har laddats)
+    this.recent = []; // senast efterfrågade designer (förhandsvisningen): deras texturer får vara kvar
     this.materials = new Map(); // imageId -> Material
-    this.meshes = new Map(); // stampId -> Mesh
+    // stampId -> Mesh (levande klibba) eller { baked: true, userData, renderOrder } (inmålad)
+    this.meshes = new Map();
     this.gone = new Set(); // borttagna id:n (så en sen "stamp:add" inte får tillbaka dem)
+    this.baked = new Map(); // stampId -> inmålad klibba (geometri + var den ligger i sin chunk)
+    this.chunks = new Map(); // nyckel -> sammanslagen mesh
+    this.pages = [];
+    this.keepLive = null; // () => stampId[] som ska förbli levande (t.ex. mina peel-bara)
+    this.bakeEnabled = true;
+    this.bakeTimer = 0; this.bakeSince = 0; this.animating = 0;
   }
 
+  // Designens textur (förhandsvisningen använder samma). De senast efterfrågade släpps inte.
   texture(image) {
+    this.recent = [image.id, ...this.recent.filter((id) => id !== image.id)].slice(0, 4);
+    return this.loadTexture(image);
+  }
+  loadTexture(image) {
     if (!this.textures.has(image.id)) {
       this.textures.set(image.id, loader.loadAsync(image.url).then((t) => {
         t.colorSpace = THREE.SRGBColorSpace;
         t.anisotropy = 8;
+        this.loaded.set(image.id, t);
         return t;
       }));
     }
@@ -33,13 +137,15 @@ export class StampLayer {
 
   async material(image) {
     if (!this.materials.has(image.id)) {
-      const map = await this.texture(image);
+      const map = await this.loadTexture(image);
       // depthWrite:false + polygonOffset: klibban ritas en aning "framför" väggen
       // utan att flimra. renderOrder (= stämpelns nummer) avgör vilken som hamnar överst.
-      this.materials.set(image.id, new THREE.MeshStandardMaterial({
-        map, transparent: true, depthWrite: false, depthTest: true, alphaTest: 0.02,
-        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, roughness: 0.75,
-      }));
+      if (!this.materials.has(image.id)) {
+        this.materials.set(image.id, new THREE.MeshStandardMaterial({
+          map, transparent: true, depthWrite: false, depthTest: true, alphaTest: 0.02,
+          polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, roughness: 0.75,
+        }));
+      }
     }
     return this.materials.get(image.id);
   }
@@ -108,6 +214,7 @@ export class StampLayer {
     mesh.userData = { stamp, image };
     this.scene.add(mesh);
     this.meshes.set(stamp.id, mesh);
+    this.scheduleBake();
   }
 
   // Högsta numret bland klibborna (en ny tillfällig klibba hamnar överst).
@@ -131,6 +238,7 @@ export class StampLayer {
     m.userData = { stamp, image, ...(hl ? { hl } : {}) };
     m.renderOrder = 10 + stamp.order + (hl ? 1e5 : 0);
     this.meshes.set(stamp.id, m);
+    this.scheduleBake();
     return true;
   }
 
@@ -138,23 +246,29 @@ export class StampLayer {
     this.gone.add(stampId);
     const m = this.meshes.get(stampId);
     if (!m) return;
+    if (m.baked) { this.unbake(stampId); return; }
     this.scene.remove(m);
     m.geometry.dispose();
     if (m.userData.ownMaterial) m.material.dispose();
     this.meshes.delete(stampId);
+    this.scheduleBake();
   }
 
   // Peel: klibban tonar bort och krymper lite (200 ms) och tas sedan bort.
+  // En inmålad klibba (sällsynt: taket på servern, admin) försvinner direkt i stället.
   peelAway(stampId, ms = 200) {
     this.gone.add(stampId);
     const m = this.meshes.get(stampId);
     if (!m) return Promise.resolve();
+    if (m.baked) { this.unbake(stampId); return Promise.resolve(); }
     this.meshes.delete(stampId); // syns inte längre i räkning/val
+    this.scheduleBake();
     const base = m.material;
     m.material = base.clone(); m.userData.ownMaterial = true;
     m.geometry.computeBoundingSphere();
     const c = m.geometry.boundingSphere.center.clone();
     const t0 = performance.now();
+    this.animating++;
     return new Promise((resolve) => {
       const step = () => {
         const k = Math.min(1, (performance.now() - t0) / ms);
@@ -162,16 +276,16 @@ export class StampLayer {
         const s = 1 - 0.25 * k; // krymp mot mitten
         m.scale.setScalar(s); m.position.copy(c).multiplyScalar(1 - s);
         if (k < 1) requestAnimationFrame(step);
-        else { this.scene.remove(m); m.geometry.dispose(); m.material.dispose(); resolve(); }
+        else { this.scene.remove(m); m.geometry.dispose(); m.material.dispose(); this.animating--; resolve(); }
       };
       requestAnimationFrame(step);
     });
   }
 
-  // Markera en stämpel (t.ex. när man pekar på den i historiken).
+  // Markera en stämpel (t.ex. när man pekar på den i historiken). Bara levande klibbor.
   highlight(stampId, on) {
     const m = this.meshes.get(stampId);
-    if (!m) return;
+    if (!m || m.baked) return;
     if (on && !m.userData.hl) {
       m.userData.hl = m.material;
       m.material = m.material.clone();
@@ -179,6 +293,7 @@ export class StampLayer {
       m.renderOrder += 1e5;
     } else if (!on && m.userData.hl) {
       m.material.dispose(); m.material = m.userData.hl; m.userData.hl = null; m.renderOrder -= 1e5;
+      this.scheduleBake();
     }
   }
 
@@ -187,15 +302,181 @@ export class StampLayer {
   }
 
   // Vilken stämpel träffar strålen? Den översta (högst nummer) om flera ligger på samma ställe.
+  // Svar: { stamp, image, distance } eller null. Inmålade klibbor räknas också (t.ex. för
+  // konstnärens namn), testade mot sina egna trianglar efter en snabb koll mot en omslutande sfär.
   pick(raycaster) {
-    const hits = raycaster.intersectObjects([...this.meshes.values()], false);
+    const live = [];
+    for (const m of this.meshes.values()) if (!m.baked) live.push(m);
+    const hits = raycaster.intersectObjects(live, false).map((h) => ({ distance: h.distance, ud: h.object.userData }));
+    const { ray, near: rNear, far: rFar } = raycaster;
+    for (const r of this.baked.values()) {
+      if (!ray.intersectsSphere(r.sphere)) continue;
+      const P = r.pos, I = r.idx;
+      let best = Infinity;
+      for (let i = 0; i < I.length; i += 3) {
+        _a.fromArray(P, I[i] * 3); _b.fromArray(P, I[i + 1] * 3); _c.fromArray(P, I[i + 2] * 3);
+        if (!ray.intersectTriangle(_a, _b, _c, true, _p)) continue;
+        const d = ray.origin.distanceTo(_p);
+        if (d >= rNear && d <= rFar && d < best) best = d;
+      }
+      if (best < Infinity) hits.push({ distance: best, ud: r.handle.userData });
+    }
     if (!hits.length) return null;
+    hits.sort((a, b) => a.distance - b.distance);
     const near = hits.filter((h) => h.distance - hits[0].distance < 0.02);
-    near.sort((a, b) => b.object.userData.stamp.order - a.object.userData.stamp.order);
-    return near[0].object.userData;
+    near.sort((a, b) => b.ud.stamp.order - a.ud.stamp.order);
+    return { stamp: near[0].ud.stamp, image: near[0].ud.image, distance: near[0].distance };
   }
 
   get count() { return this.meshes.size; }
+
+  // ---------- Inmålning ----------
+  scheduleBake() {
+    if (!this.bakeEnabled) return;
+    const now = performance.now();
+    if (!this.bakeSince) this.bakeSince = now;
+    clearTimeout(this.bakeTimer);
+    const wait = Math.max(0, Math.min(BAKE_IDLE_MS, this.bakeSince + BAKE_MAX_WAIT_MS - now));
+    this.bakeTimer = setTimeout(() => this.bake(), wait);
+  }
+
+  pageFor(image, tex) {
+    for (const pg of this.pages) if (pg.layers.has(image.id)) return [pg, pg.layers.get(image.id)];
+    let pg = this.pages.find((x) => !x.full);
+    if (!pg) { pg = new StampPage(this.pages.length, layerSize()); this.pages.push(pg); }
+    const L = pg.layerOf(image, tex);
+    return L < 0 ? null : [pg, L];
+  }
+
+  // Målar in alla klibbor som inte behöver vara levande, och bygger om de sammanslagna
+  // meshar som har ändrats. Svar: hur många som målades in nu.
+  bake() {
+    clearTimeout(this.bakeTimer); this.bakeTimer = 0; this.bakeSince = 0;
+    const keep = new Set(this.keepLive ? this.keepLive() : []);
+    const all = [...this.meshes.values()].map((m) => m.userData.stamp);
+    if (all.length > LIVE_RECENT) all.sort((a, b) => b.order - a.order);
+    for (const s of all.slice(0, LIVE_RECENT)) keep.add(s.id);
+    let n = 0;
+    for (const [id, m] of this.meshes) {
+      if (m.baked || keep.has(id) || id.startsWith('tmp-') || m.userData.stamp.pending || m.userData.hl || m.userData.ownMaterial) continue;
+      const { stamp, image } = m.userData;
+      const tex = this.loaded.get(image.id);
+      const pl = tex && this.pageFor(image, tex);
+      if (!pl) continue;
+      const g = m.geometry;
+      const pos = Float32Array.from(g.attributes.position.array);
+      const idx = g.index ? Uint32Array.from(g.index.array) : Uint32Array.from({ length: g.attributes.position.count }, (_, i) => i);
+      g.computeBoundingSphere();
+      const handle = { baked: true, userData: { stamp, image }, renderOrder: 10 + stamp.order };
+      this.baked.set(id, {
+        id, stamp, image, handle, page: pl[0], layer: pl[1], pos, idx,
+        nor: Float32Array.from(g.attributes.normal.array), uv: Float32Array.from(g.attributes.uv.array),
+        sphere: g.boundingSphere.clone(), chunk: null, start: 0,
+      });
+      this.scene.remove(m); g.dispose();
+      this.meshes.set(id, handle);
+      n++;
+    }
+    if (n || this.dirty) this.rechunk();
+    this.releaseTextures();
+    return n;
+  }
+
+  // Delar in de inmålade klibborna i sammanhängande serier (efter nummer). En serie bryts
+  // där en levande klibba ligger emellan, så att ritordningen blir exakt som förut.
+  rechunk() {
+    this.dirty = false;
+    const recs = [...this.baked.values()].sort((a, b) => a.stamp.order - b.stamp.order);
+    const liveOrders = [];
+    for (const m of this.meshes.values()) if (!m.baked) liveOrders.push(m.userData.stamp.order);
+    liveOrders.sort((a, b) => a - b);
+    const groups = [];
+    let cur = null, li = 0;
+    for (const r of recs) {
+      let split = false;
+      while (li < liveOrders.length && liveOrders[li] < r.stamp.order) { li++; split = true; }
+      if (!cur || split || cur.page !== r.page || cur.recs.length >= CHUNK_MAX) { cur = { page: r.page, recs: [] }; groups.push(cur); }
+      cur.recs.push(r);
+    }
+    const next = new Map();
+    for (const gr of groups) {
+      let sum = 0; for (const r of gr.recs) sum += r.stamp.order;
+      const key = `${gr.page.index}:${gr.recs[0].id}:${gr.recs.at(-1).id}:${gr.recs.length}:${sum}`;
+      const old = this.chunks.get(key);
+      if (old) { this.chunks.delete(key); next.set(key, old); continue; }
+      next.set(key, this.buildChunk(gr, key));
+    }
+    for (const c of this.chunks.values()) this.disposeChunk(c);
+    this.chunks = next;
+  }
+
+  buildChunk({ page, recs }, key) {
+    let nv = 0, ni = 0;
+    for (const r of recs) { nv += r.pos.length / 3; ni += r.idx.length; }
+    const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), uv = new Float32Array(nv * 2), lay = new Float32Array(nv);
+    const idx = new Uint32Array(ni);
+    const chunk = { key, mesh: null, alive: recs.length };
+    let v = 0, i = 0;
+    for (const r of recs) {
+      const n = r.pos.length / 3;
+      pos.set(r.pos, v * 3); nor.set(r.nor, v * 3); uv.set(r.uv, v * 2); lay.fill(r.layer, v, v + n);
+      for (let k = 0; k < r.idx.length; k++) idx[i + k] = r.idx[k] + v;
+      r.chunk = chunk; r.start = i;
+      v += n; i += r.idx.length;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setAttribute('stampLayer', new THREE.BufferAttribute(lay, 1));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.computeBoundingSphere();
+    const mesh = new THREE.Mesh(g, page.material);
+    // Ritas efter alla äldre levande klibbor och före alla nyare (serien bryts vid levande).
+    mesh.renderOrder = 10 + recs.at(-1).stamp.order;
+    mesh.matrixAutoUpdate = false;
+    mesh.userData = { bakedChunk: true, count: recs.length };
+    this.scene.add(mesh);
+    chunk.mesh = mesh;
+    return chunk;
+  }
+
+  disposeChunk(c) { this.scene.remove(c.mesh); c.mesh.geometry.dispose(); }
+
+  // En inmålad klibba tas bort (sällsynt): dess trianglar nollas direkt, och serien byggs om
+  // i lugn och ro vid nästa inmålning.
+  unbake(id) {
+    const r = this.baked.get(id);
+    this.baked.delete(id); this.meshes.delete(id);
+    if (!r) return;
+    const c = r.chunk;
+    if (c && this.chunks.get(c.key) === c) {
+      if (--c.alive <= 0) { this.disposeChunk(c); this.chunks.delete(c.key); }
+      else {
+        const ix = c.mesh.geometry.index;
+        ix.array.fill(ix.array[r.start], r.start, r.start + r.idx.length);
+        ix.addUpdateRange(r.start, r.idx.length); ix.needsUpdate = true;
+      }
+    }
+    this.dirty = true;
+    this.scheduleBake();
+  }
+
+  // Designer som bara finns inmålade behöver inte sin egen textur på grafikkortet (laddas upp
+  // igen av sig själv om de behövs). De senast valda (förhandsvisningen) får vara kvar.
+  releaseTextures() {
+    if (this.animating) return;
+    const used = new Set(this.recent);
+    for (const m of this.meshes.values()) if (!m.baked) used.add(m.userData.image.id);
+    for (const [id, t] of this.loaded) if (!used.has(id)) t.dispose();
+  }
+
+  // För tester och felsökning.
+  stats() {
+    let live = 0; for (const m of this.meshes.values()) if (!m.baked) live++;
+    return { live, baked: this.baked.size, chunks: this.chunks.size, pages: this.pages.length,
+      layers: this.pages.reduce((s, p) => s + p.layers.size, 0), layerSize: this.pages[0]?.size || 0 };
+  }
 }
 
 // Hur genomskinlig klibban man håller i är. 1 = helt ogenomskinlig, som en riktig klibba

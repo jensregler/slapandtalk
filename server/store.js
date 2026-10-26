@@ -27,6 +27,12 @@ const ROOM_TYPES = ['stad', 'quick', 'profile'];
 const PUBLIC_ROOM = 'stad';
 const VISIT_WRITE_MS = 60_000; // skriv "senast besökt" högst en gång i minuten per rum
 const PEEL_KEEP = 20; // så många av sina senaste stämplar per rum kan man peela
+// Safety cap: at most this many stickers per room. A new slap beyond it quietly removes the
+// OLDEST sticker (broadcast as an ordinary stamp:remove by app.js). Override: MAX_STAMPS_PER_ROOM.
+const MAX_STAMPS_PER_ROOM = (() => {
+  const n = Number.parseInt(process.env.MAX_STAMPS_PER_ROOM, 10);
+  return Number.isFinite(n) && n > 0 ? n : 3000;
+})();
 
 const newId = () => crypto.randomBytes(8).toString('hex');
 const contentId = (buf) => crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
@@ -270,11 +276,18 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
     });
   }
 
-  async function addStamp(roomId, stamp) {
+  // onEvict(ids): called (inside the room's lock) with the ids of the oldest stickers that were
+  // dropped to stay within maxStamps, so the caller can broadcast stamp:remove for them.
+  async function addStamp(roomId, stamp, { maxStamps = MAX_STAMPS_PER_ROOM, onEvict = null } = {}) {
     return withLock(roomId, async () => {
       const room = (await loadRoom(roomId)) || normalize(roomId, { createdAt: iso() });
       const s = { id: newId(), order: (room.stamps.at(-1)?.order ?? 0) + 1, createdAt: iso(), ...stamp };
       room.stamps.push(s);
+      const over = room.stamps.length - Math.max(1, maxStamps);
+      if (over > 0) { // stamps are kept in order: the first ones are the oldest
+        const evicted = room.stamps.splice(0, over).map((x) => x.id);
+        if (onEvict) onEvict(evicted);
+      }
       // Bara de senaste PEEL_KEEP stämplarna per person och rum går att peela: äldre tappar sin
       // peel-nyckel (då kan bara admin ta bort dem).
       if (s.peelOwner) {
@@ -413,4 +426,4 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   };
 }
 
-module.exports = { createStore, newId, contentId, roomCode, ROOM_TYPES, PUBLIC_ROOM, PEEL_KEEP };
+module.exports = { MAX_STAMPS_PER_ROOM, createStore, newId, contentId, roomCode, ROOM_TYPES, PUBLIC_ROOM, PEEL_KEEP };

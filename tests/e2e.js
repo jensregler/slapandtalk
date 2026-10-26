@@ -16,6 +16,7 @@ const { escE2E } = require('./e2e-esc');
 const { uploadE2E } = require('./e2e-upload');
 const { peelsE2E } = require('./e2e-peels');
 const { paletteE2E } = require('./e2e-palette');
+const { bakeE2E } = require('./e2e-bake');
 
 const BASE = process.env.BASE_URL || 'http://localhost:8787';
 const ROOM = 'e2e-test';
@@ -1225,6 +1226,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await escE2E({ browser, BASE, assert, waitReady, devices });
     await uploadE2E({ browser, BASE, assert, waitReady, testPng, TOKEN });
     await paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN });
+    await bakeE2E({ browser, BASE, assert, waitReady, TOKEN });
 
     // Fullt rum: 10 är max. Den elfte får titta, och kommer in när någon går.
     const fullRoom = (await (await fetch(`${BASE}/api/rooms`, { method: 'POST' })).json()).room.id;

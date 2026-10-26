@@ -327,6 +327,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   // Vem stämplade (för gränsen på 20 peel-bara per person och rum): en slumpad enhets-id från
   // webbläsaren, annars IP-adressen. Bara en hash sparas.
   const owner = typeof b.owner === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(b.owner) ? 'd:' + b.owner : 'ip:' + req.ip;
+  const evicted = []; // the room is full (MAX_STAMPS_PER_ROOM): the oldest stickers quietly go
   const saved = await store.addStamp(room, {
     peelHash: hashToken(peelToken), peelOwner: hashToken(owner).slice(0, 24),
     imageId: image.id,
@@ -334,7 +335,8 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
     size: clampSize(b.size), rotation: isNum(b.rotation) ? b.rotation : 0,
     surface: String(b.surface || '').slice(0, 40),
     ...(await artistFields(b)),
-  });
+  }, { onEvict: (ids) => evicted.push(...ids) });
+  for (const id of evicted) broadcast(room, { type: 'stamp:remove', id });
   const stamp = publicStamp(saved);
   // nonce: en slumpad lapp från klienten, så den som stämplade känner igen sin egen stämpel
   // (och inte spelar upp ljudet två gånger). Aldrig peel-nyckeln.
