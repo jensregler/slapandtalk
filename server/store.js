@@ -323,15 +323,45 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       }
       // Bara de senaste PEEL_KEEP stämplarna per person och rum går att peela: äldre tappar sin
       // peel-nyckel (då kan bara admin ta bort dem).
-      if (s.peelOwner) {
-        const mine = room.stamps.filter((x) => x.peelOwner === s.peelOwner && x.peelHash);
-        const left = mine.slice(0, Math.max(0, mine.length - PEEL_KEEP));
-        for (const old of left) { delete old.peelHash; delete old.peelOwner; }
-        if (onLeave && left.length) onLeave(left.map((x) => x.id));
-      }
+      if (s.peelOwner) trimPeelable(room, s.peelOwner, onLeave);
       room.lastVisitAt = iso();
       await saveRoom(room);
       return s;
+    });
+  }
+  // The peel history counts STEPS, not stickers: a sticker array (addStamps) shares its anchor's peel
+  // key, so the whole row is one step. Keep the newest PEEL_KEEP distinct keys of this owner; older
+  // stickers lose theirs (only admin can remove them then) and are reported to onLeave.
+  function trimPeelable(room, owner, onLeave) {
+    const mine = room.stamps.filter((x) => x.peelOwner === owner && x.peelHash);
+    const keys = [...new Set(mine.map((x) => x.peelHash))]; // oldest first (stamps are kept in order)
+    if (keys.length <= PEEL_KEEP) return;
+    const drop = new Set(keys.slice(0, keys.length - PEEL_KEEP));
+    const left = mine.filter((x) => drop.has(x.peelHash));
+    for (const old of left) { delete old.peelHash; delete old.peelOwner; }
+    if (onLeave && left.length) onLeave(left.map((x) => x.id));
+  }
+  // A sticker array: copies of the anchor sticker (anchorId), added in ONE locked step. They share
+  // the anchor's peel key and owner (so peeling the anchor's key peels the row) and carry group =
+  // the anchor's id. Returns the saved copies (minus any the room cap dropped at once), or null when
+  // the anchor is gone or its peel key changed (peeled, out of the history) in the meantime.
+  async function addStamps(roomId, anchorId, peelHash, copies, { maxStamps = MAX_STAMPS_PER_ROOM, onEvict = null, onLeave = null } = {}) {
+    return withLock(roomId, async () => {
+      const room = await loadRoom(roomId);
+      const anchor = room && room.stamps.find((x) => x.id === anchorId);
+      if (!anchor || !anchor.peelHash || anchor.peelHash !== peelHash) return null;
+      let order = room.stamps.at(-1)?.order ?? 0;
+      const now = iso();
+      const added = copies.map((c) => ({ id: newId(), order: ++order, createdAt: now, ...c, group: anchor.id, peelHash: anchor.peelHash, ...(anchor.peelOwner ? { peelOwner: anchor.peelOwner } : {}) }));
+      room.stamps.push(...added);
+      const over = room.stamps.length - Math.max(1, maxStamps);
+      let evicted = [];
+      if (over > 0) { evicted = room.stamps.splice(0, over).map((x) => x.id); if (onEvict) onEvict(evicted); }
+      if (anchor.peelOwner) trimPeelable(room, anchor.peelOwner, onLeave);
+      room.lastVisitAt = now;
+      await saveRoom(room);
+      const gone = new Set(evicted);
+      return added.filter((x) => !gone.has(x.id));
     });
   }
   async function deleteStamp(roomId, stampId) {
@@ -455,7 +485,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   }
 
   return {
-    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
+    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, addStamps, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
     deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, setGroove, addPeel, peelState, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle,
   };

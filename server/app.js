@@ -457,6 +457,90 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   res.json({ stamp, image, peelToken, ...(peel ? { peel } : {}) });
 }));
 
+// ---------- Sticker arrays (slap at A, hold, drag to B) ----------
+// POST /api/rooms/:room/stamps/array  { anchor: { id, token }, to: [x, y, z], nonce?, by?, peelFrom? }
+// The anchor is a sticker the caller just slapped (ordinary POST …/stamps); token = its peel key, so
+// only whoever slapped it can extend it. The server recomputes the row itself from the SAVED anchor
+// (shared/array.mjs: same design, size, rotation, face; edge-to-edge spacing toward `to`), so the
+// size limits already applied to the anchor hold for every copy. All copies go in in ONE locked step
+// (store.addStamps), share the anchor's peel key (the whole row = one peel step) and are broadcast
+// as ordinary stamp:add events (recordings, replays, videos, older clients all just work) with
+// nonce = "<nonce>x<i>" and batch = { g: anchorId, i, n }.
+// Limits: ARRAY_MAX stickers per drag (anchor included), 30 drags and ARRAY_BUDGET copies per IP and
+// minute, the room cap (oldest drop), floor copies that land on backing paper are skipped (peels on),
+// and the reach is the anchor's only. Backing paper: one per copy for the first PEELS_PER_ARRAY (4; + the anchor's own = 5 at most).
+const arrayMod = import('../shared/array.mjs');
+const ARRAY_BUDGET = 1000;
+const arrayHits = new Map(); // ip -> [{ t, n }]
+function arrayBudget(ip, n) {
+  const now = Date.now();
+  const list = (arrayHits.get(ip) || []).filter((x) => now - x.t < 60_000);
+  const used = list.reduce((a, x) => a + x.n, 0);
+  if (used + n > ARRAY_BUDGET) { arrayHits.set(ip, list); return false; }
+  list.push({ t: now, n }); arrayHits.set(ip, list);
+  if (arrayHits.size > 5000) arrayHits.delete(arrayHits.keys().next().value);
+  return true;
+}
+app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) => {
+  const room = roomParam(req, res); if (!room) return;
+  const b = req.body || {};
+  if (demo && !isAdmin(req)) {
+    if ((await demo.roomOpen(room)) !== 'ok') return res.status(410).json({ error: 'This room has closed.', closed: true });
+    if (!playerPosition(room, playerId(b.by))) return res.status(403).json({ error: 'Join the room first.', demo: true });
+  }
+  const a = b.anchor || {};
+  if (typeof a.id !== 'string' || !/^[a-f0-9]{16}$/.test(a.id) || typeof a.token !== 'string' || !a.token) return res.status(400).json({ error: 'Invalid anchor' });
+  if (!isVec(b.to, 3)) return res.status(400).json({ error: 'Invalid position' });
+  const snap = await store.getRoom(room);
+  const anchor = snap && snap.stamps.find((s) => s.id === a.id);
+  if (!anchor) return res.status(404).json({ error: 'That sticker is gone', gone: true });
+  if (!anchor.peelHash || !tokenMatches(a.token, anchor.peelHash)) return res.status(403).json({ error: 'You can only repeat your own latest stickers' });
+  const image = await imageAvailable(anchor.imageId);
+  if (!image) return res.status(410).json({ error: 'That design is no longer on the server.', gone: true });
+  const A = await arrayMod, P = await peelsMod;
+  const [w, h] = P.stampDims(image, anchor.size);
+  let items = A.arrayPlan(anchor, w, h, b.to).items.filter((x) => x.i > 0);
+  if (!items.length) return res.status(400).json({ error: 'Nothing to repeat', empty: true });
+  const peelSt = await store.peelState(room);
+  if (peelSt.on && peelSt.peels.length && P.onFloor(String(anchor.surface || ''), anchor.normal)) {
+    const keep = [];
+    for (const x of items) if ((await floorOverlap(P, image, { ...anchor, position: x.position }, peelSt.peels)) <= P.PEEL.refuseOverlap) keep.push(x);
+    items = keep;
+    if (!items.length) return res.status(409).json({ error: 'Nope.', nope: true });
+  }
+  if (!arrayBudget(req.ip, items.length)) return res.status(429).json({ error: 'Easy now – wait a minute.' });
+  const evicted = [];
+  const copy = ({ position }) => ({
+    imageId: anchor.imageId, position, normal: anchor.normal, quaternion: anchor.quaternion, size: anchor.size,
+    rotation: isNum(anchor.rotation) ? anchor.rotation : 0, surface: anchor.surface,
+    ...(anchor.artist !== undefined ? { artist: anchor.artist } : {}), ...(anchor.artistLink ? { artistLink: anchor.artistLink } : {}),
+  });
+  const saved = await store.addStamps(room, anchor.id, anchor.peelHash, items.map(copy), { onEvict: (ids) => evicted.push(...ids), onLeave: (ids) => hidden.left(room, ids) });
+  if (!saved) return res.status(404).json({ error: 'That sticker is gone', gone: true });
+  for (const id of evicted) broadcast(room, { type: 'stamp:remove', id });
+  const nonce = typeof b.nonce === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(b.nonce) ? b.nonce : null;
+  const by = playerId(b.by);
+  const byOrder = new Map(saved.map((s, n) => [s.id, items[n].i])); // saved keeps items' order (minus evicted)
+  const rows = [];
+  let papers = 0;
+  const on = peelSt.on || (await store.peelState(room)).on;
+  const from = on ? (cleanFrom(b.peelFrom) || fallbackFrom(anchor.position, anchor.normal)) : null;
+  for (const s of saved) {
+    const i = byOrder.get(s.id), stamp = publicStamp(s);
+    const n = nonce ? `${nonce}x${i}` : undefined;
+    let peel = null;
+    if (on && papers < A.PEELS_PER_ARRAY) {
+      papers++;
+      const seed = n || s.id;
+      const { side, ...plan } = P.peelPlan(seed, from, s.position);
+      peel = await store.addPeel(room, { id: s.id, imageId: image.id, w: Math.round(w * 1e4) / 1e4, h: Math.round(h * 1e4) / 1e4, seed, ...plan }, P.PEEL.maxPerRoom);
+    }
+    rows.push({ i, stamp, ...(peel ? { peel } : {}) });
+    broadcast(room, { type: 'stamp:add', stamp, image, ...(n ? { nonce: n } : {}), ...(by ? { by } : {}), batch: { g: anchor.id, i, n: saved.length }, ...(peel ? { peel } : {}) });
+  }
+  res.json({ anchor: anchor.id, image, stamps: rows });
+}));
+
 // Räckvidden med peels på. Spelaren måste vara ansluten till rummet (WebSocket, b.by) så servern
 // vet var den står. Positionen kan ligga ett steg efter (move går över WebSocket, slappen över
 // HTTP): säger klienten att den står inom räckhåll väntar vi högst REACH_WAIT_MS på nästa move.
