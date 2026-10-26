@@ -7,7 +7,8 @@
 //   recordings/<rum>/<recId>.jsonl       själva loggen, en JSON-rad per händelse
 //   recordings/<rum>/<recId>.meta.json   start/stopp, längd, storlek, vilka som var med
 //   recordings/<rum>/<recId>.shots.json  the auto-director's shot list (who talks when, which
-//                                        angle), written when the recording stops (shared/director.mjs)
+//                                        angle), written when the recording stops (shared/director.mjs),
+//                                        + the auto cameraman's takes (shared/autocam.mjs)
 // Formatet (versionerat) beskrivs i docs/recording-format.md. Uppspelningen finns i shared/replay.mjs.
 //
 // Loggen hålls i minnet medan inspelningen pågår och skrivs till lagringen var 20:e sekund
@@ -37,10 +38,11 @@ function createRecorder(store, {
   const keys = (room, id) => ({ log: `recordings/${room}/${id}.jsonl`, meta: `recordings/${room}/${id}.meta.json`, shots: `recordings/${room}/${id}.shots.json` });
   // The shot list from a finished log (shared/*.mjs are ES modules: imported once, lazily).
   let shared = null;
-  const loadShared = () => (shared ||= Promise.all([import('../shared/replay.mjs'), import('../shared/director.mjs')]).then(([R, D]) => ({ R, D })));
+  const loadShared = () => (shared ||= Promise.all([import('../shared/replay.mjs'), import('../shared/director.mjs'), import('../shared/autocam.mjs')]).then(([R, D, A]) => ({ R, D, A })));
   async function shotsOf(buf) {
-    const { R, D } = await loadShared();
-    return D.shotList(R.buildTimeline(R.parseRecording(buf.toString('utf8'))));
+    const { R, D, A } = await loadShared();
+    const tl = R.buildTimeline(R.parseRecording(buf.toString('utf8')));
+    return A.withAutoCam(D.shotList(tl), tl); // + the auto cameraman's takes (shared/autocam.mjs)
   }
 
   function metaOf(r) {

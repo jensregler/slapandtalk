@@ -623,11 +623,14 @@ const ROOM_SIZE = require('../shared/room.json');
 const MAX_CAMERAS = 12;
 const CAM_ID_RE = /^[a-f0-9]{10}$/;
 const ASPECTS = ['', '16:9', '9:16'];
+// The auto cameraman (shared/autocam.mjs AUTO_CHOICES): a camera entry { auto: path } that nobody
+// places; the web app and the replay move it along the path. At most one per room.
+const AUTO_CHOICES = ['perimeter', 'diagonal', 'pushin', 'seeded'];
 const wrapAngle = (a) => Math.round(Math.atan2(Math.sin(a), Math.cos(a)) * 1e4) / 1e4;
 function cleanCamera(b, old = null) {
   b = b && typeof b === 'object' ? b : {};
-  const c = old ? { ...old } : { fov: 60, aspect: '', yaw: 0, pitch: 0 };
-  if (b.p !== undefined || !old) {
+  const c = old ? { ...old } : { fov: 60, aspect: '', yaw: 0, pitch: 0, p: [0, 1.6, 0] };
+  if (b.p !== undefined || (!old && b.auto === undefined)) {
     if (!isVec(b.p, 3)) return null;
     const hw = ROOM_SIZE.width / 2 - 0.05, hd = ROOM_SIZE.depth / 2 - 0.05;
     const r = (n) => Math.round(n * 1000) / 1000;
@@ -638,6 +641,11 @@ function cleanCamera(b, old = null) {
   if (b.fov !== undefined) { if (!isNum(b.fov)) return null; c.fov = Math.round(Math.min(120, Math.max(15, b.fov))); }
   if (b.aspect !== undefined) { const a = b.aspect === null ? '' : String(b.aspect); if (!ASPECTS.includes(a)) return null; c.aspect = a; }
   if (b.name !== undefined) { const n = cleanName(b.name); if (n) c.name = n; }
+  if (b.auto !== undefined || (old && old.auto)) {
+    const a = b.auto === undefined ? old.auto : String(b.auto);
+    if (!AUTO_CHOICES.includes(a) || (old && !old.auto)) return null; // a placed camera can't become an auto one (or back)
+    c.auto = a; c.p = [0, 1.6, 0]; c.yaw = 0; c.pitch = 0; c.fov = 50; c.aspect = '';
+  }
   return c;
 }
 app.post('/api/rooms/:room/cameras', rateLimit(60), wrap(async (req, res) => {
@@ -646,10 +654,11 @@ app.post('/api/rooms/:room/cameras', rateLimit(60), wrap(async (req, res) => {
   const cam = cleanCamera(req.body); if (!cam) return res.status(400).json({ error: 'Invalid camera' });
   const r = await store.editCameras(id, canEditRoom(req), (list) => {
     if (list.length >= MAX_CAMERAS) return { error: `At most ${MAX_CAMERAS} cameras per room`, save: false };
+    if (cam.auto && list.some((c) => c.auto)) return { error: 'The room already has an auto cameraman', save: false };
     // Camera 1, 2, 3 … (det lägsta lediga numret)
     const used = new Set(list.map((c) => /^Camera (\d+)$/.exec(c.name)?.[1]).filter(Boolean).map(Number));
     let n = 1; while (used.has(n)) n++;
-    const c = { id: crypto.randomBytes(5).toString('hex'), name: cam.name || `Camera ${n}`, p: cam.p, yaw: cam.yaw, pitch: cam.pitch, fov: cam.fov, aspect: cam.aspect, createdAt: new Date().toISOString() };
+    const c = { id: crypto.randomBytes(5).toString('hex'), name: cam.name || (cam.auto ? 'Auto cameraman' : `Camera ${n}`), p: cam.p, yaw: cam.yaw, pitch: cam.pitch, fov: cam.fov, aspect: cam.aspect, ...(cam.auto ? { auto: cam.auto } : {}), createdAt: new Date().toISOString() };
     list.push(c);
     return { camera: c };
   });
