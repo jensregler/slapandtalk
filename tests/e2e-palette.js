@@ -42,6 +42,8 @@ async function paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) 
     assert(ids.length === 4, 'palette: 4 designs uploaded');
     const [A, B, C, D] = ids; // A newest (selected)
     const thumb = (id) => `#tray .thumb[data-id="${id}"]`;
+    // Wait for the fade-in (slow under load) instead of a fixed pause.
+    const shown = (pg, id) => pg.waitForFunction((id) => { const x = document.querySelector(`#tray .thumb[data-id="${id}"] .del-btn`); return x && +getComputedStyle(x).opacity > 0.95; }, id, { timeout: 8000 });
     const ctl = (id) => d.evaluate((id) => {
       const t = document.querySelector(`#tray .thumb[data-id="${id}"]`); if (!t) return null;
       const r = t.querySelector('.pick').getBoundingClientRect();
@@ -57,7 +59,7 @@ async function paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) 
     const before = await ctl(B);
     assert(before.fav < 0.05 && before.del < 0.05 && before.delPe === 'none',
       'palette (desktop): no star or × on a thumbnail until you hover it');
-    await d.hover(`${thumb(B)} .pick`); await d.waitForTimeout(450);
+    await d.hover(`${thumb(B)} .pick`); await shown(d, B);
     const hov = await ctl(B);
     assert(hov.fav > 0.9 && hov.del > 0.9 && hov.delPe === 'auto' && hov.delTopRight && hov.favTopLeft,
       'palette (desktop): hover shows the star top-left and the × top-right');
@@ -84,7 +86,7 @@ async function paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) 
     await d.evaluate((id) => { const k = window.klibb; k.state.selected = k.state.mine.find((m) => m.id === id); }, A);
 
     // ---------- Remove with undo ----------
-    await d.hover(`${thumb(C)} .pick`); await d.waitForTimeout(450);
+    await d.hover(`${thumb(C)} .pick`); await shown(d, C);
     await d.click(`${thumb(C)} .del-btn`);
     const gone = await d.evaluate(() => ({ ids: window.klibb.designs().map((x) => x.id), ls: JSON.parse(localStorage.getItem('klibb.mine')).map((m) => m.id),
       toast: document.getElementById('undo-toast').hidden ? '' : document.getElementById('undo-toast').textContent.replace(/\s+/g, ' ').trim(), sel: window.klibb.state.selected.id }));
@@ -96,7 +98,7 @@ async function paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) 
     assert(back.ids.join() === [A, B, C, D].join() && back.hidden, 'undo: the design is back in the same place');
 
     // Removing a favourite and undoing keeps it a favourite.
-    await d.hover(`${thumb(B)} .pick`); await d.waitForTimeout(450);
+    await d.hover(`${thumb(B)} .pick`); await shown(d, B);
     await d.click(`${thumb(B)} .del-btn`);
     const favGone = await d.evaluate((id) => JSON.parse(localStorage.getItem('klibb.favs') || '[]').includes(id), B);
     await d.click('#undo-btn');
@@ -104,7 +106,7 @@ async function paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) 
     assert(!favGone && favBack.fav && favBack.ids.join() === [A, B, C, D].join(), 'undo: a removed favourite comes back as a favourite');
 
     // Remove the selected one: the next design gets selected.
-    await d.hover(`${thumb(A)} .pick`); await d.waitForTimeout(450);
+    await d.hover(`${thumb(A)} .pick`); await shown(d, A);
     await d.click(`${thumb(A)} .del-btn`);
     const selNext = await d.evaluate(() => window.klibb.state.selected && window.klibb.state.selected.id);
     await d.click('#undo-btn');
@@ -113,7 +115,7 @@ async function paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) 
 
     // Remove C for real (let the undo time run out).
     const undoMs = await d.evaluate(() => window.klibb.undoMs);
-    await d.hover(`${thumb(C)} .pick`); await d.waitForTimeout(450);
+    await d.hover(`${thumb(C)} .pick`); await shown(d, C);
     await d.click(`${thumb(C)} .del-btn`);
     await d.waitForTimeout(undoMs + 400);
     const after = await d.evaluate(async (id) => {
