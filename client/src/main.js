@@ -12,6 +12,7 @@ import { readHistory, addHistory, removeHistory, roomHistory, trimHistory, devic
 import { readMine, addMine, insertMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob, readFavs, setFav, moveFav, FAV_KEY } from './designs.js';
 import { initTogether } from './together.js';
 import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed } from './cameras.js';
+import { createAutoCam, liveStickerTargets, AUTO_CHOICES, autoCamOf } from '../../shared/autocam.mjs';
 import { S, LOCALE } from './strings.js';
 import { Sounds } from './sound.js';
 import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView } from './chasecam.js';
@@ -1386,8 +1387,17 @@ async function renderRecs() {
 // Kameror: "🎥 Placera kamera här" ställer en kamera där jag står, åt det håll jag tittar.
 function renderCams() {
   const ul = $('cam-list'); ul.innerHTML = '';
+  const sel = $('autocam-path');
+  if (!sel.options.length) for (const v of ['', ...AUTO_CHOICES]) { const o = document.createElement('option'); o.value = v; o.textContent = v ? S.autoPaths[v] : S.camAutoOff; sel.appendChild(o); }
+  sel.value = autoCamOf(cams.list())?.auto || '';
   for (const c of cams.list()) {
     const li = document.createElement('li'); li.dataset.id = c.id;
+    if (c.auto) { // the auto cameraman: no name/fov/format/move, just look through it or switch it off
+      const b = document.createElement('span'); b.className = 'cam-name'; b.textContent = S.camAutoName(c);
+      const look = document.createElement('button'); look.type = 'button'; look.textContent = '👁'; look.title = S.camLook; look.className = 'cam-look'; look.onclick = () => enterCamView(c.id);
+      const del = document.createElement('button'); del.type = 'button'; del.textContent = '✕'; del.title = S.camDel; del.className = 'cam-del'; del.onclick = () => removeCam(c.id);
+      li.append(b, look, del); ul.appendChild(li); continue;
+    }
     const name = document.createElement('input'); name.type = 'text'; name.maxLength = 24; name.value = c.name; name.className = 'cam-name'; name.setAttribute('aria-label', S.camNameAria);
     name.onchange = () => updateCam(c.id, { name: name.value });
     const fov = document.createElement('select'); fov.className = 'cam-fov'; fov.title = S.camFov;
@@ -1417,6 +1427,27 @@ async function removeCam(id) {
   try { await api.removeCamera(ROOM, id, auth()); cams.remove(id); if (camView === id) exitCamView(); renderCams(); return true; } catch (err) { toast(err.message, 3000); return false; }
 }
 $('cam-add').onclick = () => addCam();
+// 🎥 Auto cameraman: off / a path. One per room, stored like a camera ({ auto: path }), so it is in
+// the recording and the replay can show its take (and the director can use it as the room shot).
+async function setAutoCam(path) {
+  const cur = autoCamOf(cams.list());
+  if (!path) return cur ? removeCam(cur.id) : true;
+  if (cur) return updateCam(cur.id, { auto: path });
+  try { const { camera: c } = await api.addCamera(ROOM, { auto: path }, auth()); cams.upsert(c); renderCams(); toast(S.camAutoOn(path), 2200); return c; }
+  catch (err) { toast(err.message, 3000); renderCams(); return null; }
+}
+$('autocam-path').onchange = (e) => setAutoCam(e.target.value);
+// Live it is a preview: the take restarts every hour (UTC), so everybody's preview agrees; the
+// recorded take is computed in the replay from the recording itself (deterministic).
+const liveAuto = { key: '', cam: null };
+function liveAutoPose(c) {
+  const t0 = Math.floor(Date.now() / 3600000) * 3600000, key = `${c.id}:${c.auto}:${t0}`;
+  if (liveAuto.key !== key) {
+    liveAuto.key = key;
+    liveAuto.cam = createAutoCam({ path: c.auto, seed: c.id, provider: liveStickerTargets(() => [...stamps.meshes.values()].map((m) => m.userData.stamp).filter((s) => s && !s.pending), t0) });
+  }
+  return liveAuto.cam.poseAt(Date.now() - t0);
+}
 $('cam-show').checked = camShow;
 $('cam-show').onchange = (e) => { camShow = e.target.checked; localStorage.setItem('klibb.camShow', camShow ? '1' : '0'); cams.setVisible(state.mode !== 'view' && camShow); };
 
@@ -1427,7 +1458,7 @@ function enterCamView(id) {
   const c = cams.get(id); if (!c) return false;
   camView = id; controls.unlock(); preview.hide(); cams.setHideAll(true);
   document.body.classList.add('camview');
-  $('camview-hud').hidden = false; $('camview-name').textContent = S.camViewLabel(c);
+  $('camview-hud').hidden = false; $('camview-name').textContent = c.auto ? S.camAutoName(c) : S.camViewLabel(c);
   closeMore();
   return true;
 }
@@ -1582,7 +1613,10 @@ const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (!camView) controls.update(dt);
-  const cv = camView && cams.get(camView);
+  const ac = autoCamOf(cams.list()), acPose = ac && liveAutoPose(ac);
+  if (acPose) cams.place(ac.id, acPose);
+  let cv = camView && cams.get(camView);
+  if (cv && cv.auto && acPose && cv.id === ac.id) cv = { ...cv, ...acPose };
   if (cv) poseCamera(viewCam, { p: cv.p, yaw: cv.yaw, pitch: cv.pitch, fov: cv.fov });
   const tp = !cv && view === 'third';
   if (tp) updateChase(dt);
@@ -1660,6 +1694,7 @@ window.klibb = {
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
   net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
   openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
+  setAutoCam, autoCamPose: () => { const c = autoCamOf(cams.list()); return c ? liveAutoPose(c) : null; },
   cameras: () => cams.list(), camerasVisible: () => [...cams.map.values()].some((e) => e.obj.visible), addCamera: addCam, updateCamera: updateCam, removeCamera: removeCam,
   creditAtDot: () => creditOf(pickStampAt(CENTER)?.stamp), clickCredit,
   credit: () => ({ shown: !!credit.shown && !$('credit').hidden, name: $('credit-name').textContent, link: $('credit-link').getAttribute('href') || '',

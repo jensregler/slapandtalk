@@ -85,6 +85,12 @@ export class CameraLayer {
     e.obj.quaternion.setFromEuler(new THREE.Euler(c.pitch || 0, c.yaw || 0, 0, 'YXZ'));
     this.apply();
   }
+  // A moving camera (the auto cameraman, shared/autocam.mjs): move its model every frame.
+  place(id, pose) {
+    const e = this.map.get(id); if (!e || !pose) return;
+    e.obj.position.set(pose.p[0], pose.p[1], pose.p[2]);
+    e.obj.quaternion.setFromEuler(new THREE.Euler(pose.pitch || 0, pose.yaw || 0, 0, 'YXZ'));
+  }
   remove(id) {
     const e = this.map.get(id); if (!e) return;
     this.scene.remove(e.obj);

@@ -204,6 +204,12 @@ export const EN = {
   camViewLabel: (c) => `📷 ${c.name}${c.aspect ? ' · ' + c.aspect : ''} · ${c.fov}°`,
   camViewEsc: '· Esc = back', back: 'Back',
   cameraDefault: 'Camera',
+  // The auto cameraman (shared/autocam.mjs): walks the room along a preset path, zooms gently.
+  autoPaths: { perimeter: 'Perimeter', diagonal: 'Diagonal sweep', pushin: 'Push-in', seeded: 'Any (picked per recording)' },
+  camAuto: '🎥 Auto cameraman', camAutoTitle: 'A camera that walks the room by itself along a path and zooms gently – no placing. In the replay it is a take of its own.',
+  camAutoOff: 'Off',
+  camAutoOn: (path) => `Auto cameraman on: ${EN.autoPaths[path] || path}.`,
+  camAutoName: (c) => `🎥 ${c.name} · ${EN.autoPaths[c.auto] || c.auto}`,
 
   // ---------- Replay ----------
   replayBack: '← Back to the room', replayLoading: 'Loading the recording…',
@@ -219,6 +225,8 @@ export const EN = {
   povLabel: (name) => `${name}’s eyes`,
   // The auto-director (shared/director.mjs): cuts to whoever is talking.
   viewDirector: '🎬 Director (follows who talks)',
+  viewAuto: (path, roomOn) => `🎥 Auto cameraman: ${EN.autoPaths[path] || path}${roomOn ? ' (this room’s)' : ''}`,
+  autoLabel: (path, mm) => `🎥 Auto cameraman · ${EN.autoPaths[path] || path} · ${Math.round(mm)} mm`,
   viewAngle: (kind, name) => `${{ close: '😮 Close-up', medium: '🧍 Medium', rear: '🔙 Over the shoulder' }[kind] || kind}: ${name}`,
   shotLabel: (kind, name) => (kind === 'room' || !name ? '🎬 The room' : `🎬 ${{ close: 'Close-up', medium: 'Medium', rear: 'Over the shoulder' }[kind] || kind} · ${name}`),
   shotList: '🎬 Shot list',

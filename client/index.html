@@ -133,6 +133,8 @@
         <button id="rec-toggle" type="button" data-t="recStart">● Start recording</button>
         <button id="cam-add" type="button" class="no-demo" data-t="camAdd" data-t-title="camAddTitle">🎥 Place camera here</button>
       </div>
+      <!-- The auto cameraman (shared/autocam.mjs): on/off and the path; nothing to place. -->
+      <label class="check no-demo" id="autocam-row" data-t-title="camAutoTitle"><span data-t="camAuto">🎥 Auto cameraman</span> <select id="autocam-path" aria-label="Auto cameraman"></select></label>
       <div class="history-head no-demo"><b data-t="cameras">Cameras</b> <span id="cam-count"></span></div>
       <ul id="cam-list" class="no-demo" data-t-empty="camerasEmpty"></ul>
       <label class="check no-demo"><input id="cam-show" type="checkbox" checked /> <span data-t="camShow">Show cameras in the room</span></label>
