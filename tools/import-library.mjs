@@ -12,6 +12,11 @@
 //   2. a subfolder: <folder>/<Artist Name>/image.png
 //   3. the file name: "Artist Name - title.png" or "Artist Name__title.png"
 //   4. --artist "Name"   (else empty: the sticker shows no credit)
+// Start height: a letter prefix on the file name sets the sticker's starting height
+//   (shared/sizeprefix.mjs): "A_cat.png" = 5 cm, "B_cat.png" = 7.5 cm … "Z_cat.png" = 67.5 cm, none = 10 cm.
+//   Stored as startCm in the manifest. The prefix is not part of the artist/title ("B_Ulla - cat.png" → Ulla).
+//   Every run also re-derives startCm for already-imported stickers from their original name (source).
+// --sizes    only re-derive startCm for the stickers already in the manifest (no folder needed)
 // --replace  start from an empty library (otherwise new images are added, existing ids updated)
 // --dry-run  report only, write nothing
 // After importing, commit library/ and deploy: the server copies new stickers to storage at start-up.
@@ -20,19 +25,21 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { startHeightCm, stripPrefix } from '../shared/sizeprefix.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_PX = 1024;
 const EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.tif', '.tiff']);
 
 export function parseArgs(argv) {
-  const o = { folder: null, csv: null, artist: '', replace: false, dry: false, out: path.join(ROOT, 'library') };
+  const o = { folder: null, csv: null, artist: '', replace: false, dry: false, sizes: false, out: path.join(ROOT, 'library') };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--csv') o.csv = argv[++i];
     else if (a === '--artist') o.artist = argv[++i] || '';
     else if (a === '--replace') o.replace = true;
     else if (a === '--dry-run') o.dry = true;
+    else if (a === '--sizes') o.sizes = true;
     else if (a === '--out') o.out = argv[++i];
     else if (!o.folder) o.folder = a;
   }
@@ -63,7 +70,8 @@ export function parseCsv(text) {
 const tidy = (s) => String(s || '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
 // Artist for one file (rel = path relative to the folder, with /).
 export function artistFor(rel, { csv = new Map(), fallback = '' } = {}) {
-  const hit = csv.get(rel.toLowerCase()) || csv.get(path.basename(rel).toLowerCase());
+  const hit = csv.get(rel.toLowerCase()) || csv.get(path.basename(rel).toLowerCase()) || csv.get(stripPrefix(path.basename(rel)).toLowerCase());
+  rel = stripPrefix(rel); // the size letter is not part of the name
   if (hit && (hit.artist || hit.link)) return { artist: tidy(hit.artist), link: hit.link || '' };
   const parts = rel.split('/');
   if (parts.length > 1) return { artist: tidy(parts[parts.length - 2]), link: '' };
@@ -88,7 +96,19 @@ export async function encode(buf) {
   return { data: out.data, width: out.info.width, height: out.info.height, id: crypto.createHash('sha256').update(out.data).digest('hex').slice(0, 16) };
 }
 
+// Only re-derive startCm for what is already in the manifest (--sizes).
+export function rederiveSizes(o, log = console.log) {
+  const manPath = path.join(o.out, 'manifest.json');
+  const man = JSON.parse(fs.readFileSync(manPath, 'utf8'));
+  let changed = 0;
+  for (const s of man.stickers || []) { if (!s.source) continue; const cm = startHeightCm(s.source); if (s.startCm !== cm) { s.startCm = cm; changed++; } }
+  if (!o.dry) fs.writeFileSync(manPath, JSON.stringify(man, null, 1) + '\n');
+  log(`${o.dry ? '[dry run] ' : ''}library: start heights re-derived, ${changed} changed`);
+  return { changed, total: (man.stickers || []).length };
+}
+
 export async function importFolder(o, log = console.log) {
+  if (o.sizes) return rederiveSizes(o, log);
   if (!o.folder || !fs.existsSync(o.folder)) throw new Error('Give a folder: node tools/import-library.mjs <folder> [--csv artists.csv] [--artist "Name"]');
   const csv = o.csv ? parseCsv(fs.readFileSync(o.csv, 'utf8')) : new Map();
   const manPath = path.join(o.out, 'manifest.json'), imgDir = path.join(o.out, 'images');
@@ -105,12 +125,13 @@ export async function importFolder(o, log = console.log) {
     seen.add(enc.id);
     const { artist, link } = artistFor(rel, { csv, fallback: o.artist });
     if (!artist) report.noArtist.push(rel);
-    const entry = { id: enc.id, file: `${enc.id}.webp`, width: enc.width, height: enc.height, artist, ...(link ? { link } : {}), source: path.basename(rel) };
+    const entry = { id: enc.id, file: `${enc.id}.webp`, width: enc.width, height: enc.height, artist, ...(link ? { link } : {}), source: path.basename(rel), startCm: startHeightCm(rel) };
     if (byId.has(enc.id)) report.updated++; else report.added++;
     byId.set(enc.id, entry);
     if (!o.dry) { fs.mkdirSync(imgDir, { recursive: true }); fs.writeFileSync(path.join(imgDir, entry.file), enc.data); }
   }
   const stickers = [...byId.values()];
+  for (const s of stickers) if (s.source) s.startCm = startHeightCm(s.source); // also the ones imported before (their original name is known)
   if (!o.dry) {
     if (o.replace) for (const f of fs.existsSync(imgDir) ? fs.readdirSync(imgDir) : []) if (!byId.has(path.basename(f, '.webp'))) fs.unlinkSync(path.join(imgDir, f));
     fs.writeFileSync(manPath, JSON.stringify({ _about: 'Curated sticker library. Built by tools/import-library.mjs; the server seeds these into storage at start-up (server/library.js).', stickers }, null, 1) + '\n');

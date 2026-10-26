@@ -7,7 +7,8 @@
    "width": 512,
    "height": 512,
    "artist": "Placeholder",
-   "source": "Placeholder - blob.png"
+   "source": "Placeholder - blob.png",
+   "startCm": 10
   },
   {
    "id": "3167f23a2835814d",
@@ -15,7 +16,8 @@
    "width": 512,
    "height": 512,
    "artist": "Placeholder",
-   "source": "Placeholder - eye.png"
+   "source": "Placeholder - eye.png",
+   "startCm": 10
   },
   {
    "id": "52b04e09796e75f0",
@@ -23,7 +25,8 @@
    "width": 512,
    "height": 512,
    "artist": "Placeholder",
-   "source": "Placeholder - hej.png"
+   "source": "Placeholder - hej.png",
+   "startCm": 10
   },
   {
    "id": "75aecb60e4162208",
@@ -31,7 +34,8 @@
    "width": 512,
    "height": 512,
    "artist": "Placeholder",
-   "source": "Placeholder - slap.png"
+   "source": "Placeholder - slap.png",
+   "startCm": 10
   },
   {
    "id": "9a9db30b7658784a",
@@ -39,7 +43,8 @@
    "width": 512,
    "height": 512,
    "artist": "Placeholder",
-   "source": "Placeholder - star.png"
+   "source": "Placeholder - star.png",
+   "startCm": 10
   },
   {
    "id": "0c33943aa47caf8d",
@@ -47,7 +52,8 @@
    "width": 512,
    "height": 512,
    "artist": "Placeholder",
-   "source": "Placeholder - talk.png"
+   "source": "Placeholder - talk.png",
+   "startCm": 10
   }
  ]
 }
