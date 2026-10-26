@@ -23,6 +23,8 @@ import { PEEL, peelPlan, onFloor, stampDims, SLAP_REACH, inReach } from '../../s
 import { entitlements, loadEntitlements, credentials } from './entitlements.js';
 import { initFullVersion } from './fullversion.js';
 import { GrooveSteps } from './groove.js';
+import { initAutoSlap } from './autoslap.js';
+import { AUTO, movedEnough } from '../../shared/autoslap.mjs';
 import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, grooveLabel } from '../../shared/groove.mjs';
 import { loadSoundLook, initSoundUI } from './soundui.js';
 import * as synthShared from '../../shared/synth.mjs';
@@ -61,6 +63,10 @@ camera.position.copy(room.spawn);
 camera.position.x += (Math.random() - 0.5) * 3; camera.position.z += (Math.random() - 0.5) * 1;
 
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
+// Our own unlocks (a menu, the chat, a camera view …) are told apart from the player's Esc: auto-slap
+// pauses for the first and turns off for the second (see onLockChange).
+var softUnlockAt = 0; // eslint-disable-line no-var
+{ const raw = controls.unlock.bind(controls); controls.unlock = () => { softUnlockAt = performance.now(); raw(); }; }
 controls.attachJoystick($('joystick'), $('stick'));
 const stamps = new StampLayer(scene, room.surfaces);
 // Mina peel-bara klibbor förblir egna meshar; äldre målas in i väggarna (se stamps.js).
@@ -504,29 +510,33 @@ function nextRotation() { return state.rotation + (state.jitter ? pendingJitter 
 
 // onStart(info): called the moment the sticker shows (before the server answers), with what a
 // sticker array (hold + drag) needs: where, how, which design, and info.result = this slap's promise.
-function stampAt(ndc, { onStart = null } = {}) {
+// auto: an auto-slap (autoslap.js) { burst, volume, check(h) }: quiet when it can't slap (no "too far",
+// no "nope"), and it joins the burst's first sticker's peel key (one undo step per burst).
+function stampAt(ndc, { onStart = null, auto = null } = {}) {
   const info = {};
-  const p = slapAt(ndc, info, onStart);
+  const p = slapAt(ndc, info, onStart, auto);
   info.result = p;
   return p;
 }
-async function slapAt(ndc, info, onStart) {
-  if (!state.selected) { toast(S.pickFirst); return null; }
+async function slapAt(ndc, info, onStart, auto = null) {
+  if (!state.selected) { if (!auto) toast(S.pickFirst); return null; }
   const h = hitSurface(ndc); if (!h) return null;
-  if (outOfReach(h.point)) { tooFar(h); return null; } // peels på: för långt bort
+  if (outOfReach(h.point)) { if (!auto) tooFar(h); return null; } // peels på: för långt bort
+  if (auto && auto.check && !auto.check(h)) return null;
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
   const slapSize = Math.max(Math.min(state.size, maxSizeCm() / 100), minSizeCm() / 100);
   // På golvet: ligger den nya klibban mest på baksidespapper fastnar den inte (servern kollar samma sak).
   if (peelLayer.on && peelLayer.count && onFloor(h.surface, h.normal.toArray())) {
     const frac = await peelLayer.overlap(state.selected, { position: h.point.toArray(), quaternion: q.toArray(), size: slapSize });
-    if (frac > PEEL.refuseOverlap) { nope(); return null; }
+    if (frac > PEEL.refuseOverlap) { if (!auto) nope(); return null; }
   }
+  if (auto) auto.started(h); // counted from here: it shows now
   pendingJitter = (Math.random() - 0.5) * 30;
   // Min gubbe slår handen mot väggen i samma bildruta som klibban syns (bara i tredjepersonsvy).
   together.selfGesture('slap', h.point, h.normal);
   // Kom ihåg exakt vilken design som stämplas: användaren kan hinna trycka R innan svaret kommer.
   const design = state.selected;
-  sound.play('slap'); // direkt, utan att vänta på servern: det ska kännas som en riktig klibba
+  sound.play('slap', null, auto ? { volume: auto.volume } : {}); // direkt, utan att vänta på servern: det ska kännas som en riktig klibba
   const nonce = Math.random().toString(36).slice(2, 12);
   myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
   const body = { nonce, owner: deviceId(), ...(together.net.id ? { by: together.net.id } : {}), // by: så de andra ser min gubbe slappa
@@ -536,6 +546,7 @@ async function slapAt(ndc, info, onStart) {
     size: slapSize, rotation: state.rotation, surface: h.surface, artist: design.library ? design.artist || '' : state.artist,
     peelFrom: { p: [camera.position.x, camera.position.z], yaw: controls.yaw }, // var baksidespappret föds (peels)
     ...(design.library ? (design.artistLink ? { artistLink: design.artistLink } : {}) : state.artistLink ? { artistLink: state.artistLink } : {}),
+    ...(auto ? { auto: true } : {}),
   };
   // Klibban syns direkt (med ett tillfälligt id) och byts till serverns stämpel när svaret
   // kommer, via HTTP-svaret eller WebSocket, det som kommer först. Går det fel tas den bort.
@@ -549,11 +560,16 @@ async function slapAt(ndc, info, onStart) {
     peelLayer.add({ id: tempPeel, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, { x: camera.position.x, z: camera.position.z, yaw: controls.yaw }, body.position) }, design, { animate: true, by: 'me' });
   }
   let settle; const settled = new Promise((r) => { settle = r; });
-  pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled });
+  pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, ...(auto ? { burst: auto.burst } : {}) });
   stamps.add(temp, design).then(updateCount);
   if (onStart) { Object.assign(info, { point: h.point.clone(), normal: h.normal.clone(), q: q.clone(), size: slapSize, surface: h.surface, design, nonce, temp }); onStart(info); }
   if (peelLayer.on) together.flushMove(); // servern mäter räckvidden från där den senast hörde att jag stod
+  const burst = auto && auto.burst, firstOfBurst = !!burst && auto.first;
   try {
+    if (burst && !firstOfBurst) { // join the burst's first sticker (one peel key = one undo step)
+      const f = await burst.first;
+      if (f && !burst.peeled) body.join = { id: f.id, token: f.token };
+    }
     let res;
     try { res = await api.addStamp(ROOM, body); } catch (err) {
       if (!err.gone) throw err;
@@ -564,9 +580,17 @@ async function slapAt(ndc, info, onStart) {
       res = await api.addStamp(ROOM, { ...body, imageId: fresh.id });
     }
     endShown = false; // ny klibba: nästa gång man peelar förbi slutet visas rutan igen
-    if (res.peelToken) {
-      addHistory({ room: ROOM, stampId: res.stamp.id, token: res.peelToken, designId: res.image.id, url: res.image.url, time: res.stamp.createdAt || new Date().toISOString() });
+    const own = () => addHistory({ room: ROOM, stampId: res.stamp.id, token: res.peelToken, designId: res.image.id, url: res.image.url, time: res.stamp.createdAt || new Date().toISOString() });
+    if (burst && !firstOfBurst && res.joined && body.join) {
+      // Part of the burst: it goes into the first sticker's history entry (h.extra), Z peels them all.
+      const cur = roomHistory(ROOM).find((x) => x.stampId === body.join.id);
+      if (cur && !burst.peeled) addHistory({ ...cur, extra: [...(Array.isArray(cur.extra) ? cur.extra : []), res.stamp.id] });
+      else { peelWhenSaved.delete(res.stamp.id); startPeel([{ room: ROOM, stampId: res.stamp.id, token: res.peelToken, time: new Date().toISOString() }], { quiet: true }); } // the burst was peeled meanwhile
+    } else if (res.peelToken) {
+      own();
+      if (burst && !firstOfBurst) burst.ended = true; // couldn't join (too many, or the first is gone): the next slap starts a new burst
     }
+    if (firstOfBurst) burst.resolve(res.peelToken ? { id: res.stamp.id, token: res.peelToken } : null);
     confirmSlap(nonce, res.stamp, res.image); updateCount(); renderHistory();
     if (res.peel) { if (!peelLayer.confirm(tempPeel, res.peel)) peelLayer.add(res.peel, res.image, { animate: true, by: 'me' }); } else peelLayer.remove([tempPeel]);
     // Peelad (↩/Z) innan servern hann svara: peela den riktiga nu, tyst (den är redan borta på skärmen).
@@ -577,7 +601,9 @@ async function slapAt(ndc, info, onStart) {
     return res.stamp;
   } catch (err) {
     dropPending(nonce); peelLayer.remove([tempPeel]);
-    if (err.tooFar) tooFar(); else if (err.nope) nope(); else toast(err.message);
+    if (firstOfBurst) { burst.resolve(null); burst.ended = true; }
+    if (auto) { if (err.status === 429) { autoSlap.setOn(false); toast(S.slowDown); } } // quiet otherwise: the next step tries again
+    else if (err.tooFar) tooFar(); else if (err.nope) nope(); else toast(err.message);
     return null;
   } finally { settle(); }
 }
@@ -856,6 +882,7 @@ function peelLast() {
   // Den senaste klibban väntar fortfarande på servern: peela den direkt på skärmen, och på
   // riktigt så fort servern har svarat (annars skulle ↩ ta klibban före).
   const pend = last([...pendingSlaps.values()].filter((p) => !p.peel));
+  if (pend && pend.burst) return peelBurst(pend.burst);
   if (pend) {
     pend.peel = true;
     peelGesture(pend.tempId);
@@ -869,6 +896,17 @@ function peelLast() {
   if (!next) { endOfHistory(); return Promise.resolve(false); }
   startPeel([next]); toast(S.peeled, 900);
   return peelSettled().then(() => true);
+}
+
+// Z during an auto-slap burst: every sticker of the burst goes, as one step (the ones still on their
+// way too), and the next auto slap starts a new burst.
+function peelBurst(b) {
+  b.peeled = true; b.ended = true;
+  const waits = [];
+  for (const p of pendingSlaps.values()) if (p.burst === b && !p.peel) { p.peel = true; stamps.peelAway(p.tempId).then(updateCount); waits.push(p.settled); }
+  peelGesture(null); sound.play('peel'); toast(S.peeled, 900);
+  return b.first.then((f) => { const h = f && roomHistory(ROOM).find((x) => x.stampId === f.id); if (h) startPeel([h], { quiet: true }); })
+    .then(() => Promise.all(waits)).then(() => peelSettled()).then(() => true);
 }
 
 function peelAll() {
@@ -1136,6 +1174,8 @@ function onEscape(e) {
 addEventListener('keydown', onEscape);
 controls.onLockChange = (locked) => {
   if (!locked) cancelArray(); // Esc leaves pointer lock first: that cancels a sticker array too
+  // Esc (the player left the game) turns auto-slap off; our own unlocks (menus, chat) and a hidden tab only pause it.
+  if (!locked && autoSlap && autoSlap.on && performance.now() - softUnlockAt > 400 && document.visibilityState === 'visible' && document.hasFocus()) autoSlap.setOn(false);
   if (!locked) escGate.unlockedAt = performance.now();
   if (locked) setResuming(false);
   document.body.classList.toggle('locked', locked);
@@ -1460,7 +1500,7 @@ const together = initTogether({
 });
 // Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
 const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); fullUi.ready(); });
-function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; applySizeLimit(); fullUi?.refreshEntry(); if (groove) updateGrooveUi(); renderCams(); }
+function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; applySizeLimit(); fullUi?.refreshEntry(); if (groove) updateGrooveUi(); if (autoSlap) autoSlap.render(); renderCams(); }
 // Full version panel (fullversion.js): a quiet entry in ⚙ More → Help; a new key applies right away.
 var fullUi = initFullVersion({ // eslint-disable-line no-var
   $, onOpen: () => { closeMore(); controls.unlock?.(); },
@@ -1511,6 +1551,50 @@ addEventListener('keydown', (e) => {
   e.preventDefault();
   setGrooveScale(stepScale(groove.scale, e.code === 'BracketLeft' ? -1 : 1, e.shiftKey)); // [ = tighter (faster), ] = looser (slower)
 });
+
+// ---------- Auto-slap (autoslap.js + shared/autoslap.mjs) ----------
+// The held sticker slaps by itself at the crosshair on a step sequence (on the Groove bar by default).
+// Full version (soundDesign), like the Groove scale: a deep control. Desktop only (like arrays).
+// Every auto slap goes the normal way (slapAt: optimistic, reach, peels, sizes, room cap, cleanup,
+// recording); a burst (from switching on / resuming until a pause, Z or 200 stickers) is ONE undo step.
+let autoBurst = null, autoPrev = null, autoInFlight = 0;
+function newBurst() { let resolve; const first = new Promise((r) => { resolve = r; }); return { first, resolve, count: 0, ended: false, peeled: false }; }
+function autoCanFire() {
+  if (!controls.locked) return 'unlocked';
+  if (state.mode !== 'slap') return 'look';
+  if (document.visibilityState !== 'visible') return 'hidden';
+  if (sp.open || together.busy() || together.chatOpen() || !$('more-panel').hidden || endDlg.open || linkDlg.open) return 'menu';
+  if (camView || placingCam) return 'camera';
+  if (arrayDrag || mouseHeld) return 'drag';
+  if (!state.selected || state.adminToken) return 'nodesign';
+  return true;
+}
+function autoFire(step) {
+  if (autoInFlight >= AUTO.maxInFlight) return 'busy';
+  const h = hitSurface(CENTER); if (!h) return 'nosurface';
+  if (outOfReach(h.point)) return 'reach';
+  if (!movedEnough(autoPrev, h.point.toArray(), h.surface, state.size)) return 'still'; // no pile in one spot
+  if (!autoBurst || autoBurst.ended || autoBurst.count >= AUTO.maxBurst) autoBurst = newBurst();
+  const b = autoBurst, first = b.count === 0; b.count++;
+  let started = false; autoInFlight++;
+  const auto = { burst: b, first, volume: step.vol / 100, started: (hh) => { started = true; autoPrev = { point: hh.point.toArray(), surface: hh.surface }; } };
+  Promise.resolve(stampAt(CENTER, { auto })).finally(() => {
+    autoInFlight--;
+    if (first && !started) { b.resolve(null); b.ended = true; } // refused before it showed: nothing to join
+  });
+  return true;
+}
+var autoSlap = initAutoSlap({ $, S, groove, // eslint-disable-line no-var
+  canUse: () => !DEMO && !isTouch && !!entitlements.full.soundDesign,
+  canFire: autoCanFire, fire: autoFire,
+  onPause: () => { if (autoBurst) autoBurst.ended = true; autoPrev = null; },
+});
+addEventListener('keydown', (e) => {
+  if (isTouch || e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTyping(e) || together.chatOpen()) return;
+  if (!['KeyH', 'Comma', 'Period'].includes(e.code)) return;
+  if (autoSlap.key(e.code)) { e.preventDefault(); if (e.code === 'KeyH') toast(autoSlap.on ? S.aslapOnToast : S.aslapOffToast, 1500); }
+});
+addEventListener('pagehide', () => autoSlap.setOn(false)); // leaving the room
 
 // Sound settings (soundui.js): only reachable with entitlements.full.soundDesign.
 const soundUi = initSoundUI({ $, sound, toast, onSave: () => together.soundChanged(), onOpenChange: (o) => { if (o) controls.unlock?.(); } });
@@ -1894,6 +1978,7 @@ function frame() {
   cams.update(cv ? null : eyeCam.position);
   peelLayer.update();
   walkSounds();
+  autoSlap.tick();
   voice.update();
   updateCredit();
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
@@ -1947,7 +2032,8 @@ window.klibb = {
   inviteFriend, mySlot: () => together.mySlot(), talking: () => together.talking(),
   soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events,
   groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
-  setGrooveScale, grooveObj: () => groove, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
+  setGrooveScale, grooveObj: () => groove,
+  autoSlap: () => autoSlap.info(), autoSlapObj: () => autoSlap, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,

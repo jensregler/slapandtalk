@@ -403,7 +403,20 @@ async function artistFields(b) {
   return { artist: cleanArtistName(b.artist), ...(link ? { artistLink: link } : {}) };
 }
 
-app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
+// Rate: 120 slaps per IP and minute by hand. Auto-slap (shared/autoslap.mjs, b.auto = true, the full
+// version's soundDesign like the Groove scale) may use up to AUTO_SLAPS_PER_MIN (600 = 10/s; the
+// web app never goes above 8/s). A free client that sends auto: true just gets the hand limit.
+// b.join = { id, token }: an auto-slap burst. id = the burst's first sticker (slapped by the caller,
+// token = its peel key): the new sticker shares that peel key (and group = id), so the whole burst
+// is ONE peel step (Z), like a sticker array. At most AUTO_BURST stickers per key; a stale or wrong
+// join just gets its own key (the answer says joined: false).
+const AUTO_SLAPS_PER_MIN = 600, AUTO_BURST = 200;
+const handSlaps = rateLimit(120);
+app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (req, res, next) => {
+  const auto = req.body && req.body.auto === true && (isAdmin(req) || (await entOf(req)).soundDesign);
+  if (!auto) { let passed = false; handSlaps(req, res, () => { passed = true; }); if (!passed) return; }
+  return next();
+}), wrap(async (req, res) => {
   const room = roomParam(req, res); if (!room) return;
   const b = { ...(req.body || {}) };
   // The demo: only people actually in the room (connected over WebSocket, admitted with an
@@ -440,13 +453,22 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
     if (frac > P.PEEL.refuseOverlap) return res.status(409).json({ error: 'Nope.', nope: true, overlap: Math.round(frac * 1000) / 1000 });
   }
   // Peel-nyckel: bara den som stämplade får den. Servern sparar bara en hash av den.
-  const peelToken = crypto.randomBytes(24).toString('base64url');
+  let peelToken = crypto.randomBytes(24).toString('base64url');
+  let join = null; // an auto-slap burst: share the first sticker's peel key (see above)
+  if (b.auto === true && b.join && typeof b.join.id === 'string' && /^[a-f0-9]{16}$/.test(b.join.id) && typeof b.join.token === 'string') {
+    const snap = await store.getRoom(room);
+    const first = snap && snap.stamps.find((s) => s.id === b.join.id);
+    if (first && first.peelHash && tokenMatches(b.join.token, first.peelHash) && snap.stamps.filter((s) => s.peelHash === first.peelHash).length < AUTO_BURST) {
+      join = { peelHash: first.peelHash, peelOwner: first.peelOwner, group: first.id }; peelToken = b.join.token;
+    }
+  }
   // Vem stämplade (för gränsen på 20 peel-bara per person och rum): en slumpad enhets-id från
   // webbläsaren, annars IP-adressen. Bara en hash sparas.
   const owner = typeof b.owner === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(b.owner) ? 'd:' + b.owner : 'ip:' + req.ip;
   const evicted = []; // the room is full (MAX_STAMPS_PER_ROOM): the oldest stickers quietly go
   const saved = await store.addStamp(room, {
     peelHash: hashToken(peelToken), peelOwner: hashToken(owner).slice(0, 24),
+    ...(join ? { peelHash: join.peelHash, ...(join.peelOwner ? { peelOwner: join.peelOwner } : {}), group: join.group } : {}),
     imageId: image.id,
     position: b.position, normal: b.normal, quaternion: b.quaternion,
     size: b.size, rotation: isNum(b.rotation) ? b.rotation : 0,
@@ -472,7 +494,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
     peel = await store.addPeel(room, { id: saved.id, imageId: image.id, w: Math.round(w * 1e4) / 1e4, h: Math.round(h * 1e4) / 1e4, seed, ...plan }, P.PEEL.maxPerRoom);
   }
   broadcast(room, { type: 'stamp:add', stamp, image, ...(nonce ? { nonce } : {}), ...(by ? { by } : {}), ...(peel ? { peel } : {}) });
-  res.json({ stamp, image, peelToken, ...(peel ? { peel } : {}) });
+  res.json({ stamp, image, peelToken, ...(peel ? { peel } : {}), ...(b.auto === true ? { joined: !!join } : {}) });
 }));
 
 // ---------- Sticker arrays (slap at A, hold, drag to B) ----------

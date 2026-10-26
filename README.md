@@ -625,6 +625,51 @@ skiljer sig en aning i tonhöjd.
 - Testerna: `tests/groove.test.mjs` (rutnätet), `tests/groove.test.js` (rättigheter, broadcast,
   sparas, spelas in), `tests/e2e-groove.js` (reglage, tangenter, synk, stegen på rutnätet; port 8846).
 
+#### Auto-slap: stickern slappar av sig själv, i takt
+
+`shared/autoslap.mjs` (sekvensen, tiden, schemat – samma i webbappen och testerna) +
+`client/src/autoslap.js` (inställningar, sekvens-editorn, skylten, `tick()` varje bild) + `main.js`
+(när den får skjuta, och själva slappen via den vanliga vägen `stampAt`). Med Auto-slap på slappar
+den valda stickern vid hårkorset, steg för steg i en **sekvens**.
+
+- **Var:** ⚙ More → Sound → **Auto-slap** (direkt under Groove): på/av, läge (**On the beat** /
+  **Free rate**), takter (¼, ½, 1, 2, 4) eller hastighet, och **Sequence** med längd-väljaren (− [n] +).
+  Ett klick på en ruta = steget på/av, Shift+klick = välj steget (raden under visar dess parametrar,
+  t.ex. volym), mushjulet över en ruta = första parametern (volym). Skylten nere till vänster
+  ("Auto-slap 2.7/s", "· paused") syns medan den är på.
+- **Tangenter:** **H** på/av; **,** långsammare / **.** snabbare (Free rate: en kvarts oktav per tryck;
+  On the beat: sekvensen ett steg kortare/längre). Kollat mot V, M, C, L, Q, E, R, F, Z, B, T, P och [ ].
+  **Esc** stänger av den.
+- **Sekvensen:** längd **1–32** (vilket heltal som helst, standard 8; utanför klämms den). Längre = nya
+  steg med standardvärden; kortare = de dolda stegen sparas (alla 32 finns alltid) och kommer tillbaka.
+  Rutnätet: upp till 8 i en rad, 9–16 i rader om 8, 17–32 två rader om 16 (tätare rutor).
+- **Tid:** *On the beat* (standard): stegen delar rummets Groove-takt × takter, så `n` steg = n slag per
+  takt, låst till samma rutnät som fotstegen (udda längder ger polyrytmer mot stegen) och följer
+  Groove-skalan. *Free rate*: varje steg är 1/hastighet (0,25–8/s, logaritmisk; sekvensen ger loopen).
+  Max **8/s** (minsta mellanrum 125 ms) i båda lägena; ett segt bildintervall skjuter det senaste steget
+  en gång, aldrig en hög av missade.
+- **Parametrar per steg = ett schema:** `STEP_PARAMS` i `shared/autoslap.mjs`
+  (`on` bool, `vol` 0–100 int). Ny parameter = **en rad där**, t.ex.
+  `x: { type: 'int', min: -50, max: 50, def: 0, label: 'X offset', short: 'x' }`: rensning, lagring,
+  standardsteg och kontrollen i steg-raden följer av sig själva; sedan läser `autoFire(step)` i
+  `main.js` `step.x`. Inget antar 8 steg.
+- **När den skjuter:** bara i Slap-läge med pekarlås, på en yta inom räckhåll, med en vald design.
+  Pausar (utan att ta igen steg) i Look-läge, menyer, chatten, stil-panelen, dialoger, kamera och dold
+  flik. Av med Esc, när man lämnar rummet och vid 429 från servern. Aldrig i uppspelning. Står hårkorset
+  still (< max(3 cm, ¼ av stickerns storlek) på samma yta) hoppas steget över.
+- **Ångra:** en **skur** (från på/återupptagen tills paus/av/Z/200 stickers) = **ett** Z-steg. Klienten
+  skickar `auto: true` och för steg 2… `join: { id, token }` (skurens första sticker); servern ger dem
+  samma ångra-nyckel (`peelHash`, `group` = första) om token stämmer och skuren har < 200, och svarar
+  `joined`. Räknas som ett av de 20 ångra-stegen per ägare.
+- **Server-budget:** auto-slappar med fullversionen: 600/min per IP (10/s – 8/s plus luft för vanliga
+  slappar); allt annat (vanliga slappar, `auto` utan fullversion) som förut 120/min.
+- **Vem:** fullversionen (`soundDesign`, som Groove-skalan) eller admin. Inte i demot, inte på
+  touch. Inställningarna (inte på/av) sparas i `localStorage` `klibb.autoslap`.
+- **Inspelningar:** varje auto-slap är en vanlig `stamp:add` och syns i inspelningen.
+- Testerna: `tests/autoslap.test.mjs` (hastighet, schema, längder 1/3/5/8/16/32, takt-låsning, klocka),
+  `tests/autoslap.test.js` (skur = ett ångra-steg, fel token, gräns gratis/full, inspelning),
+  `tests/e2e-autoslap.js` (H, längd 1–32 och rutnätet vid 32, pauser, Esc, ångra, räckhåll; port 8853).
+
 
 ### Sticker arrays: slap at A, hold, drag to B
 Slap as usual, **keep the mouse button held** and turn toward B: see-through ghosts repeat the sticker

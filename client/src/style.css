@@ -506,3 +506,31 @@ body.demo #tray .fav-btn, body.demo #tray .del-btn { display: none !important; }
 body.placing-cam #crosshair { outline: 2px dashed #ff5a5a; outline-offset: 6px; border-radius: 50%; }
 .brand-row h1 { white-space: nowrap; }
 .brand-btns { gap: 4px; } .brand-btns .icon-btn { padding: 4px 7px; }
+
+/* Auto-slap (⚙ More → Sound): sequence of 1–32 steps, rows of 8 (≤ 16 steps) or 16 */
+#auto-box { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; border-top: 1px solid #333; padding-top: 6px; }
+#auto-box[hidden], #auto-chip[hidden], #auto-bars-row[hidden], #auto-rate-row[hidden] { display: none !important; }
+.auto-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.auto-dim { opacity: .65; font-size: 11px; font-variant-numeric: tabular-nums; }
+#auto-rate { width: 110px; }
+.auto-seq-head { justify-content: space-between; }
+.auto-len { display: inline-flex; align-items: center; gap: 2px; }
+.auto-len input { width: 38px; text-align: center; }
+#auto-steps { display: grid; grid-template-columns: repeat(var(--cols, 8), minmax(0, 28px)); gap: 3px; }
+#auto-steps.dense { gap: 2px; }
+.auto-cell { --fill: 1; height: 22px; padding: 0; border: 1px solid #555; border-radius: 3px; background: #222; position: relative; overflow: hidden; cursor: pointer; }
+#auto-steps.dense .auto-cell { height: 16px; }
+.auto-cell::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--fill) * 100%); background: transparent; }
+.auto-cell.on::after { background: #bbb; }
+.auto-cell.sel { border-color: #fff; }
+.auto-cell.now { box-shadow: 0 0 0 1px #f5c542 inset; }
+.auto-cell:nth-child(4n+1) { border-left-color: #888; }
+.auto-param { display: inline-flex; align-items: center; gap: 4px; }
+.auto-param input[type=range] { width: 90px; }
+#auto-chip { position: fixed; left: 12px; bottom: 32px; z-index: 5; pointer-events: none; font: 11px/1.4 system-ui, sans-serif; color: #fff;
+  background: rgba(0,0,0,.35); padding: 2px 8px; border-radius: 10px; opacity: .75; font-variant-numeric: tabular-nums; }
+#auto-chip.paused { opacity: .45; }
+.auto-cell.on { border-color: #999; }
+.auto-param { flex-direction: row; white-space: nowrap; }
+#auto-step { gap: 10px; }
+.auto-step-n { opacity: .65; }
