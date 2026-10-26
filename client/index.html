@@ -139,6 +139,8 @@
       <h3 data-t="secHelp">Help</h3>
       <div class="help desktop-only" data-t-html="helpDesktopHtml"></div>
       <div class="help touch-only" data-t-html="helpTouchHtml"></div>
+      <!-- Full version: one quiet entry, only when the server offers it (fullversion.js). -->
+      <button id="full-entry" type="button" class="link-btn" hidden data-t="fullEntry" data-t-title="fullEntryTitle">★ Full version</button>
     </section>
   </aside>
 
@@ -235,6 +237,27 @@
       <button id="snd-cancel" type="button" data-t="cancel">Cancel</button>
       <button id="snd-save" type="button" class="primary" data-t="save">Save</button>
     </div>
+  </aside>
+  <!-- Full version (pay what you want, from $1, via Lemon Squeezy). Opens only from ⚙ More or /?thanks=1. -->
+  <aside id="full-panel" hidden aria-labelledby="full-title">
+    <div class="more-head"><h2 id="full-title" data-t="fullTitle">Full version</h2><button id="full-close" type="button" class="icon-btn" data-t-aria="close">✕</button></div>
+    <p id="full-intro"></p>
+    <ul class="full-list" data-t-html="fullFeaturesHtml"></ul>
+    <p id="full-status" class="full-status" hidden data-t="fullStatus">✓ Full version on</p>
+    <div id="full-buy" hidden>
+      <p class="hint" data-t="fullPrice"></p>
+      <a id="full-buy-link" class="btn primary" target="_blank" rel="noopener" data-t="fullBuy">Get the full version</a>
+      <p class="hint" data-t="fullBuyNote"></p>
+    </div>
+    <div id="full-key-box">
+      <label for="full-key" data-t="fullHaveKey">I have a key</label>
+      <form id="full-key-form" autocomplete="off">
+        <input id="full-key" type="text" maxlength="128" spellcheck="false" autocapitalize="off" data-t-placeholder="fullKeyPlaceholder" />
+        <button id="full-key-ok" type="submit" data-t="fullKeyOk">Unlock</button>
+      </form>
+    </div>
+    <p id="full-msg" class="hint" aria-live="polite"></p>
+    <button id="full-forget" type="button" class="link-btn" hidden data-t="fullForget">Forget the key in this browser</button>
   </aside>
   <!-- My avatar: how you look to others. Saved on this device only. -->
   <aside id="avatar-panel" hidden aria-label="My avatar">

@@ -11,6 +11,9 @@
 //                     feature; "key:fabrics+soundDesign" unlocks only the listed ones.
 //                     The player opens  /?unlock=<key>  once; the browser keeps the key
 //                     (localStorage "klibb.unlock") and sends it with requests.
+//   Lemon Squeezy     paid keys (pay what you want, min $1): the buyer's LS license key works the
+//                     same way (/?unlock=<key> or "I have a key"); server/licenses.js checks it
+//                     with LS (store + product must match) and caches the verdict.
 //   DEV_UNLOCK=1      dev/test servers only: a browser with localStorage "klibb.devUnlock" = "1"
 //                     gets everything. Ignored unless the server sets this.
 // bigStickers: stickers larger than FREE_MAX_STICKER_M (up to the wall height). Free = max 1 m.
@@ -33,15 +36,27 @@ function parseKeys(raw) {
   return keys;
 }
 
-// resolver(env) -> ({ key, dev }) -> { fabrics, soundDesign, bigStickers, … }
-function makeEntitlements(env = process.env) {
+// resolver(env, { licenses }) -> ({ key, dev }) -> { fabrics, soundDesign, bigStickers, … }
+//   resolve(creds)        sync: manual keys, then what licenses already knows (memory), then dev.
+//   resolve.check(creds)  async: same, but first asks Lemon Squeezy about an unknown LS key.
+//   resolve.licenses      the licenses object (or null when LS isn't configured).
+function makeEntitlements(env = process.env, { licenses = null } = {}) {
   const keys = parseKeys(env.FULL_ACCESS_KEYS);
   const devAllowed = env.DEV_UNLOCK === '1';
   const resolve = ({ key, dev } = {}) => {
     if (typeof key === 'string' && keys.has(key)) { const out = none(); for (const f of keys.get(key)) out[f] = true; return out; }
+    if (licenses && typeof key === 'string' && licenses.peek(key)) return all(); // paid: the whole full version
     if (devAllowed && (dev === true || dev === '1')) return all();
     return none();
   };
+  resolve.check = async (creds = {}) => {
+    const key = creds.key;
+    if (licenses && typeof key === 'string' && !keys.has(key)) { try { await licenses.ensure(key); } catch { /* stays as known */ } }
+    return resolve(creds);
+  };
+  resolve.isManual = (key) => typeof key === 'string' && keys.has(key);
+  resolve.manualCount = keys.size;
+  resolve.licenses = licenses;
   resolve.devAllowed = devAllowed;
   return resolve;
 }
@@ -50,4 +65,4 @@ const fromReq = (req) => ({ key: req.get('x-unlock') || undefined, dev: req.get(
 // … and from a WebSocket hello: { unlock: { key, dev } }.
 const fromHello = (m) => { const u = m && typeof m.unlock === 'object' && m.unlock ? m.unlock : {}; return { key: typeof u.key === 'string' ? u.key : undefined, dev: u.dev === true }; };
 
-module.exports = { FEATURES, FREE_MAX_STICKER_M, makeEntitlements, fromReq, fromHello, none, all };
+module.exports = { FEATURES, FREE_MAX_STICKER_M, KEY_RE, makeEntitlements, fromReq, fromHello, none, all };

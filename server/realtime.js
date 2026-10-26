@@ -9,6 +9,7 @@
 //
 // Meddelanden är JSON med fältet t (typ):
 //   klient → server: hello {name, look, p, y, pi, unlock?: {key, dev}} · move {p, y, pi} · look {name, look} · chat {text}
+//                    unlock {unlock: {key, dev}}  (new full-version key in an open tab)
 //                    ping · signal {to, data}  (signal = för röstchatt via WebRTC, se nedan)
 //   server → klient: welcome {id, you, players, chat, max, full, rec} · join {player} · leave {id}
 //                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
@@ -142,6 +143,13 @@ function attachRealtime(server, {
     if (!rooms.has(id)) rooms.set(id, { id, players: new Map(), watchers: [], chat: [] });
     return rooms.get(id);
   };
+  // Flags from a paid key arrive asynchronously (server/licenses.js); only ever replaces c.ent.
+  const upgradeEnt = (c, creds, replace = false) => {
+    const now = entitle(creds || {}); // already known (e.g. /api/unlock just checked it): right away
+    if (replace || Object.values(now).some(Boolean)) c.ent = now;
+    if (!entitle.check || !creds || typeof creds.key !== 'string') return;
+    entitle.check(creds).then((ent) => { if (replace || Object.values(ent).some(Boolean)) c.ent = ent; }).catch(() => {});
+  };
   const pub = (c) => ({ id: c.id, name: c.name, look: c.look, p: c.p, y: c.y, pi: c.pi || 0 });
   const rec = (roomId, e, data) => { if (recorder) recorder.log(roomId, e, data); };
   // Inspelningen frågar vilka som är i rummet när den startar (och om rummet står tomt).
@@ -215,6 +223,7 @@ function attachRealtime(server, {
       }
       setName(c, r, m.name);
       c.ent = entitle(fromHello(m));
+      upgradeEnt(c, fromHello(m)); // a paid key we haven't seen yet: ask Lemon Squeezy, then upgrade
       c.look = cleanLook(m.look, c.ent);
       c.p = cleanPos(m.p, bounds) || [0, 1.6, 3.5]; c.y = isNum(m.y) ? round(m.y) : 0; c.pi = cleanPitch(m.pi);
       if (r.players.size < maxPlayers) { c.player = true; r.players.set(c.id, c); } else r.watchers.push(c);
@@ -223,6 +232,8 @@ function attachRealtime(server, {
       return;
     }
     if (!c.joined) return;
+    // "I have a key" in an open tab: new full-version flags without reconnecting.
+    if (m.t === 'unlock') { if (c.lookLimit()) upgradeEnt(c, fromHello(m), true); return; }
     if (m.t === 'move') {
       if (!c.moveLimit()) return;
       const p = cleanPos(m.p, bounds); if (!p) return;

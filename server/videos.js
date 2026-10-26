@@ -228,7 +228,7 @@ function mountVideos(app, { store, recorder, entitle, fromReq, mailer, rightsTo,
       const kind = await sniff(tmp);
       if (!kind) return res.status(415).json({ error: 'That is not a WebM or MP4 video.' });
       const q = req.query || {};
-      const free = !entitle(fromReq(req)).cleanVideo;
+      const free = !(entitle.check ? await entitle.check(fromReq(req)) : entitle(fromReq(req))).cleanVideo; // paid LS keys: checked, not only cached
       const m = await videos.save({ room, recId, file: tmp, ...kind, bytes, durationMs: q.durationMs, aspect: String(q.aspect || ''), free });
       res.json({ video: pub(m), watchUrl: `${baseOf(req)}/v/${m.id}`, email: !!mailer.enabled });
     } finally {

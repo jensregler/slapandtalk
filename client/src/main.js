@@ -17,7 +17,8 @@ import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadVi
 import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
 import { PeelLayer } from './peels.js';
 import { PEEL, peelPlan, onFloor, stampDims, SLAP_REACH, inReach } from '../../shared/peels.mjs';
-import { entitlements, loadEntitlements } from './entitlements.js';
+import { entitlements, loadEntitlements, credentials } from './entitlements.js';
+import { initFullVersion } from './fullversion.js';
 import { Footsteps } from './steps.js';
 import { loadSoundLook, initSoundUI } from './soundui.js';
 import * as synthShared from '../../shared/synth.mjs';
@@ -899,6 +900,7 @@ function resumeGame() { setResuming(true); tryLock(); }
 // The topmost thing Esc should close, or null.
 function escTarget() {
   if (camView) return () => exitCamView();
+  if (fullUi?.isOpen()) return () => fullUi.close();
   if (!$('sound-panel').hidden) return () => soundUi.close();
   if (!$('avatar-panel').hidden) return () => $('av-cancel').click();
   if (sp.open) return () => closeStylePanel(true);
@@ -1209,8 +1211,13 @@ const together = initTogether({
   onSound: (s) => sound.setMine(s),
 });
 // Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
-const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); });
-function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; applySizeLimit(); }
+const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); fullUi.ready(); });
+function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; applySizeLimit(); fullUi?.refreshEntry(); }
+// Full version panel (fullversion.js): a quiet entry in ⚙ More → Help; a new key applies right away.
+var fullUi = initFullVersion({ // eslint-disable-line no-var
+  $, onOpen: () => { closeMore(); controls.unlock?.(); },
+  onChange: () => { together.sendUnlock?.(credentials()); together.entitlementsChanged(); onEntitlements(); },
+});
 // Sound settings (soundui.js): only reachable with entitlements.full.soundDesign.
 const soundUi = initSoundUI({ $, sound, toast, onSave: () => together.soundChanged(), onOpenChange: (o) => { if (o) controls.unlock?.(); } });
 $('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { closeMore(); soundUi.open(); } };
@@ -1470,7 +1477,7 @@ window.klibb = {
   linkDialog: () => ({ open: linkDlg.open, url: $('link-url').textContent, href: $('link-open').getAttribute('href'), rel: $('link-open').rel, target: $('link-open').target }),
   cleanArtistLink,
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
-  sound, soundLog: () => sound.log.slice(), openMore, closeMore, moreOpen: () => !$('more-panel').hidden,
+  sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   reach: SLAP_REACH, farSlaps: () => farSlaps, skipReachCheck: false,

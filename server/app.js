@@ -22,7 +22,21 @@ const MAX_PX = 1024;
 const MAX_STAMP_SIZE = require('../shared/room.json').height;
 // Större stämplar krymps (i stället för att nekas), så äldre appar inte får fel.
 const clampSize = (s) => Math.min(s, MAX_STAMP_SIZE);
-const { makeEntitlements, fromReq, FREE_MAX_STICKER_M } = require('./entitlements');
+const { makeEntitlements, fromReq, FREE_MAX_STICKER_M, KEY_RE } = require('./entitlements');
+const { verifySignature } = require('./licenses');
+// Paid full version (Lemon Squeezy, see server/licenses.js and README "Full version: Lemon Squeezy").
+//   checkoutUrl  LS_CHECKOUT_URL (https only), tagged with checkout[custom][src]=app
+//   show         the quiet "Full version" entry in ⚙ More: only with a checkout URL, and in the
+//                demo profile (DEMO_PROFILE=1) only when SHOW_BUY=1.
+function payConfig(env = process.env) {
+  let checkoutUrl = '';
+  try {
+    const u = new URL(String(env.LS_CHECKOUT_URL || ''));
+    if (u.protocol === 'https:') { u.searchParams.set('checkout[custom][src]', 'app'); checkoutUrl = u.toString(); }
+  } catch { /* not set */ }
+  const demo = env.DEMO_PROFILE === '1';
+  return { checkoutUrl, show: !!checkoutUrl && (!demo || env.SHOW_BUY === '1'), webhookSecret: String(env.LS_WEBHOOK_SECRET || '') };
+}
 // Free version: new stickers are at most 1 m (+ a little rounding slack, then clamped to 1 m).
 // Bigger, up to the wall height, needs the full version (bigStickers). Old stickers stay as they are.
 const FREE_SIZE_SLACK = 0.01;
@@ -30,10 +44,31 @@ const FREE_SIZE_SLACK = 0.01;
 const { mountVideos, videoSettings } = require('./videos');
 const { createMailer } = require('./mail');
 
-function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), clock = () => Date.now() } = {}) {
+function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
+// Full-version flags for a request; asks Lemon Squeezy first when the key is a paid key we haven't seen.
+const entOf = (req) => (entitle.check ? entitle.check(fromReq(req)) : Promise.resolve(entitle(fromReq(req))));
+const licenses = entitle.licenses || null;
+const wrapEarly = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// ---------- Lemon Squeezy webhook ----------
+// Before express.json: the signature (X-Signature = HMAC-SHA256 hex of the RAW body, LS_WEBHOOK_SECRET)
+// must be checked on the exact bytes. Events: order_created, order_refunded, license_key_created,
+// license_key_updated (others are answered 200 and ignored, so LS doesn't retry them).
+app.post('/api/ls/webhook', express.raw({ type: () => true, limit: '512kb' }), async (req, res) => {
+  if (!pay.webhookSecret || !licenses) return res.status(503).json({ error: 'Payments are not configured.' });
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!verifySignature(pay.webhookSecret, raw, req.get('x-signature') || '')) return res.status(401).json({ error: 'Bad signature' });
+  let payload; try { payload = JSON.parse(raw.toString('utf8')); } catch { return res.status(400).json({ error: 'Bad JSON' }); }
+  const event = String(req.get('x-event-name') || payload?.meta?.event_name || '');
+  try {
+    const r = await licenses.handleWebhook(event, payload);
+    res.json({ ok: true, ...(r && r.ignored ? { ignored: true } : {}) });
+  } catch (e) { log.error(`[ls] webhook ${event} failed: ${e.message}`); res.status(500).json({ error: 'Could not handle the event' }); }
+});
+
 app.use(express.json({ limit: '50kb' }));
 
 // Rum-id: små bokstäver, siffror och bindestreck. "stad" är den publika staden.
@@ -109,14 +144,27 @@ const fabricUpload = multer({
 });
 const fabricSize = (w, h) => Math.min(FAB.maxPx, Math.max(FAB.minPx, 2 ** Math.ceil(Math.log2(Math.max(1, w | 0, h | 0)))));
 // Full version flags for this browser (see server/entitlements.js). Free = all false.
-app.get('/api/entitlements', (req, res) => {
+// buy: only when the quiet "Full version" entry should exist (payConfig), never a nag.
+app.get('/api/entitlements', wrapEarly(async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ full: entitle(fromReq(req)), devAllowed: !!entitle.devAllowed });
-});
+  const full = await entOf(req);
+  res.json({ full, devAllowed: !!entitle.devAllowed, ...(pay.show ? { buy: { url: pay.checkoutUrl } } : {}), paid: !!licenses });
+}));
+// "I have a key": check a pasted key (manual FULL_ACCESS_KEYS or a Lemon Squeezy license key).
+// The browser stores it only when ok. Never logged. 10 tries per IP and minute.
+app.post('/api/unlock', rateLimit(10), wrapEarly(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const key = typeof req.body?.key === 'string' ? req.body.key.trim() : '';
+  if (!KEY_RE.test(key)) return res.status(400).json({ ok: false, error: 'That does not look like a key.' });
+  const full = await entOf({ get: (h) => (h === 'x-unlock' ? key : undefined) });
+  const ok = Object.values(full).some(Boolean);
+  res.status(ok ? 200 : 403).json(ok ? { ok, full } : { ok, full, error: 'That key does not unlock the full version.' });
+}));
 
 app.post('/api/fabrics', rateLimit(20), (req, res) => {
   // Fabrics are part of the full version: free players can't make new ones (they still see others').
-  if (!entitle(fromReq(req)).fabrics) return res.status(403).json({ error: 'Fabrics are part of the full version.' });
+  entOf(req).then((ent) => {
+  if (!ent.fabrics) return res.status(403).json({ error: 'Fabrics are part of the full version.' });
   fabricUpload.single('file')(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? `The fabric image is larger than ${Math.round(FAB.maxBytes / 1024)} kB.` : 'The upload failed.' });
     if (!req.file) return res.status(400).json({ error: 'Pick a PNG, JPG or WebP image.' });
@@ -141,6 +189,7 @@ app.post('/api/fabrics', rateLimit(20), (req, res) => {
       res.status(400).json({ error: 'Could not read the image.' });
     }
   });
+  }).catch(() => res.status(500).json({ error: 'Something went wrong on the server.' }));
 });
 
 // Finns bilden på riktigt? På Renders gratisnivå är disken tillfällig: efter en omstart
@@ -306,7 +355,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Invalid position' });
   if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
   // Same gate as fabrics: only the full version (bigStickers) may slap stickers bigger than 1 m.
-  if (b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK && !entitle(fromReq(req)).bigStickers) b.size = FREE_MAX_STICKER_M;
+  if (b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK && !(await entOf(req)).bigStickers) b.size = FREE_MAX_STICKER_M;
   // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).
   const P = await peelsMod;
   let peelSt = await store.peelState(room);
@@ -629,6 +678,13 @@ app.locals.videos = mountVideos(app, { store, recorder, entitle, fromReq, mailer
 
 // ---------- Admin (dold) ----------
 app.get('/api/admin/check', (req, res) => res.json({ ok: isAdmin(req) }));
+// Paid full versions (Lemon Squeezy): only counts, never keys. x-admin-token: ADMIN_TOKEN.
+app.get('/api/admin/entitlements', wrap(async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
+  res.set('Cache-Control', 'no-store');
+  const paid = licenses ? await licenses.counts() : { active: 0, locked: 0 };
+  res.json({ paidActive: paid.active, paidLocked: paid.locked, manualKeys: entitle.manualCount || 0, lemonSqueezy: !!(licenses && licenses.enabled), checkout: !!pay.checkoutUrl });
+}));
 
 app.delete('/api/rooms/:room/stamps/:id', wrap(async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
@@ -680,4 +736,4 @@ app.use('/api', (err, req, res, next) => { console.error(err); res.status(500).j
 return app;
 }
 
-module.exports = { createApp };
+module.exports = { createApp, payConfig };

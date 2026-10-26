@@ -3,7 +3,9 @@
 // page is the calm, plain room. The server re-checks everything it receives.
 export const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo'];
 const KEY = 'klibb.unlock', DEV = 'klibb.devUnlock';
-export const entitlements = { full: Object.fromEntries(FEATURES.map((f) => [f, false])), devAllowed: false };
+// buy = { url } only when the server wants the quiet "Full version" entry (LS_CHECKOUT_URL set,
+// and not the demo profile unless SHOW_BUY=1). Never shown as a popup or teaser.
+export const entitlements = { full: Object.fromEntries(FEATURES.map((f) => [f, false])), devAllowed: false, buy: null };
 
 const get = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const set = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* privat läge */ } };
@@ -16,15 +18,22 @@ export function unlockHeaders() {
   return h;
 }
 export const has = (feature) => !!entitlements.full[feature];
+export const isFull = () => FEATURES.some((f) => entitlements.full[f]);
+export const hasStoredKey = () => !!get(KEY);
 
-// /?unlock=<key> stores the key once (and removes it from the address bar); /?unlock=off forgets it.
+// /?unlock=<key> (or /#unlock=<key>, which never reaches any server log) stores the key once and
+// removes it from the address bar; ?unlock=off forgets it. Works for manual keys and for the
+// Lemon Squeezy license key (the receipt/thank-you button can link to /?thanks=1#unlock=[license_key]).
 function takeUrlKey() {
   let url; try { url = new URL(location.href); } catch { return; }
-  if (!url.searchParams.has('unlock')) return;
-  const v = url.searchParams.get('unlock') || '';
+  const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+  const inQuery = url.searchParams.has('unlock'), inHash = hash.has('unlock');
+  if (!inQuery && !inHash) return;
+  const v = ((inHash ? hash.get('unlock') : url.searchParams.get('unlock')) || '').trim();
   set(KEY, v === 'off' || !v ? null : v);
-  url.searchParams.delete('unlock');
-  try { history.replaceState(history.state, '', url.pathname + (url.search ? url.search : '') + url.hash); } catch { /* ok */ }
+  url.searchParams.delete('unlock'); hash.delete('unlock');
+  const h = hash.toString();
+  try { history.replaceState(history.state, '', url.pathname + (url.search ? url.search : '') + (h ? '#' + h : '')); } catch { /* ok */ }
 }
 
 export async function loadEntitlements() {
@@ -34,6 +43,23 @@ export async function loadEntitlements() {
     const j = await res.json();
     for (const f of FEATURES) entitlements.full[f] = !!(j.full && j.full[f]);
     entitlements.devAllowed = !!j.devAllowed;
+    entitlements.buy = j.buy && typeof j.buy.url === 'string' && /^https:\/\//.test(j.buy.url) ? { url: j.buy.url } : null;
   } catch { /* offline: stay free */ }
   return entitlements;
 }
+
+// "I have a key": the server checks it (manual key or Lemon Squeezy license key). Only a key that
+// unlocks something is stored. -> { ok, error? }
+export async function tryKey(raw) {
+  const key = String(raw || '').trim();
+  if (!key) return { ok: false, error: 'empty' };
+  try {
+    const res = await fetch('/api/unlock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) return { ok: false, error: res.status === 429 ? 'slow' : 'bad' };
+    set(KEY, key);
+    await loadEntitlements();
+    return { ok: isFull() };
+  } catch { return { ok: false, error: 'offline' }; }
+}
+export async function forgetKey() { set(KEY, null); return loadEntitlements(); }

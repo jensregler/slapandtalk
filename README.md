@@ -403,6 +403,89 @@ flaggan, och servern stryker/nekar tyg- och patchdata från den som inte har den
 `localStorage.setItem('klibb.devUnlock', '1')` i webbläsaren. Flaggan ignoreras när servern inte har
 `DEV_UNLOCK=1` (sätt den aldrig i produktion). E2E-testerna kör med `DEV_UNLOCK=1`.
 
+### Betala för fullversionen: Lemon Squeezy (steg för steg, för Jens)
+
+Fullversionen säljs som **"betala vad du vill", minst 1 dollar**, via **Lemon Squeezy** (LS). LS är
+*merchant of record*: de säljer i sitt namn och sköter moms i hela världen, kort, PayPal, Apple Pay och
+Google Pay. Köparen får en **licensnyckel** (i kvittomejlet, och direkt tillbaka till sajten). Nyckeln
+fungerar precis som de manuella nycklarna ovan, och de manuella (`FULL_ACCESS_KEYS`: Jens, Marika,
+Chattis …) fortsätter fungera som förut.
+
+I appen finns bara en diskret rad **★ Full version** längst ner i ⚙ More → Help. Den öppnar en lugn
+panel med vad fullversionen ger, en knapp till kassan och fältet **I have a key**. Inga popupper, inga
+låsta knappar som retas, och inget alls i demoprofilen (`DEMO_PROFILE=1`) om du inte sätter `SHOW_BUY=1`.
+Raden syns bara när `LS_CHECKOUT_URL` är satt (och för den som redan har fullversionen, så man kan se
+sin status).
+
+**1. Skapa butiken**
+1. Gå till <https://app.lemonsqueezy.com/register> och skapa ett konto. Fyll i butiksnamn (t.ex.
+   *Slap and Talk*), valuta **USD**.
+2. Under **Settings → Payouts** kopplar du ditt bankkonto, och LS ber dig styrka vem du är. Tills
+   butiken är godkänd kan du testa allt i **Test mode** (strömbrytaren nere till vänster).
+3. Notera **Store ID**: **Settings → Stores**, siffran vid butiken. → `LS_STORE_ID`
+
+**2. Skapa produkten**
+1. **Store → Products → + New product**. Namn: *Slap and Talk – Full version*. Kort beskrivning, t.ex.
+   "Fabrics, sound design and big stickers. Pay what you want."
+2. **Pricing**: välj **Single payment** och slå på **Pay what you want**. **Minimum price: 1.00**,
+   **Suggested price: 5.00**.
+3. **Generate license keys**: slå på. **Activation limit: Unlimited** (eller t.ex. 5).
+   **License length: Unlimited** (aldrig utgång). Servern aktiverar bara en gång per nyckel (inte per
+   webbläsare), så en gräns på 5 räcker gott.
+4. **Confirmation modal → Button link** (knappen efter betalningen) och **Receipt → Button link**
+   (knappen i kvittomejlet): skriv
+   `https://slapandtalk.com/?thanks=1#unlock=[license_key]`
+   (LS byter `[license_key]` mot köparens nyckel). Knapptext t.ex. *Back to Slap and Talk*. Då låses
+   fullversionen upp direkt när köparen klickar. Delen efter `#` skickas aldrig till någon server, så
+   nyckeln hamnar inte i några loggar. (Godtar LS inte `#`, använd `?thanks=1&unlock=[license_key]`.)
+5. **Publish**. Notera **Product ID** (siffran i adressen när produkten är öppen, eller under
+   **⋯ → Copy ID**). → `LS_PRODUCT_ID`
+6. **Share** på produkten → kopiera **checkout-länken** (den med `/checkout/buy/…`, inte en `?cart=`-länk).
+   → `LS_CHECKOUT_URL`. Appen lägger själv till `checkout[custom][src]=app`, så du ser i LS vilka köp
+   som kom från appen.
+
+**3. Webhooken** (så återbetalningar och avstängda nycklar slår igenom direkt)
+1. **Settings → Webhooks → +**.
+2. **Callback URL**: `https://slapandtalk.com/api/ls/webhook`
+3. **Signing secret**: hitta på en hemlig sträng (6–40 tecken), t.ex. `openssl rand -hex 20`.
+   → `LS_WEBHOOK_SECRET`
+4. **Events**: kryssa i **order_created**, **order_refunded**, **license_key_created** och
+   **license_key_updated**. Spara. (Servern kollar `X-Signature` mot hemligheten och svarar 401 på allt annat.)
+
+**4. Miljövariabler på Render** (Dashboard → tjänsten → **Environment**, sedan **Manual Deploy**)
+
+| Variabel | Värde | Behövs |
+|---|---|---|
+| `LS_STORE_ID` | butikens id (siffra) | ja |
+| `LS_PRODUCT_ID` | produktens id (siffra) | ja – bara nycklar till just den här produkten i just den butiken låser upp |
+| `LS_CHECKOUT_URL` | checkout-länken från Share | ja – utan den syns ingen köpknapp |
+| `LS_WEBHOOK_SECRET` | samma hemlighet som i webhooken | ja – utan den svarar webhooken 503 |
+| `LS_API_KEY` | – | **behövs inte**: licens-API:t (validera/aktivera) kräver ingen nyckel |
+| `LS_REVALIDATE_HOURS` | standard `24` | valfri: hur ofta en betald nyckel kollas mot LS igen (i bakgrunden) |
+| `LS_ACTIVATE` | standard på | valfri: `0` = aktivera aldrig nycklar i LS (bara validera) |
+| `SHOW_BUY` | `1` | valfri: visa ★ Full version även i demoprofilen |
+| `ADMIN_TOKEN` | finns redan | för räknaren nedan |
+
+**5. Testa** (i LS Test mode): köp med testkortet `4242 4242 4242 4242`, klicka på knappen efter
+betalningen → sajten öppnas med "Thank you!" och fullversionen på. Eller klistra in nyckeln från
+kvittot i ⚙ More → ★ Full version → *I have a key*. Gör en återbetalning i LS → nyckeln låses
+(webhooken). Byt till Live mode när du är klar: test- och live-produkter har olika id, så uppdatera
+`LS_PRODUCT_ID` och `LS_CHECKOUT_URL` (och skapa webhooken i live-läget också).
+
+**Hur det funkar i servern** (`server/licenses.js`): nyckeln valideras med
+`POST https://api.lemonsqueezy.com/v1/licenses/validate`; den måste vara giltig, ha status
+active/inactive, höra till `LS_STORE_ID` + `LS_PRODUCT_ID`, och ordern får inte vara återbetald.
+En nyckel som aldrig använts aktiveras **en gång** (`instance_name=slapandtalk.com`), så den syns som
+använd i LS. Svaret sparas i minnet och i lagringen (R2) som `entitlements/<sha256(nyckel)>.json`
+(bara utslag och id:n, aldrig nyckeln eller mejladressen) och ordrar i `ls-orders/<order-id>.json`.
+Ligger LS nere gäller det sparade svaret, så ingen som betalat blir utelåst. Nycklar loggas aldrig.
+
+**Räknare för admin** (inga nycklar, bara antal):
+```bash
+curl -H "x-admin-token: $ADMIN_TOKEN" https://slapandtalk.com/api/admin/entitlements
+# {"paidActive":12,"paidLocked":1,"manualKeys":3,"lemonSqueezy":true,"checkout":true}
+```
+
 ### Ljud: synth, effekter och rumsakustik
 
 Alla ljud (slap, peel, nope, fotsteg, "duff" när ett baksidespapper landar) är JSON-patchar

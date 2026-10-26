@@ -8,6 +8,8 @@ const { createStore } = require('./store');
 const { createApp } = require('./app');
 const { attachRealtime } = require('./realtime');
 const { createRecorder } = require('./recorder');
+const { makeEntitlements } = require('./entitlements');
+const { createLicenses } = require('./licenses');
 const { safeStep, checkStorage, installProcessGuards } = require('./startup');
 
 installProcessGuards();
@@ -24,7 +26,11 @@ const REC_MAX_ACTIVE = Number(process.env.REC_MAX_ACTIVE || 4);
 const adapter = createAdapter();
 const store = createStore(adapter);
 const recorder = createRecorder(store, { maxMs: REC_MAX_MINUTES * 60_000, maxBytes: REC_MAX_MB * 1024 * 1024, maxActive: REC_MAX_ACTIVE });
-const app = createApp(store, { adminToken: process.env.ADMIN_TOKEN || '', quickTtlHours: QUICK_TTL_HOURS, recorder });
+// Full version: manual FULL_ACCESS_KEYS + paid Lemon Squeezy keys (LS_STORE_ID + LS_PRODUCT_ID set).
+const licenses = createLicenses({ adapter, env: process.env });
+const entitle = makeEntitlements(process.env, { licenses: licenses.enabled ? licenses : null });
+if (licenses.enabled) console.log('Full version: Lemon Squeezy keys on' + (process.env.LS_WEBHOOK_SECRET ? ' (webhook on)' : ' (no LS_WEBHOOK_SECRET: webhook off)'));
+const app = createApp(store, { adminToken: process.env.ADMIN_TOKEN || '', quickTtlHours: QUICK_TTL_HOURS, recorder, entitle });
 
 // Städjobbet: tar bort snabbrum som stått tomma längre än QUICK_ROOM_TTL_HOURS.
 async function cleanup() {
@@ -44,7 +50,7 @@ async function cleanup() {
 })().catch((e) => console.error('[start] Oväntat fel före start:', e)).finally(() => {
   const server = app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind}, max ${MAX_PLAYERS} per rum)`));
   // Flerspelarläget (WebSocket på /ws) går på samma port som webbappen.
-  const realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder });
+  const realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder, entitle });
   // Vid omstart (pm2, Render): säg till alla anslutna att servern startar om, så kopplar
   // deras webbläsare upp sig igen av sig själva när den nya servern är igång.
   // Pågående inspelningar avslutas och sparas först (stoppskäl "shutdown").

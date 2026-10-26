@@ -279,6 +279,8 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     // Sound settings saved: tell everyone (they play my patches; no other network cost).
     soundChanged() { onSound(shownSound()); if (net.status === 'online') net.sendLook(myName(), shownLook()); },
     shownSound,
+    // A key was added/forgotten in this tab ("I have a key"): tell the server before the next look.
+    sendUnlock(unlock) { if (net.status === 'online') net.sendUnlock(unlock); },
     // The full-version flags arrived (entitlements.js): show/send my fabrics, redraw the panel.
     entitlementsChanged() {
       self.avatar?.setLook(shownLook()); onSound(shownSound());

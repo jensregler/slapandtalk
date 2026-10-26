@@ -440,3 +440,22 @@ body.resuming #panel, body.resuming #more-panel { display: none; }
 /* Finished videos under each recording in 🎬 Recording → Recordings */
 .rec-videos { list-style: none; margin: 2px 0 4px 14px; padding: 0; font-size: 12px; }
 .rec-videos a, a.rec-video { color: #e8c25a; text-decoration: none; }
+
+/* Full version (fullversion.js): calm, same look as the other side panels. */
+#full-panel { position: fixed; top: 12px; right: 12px; width: 340px; max-height: calc(100% - 24px); overflow: auto; z-index: 10;
+  background: rgba(20,20,20,.96); border: 1px solid #333; border-radius: 14px; padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 9px; }
+#full-panel[hidden], #full-panel [hidden] { display: none; }
+#full-panel p { margin: 0; font-size: 13.5px; color: #ddd; }
+#full-panel .full-list { margin: 0; padding-left: 18px; font-size: 13px; color: #ccc; display: flex; flex-direction: column; gap: 4px; }
+#full-panel .full-status { color: #9fe39f; font-weight: 700; }
+#full-buy { display: flex; flex-direction: column; gap: 7px; }
+#full-buy .btn { display: block; text-align: center; padding: 9px 12px; border-radius: 10px; text-decoration: none; }
+#full-buy .btn.primary { background: #fff; color: #111; font-weight: 700; }
+#full-key-box { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid #333; padding-top: 9px; font-size: 12.5px; color: #aaa; }
+#full-key-form { display: flex; gap: 6px; }
+#full-key-form input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: 12.5px; }
+.link-btn { background: none; border: none; padding: 2px 0; color: #999; font-size: 12.5px; text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.link-btn:hover { color: #ddd; }
+.link-btn[hidden] { display: none; }
+body.touch #full-panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 75%; border-radius: 14px 14px 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+#full-panel p.hint { color: #8a8a8a; font-size: 12px; }

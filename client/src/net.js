@@ -90,6 +90,7 @@ export function connect(roomId, handlers) {
     sendMove: (p, y, pi = 0) => send({ t: 'move', p, y, pi }),
     sendLook: (name, look) => send({ t: 'look', name, look }),
     sendChat: (text) => send({ t: 'chat', text }),
+    sendUnlock: (unlock) => send({ t: 'unlock', unlock }), // new full-version key in this tab
     sendSignal: (to, data) => send({ t: 'signal', to, data }), // röstchatt (nästa steg)
     reconnectNow: now,
     close() { closed = true; clearInterval(hb); clearTimeout(timer); if (ws) ws.close(); },
