@@ -21,7 +21,8 @@ import { PeelLayer } from './peels.js';
 import { PEEL, peelPlan, onFloor, stampDims, SLAP_REACH, inReach } from '../../shared/peels.mjs';
 import { entitlements, loadEntitlements, credentials } from './entitlements.js';
 import { initFullVersion } from './fullversion.js';
-import { Footsteps } from './steps.js';
+import { GrooveSteps } from './groove.js';
+import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, grooveLabel } from '../../shared/groove.mjs';
 import { loadSoundLook, initSoundUI } from './soundui.js';
 import * as synthShared from '../../shared/synth.mjs';
 import { config } from './config.js';
@@ -132,6 +133,7 @@ function renderSound() {
 }
 function setMuted(m, { quiet = false } = {}) {
   sound.setMuted(m); renderSound();
+  if (sound.muted && groove) groove.stopAll(); // the footstep buzz too
   if (!quiet) toast(sound.muted ? S.soundOffToast : S.soundOnToast, 1200);
   return sound.muted;
 }
@@ -1101,6 +1103,7 @@ function updateStyleUi() {
   $('clear-hidden').hidden = !canReset(); // same rule as resetting the room
   $('rec-box').hidden = !(canEditStyle() || (DEMO && canReset())); // the demo records too (no cameras there)
   updatePeelUi();
+  if (groove) updateGrooveUi();
   const s = currentStyle;
   $('room-style').textContent = S.roomStyleLine(styleName(s), s.seed);
 }
@@ -1212,6 +1215,7 @@ async function loadRoom() {
   try {
     const { stamps: list, images, info, cameras, peels } = await api.loadRoom(ROOM);
     showRoomInfo(info);
+    applyGroove(info?.groove);
     peelLayer.setOn(!!info?.peels);
     for (const p of peels || []) peelLayer.add(p, images[p.imageId]);
     cams.set(cameras || []); renderCams();
@@ -1256,6 +1260,7 @@ function onRoomEvent(e) {
     if (e.on) api.loadRoom(ROOM).then((r) => syncPeels(r.info, r.peels, r.images)).catch(() => {});
     else { peelLayer.setOn(false); updatePeelUi(); }
   } else if (e.type === 'peels:clear') peelLayer.clear();
+  else if (e.type === 'room:groove' && e.groove) applyGroove(e.groove, { flash: cleanGroove(e.groove).scale !== groove.scale });
   else if (e.type === 'room:style' && e.style) {
     currentStyle = normalizeStyle(e.style); updateStyleUi();
     if (!sp.open) { showStyle(currentStyle); toast(S.styleChanged, 1800); }
@@ -1278,6 +1283,7 @@ async function resyncRoom() {
     const { stamps: list, images, info, cameras, peels } = await api.loadRoom(ROOM);
     cams.set(cameras || []); renderCams();
     syncPeels(info, peels, images);
+    applyGroove(info?.groove);
     const alive = new Set(list.map((s) => s.id));
     for (const id of [...stamps.meshes.keys()]) if (!alive.has(id) && !id.startsWith('tmp-')) stamps.remove(id); // väntande klibbor får vara kvar
     await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
@@ -1288,7 +1294,7 @@ async function resyncRoom() {
 const together = initTogether({
   room: ROOM, scene, camera, controls, isTouch, toast, artist: () => state.artist,
   onEvent: onRoomEvent, onReconnect: resyncRoom,
-  onWelcome: (m) => { setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }); if (DEMO) demoWelcome(m); if (voice) voice.reset(); },
+  onWelcome: (m) => { if (groove && Number.isFinite(m.now)) groove.setServerClock(m.now); setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }); if (DEMO) demoWelcome(m); if (voice) voice.reset(); },
   onSound: (s) => sound.setMine(s),
   pass: () => (DEMO ? demo.passFor(ROOM) : null),
   onDenied: (m) => { if (DEMO && m.code === 'gone') demo.forgetRoom(ROOM); if (DEMO) demoClosed(demo.deniedText(m.code), m.code === 'gone' ? S.closedTitle : ' '); },
@@ -1298,12 +1304,58 @@ const together = initTogether({
 });
 // Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
 const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); fullUi.ready(); });
-function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; applySizeLimit(); fullUi?.refreshEntry(); }
+function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; applySizeLimit(); fullUi?.refreshEntry(); if (groove) updateGrooveUi(); }
 // Full version panel (fullversion.js): a quiet entry in ⚙ More → Help; a new key applies right away.
 var fullUi = initFullVersion({ // eslint-disable-line no-var
   $, onOpen: () => { closeMore(); controls.unlock?.(); },
   onChange: () => { together.sendUnlock?.(credentials()); together.entitlementsChanged(); onEntitlements(); },
 });
+// ---------- Footstep groove (shared/groove.mjs) ----------
+// Everyone hears the room's groove (free too, at the room's scale; 1.0× unless the creator changed it).
+// The scale (bar length) is a deep sound control: the room's creator with the full version
+// (soundDesign), or admin. Slider in ⚙ More → Sound, keys [ and ] (Shift = a whole octave).
+// var: the WebSocket welcome can arrive before these lines have run.
+var groove = new GrooveSteps(sound); // eslint-disable-line no-var
+const canGroove = () => !DEMO && canEditStyle() && (!!state.adminToken || !!entitlements.full.soundDesign);
+let grooveSend = null, grooveTimer = null, grooveLast = 0, chipTimer = null;
+function updateGrooveUi({ flash = false } = {}) {
+  const box = document.getElementById('groove-box'); if (!box) return;
+  box.hidden = !canGroove();
+  const s = groove.scale, l = grooveLabel(s);
+  const slider = $('groove-scale'); if (document.activeElement !== slider) slider.value = scaleToSlider(s);
+  $('groove-val').textContent = S.grooveValue(l.scale, l.bar);
+  const chip = $('groove-chip'); chip.textContent = S.grooveChip(l.scale);
+  chip.hidden = s === GROOVE.def && !flash; // calm: only when the room isn't at the default (or just changed)
+  chip.classList.toggle('flash', flash);
+  clearTimeout(chipTimer); if (flash) chipTimer = setTimeout(() => { chip.classList.remove('flash'); chip.hidden = groove.scale === GROOVE.def; }, 1800);
+}
+function applyGroove(g, opts) { groove.setGroove(cleanGroove(g)); updateGrooveUi(opts); }
+// Change the scale: I hear it right away; the server (throttled to ~5 a second) tells everyone.
+function setGrooveScale(scale) {
+  if (!canGroove() || scale === null || scale === undefined) return;
+  if (scale === groove.scale) return;
+  groove.setGroove(retime(groove.groove, scale, groove.now()));
+  updateGrooveUi({ flash: true });
+  grooveSend = scale;
+  const go = () => {
+    grooveTimer = null; if (grooveSend === null) return;
+    const s = grooveSend; grooveSend = null; grooveLast = Date.now();
+    api.setGroove(ROOM, s, { key: roomKeys()[ROOM], admin: state.adminToken })
+      .then((r) => { if (grooveSend === null && r && r.groove) applyGroove(r.groove); })
+      .catch((err) => toast(err.message));
+  };
+  if (!grooveTimer) grooveTimer = setTimeout(go, Math.max(0, 200 - (Date.now() - grooveLast)));
+}
+$('groove-scale').oninput = (e) => setGrooveScale(sliderToScale(e.target.value));
+$('groove-reset').onclick = () => setGrooveScale(GROOVE.def);
+addEventListener('keydown', (e) => {
+  if (isTouch || e.ctrlKey || e.metaKey || e.altKey || isTyping(e) || together.chatOpen()) return;
+  if (e.code !== 'BracketLeft' && e.code !== 'BracketRight') return;
+  if (!canGroove()) return; // not mine to change: the keys do nothing (no nagging)
+  e.preventDefault();
+  setGrooveScale(stepScale(groove.scale, e.code === 'BracketLeft' ? -1 : 1, e.shiftKey)); // [ = tighter (faster), ] = looser (slower)
+});
+
 // Sound settings (soundui.js): only reachable with entitlements.full.soundDesign.
 const soundUi = initSoundUI({ $, sound, toast, onSave: () => together.soundChanged(), onOpenChange: (o) => { if (o) controls.unlock?.(); } });
 $('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { closeMore(); soundUi.open(); } };
@@ -1503,17 +1555,12 @@ function updateChase(dt) {
   chase.pose = { dist: chase.dist, target: pose.dist };
 }
 
-// Footsteps (steps.js): mine while I walk, and the others' from where they walk.
-const footsteps = new Footsteps(sound);
-let stepsTick = 0;
+// Footsteps (groove.js + shared/groove.mjs): everyone who walks plays their slot's polyrhythm on
+// ONE shared bar, so the room's footsteps are one groove. Mine while I walk, the others' from where they walk.
 function walkSounds() {
-  footsteps.update('me', camera.position.x, camera.position.z);
-  const ids = new Set();
-  for (const pl of together.players.map.values()) {
-    ids.add(pl.id);
-    footsteps.update(pl.id, pl.pos.x, pl.pos.z, { at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id) }); // their seed + slot colour
-  }
-  if (++stepsTick % 300 === 0) footsteps.forget(ids);
+  const walkers = [{ id: 'me', x: camera.position.x, z: camera.position.z, at: null }];
+  for (const pl of together.players.map.values()) walkers.push({ id: pl.id, x: pl.pos.x, z: pl.pos.z, at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id) }); // their seed + slot colour
+  groove.update(walkers);
 }
 
 // ---------- Demo: the hour, invites, the closing card (demo.js) ----------
@@ -1676,7 +1723,9 @@ window.klibb = {
   demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
     closedText: $('demo-closed-text').textContent, invite: inviteState, inviteNote: $('invite-note').hidden ? '' : $('invite-note').textContent, left: demoTimer && demoTimer.left ? demoTimer.left() : null }),
   inviteFriend, mySlot: () => together.mySlot(), talking: () => together.talking(),
-  soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => sound.steps, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
+  soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events,
+  groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
+  setGrooveScale, grooveObj: () => groove, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,

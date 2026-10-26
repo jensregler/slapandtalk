@@ -76,11 +76,12 @@ export class Sounds {
   // kind: 'slap' | 'peel' | 'nope' | 'step' | 'duff'. at = [x, y, z] for a sound out in the
   // room (spatial), or null for my own. opts: { sound: that player's look.sound (default: mine),
   // area: m² (duff), volume }.
-  play(kind, at = null, { sound, area, volume = 1 } = {}) {
+  // time: when (AudioContext seconds, the footstep groove schedules ahead); tune: extra pitch ratio.
+  play(kind, at = null, { sound, area, volume = 1, time = null, tune = 1 } = {}) {
     const remote = !!at;
     const who = sound === undefined ? this.mine : sound;
     const wobble = kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06; // tiny per-play life
-    let rate = wobble, gain = volume * (VOLUME[kind] || [1, 1])[remote ? 1 : 0];
+    let rate = wobble * tune, gain = volume * (VOLUME[kind] || [1, 1])[remote ? 1 : 0];
     if (kind === 'duff') { const s = duffScale(area); gain *= s.gain; rate *= s.rate; }
     const distance = remote ? Math.hypot(at[0] - this.listener.p[0], at[1] - this.listener.p[1], at[2] - this.listener.p[2]) : 0;
     // Same curve as the panner (inverse distance), so the log shows what you hear.
@@ -92,9 +93,9 @@ export class Sounds {
     if (this.muted) return entry;
     if (!this.ensure()) return entry;
     const fx = who && who.fx ? cleanFx(who.fx) : null;
-    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, fx, pos: remote ? at : null })) entry.skipped = true; };
+    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, fx, pos: remote ? at : null, time, pool: kind === 'step' ? 'step' : 'main' })) entry.skipped = true; };
     if (this.engine) go(this.engine);
-    else { const t = Date.now(); this.ready.then((eng) => { if (Date.now() - t < 400) go(eng); }); } // the very first sound waits for Tone.js
+    else if (time == null) { const t = Date.now(); this.ready.then((eng) => { if (Date.now() - t < 400) go(eng); }); } // the very first sound waits for Tone.js
     return entry;
   }
   // Preview a patch (the Sound settings editor), dry, at my position.

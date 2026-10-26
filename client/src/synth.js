@@ -9,6 +9,8 @@
 import { cleanPatch, cleanFx, delaySeconds, patchLength, FX_DEFAULTS } from '../../shared/synth.mjs';
 
 export const MAX_VOICES = 12;
+// Footsteps have their own, smaller budget (pool 'step'), so a fast groove never starves the slaps.
+export const MAX_STEP_VOICES = 10;
 let tonePromise = null;
 export const loadTone = () => (tonePromise ||= import('tone'));
 
@@ -26,6 +28,7 @@ export class SynthEngine {
     this.roomIn.connect(this.roomDry);
     this.chains = new Map(); // JSON(fx) -> { input, nodes, used }
     this.voices = [];        // end times (context seconds)
+    this.stepVoices = [];    // the same for footsteps (pool 'step', MAX_STEP_VOICES)
   }
   get now() { return this.Tone.now(); }
 
@@ -79,12 +82,14 @@ export class SynthEngine {
   // Returns false when the polyphony cap skipped it.
   // Voices are plain Web Audio nodes made on Tone's context (see the note at the bottom);
   // they plug into the Tone FX chain / room bus and disconnect themselves when done.
-  play(patch, { gain = 1, rate = 1, fx = null, pos = null, time = null, keep = false } = {}) {
+  play(patch, { gain = 1, rate = 1, fx = null, pos = null, time = null, keep = false, pool = 'main' } = {}) {
     const p = cleanPatch(patch); if (!p) return false;
-    const ctx = this.raw, t0 = (time ?? ctx.currentTime) + 0.005, len = patchLength(p);
-    this.voices = this.voices.filter((end) => end > ctx.currentTime);
-    if (this.voices.length >= MAX_VOICES) return false;
-    this.voices.push(t0 + len);
+    const ctx = this.raw, t0 = Math.max(time ?? 0, ctx.currentTime) + 0.005, len = patchLength(p);
+    const step = pool === 'step', key = step ? 'stepVoices' : 'voices';
+    this[key] = this[key].filter((end) => end > ctx.currentTime);
+    // (scheduled-ahead voices count from when they are scheduled: a cap on what is queued, too)
+    if (this[key].length >= (step ? MAX_STEP_VOICES : MAX_VOICES)) return false;
+    this[key].push(t0 + len);
     const nodes = [];
     const dest = this.chain(p.fx || fx);
     let out = dest.input || dest;
@@ -101,6 +106,34 @@ export class SynthEngine {
     return true;
   }
   get raw() { return this.Tone.getContext().rawContext; }
+
+  // A sustained, looping voice (the footstep "buzz" when the groove is so fast that the steps
+  // merge into a tone, see client/src/groove.js): buffer loops from `time`, fades in/out.
+  // Returns { stop(), setPos([x,y,z]), setGain(g) } or null.
+  loop(buffer, { gain = 1, fx = null, pos = null, time = null, fade = 0.03 } = {}) {
+    if (!buffer) return null;
+    const ctx = this.raw, t0 = Math.max(time ?? 0, ctx.currentTime);
+    const dest = this.chain(fx); let out = dest.input || dest;
+    const nodes = []; let pan = null;
+    if (pos) {
+      pan = ctx.createPanner(); pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 1.6; pan.rolloffFactor = 1; pan.maxDistance = 30;
+      if (pan.positionX) { pan.positionX.value = pos[0]; pan.positionY.value = pos[1]; pan.positionZ.value = pos[2]; } else pan.setPosition(...pos);
+      pan.connect(out); out = pan; nodes.push(pan);
+    }
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(gain, t0 + fade); g.connect(out); nodes.push(g);
+    const src = ctx.createBufferSource(); src.buffer = buffer; src.loop = true; src.connect(g); src.start(t0); nodes.push(src);
+    let stopped = false;
+    return {
+      stop: (at = null) => {
+        if (stopped) return; stopped = true;
+        const t = Math.max(at ?? 0, ctx.currentTime);
+        try { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(0, t + fade); src.stop(t + fade + 0.01); } catch { /* ok */ }
+        src.onended = () => { for (const n of nodes) { try { n.disconnect(); } catch { /* ok */ } } };
+      },
+      setPos: (p) => { if (!pan || !p) return; if (pan.positionX) { pan.positionX.value = p[0]; pan.positionY.value = p[1]; pan.positionZ.value = p[2]; } else pan.setPosition(...p); },
+      get stopped() { return stopped; },
+    };
+  }
 
   noiseBuffer(ctx, color) {
     this.noiseBufs ||= new Map();

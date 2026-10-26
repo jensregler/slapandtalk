@@ -63,6 +63,7 @@ Varje rad: `{ "t": <ms sedan start>, "e": "<typ>", …data }`. Raderna står i t
 | `room:clear-hidden` | `ids, by, kept` | *Clear hidden stickers*: klibborna i `ids` (helt dolda bakom nyare) försvann. (Den automatiska städningen syns som vanliga `stamp:remove`.) |
 | `room:reset` | `by`, `removed` | Rummets skapare (eller admin) nollställde rummet: alla klibbor försvinner. `by` = namnet som visades. |
 | `room:style` | `style` | Rummets utseende ändrades. |
+| `room:groove` | `groove` | Fotstegs-groovens skala ändrades: `{ scale, at, phase }` (shared/groove.mjs). Huvudet har `groove` (null = 1,0×). |
 | `camera:add` / `camera:update` | `camera` (hela kameran) | En kamera placerades / flyttades / ändrades. |
 | `camera:remove` | `id` | En kamera togs bort. |
 | `talk` | `id, l` | Hur högt någon pratar, 0–15 (kvantiserat, `l=0` = tyst igen). Bara medan inspelningen pågår och mikrofonen är på och inte avstängd; högst ~12 per sekund och person, och bara när personen pratar. **Aldrig själva ljudet.** Driver munnen och auto-regissören. |

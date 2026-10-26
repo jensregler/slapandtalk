@@ -123,6 +123,15 @@
       <label class="check"><input id="sound-on" type="checkbox" checked /> <span data-t="sound">Sounds</span></label>
       <label class="check"><input id="voice-near" type="checkbox" checked /> <span data-t="voiceNear">Voices fade with distance</span></label>
       <button id="sound-design-btn" type="button" class="no-demo" hidden data-t="soundDesign" data-t-title="soundDesignTitle">Sound settings…</button>
+      <!-- Footstep groove (shared/groove.mjs): the room's creator with the full version. Keys [ and ]. -->
+      <div id="groove-box" class="no-demo" hidden>
+        <label for="groove-scale"><span data-t="grooveLabel">Groove</span> <span id="groove-val"></span></label>
+        <div class="groove-row">
+          <input id="groove-scale" type="range" min="0" max="1000" step="1" value="667" data-t-title="grooveTitle" />
+          <button id="groove-reset" type="button" class="icon-btn" data-t="grooveReset" data-t-title="grooveResetTitle">1×</button>
+        </div>
+        <p class="hint" data-t="grooveHint"></p>
+      </div>
     </section>
 
     <!-- Recording and cameras: only for the room's creator (or admin; in the City only admin). -->
@@ -321,6 +330,7 @@
     </div>
   </dialog>
   <div id="toast" role="status" aria-live="polite"></div>
+  <div id="groove-chip" hidden aria-hidden="true"></div>
   <!-- Demo profile: a quiet timer, the name question, and the card when the room has closed. -->
   <div id="demo-timer" hidden role="timer" aria-live="off"></div>
   <dialog id="name-dialog" aria-labelledby="name-title">

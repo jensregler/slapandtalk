@@ -487,3 +487,14 @@ body.demo #tray .fav-btn, body.demo #tray .del-btn { display: none !important; }
 #mic-touch { position: fixed; right: 12px; top: 116px; width: 48px; height: 48px; padding: 0; border-radius: 50%; font-size: 20px; z-index: 6;
   background: rgba(20,20,20,.75); border: 2px solid rgba(255,255,255,.5); }
 #people li.speaking::after { content: ' ·))'; color: #8fd18f; }
+
+/* Footstep groove (⚙ More → Sound) and its tiny readout */
+#groove-box { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+#groove-box[hidden], #groove-chip[hidden] { display: none !important; }
+#groove-box label { font-size: 13px; display: flex; justify-content: space-between; gap: 6px; }
+#groove-val { opacity: .7; font-variant-numeric: tabular-nums; }
+.groove-row { display: flex; gap: 6px; align-items: center; }
+.groove-row input { flex: 1; }
+#groove-chip { position: fixed; left: 12px; bottom: 12px; z-index: 5; pointer-events: none; font: 11px/1.4 system-ui, sans-serif; color: #fff;
+  background: rgba(0,0,0,.35); padding: 2px 8px; border-radius: 10px; opacity: .55; font-variant-numeric: tabular-nums; transition: opacity .4s; }
+#groove-chip.flash { opacity: 1; }

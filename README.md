@@ -548,6 +548,41 @@ feedback ≤ 0,95, wet, ping-pong), filter, bitcrush och distortion – per spel
 - Testerna: `tests/synth.test.mjs` och `tests/e2e-synth.js` (renderar alla patchar med
   `Tone.Offline` och kollar att de hörs och inte klipper).
 
+#### Fotstegs-groove: alla fotsteg i en gemensam takt
+
+`shared/groove.mjs` (rutnätet) + `client/src/groove.js` (schemaläggningen). Alla i rummet går på
+**samma takt** (en "bar" på 420 tick). Varje plats i rummet (samma slot som ger ljudet dess färg)
+har en egen polyrytm på takten: slot 0 = 4 steg per takt, 1 = 3, 2 = 5, 3 = 6, 4 = 7, förskjutna så
+att de **aldrig** landar på samma tick (minsta avstånd 5 tick ≈ 18 ms vid 1,0×). Går flera samtidigt
+fyller de varandras luckor: ett groove. Ett steg hörs bara medan gubben går; tiden kommer från
+rutnätet, inte från steglängden. Ingen extra nätverkstrafik: varje webbläsare räknar ut takten från
+klockan (rättad med serverns klocka, `now` i WebSocket-välkomnandet) och rummets groove-läge.
+Stegen schemaläggs 120–400 ms framåt på AudioContext-klockan (inte setTimeout). Höger/vänster fot
+skiljer sig en aning i tonhöjd.
+
+- **Skala (Groove):** en siffra för hela rummet = taktens längd, 1,0× = 1,5 s. Logaritmisk från
+  **1/64×** (takten 23 ms: en 4-stegare var 6:e ms – stegen smälter ihop till en ton) till **8×**
+  (takten 12 s: en 3-stegare var 4:e sekund). Allt sträcks tillsammans, förhållandena står kvar.
+  Byte av skala behåller fasen (som en transport som byter tempo).
+- **Var:** ⚙ More → Sound → **Groove**-reglaget (+ "1×" tillbaka), och tangenterna **[** (tätare/
+  snabbare) och **]** (glesare/långsammare), en kvarts oktav per tryck, med **Shift** en hel oktav.
+  På ett svenskt tangentbord är det tangenterna **Å** och **¨** (samma fysiska tangenter, ingen AltGr).
+- **Vem:** rummets skapare (rumsnyckeln) **med fullversionen (`soundDesign`)**, eller admin; i
+  Staden bara admin. Inte i demot. Andra ser varken reglaget eller får tangenterna att göra något.
+- **Gratis:** alla hör rummets groove (stegen är alltid låsta till takten); i ett rum som ingen
+  ändrat är det 1,0×. Står skalan inte på 1,0× syns en liten diskret skylt nere till vänster
+  ("Groove 0.50×"). Inga köpknappar.
+- **Snabba änden:** när en gubbes steg kommer tätare än 40 ms byts de mot en loopande "buzz"-röst
+  (ett korn av stegljudet per puls, i takt med rutnätet). Fotstegen har en egen röstbudget
+  (10 samtidiga) så de aldrig tränger undan slap-ljuden. Ingen bild-uppdatering (dold flik) = buzzen
+  tystnar av sig själv.
+- **Sparas och spelas in:** `PUT /api/rooms/:room/groove { scale }` → `room.groove = { scale, at,
+  phase }`, händelsen `room:groove` till alla i rummet och i inspelningen (+ `groove` i huvudet).
+  Uppspelningen vet skalan vid varje tidpunkt (`snapshotAt(...).groove`); fotstegsljud i replay och
+  videor finns inte än.
+- Testerna: `tests/groove.test.mjs` (rutnätet), `tests/groove.test.js` (rättigheter, broadcast,
+  sparas, spelas in), `tests/e2e-groove.js` (reglage, tangenter, synk, stegen på rutnätet; port 8846).
+
 
 ### Startstorlek från filnamnet (A_, B_, … Z_)
 En bokstav och ett understreck först i bildens filnamn bestämmer klibbans **startstorlek**, alltså det värde

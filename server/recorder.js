@@ -20,7 +20,7 @@ const FORMAT = 'slapandtalk-rec';
 const VERSION = 1;
 const REC_ID_RE = /^[a-f0-9]{16}$/;
 // Händelser från HTTP-API:t (app.js) som hör till rummet och ska med i loggen.
-const ROOM_EVENTS = new Set(['stamp:add', 'stamp:remove', 'room:reset', 'room:clear-hidden', 'image:remove', 'room:style', 'camera:add', 'camera:update', 'camera:remove']);
+const ROOM_EVENTS = new Set(['stamp:add', 'stamp:remove', 'room:reset', 'room:clear-hidden', 'image:remove', 'room:style', 'camera:add', 'camera:update', 'camera:remove', 'room:groove']);
 
 function createRecorder(store, {
   clock = () => Date.now(),
@@ -118,6 +118,7 @@ function createRecorder(store, {
     r.header = {
       format: FORMAT, v: VERSION, id: r.id, room, startedAt: iso(now), clock: 'ms', positions: 'eye',
       style: snap.style || null, stamps: snap.stamps || [], images: snap.images || {}, cameras: snap.cameras || [], players,
+      groove: snap.groove || null, // the footstep groove (shared/groove.mjs); event room:groove when it changes
       tracks: [], // ljudspår per person kommer i steg 2 (se docs/recording-format.md)
       limits: { maxMs, maxBytes },
     };

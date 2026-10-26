@@ -17,6 +17,8 @@ const { publicSticker } = require('./library');
 const artistLinkMod = import('../shared/artistlink.mjs');
 // Peels (baksidespapper): samma beräkningar som i webbläsaren (fallbana, landning, överlapp).
 const peelsMod = import('../shared/peels.mjs');
+// The footstep groove (one shared bar for everyone's footsteps, shared/groove.mjs).
+const grooveMod = import('../shared/groove.mjs');
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
@@ -275,6 +277,7 @@ function cleanStyle(s) {
 }
 const styleOf = (r) => r.style || { ...STYLES.default }; // äldre rum: dagens utseende
 const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt, style: styleOf(r), peels: !!r.peelsOn,
+  ...(r.groove ? { groove: r.groove } : {}),
   quickTtlHours: r.type === 'quick' ? quickTtlHours : null, ...(r.demo && r.demo.expiresAt ? { expiresAt: r.demo.expiresAt } : {}) });
 
 // Skapa ett nytt snabbrum (inget konto behövs). Svarar med en kort kod, t.ex. "k7m2qx".
@@ -533,6 +536,23 @@ app.put('/api/rooms/:room/peels', rateLimit(30), wrap(async (req, res) => {
   broadcast(id, { type: 'room:peels', on: req.body.on });
   res.json({ ok: true, on: req.body.on });
 }));
+// The footstep groove's scale { scale } (shared/groove.mjs). A deep sound control: the full version
+// (soundDesign) AND the room's creator (room key), or admin; in the City only admin. Not in the demo.
+// Keeps the bar's phase (the tempo changes, the groove doesn't jump). Everyone in the room hears it
+// (event room:groove), it is saved with the room and recorded.
+app.put('/api/rooms/:room/groove', rateLimit(600), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
+  const id = roomParam(req, res); if (!id) return;
+  const G = await grooveMod;
+  const scale = G.cleanScale(req.body && req.body.scale);
+  if (scale === null) return res.status(400).json({ error: 'scale must be a number' });
+  if (!isAdmin(req) && !(await entOf(req)).soundDesign) return res.status(403).json({ error: 'The groove is part of the full version.', full: true });
+  const r = await store.setGroove(id, (old) => G.retime(old || G.DEFAULT_GROOVE, scale, clock()), canEditRoom(req));
+  if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
+  if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can change this' });
+  broadcast(id, { type: 'room:groove', groove: r });
+  res.json({ ok: true, groove: r });
+}));
 // Sopa golvet: allt baksidespapper bort. Samma rättighet.
 app.post('/api/rooms/:room/peels/clear', rateLimit(20), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
@@ -719,7 +739,7 @@ app.post('/api/rooms/:room/recording/start', rateLimit(20), wrap(async (req, res
           if (images[s.imageId]) stamps.push(publicStamp(s));
         }
         for (const k of Object.keys(images)) if (!images[k]) delete images[k];
-        return { style: styleOf(room), stamps, images, cameras: room.cameras || [] };
+        return { style: styleOf(room), stamps, images, cameras: room.cameras || [], groove: room.groove || null };
       },
     });
     res.json({ ok: true, already: r.already, recording: recorder.status(id) });

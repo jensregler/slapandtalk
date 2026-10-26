@@ -11,7 +11,7 @@
 //   klient → server: hello {name, look, p, y, pi, unlock?: {key, dev}} · move {p, y, pi} · look {name, look} · chat {text}
 //                    unlock {unlock: {key, dev}}  (new full-version key in an open tab)
 //                    ping · signal {to, data}  (signal = för röstchatt via WebRTC, se nedan)
-//   server → klient: welcome {id, you, players, chat, max, full, rec} · join {player} · leave {id}
+//   server → klient: welcome {id, you, players, chat, max, full, rec, now (server ms: the shared clock for the footstep groove)} · join {player} · leave {id}
 //                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
 //                    event {e} · signal {from, data} · pong · error {error}
 //   p = ögats position [x, y, z], y = vridning (yaw), pi = blicken upp/ner (pitch), i radianer.
@@ -202,7 +202,7 @@ function attachRealtime(server, {
   });
 
   function welcome(c, r) {
-    send(c, { t: 'welcome', id: c.id, you: { id: c.id, name: c.name, slot: c.slot ?? 0 }, full: !c.player, ...(c.extra || {}), max: maxPlayers, count: r.players.size,
+    send(c, { t: 'welcome', now: clock(), id: c.id, you: { id: c.id, name: c.name, slot: c.slot ?? 0 }, full: !c.player, ...(c.extra || {}), max: maxPlayers, count: r.players.size,
       players: [...r.players.values()].filter((p) => p !== c).map(pub), chat: r.chat, rec: recorder ? recorder.status(r.id) : null });
   }
   // Någon gick: släpp in den som väntat längst (om rummet var fullt).

@@ -16,6 +16,7 @@
 //   peelsOn = true om rummet har "peels" på (baksidespappret faller till golvet vid varje slap), annars saknas fältet.
 //   peels = [{ id, imageId, w, h, seed, start, x, z, yaw, order, createdAt }] (högst maxPerRoom, de äldsta försvinner).
 //     Peelar man klibban från väggen ligger pappret kvar. Saknas i äldre rum (= inga).
+//   groove = { scale, at, phase } the footstep groove (shared/groove.mjs); missing = the default 1.0×.
 //
 // Bilder (designs) sparas EN gång och stämplarna pekar på dem med imageId.
 //   "images/<id>.json"  metadata  { id, url, width, height, artist, createdAt }
@@ -221,6 +222,21 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       if (on) room.peelsOn = true; else delete room.peelsOn;
       await saveRoom(room);
       return 'ok';
+    });
+  }
+  // The footstep groove (shared/groove.mjs). make(old groove | null) → the new one. canEdit as for the look.
+  // Answer: the new groove, 'notfound' or 'forbidden'. The default (1.0×) is stored as no field.
+  async function setGroove(id, make, canEdit) {
+    return withLock(id, async () => {
+      let room = await loadRoom(id);
+      if (!room && id === PUBLIC_ROOM) room = normalize(id, { createdAt: iso() });
+      if (!room) return 'notfound';
+      if (!canEdit(room)) return 'forbidden';
+      const g = make(room.groove || null);
+      if (g.scale === 1 && !room.groove) return g; // nothing to save
+      room.groove = g;
+      await saveRoom(room);
+      return g;
     });
   }
   // Ta bort allt baksidespapper på golvet. Svar: antal, 'notfound' eller 'forbidden'.
@@ -440,7 +456,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
 
   return {
     adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
-    deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, addPeel, peelState, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
+    deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, setGroove, addPeel, peelState, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle,
   };
 }

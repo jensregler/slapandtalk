@@ -78,4 +78,8 @@ Object.assign(api, {
   // Peels (baksidespapper) på/av och sopa golvet. Samma rättighet som rummets utseende.
   setPeels: (room, on, auth) => send('PUT', `/api/rooms/${room}/peels`, { on }, auth),
   clearPeels: (room, auth) => send('POST', `/api/rooms/${room}/peels/clear`, {}, auth),
+  // The footstep groove's scale (shared/groove.mjs): full version (soundDesign) + the room's creator, or admin.
+  setGroove: (room, scale, auth) => fetch(`/api/rooms/${room}/groove`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', ...rights(auth), ...unlockHeaders() }, body: JSON.stringify({ scale }),
+  }).then(json),
 });

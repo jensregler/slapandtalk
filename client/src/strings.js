@@ -142,6 +142,10 @@ export const EN = {
   more: '⚙ More', moreTitle: 'Sticker settings, your slaps, avatar, room look, sound, recording',
   moreHeading: 'More', close: 'Close',
   secSticker: 'Sticker', secPeople: 'People here', secRoom: 'Room', secSound: 'Sound', secHelp: 'Help',
+  grooveLabel: 'Groove', grooveTitle: 'How far apart the footsteps are – everyone in the room hears the same groove',
+  grooveReset: '1×', grooveResetTitle: 'Back to the normal walking groove',
+  grooveHint: 'Everyone’s footsteps share one beat. Left = faster, until the steps buzz; right = slower, until they breathe. Keys [ and ] (Shift: bigger jumps).',
+  grooveValue: (scale, bar) => `${scale} · bar ${bar}`, grooveChip: (scale) => `Groove ${scale}`,
   soundDesign: 'Sound settings…', soundDesignTitle: 'Design your own sounds and effects', soundSaved: 'Sound settings saved', soundTooBig: 'Too much sound data – remove a layer or two.',
   sound: 'Sounds', soundOn: '🔊', soundOff: '🔇', soundToggleTitle: 'Sound on/off (M)', soundOnToast: 'Sound on', soundOffToast: 'Sound off',
 

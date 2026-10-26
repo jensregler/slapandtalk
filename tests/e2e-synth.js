@@ -104,7 +104,7 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     await A.evaluate(() => window.klibb.moveTo(3, -3)); await A.waitForTimeout(200);
     const s2 = await A.evaluate(() => window.klibb.soundSteps());
     assert(s1[0] - s0[0] >= 2 && s1[0] - s0[0] <= 6 && s1[1] > s0[1] && s2 === jumps0,
-      `footsteps: walking ~2.9 m gives ${s1[0] - s0[0]} quiet steps for A (step-rate throttled), B hears A's steps (${s1[1] - s0[1]}), a teleport makes no sound`);
+      `footsteps: walking ~2.9 m gives ${s1[0] - s0[0]} quiet steps for A (on the shared groove, shared/groove.mjs), B hears A's steps (${s1[1] - s0[1]}), a teleport makes no sound`);
 
     // ---------- Duff: the backing paper landing ----------
     const put = await fetch(`${BASE}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': KEY }, body: JSON.stringify({ on: true }) });

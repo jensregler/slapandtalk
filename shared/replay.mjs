@@ -45,6 +45,7 @@ export function buildTimeline(rec) {
   const h = rec.header;
   const players = new Map(), stamps = new Map(), cameras = new Map(), images = { ...(h.images || {}) };
   const styles = [{ t: 0, style: h.style || null }], chat = [];
+  const grooves = [{ t: 0, groove: h.groove || null }]; // the footstep groove (shared/groove.mjs): null = default
   const player = (id) => {
     if (!players.has(id)) players.set(id, { id, spans: [], looks: [], track: [], talk: [] });
     return players.get(id);
@@ -82,12 +83,13 @@ export function buildTimeline(rec) {
       case 'room:reset': for (const s of stamps.values()) if (s.to === Infinity) s.to = t; break;
       case 'image:remove': for (const s of stamps.values()) if (s.stamp.imageId === e.id && s.to === Infinity) s.to = t; break;
       case 'room:style': styles.push({ t, style: e.style }); break;
+      case 'room:groove': if (e.groove) grooves.push({ t, groove: e.groove }); break;
       case 'camera:add': case 'camera:update': if (e.camera && e.camera.id) camVersion(e.camera, t); break;
       case 'camera:remove': camVersion({ id: e.id, removed: true }, t); break;
       default: break; // okända händelser (nyare versioner) hoppas över
     }
   }
-  return { header: h, duration: rec.duration, players, stamps, cameras, styles, chat, images };
+  return { header: h, duration: rec.duration, players, stamps, cameras, styles, chat, images, grooves };
 }
 
 // Var stod spelaren och åt vilket håll tittade den vid tiden t?
@@ -124,9 +126,10 @@ export function snapshotAt(tl, t, { chatKeep = 8 } = {}) {
   }
   cameras.sort((a, b) => String(a.name).localeCompare(String(b.name), 'sv', { numeric: true }));
   const style = tl.styles[lastAt(tl.styles, t)]?.style || null;
+  const groove = tl.grooves ? tl.grooves[lastAt(tl.grooves, t)]?.groove || null : null;
   const ci = lastAt(tl.chat, t);
   const chat = ci < 0 ? [] : tl.chat.slice(Math.max(0, ci + 1 - chatKeep), ci + 1);
-  return { t, players, stamps, cameras, style, chat };
+  return { t, players, stamps, cameras, style, chat, groove };
 }
 
 // Alla som var med någon gång (för väljaren "se med någons ögon").
