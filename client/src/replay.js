@@ -12,6 +12,7 @@ import { CameraLayer, poseCamera, renderFramed } from './cameras.js';
 import { FirstPersonControls } from './controls.js';
 import { S, LOCALE } from './strings.js';
 import { parseRecording, buildTimeline, snapshotAt, participants } from '../../shared/replay.mjs';
+import { planShots, shotAt, shotPose, roomPose, speechSegments, openOf, TALK_LEVELS } from '../../shared/director.mjs';
 import { createComposer, canRecordVideo } from './videocomposer.js';
 import { entitlements, loadEntitlements, unlockHeaders } from './entitlements.js';
 
@@ -48,7 +49,7 @@ function resize() { renderer.setSize(innerWidth, innerHeight, false); }
 addEventListener('resize', resize); resize();
 
 const fmt = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-const rp = { tl: null, meta: null, t: 0, playing: false, speed: 1, view: 'free', style: '', snap: null, chatShown: '', recorder: null, lastFrameT: 0 };
+const rp = { tl: null, meta: null, t: 0, playing: false, speed: 1, view: 'free', style: '', snap: null, chatShown: '', recorder: null, lastFrameT: 0, plan: null, speakers: [], shot: null, dirCam: null, dirDt: 0 };
 
 // ---------- Synka scenen mot inspelningen vid tiden t ----------
 async function showStyle(style) {
@@ -83,6 +84,10 @@ function syncPlayers(list, dt, jumped) {
     a.avatar.root.position.copy(pos); a.avatar.root.rotation.y = p.y + Math.PI;
     // Med någons ögon: dölj den egna gubben. Står någon precis där kameran står: dölj den också.
     a.avatar.root.visible = rp.view !== `pov:${p.id}` && Math.hypot(p.p[0] - view.position.x, p.p[2] - view.position.z) > 0.45;
+    // The recorded voice level drives the (glitchy) mouth and the speaking mark; t keeps the
+    // glitches the same every time this moment is played (mouth.js).
+    a.avatar.setSpeaking(p.talk >= 2, p.talk / TALK_LEVELS);
+    a.avatar.setMouth(openOf(p.talk), rp.t);
     a.avatar.update(dt, a.speed);
   }
   for (const [id, a] of avatars) if (!seen.has(id)) { scene.remove(a.avatar.root); a.avatar.dispose(); avatars.delete(id); }
@@ -119,17 +124,45 @@ function apply(t, dt = 0, jumped = false) {
 let lastOptions = '';
 function renderViewOptions(s) {
   const opts = [['free', S.viewFree]];
+  if (rp.speakers.length) opts.unshift(['director', S.viewDirector]);
+  // One take per speaker and angle: pick it and ⏺ Record video for raw material to cut between.
+  for (const sp of rp.speakers) for (const k of ['close', 'medium', 'rear']) opts.push([`${k}:${sp.id}`, S.viewAngle(k, s.players.find((x) => x.id === sp.id)?.name || sp.name)]);
   for (const c of s.cameras) opts.push([`cam:${c.id}`, S.viewCam(c)]);
   for (const p of participants(rp.tl)) opts.push([`pov:${p.id}`, S.viewPov(s.players.find((x) => x.id === p.id)?.name || p.name, s.players.some((x) => x.id === p.id))]);
   const key = JSON.stringify(opts); if (key === lastOptions) return; lastOptions = key;
   const sel = $('rp-view'); sel.innerHTML = '';
   for (const [v, label] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o); }
-  sel.value = rp.view; if (sel.value !== rp.view) sel.value = 'free';
+  sel.value = rp.view; if (sel.value !== rp.view) sel.value = rp.speakers.length ? 'director' : 'free';
 }
-function setView(v) { rp.view = v || 'free'; $('rp-view').value = rp.view; cams.setHideAll(rp.view !== 'free'); apply(rp.t, 0, true); return rp.view; }
+function setView(v) { rp.view = v || 'free'; rp.dirCam = null; $('rp-view').value = rp.view; cams.setHideAll(rp.view !== 'free'); apply(rp.t, 0, true); return rp.view; }
 // Var ska kameran stå just nu? Svar: { p, yaw, pitch, fov, aspect, label } eller null (person inte här).
+const roomBox = () => ({ minX: room.bounds.min.x, maxX: room.bounds.max.x, minZ: room.bounds.min.z, maxZ: room.bounds.max.z, maxY: room.bounds.max.y - 0.25 });
+// The director (and the per-angle takes): a hard cut on every new shot, then the camera follows
+// the speaker softly (they may walk or turn) instead of jerking with every step.
+function directedPose(kind, speakerId, key) {
+  const s = rp.snap, sp = speakerId ? s.players.find((x) => x.id === speakerId) : null;
+  let want = null, label = '';
+  if (kind !== 'room' && sp) { want = shotPose(kind, sp, roomBox(), { seed: key }); label = S.shotLabel(kind, sp.name); }
+  if (!want) { want = roomPose(roomBox()); label = S.shotLabel('room'); kind = 'room'; }
+  const c = rp.dirCam;
+  if (!c || c.key !== key || c.kind !== kind) rp.dirCam = { key, kind, ...want, p: want.p.slice() };
+  else {
+    const k = 1 - Math.exp(-rp.dirDt * 3);
+    for (let i = 0; i < 3; i++) c.p[i] += (want.p[i] - c.p[i]) * k;
+    c.yaw += Math.atan2(Math.sin(want.yaw - c.yaw), Math.cos(want.yaw - c.yaw)) * k; c.pitch += (want.pitch - c.pitch) * k; c.fov = want.fov;
+  }
+  rp.shot = { kind, speaker: kind === 'room' ? null : speakerId, key };
+  return { p: rp.dirCam.p, yaw: rp.dirCam.yaw, pitch: rp.dirCam.pitch, fov: rp.dirCam.fov, aspect: '', label };
+}
 function viewPose() {
   const s = rp.snap;
+  rp.shot = null;
+  if (rp.view === 'director' && rp.plan) {
+    const sh = shotAt(rp.plan, rp.t);
+    return directedPose(sh ? sh.kind : 'room', sh ? sh.speaker : null, sh ? `${sh.from}` : 'room');
+  }
+  const m = /^(close|medium|rear):(.+)$/.exec(rp.view);
+  if (m) return directedPose(m[1], m[2], rp.view);
   if (rp.view.startsWith('cam:')) {
     const c = s.cameras.find((x) => x.id === rp.view.slice(4));
     if (c) return { p: c.p, yaw: c.yaw, pitch: c.pitch, fov: c.fov, aspect: c.aspect || '', label: c.name };
@@ -269,7 +302,15 @@ function frame() {
       if (rp.t >= rp.tl.duration) { pause(); if (rp.recorder && rp.recorder.state.phase === 'replay') stopVideo(); }
     }
     apply(rp.t, rp.playing ? dt * rp.speed : dt);
+    rp.dirDt = dt;
     const pose = viewPose();
+    // Close-up and over-the-shoulder: the speaker's own name tag and speaking mark would sit
+    // right in the lens, so they are hidden for that shot.
+    for (const [id, a] of avatars) {
+      const hide = !!(rp.shot && rp.shot.speaker === id && rp.shot.kind !== 'medium');
+      if (a.avatar.tag) a.avatar.tag.visible = !hide;
+      if (a.avatar.talk && hide) a.avatar.talk.visible = false;
+    }
     $('rp-viewlabel').textContent = pose ? pose.label : (rp.view === 'free' ? '' : S.notHereNow);
     cams.update(pose ? null : camera.position);
     if (pose) { poseCamera(view, pose); view.fov = pose.fov; renderFramed(renderer, scene, view, pose.aspect); } else {
@@ -291,6 +332,12 @@ async function load() {
     const rec = parseRecording(await logRes.text());
     rp.tl = buildTimeline(rec);
     rp.loading = new Set();
+    // The auto-director's cut (the same as the shot list the server saved with the recording).
+    rp.plan = planShots(rp.tl);
+    const segs = speechSegments(rp.tl);
+    rp.speakers = participants(rp.tl).filter((p) => segs.some((x) => x.speaker === p.id));
+    if (rp.speakers.length) { rp.view = 'director'; cams.setHideAll(true); }
+    const sl = $('rp-shots'); sl.href = `/api/rooms/${ROOM}/recordings/${REC}/shots`; sl.download = `slapandtalk-${ROOM}-${REC}-shots.json`; sl.hidden = false;
     const when = new Date(rec.header.startedAt).toLocaleString(LOCALE, { dateStyle: 'medium', timeStyle: 'short' });
     $('rp-title').textContent = S.replayTitle(ROOM, when, fmt(rp.tl.duration), rp.meta?.status === 'recording');
     $('rp-seek').max = String(Math.max(1, Math.round(rp.tl.duration)));
@@ -315,7 +362,10 @@ window.replay = {
     cameras: cams.list().map((c) => c.id), camerasVisible: [...cams.map.values()].some((e) => e.obj.visible),
     eye: { p: view.position.toArray().map((n) => +n.toFixed(3)), q: view.quaternion.toArray().map((n) => +n.toFixed(3)), fov: view.fov, aspect: +view.aspect.toFixed(3) },
     chat: [...document.querySelectorAll('#rp-chat li')].map((l) => l.textContent),
+    shot: rp.shot, mouths: Object.fromEntries([...avatars.entries()].map(([id, a]) => [id, a.avatar.mouthInfo])),
+    speaking: [...avatars.entries()].filter(([, a]) => a.avatar.speaking).map(([id]) => id),
   }),
+  plan: () => rp.plan, speakers: () => rp.speakers.slice(),
   startVideo, stopVideo,
   // Finished video (tests): the composer's state, the recording canvas, the upload result.
   composer: () => rp.recorder, lastVideo: () => rp.lastVideo || null, upload: () => rp.upload || null, video: () => rp.video || null,

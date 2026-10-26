@@ -175,7 +175,7 @@ export const EN = {
 
   // ---------- Recording and cameras ----------
   recHeading: '🎬 Recording',
-  recHint: 'Records the room (avatars, where people look, stickers, chat) so it can be replayed and filmed from the cameras. Everyone in the room sees ● REC.',
+  recHint: 'Records the room (avatars, where people look, stickers, chat, and how loudly people talk – never the sound itself) so it can be replayed and filmed. Everyone in the room sees ● REC.',
   recStart: '● Start recording', recStop: '■ Stop recording',
   recStarted: '● Recording started – this room is being recorded', recStartedToast: '● Recording started. This room is being recorded.',
   recStopped: (reason) => `■ Recording stopped${reason ? ` (${reason})` : ''}`, recStoppedToast: '■ Recording stopped.',
@@ -210,6 +210,12 @@ export const EN = {
   viewCam: (c) => `📷 ${c.name}${c.aspect ? ' · ' + c.aspect : ''}`,
   viewPov: (name, here) => `👀 ${name}’s eyes${here ? '' : ' (not here now)'}`,
   povLabel: (name) => `${name}’s eyes`,
+  // The auto-director (shared/director.mjs): cuts to whoever is talking.
+  viewDirector: '🎬 Director (follows who talks)',
+  viewAngle: (kind, name) => `${{ close: '😮 Close-up', medium: '🧍 Medium', rear: '🔙 Over the shoulder' }[kind] || kind}: ${name}`,
+  shotLabel: (kind, name) => (kind === 'room' || !name ? '🎬 The room' : `🎬 ${{ close: 'Close-up', medium: 'Medium', rear: 'Over the shoulder' }[kind] || kind} · ${name}`),
+  shotList: '🎬 Shot list',
+  shotListTitle: 'Who talks when and which camera angle (JSON), for editing the video by hand',
   notHereNow: 'Not in the room right now – free camera',
   recordVideo: '⏺ Record video', recordVideoTitle: 'Make a video: the logo intro, then what you see. You get a link to share.',
   stopVideo: '⏹ Stop video', downloadVideo: (mb) => `⬇ Download video (${mb} MB)`,

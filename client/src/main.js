@@ -1039,7 +1039,7 @@ const canEditStyle = () => !!state.adminToken || (!DEMO && roomType !== 'stad' &
 const canReset = () => canEditStyle() || (DEMO && !!roomKeys()[ROOM]);
 function updateStyleUi() {
   $('edit-style').hidden = !canEditStyle();
-  $('rec-box').hidden = !canEditStyle();
+  $('rec-box').hidden = !(canEditStyle() || (DEMO && canReset())); // the demo records too (no cameras there)
   updatePeelUi();
   const s = currentStyle;
   $('room-style').textContent = S.roomStyleLine(styleName(s), s.seed);
@@ -1493,6 +1493,7 @@ var voice = new Voice({ // eslint-disable-line no-var
   onState: (st) => renderMic(st),
   toast: (k) => toast({ on: S.micOnToast, muted: S.micMutedToast, denied: S.micDenied, unsupported: S.micUnsupported }[k] || '', 1800),
 });
+voice.recording = () => !!rec; // voice levels go to the server only while ● REC (voice.js)
 voice.reset = () => { for (const id of [...voice.peers.keys()]) voice.drop(id); voice.setPeople([...together.players.map.keys()]); };
 voice.near = localStorage.getItem('klibb.voiceNear') !== '0';
 $('voice-near').checked = voice.near;

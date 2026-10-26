@@ -125,16 +125,16 @@
     </section>
 
     <!-- Recording and cameras: only for the room's creator (or admin; in the City only admin). -->
-    <section id="rec-box" class="no-demo" hidden aria-label="Recording and cameras">
+    <section id="rec-box" hidden aria-label="Recording and cameras">
       <div class="history-head"><b data-t="recHeading">🎬 Recording</b> <span id="rec-time"></span></div>
       <p class="hint" data-t="recHint"></p>
       <div class="room-btns">
         <button id="rec-toggle" type="button" data-t="recStart">● Start recording</button>
-        <button id="cam-add" type="button" data-t="camAdd" data-t-title="camAddTitle">🎥 Place camera here</button>
+        <button id="cam-add" type="button" class="no-demo" data-t="camAdd" data-t-title="camAddTitle">🎥 Place camera here</button>
       </div>
-      <div class="history-head"><b data-t="cameras">Cameras</b> <span id="cam-count"></span></div>
-      <ul id="cam-list" data-t-empty="camerasEmpty"></ul>
-      <label class="check"><input id="cam-show" type="checkbox" checked /> <span data-t="camShow">Show cameras in the room</span></label>
+      <div class="history-head no-demo"><b data-t="cameras">Cameras</b> <span id="cam-count"></span></div>
+      <ul id="cam-list" class="no-demo" data-t-empty="camerasEmpty"></ul>
+      <label class="check no-demo"><input id="cam-show" type="checkbox" checked /> <span data-t="camShow">Show cameras in the room</span></label>
       <details id="rec-list-box"><summary><span data-t="recordings">Recordings</span> (<span id="rec-count">0</span>)</summary><ul id="rec-list"></ul></details>
     </section>
 
@@ -196,6 +196,7 @@
       <select id="rp-view" data-t-aria="view"></select>
       <button id="rp-video" type="button" data-t="recordVideo" data-t-title="recordVideoTitle">⏺ Record video</button>
       <a id="rp-download" hidden></a>
+      <a id="rp-shots" hidden data-t="shotList" data-t-title="shotListTitle">🎬 Shot list</a>
     </div>
     <!-- After '⏺ Record video': the uploaded video's link (copy / email). -->
     <div id="rp-share" hidden>
