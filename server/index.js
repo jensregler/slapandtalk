@@ -35,7 +35,7 @@ const licenses = createLicenses({ adapter, env: process.env });
 const entitle = makeEntitlements(process.env, { licenses: licenses.enabled ? licenses : null });
 if (licenses.enabled) console.log('Full version: Lemon Squeezy keys on' + (process.env.LS_WEBHOOK_SECRET ? ' (webhook on)' : ' (no LS_WEBHOOK_SECRET: webhook off)'));
 let realtime = null; // set when the server listens
-const demo = DEMO ? createDemo({ store, settings: DEMO, onExpire: (id) => { if (realtime) realtime.closeRoom(id, { type: 'room:closed' }); } }) : null;
+const demo = DEMO ? createDemo({ store, settings: DEMO, onExpire: async (id) => { if (realtime) realtime.closeRoom(id, { type: 'room:closed' }); await recorder.stop(id, 'closed').catch(() => null); } }) : null;
 const library = loadLibrary();
 const app = createApp(store, { adminToken: process.env.ADMIN_TOKEN || '', quickTtlHours: QUICK_TTL_HOURS, recorder, entitle, demo, library });
 // Invites over the WebSocket (demo): { t: 'invite', action: 'create' | 'status' } → { t: 'invite', ok, token?, status }

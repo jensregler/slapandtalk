@@ -306,6 +306,15 @@ function attachRealtime(server, {
       rec(r.id, 'chat', { id: c.id, name: c.name, text, mid: msg.id });
       return toRoom(r, { t: 'chat', msg });
     }
+    if (m.t === 'talk') {
+      // Voice loudness of MY OWN microphone (0…15), only while I talk (client/src/voice.js). Not
+      // audio and not passed on to anyone: it only goes into a running session recording, where
+      // it drives the mouth and the auto-director in the replay (shared/director.mjs).
+      if (!c.player || !c.talkLimit()) return;
+      const l = Math.round(Number(m.l));
+      if (!Number.isFinite(l) || l < 0 || l > 15) return;
+      return rec(r.id, 'talk', { id: c.id, l });
+    }
     if (m.t === 'signal') {
       // För röstchatt (WebRTC): skickas bara vidare till en spelare i samma rum.
       if (!c.player || !c.signalLimit() || typeof m.to !== 'string') return;
@@ -318,7 +327,7 @@ function attachRealtime(server, {
   wss.on('connection', (ws, req, roomId, ip) => {
     const c = {
       id: crypto.randomBytes(5).toString('hex'), ws, room: roomId, ip, joined: false, player: false, strikes: 0,
-      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10),
+      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10), talkLimit: bucket(15, 20),
     };
     perIp.set(ip, (perIp.get(ip) || 0) + 1);
     ws.on('pong', () => { ws.klibbDead = false; });

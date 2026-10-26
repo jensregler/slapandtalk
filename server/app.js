@@ -650,8 +650,8 @@ app.get('/api/rooms/:room/recording', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
   res.json({ recording: recorder ? recorder.status(id) : null });
 }));
+// The demo records too (finished videos with the auto-director); placing cameras stays off there.
 app.post('/api/rooms/:room/recording/start', rateLimit(20), wrap(async (req, res) => {
-  if (demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
   if (!(await rightsTo(req, res, id))) return;
   try {
@@ -700,6 +700,14 @@ app.get('/api/rooms/:room/recordings/:rec/log', wrap(async (req, res) => {
   const buf = await recorder.read(id, String(req.params.rec));
   if (!buf) return res.status(404).json({ error: 'That recording does not exist' });
   res.set({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache' }).send(buf);
+}));
+// The auto-director's shot list (shared/director.mjs): who talks when and which angle, for editing.
+// Like the log: anyone with the (unguessable) recording id.
+app.get('/api/rooms/:room/recordings/:rec/shots', wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
+  const list = await recorder.shots(id, String(req.params.rec));
+  if (!list) return res.status(404).json({ error: 'That recording does not exist' });
+  res.set('Cache-Control', 'no-cache').json(list);
 }));
 app.delete('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id || !needRecorder(res)) return;

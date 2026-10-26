@@ -6,6 +6,8 @@
 // Sparas via lagringslagret (disk eller R2):
 //   recordings/<rum>/<recId>.jsonl       själva loggen, en JSON-rad per händelse
 //   recordings/<rum>/<recId>.meta.json   start/stopp, längd, storlek, vilka som var med
+//   recordings/<rum>/<recId>.shots.json  the auto-director's shot list (who talks when, which
+//                                        angle), written when the recording stops (shared/director.mjs)
 // Formatet (versionerat) beskrivs i docs/recording-format.md. Uppspelningen finns i shared/replay.mjs.
 //
 // Loggen hålls i minnet medan inspelningen pågår och skrivs till lagringen var 20:e sekund
@@ -32,7 +34,14 @@ function createRecorder(store, {
   const active = new Map(); // rum -> inspelning
   let presence = () => [];
   const iso = (ms) => new Date(ms).toISOString();
-  const keys = (room, id) => ({ log: `recordings/${room}/${id}.jsonl`, meta: `recordings/${room}/${id}.meta.json` });
+  const keys = (room, id) => ({ log: `recordings/${room}/${id}.jsonl`, meta: `recordings/${room}/${id}.meta.json`, shots: `recordings/${room}/${id}.shots.json` });
+  // The shot list from a finished log (shared/*.mjs are ES modules: imported once, lazily).
+  let shared = null;
+  const loadShared = () => (shared ||= Promise.all([import('../shared/replay.mjs'), import('../shared/director.mjs')]).then(([R, D]) => ({ R, D })));
+  async function shotsOf(buf) {
+    const { R, D } = await loadShared();
+    return D.shotList(R.buildTimeline(R.parseRecording(buf.toString('utf8'))));
+  }
 
   function metaOf(r) {
     return {
@@ -133,6 +142,10 @@ function createRecorder(store, {
     active.delete(room);
     broadcast(room, { type: 'rec:stop', recId: r.id, reason, durationMs: r.stoppedAt - r.start });
     await flush(r);
+    // Raw material for editing: the shot list next to the log (best effort; GET …/shots can
+    // always compute it again from the log).
+    try { await store.adapter.put(keys(room, r.id).shots, Buffer.from(JSON.stringify(await shotsOf(body(r)), null, 1)), 'application/json'); }
+    catch (e) { console.error('Shot list could not be saved:', e.message); }
     return metaOf(r);
   }
 
@@ -164,16 +177,24 @@ function createRecorder(store, {
     const r = active.get(room); if (r && r.id === id) return body(r); // pågår: allt hittills
     return store.adapter.get(keys(room, id).log);
   }
+  // The shot list: the saved file, or computed from the log (a recording still running, or an old one).
+  async function shots(room, id) {
+    if (!REC_ID_RE.test(id)) return null;
+    const r = active.get(room);
+    if (!(r && r.id === id)) { const b = await store.adapter.get(keys(room, id).shots); if (b) { try { return JSON.parse(b.toString('utf8')); } catch { /* compute */ } } }
+    const buf = await read(room, id); if (!buf) return null;
+    return shotsOf(buf);
+  }
   async function remove(room, id) {
     if (!REC_ID_RE.test(id) || active.get(room)?.id === id) return false;
     const k = keys(room, id);
     if (!(await store.adapter.exists(k.meta))) return false;
-    await store.adapter.delete(k.log); await store.adapter.delete(k.meta);
+    await store.adapter.delete(k.log); await store.adapter.delete(k.meta); await store.adapter.delete(k.shots).catch(() => {});
     return true;
   }
   async function close() { off(); await Promise.all([...active.keys()].map((room) => stop(room, 'shutdown'))); }
 
-  return { start, stop, status, log, list, meta, read, remove, close, setPresence: (fn) => { presence = fn; }, isActive: (room) => active.has(room) };
+  return { start, stop, status, log, list, meta, read, shots, remove, close, setPresence: (fn) => { presence = fn; }, isActive: (room) => active.has(room) };
 }
 
 module.exports = { createRecorder, REC_ID_RE, FORMAT, VERSION };

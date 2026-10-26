@@ -14,6 +14,7 @@ const { attachRealtime } = require('../server/realtime');
 const { demoSettings, createDemo, DEMO } = require('../server/demo');
 const { makeEntitlements } = require('../server/entitlements');
 const { loadLibrary, seedLibrary } = require('../server/library');
+const { createRecorder } = require('../server/recorder');
 
 const assert = (c, m) => { if (!c) throw new Error('FEL: ' + m); console.log('✔ ' + m); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -58,8 +59,10 @@ function client(base, room, hello = {}) {
   const meta0 = await store.getImage(lib[0].id);
   assert(meta0.library === true && meta0.artist === lib[0].artist && await store.hasImageFile(lib[0].id), 'library images are stored like uploads, with library: true and the artist');
   let rt = null; const closedRooms = [];
-  const demo = createDemo({ store, settings: { ...st, roomMs: 60 * 60_000 }, clock, onExpire: (id) => { closedRooms.push(id); rt && rt.closeRoom(id); }, log: { log() {}, error() {} } });
-  const app = createApp(store, { adminToken: 'admin-token-x', demo, library: lib, entitle: entDemo, quickTtlHours: 24 });
+  const recorder = createRecorder(store, { clock, flushMs: 60_000 });
+  // As in index.js: everyone out, and a running recording stopped before the room is deleted.
+  const demo = createDemo({ store, settings: { ...st, roomMs: 60 * 60_000 }, clock, onExpire: async (id) => { closedRooms.push(id); rt && rt.closeRoom(id); await recorder.stop(id, 'closed'); }, log: { log() {}, error() {} } });
+  const app = createApp(store, { adminToken: 'admin-token-x', demo, library: lib, entitle: entDemo, quickTtlHours: 24, recorder });
   const server = app.listen(0);
   const gate = {
     admit: (room, pass, name) => demo.admit(room, pass, name),
@@ -68,7 +71,7 @@ function client(base, room, hello = {}) {
       send({ t: 'invite', ok: true, status: await demo.inviteStatus(c.room, c.member) });
     },
   };
-  rt = attachRealtime(server, { maxPlayers: 5, heartbeatMs: 500, gate, entitle: entDemo, clock });
+  rt = attachRealtime(server, { maxPlayers: 5, heartbeatMs: 500, gate, entitle: entDemo, clock, recorder });
   const base = `http://127.0.0.1:${server.address().port}`;
   const all = [];
   const join = (room, hello) => { const c = client(base, room, hello); all.push(c); return c; };
@@ -96,9 +99,8 @@ function client(base, room, hello = {}) {
       fetch(`${base}/api/rooms/${R}/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': RK }, body: JSON.stringify({ style: { floor: 'parkett', wall: 'tegel' } }) }),
       fetch(`${base}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': RK }, body: JSON.stringify({ on: true }) }),
       fetch(`${base}/api/rooms/${R}/cameras`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-room-key': RK }, body: JSON.stringify({ p: [0, 1.6, 0] }) }),
-      fetch(`${base}/api/rooms/${R}/recording/start`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-room-key': RK } }),
     ]);
-    assert(edits.every((r) => r.status === 403), 'demo: changing the look, peels, cameras, recording → 403 even for the creator');
+    assert(edits.every((r) => r.status === 403), 'demo: changing the look, peels, cameras → 403 even for the creator');
     assert((await fetch(`${base}/api/rooms/${R}/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'admin-token-x' }, body: JSON.stringify({ style: { floor: 'parkett', wall: 'tegel' } }) })).status === 200, 'admin can still change a room look');
     await fetch(`${base}/api/rooms/${R}/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'admin-token-x' }, body: JSON.stringify({ style: DEMO.style }) });
 
@@ -165,6 +167,20 @@ function client(base, room, hello = {}) {
     const big = await J(await fetch(`${base}/api/rooms/${R}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-unlock': KEY }, body: JSON.stringify({ ...body(ow.id), size: 2.5 }) }));
     assert(big.stamp.size === 1, 'demo: stickers stay at most 1 m even with a full-version key');
 
+    // ---------- Recording in the demo (videos with the auto-director) ----------
+    const strangerRec = await fetch(`${base}/api/rooms/${R}/recording/start`, { method: 'POST' });
+    const recStart = await fetch(`${base}/api/rooms/${R}/recording/start`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-room-key': RK } });
+    const recId = (await J(recStart)).recording.recId;
+    assert(strangerRec.status === 403 && recStart.status === 200 && /^[a-f0-9]{16}$/.test(recId), 'demo: the creator can record (others cannot)');
+    for (let i = 0; i < 5; i++) { owner.send({ t: 'talk', l: 9 }); now += 80; }
+    owner.send({ t: 'talk', l: 0 }); owner.send({ t: 'talk', l: 99 }); owner.send({ t: 'talk', l: 'x' });
+    await sleep(150);
+    const logNow = (await (await fetch(`${base}/api/rooms/${R}/recordings/${recId}/log`)).text()).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const talks = logNow.filter((e) => e.e === 'talk');
+    assert(talks.length === 6 && talks.every((e) => e.id === ow.id && e.l >= 0 && e.l <= 15), 'voice levels go into the recording as talk events (my own id, 0…15; junk dropped) – no audio');
+    const shots = await J(await fetch(`${base}/api/rooms/${R}/recordings/${recId}/shots`));
+    assert(shots.format === 'slapandtalk-shots' && Array.isArray(shots.shots) && shots.recId === recId, 'GET …/recordings/<id>/shots: the shot list (also while recording)');
+
     // ---------- The hour ----------
     await adapter.put(`recordings/${R}/abc.jsonl`, Buffer.from('{}\n'));
     await adapter.put(`videos/${R}/keep.mp4`, Buffer.from('video'));
@@ -175,7 +191,8 @@ function client(base, room, hello = {}) {
     const ev = await owner.wait((m) => m.t === 'event' && m.e.type === 'room:closed');
     assert(ev && (await owner.waitClosed()) === 4010 && (await last.waitClosed()) === 4010, 'everyone gets room:closed and their connection closes (4010)');
     await store.flush();
-    assert(!(await adapter.exists(`rooms/${R}.json`)) && !(await adapter.get(`recordings/${R}/abc.jsonl`)), 'the room JSON (stickers, peels, members, invites) and its recordings/ are deleted from storage');
+    assert(!(await adapter.exists(`rooms/${R}.json`)) && !(await adapter.get(`recordings/${R}/abc.jsonl`)) && (await adapter.list(`recordings/${R}/`)).length === 0 && !recorder.isActive(R),
+      'the room JSON (stickers, peels, members, invites) and its recordings/ are deleted from storage – the running recording was stopped first (no files come back)');
     assert(!!(await adapter.get(`videos/${R}/keep.mp4`)) && await store.hasImageFile(lib[1].id, { fresh: true }), 'videos/ and the library images are untouched');
     const late = join(R, { name: 'Late', pass: { roomKey: RK } }); await late.ready;
     assert((await late.wait((m) => m.t === 'denied')).code === 'gone', 'joining a closed room: "gone"');
@@ -192,7 +209,7 @@ function client(base, room, hello = {}) {
     assert((await city.wait((m) => m.t === 'denied')).code === 'gone', 'demo: the City is not open (everyone has their own room)');
   } finally {
     for (const c of all) try { c.ws.close(); } catch { /* */ }
-    rt.close(); server.close(); demo.stop();
+    rt.close(); server.close(); demo.stop(); await recorder.close();
   }
 
   // ---------- Without the flag: unchanged ----------

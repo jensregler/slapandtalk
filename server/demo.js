@@ -133,7 +133,9 @@ function createDemo({ store, settings, clock = () => Date.now(), onExpire = () =
     if (closing.has(id)) return false;
     closing.add(id);
     try {
-      try { onExpire(id); } catch (e) { log.error('[demo] onExpire', e && e.message); }
+      // (index.js: everyone out, and a running session recording is stopped first, so its last
+      // write cannot bring files back after they are deleted below.)
+      try { await onExpire(id); } catch (e) { log.error('[demo] onExpire', e && e.message); }
       await store.deleteRoom(id);
       // Session-recording logs of this room too (recordings/<room>/…). NEVER videos/: the finished
       // videos have their own retention (video pipeline).
