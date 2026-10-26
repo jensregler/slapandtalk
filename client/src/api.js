@@ -2,7 +2,7 @@
 import { unlockHeaders } from './entitlements.js';
 async function json(res) {
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || `Fel ${res.status}`), { status: res.status, gone: !!data.gone, nope: !!data.nope, tooFar: !!data.tooFar });
+  if (!res.ok) throw Object.assign(new Error(data.error || `Fel ${res.status}`), { status: res.status, gone: !!data.gone, removed: !!data.removed, nope: !!data.nope, tooFar: !!data.tooFar });
   return data;
 }
 

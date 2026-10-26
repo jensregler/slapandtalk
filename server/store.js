@@ -385,6 +385,16 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
     return ok;
   };
   const deleteImageFile = async (id) => { imageFiles.delete(id); await adapter.delete(`uploads/${id}.webp`); };
+  // Designs an admin removed on purpose (a tombstone in removed/<id>.json). Clients must not upload
+  // them again by themselves (that is only for designs the server LOST), and they drop them from the
+  // palette. Someone deliberately uploading the same image again clears the tombstone.
+  const removedCache = new Map(); // id -> true/false
+  const markRemoved = async (id) => { removedCache.set(id, true); await writeJson(`removed/${id}.json`, { id, removedAt: iso() }); };
+  const isRemoved = async (id) => {
+    if (removedCache.has(id)) return removedCache.get(id);
+    const r = !!(await readJson(`removed/${id}.json`)); removedCache.set(id, r); return r;
+  };
+  const clearRemoved = async (id) => { if (!(await isRemoved(id))) return; removedCache.set(id, false); await adapter.delete(`removed/${id}.json`); };
 
   // Engångsflytt: äldre versioner sparade alla bilder i en fil, images.json.
   async function migrate() {
@@ -399,7 +409,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   return {
     adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom,
     deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, addPeel, peelState, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
-    deleteImageFile, migrate, flush, pendingWrites, evictIdle,
+    deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle,
   };
 }
 

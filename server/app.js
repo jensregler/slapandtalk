@@ -78,6 +78,7 @@ app.post('/api/stickers', rateLimit(20), (req, res) => {
         .webp({ quality: 90, alphaQuality: 100 }).toBuffer({ resolveWithObject: true });
       // Samma bild två gånger blir samma design (id = innehållets hash).
       const id = contentId(out.data);
+      await store.clearRemoved(id); // a deliberate new upload brings an admin-removed design back
       const existing = await store.getImage(id);
       if (existing && await store.hasImageFile(id)) return res.json(existing);
       await store.putImageFile(id, out.data);
@@ -165,9 +166,13 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 // Vilka av de här bilderna finns kvar? ?ids=a,b,c  ->  { images: { a: {...}, c: {...} } }
 app.get('/api/stickers', wrap(async (req, res) => {
   const ids = String(req.query.ids || '').split(',').filter((id) => /^[a-f0-9]{16}$/.test(id)).slice(0, 100);
-  const images = {}, missing = [];
-  await Promise.all(ids.map(async (id) => { const m = await imageAvailable(id); if (m) images[id] = m; else missing.push(id); }));
-  res.json({ images, missing });
+  const images = {}, missing = [], removed = [];
+  await Promise.all(ids.map(async (id) => {
+    const m = await imageAvailable(id); if (m) { images[id] = m; return; }
+    missing.push(id);
+    if (await store.isRemoved(id)) removed.push(id); // removed on purpose: don't upload it again
+  }));
+  res.json({ images, missing, removed });
 }));
 
 // ---------- Rum ----------
@@ -291,7 +296,10 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   const room = roomParam(req, res); if (!room) return;
   const b = { ...(req.body || {}) };
   const image = await imageAvailable(b.imageId);
-  if (!image) return res.status(410).json({ error: 'That design is no longer on the server. Please upload it again.', gone: true });
+  if (!image) {
+    if (await store.isRemoved(String(b.imageId || ''))) return res.status(410).json({ error: 'That design was removed.', gone: true, removed: true });
+    return res.status(410).json({ error: 'That design is no longer on the server. Please upload it again.', gone: true });
+  }
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Invalid position' });
   if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
   // Same gate as fabrics: only the full version (bigStickers) may slap stickers bigger than 1 m.
@@ -623,14 +631,19 @@ app.delete('/api/rooms/:room/stamps/:id', wrap(async (req, res) => {
 }));
 
 // Tar bort en bild helt, och alla stämplar av den i alla rum.
+// The design is remembered as removed (tombstone), so its uploader's browser drops it from the
+// palette instead of uploading it again. ?simulateLoss=1 (tests): forget it WITHOUT a tombstone,
+// like Render losing the file, so the browser restores it from its local copy.
 app.delete('/api/stickers/:id', wrap(async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
   const id = String(req.params.id);
   if (!/^[a-f0-9]{16}$/.test(id)) return res.status(400).json({ error: 'Invalid id' });
+  const lost = req.query.simulateLoss === '1';
   const removed = await store.deleteStampsWithImage(id);
   await store.deleteImage(id);
   await store.deleteImageFile(id);
-  broadcast('*', { type: 'image:remove', id });
+  if (!lost) await store.markRemoved(id);
+  broadcast('*', { type: 'image:remove', id, removed: !lost });
   res.json({ ok: true, removedStamps: removed });
 }));
 

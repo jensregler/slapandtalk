@@ -242,6 +242,25 @@ async function writeBehind() {
       assert(i1.id && i1.id === i2.id && i3.id !== i1.id, `samma bild två gånger blir samma design (${i1.id})`);
       const img = await fetch(`${base}${i1.url}`);
       assert(img.status === 200 && img.headers.get('content-type') === 'image/webp' && (await img.arrayBuffer()).byteLength > 0, 'bilden hämtas via lagrings-adaptern');
+      // Admin-removed designs are remembered (tombstone) so the uploader's browser drops them instead of
+      // uploading them again; ?simulateLoss=1 forgets one like a lost disk would (no tombstone).
+      {
+        const adm = { 'x-admin-token': 'hemligt-test' };
+        const blue = await up(await png('#0000ff')), yel = await up(await png('#ffff00'));
+        await fetch(`${base}/api/stickers/${blue.id}`, { method: 'DELETE', headers: adm });
+        await fetch(`${base}/api/stickers/${yel.id}?simulateLoss=1`, { method: 'DELETE', headers: adm });
+        const chk = await (await fetch(`${base}/api/stickers?ids=${blue.id},${yel.id},${i1.id}`)).json();
+        assert(chk.missing.includes(blue.id) && chk.missing.includes(yel.id) && chk.removed.join() === blue.id && !!chk.images[i1.id],
+          'API: an admin-removed design is reported as "removed", a lost one only as missing');
+        const slapGone = await fetch(`${base}/api/rooms/${r.room.id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageId: blue.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' }) });
+        const sg = await slapGone.json();
+        assert(slapGone.status === 410 && sg.gone && sg.removed, 'API: slapping an admin-removed design: 410 with removed (the client must not upload it again)');
+        const again = await up(await png('#0000ff'));
+        const chk2 = await (await fetch(`${base}/api/stickers?ids=${blue.id}`)).json();
+        assert(again.id === blue.id && !!chk2.images[blue.id] && chk2.removed.length === 0 && !s3a.objects?.has?.(`removed/${blue.id}.json`),
+          'API: uploading the same picture again on purpose clears the tombstone');
+      }
       const st = await fetch(`${base}/api/rooms/${r.room.id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' }) });
       const room = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();

@@ -31,9 +31,33 @@ button.danger { background: #b3261e; border-color: #b3261e; }
 .help { font-size: 12.5px; color: #bbb; }
 #tray { display: flex; flex-wrap: wrap; gap: 6px; }
 #tray:empty::before { content: attr(data-empty); font-size: 12px; color: #777; }
-#tray button { width: 54px; height: 54px; padding: 3px; border-radius: 8px; background: #333 repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 50%/12px 12px; }
-#tray button.sel { outline: 3px solid #ffd400; }
-#tray img { width: 100%; height: 100%; object-fit: contain; display: block; }
+#tray { padding: 5px 5px 0 0; }
+#tray .thumb { position: relative; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+#tray .pick { width: 54px; height: 54px; padding: 3px; border-radius: 8px; background: #333 repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 50%/12px 12px; }
+#tray .thumb.sel .pick { outline: 3px solid #ffd400; }
+#tray img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+/* Hover controls: star (favourite) top-left, small round red × (remove from my list) top-right. */
+#tray .fav-btn, #tray .del-btn { position: absolute; top: -5px; width: 20px; height: 20px; min-height: 0; padding: 0; margin: 0; border-radius: 50%;
+  display: grid; place-items: center; line-height: 1; font-weight: 700; cursor: pointer; z-index: 1;
+  opacity: 0; pointer-events: none; transition: opacity .15s ease, transform .15s ease; }
+#tray .fav-btn { left: -5px; border: 0; background: transparent; color: #eee; font-size: 17px; text-shadow: 0 0 2px #000, 0 1px 3px #000; }
+#tray .fav-btn[aria-pressed="true"] { color: #ffd400; opacity: 1; pointer-events: auto; }
+#tray .del-btn { right: -5px; border: 2px solid #1d1d1d; background: #e0352b; color: #fff; font-size: 15px; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+#tray .del-btn:hover { transform: scale(1.12); }
+#tray .fav-btn:hover { transform: scale(1.15); }
+#tray .thumb:hover .fav-btn, #tray .thumb:hover .del-btn, #tray .thumb:focus-within .fav-btn, #tray .thumb:focus-within .del-btn,
+#tray .thumb.show-ctl .fav-btn, #tray .thumb.show-ctl .del-btn { opacity: 1; pointer-events: auto; }
+/* Touch (no hover): the selected thumbnail shows its controls; long-press shows them on any. Bigger targets. */
+@media (hover: none) {
+  #tray .thumb.sel .fav-btn, #tray .thumb.sel .del-btn { opacity: 1; pointer-events: auto; }
+  #tray .fav-btn, #tray .del-btn { width: 24px; height: 24px; top: -7px; }
+  #tray .fav-btn { left: -7px; font-size: 19px; } #tray .del-btn { right: -7px; font-size: 17px; }
+  #tray { padding: 7px 7px 0 0; }
+}
+#undo-toast { position: fixed; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: #1d1d1d; color: #eee;
+  border: 1px solid #444; padding: 7px 8px 7px 14px; border-radius: 10px; font-weight: 600; z-index: 8; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+#undo-toast[hidden] { display: none; }
+#undo-btn { background: transparent; border: 0; color: #ffd400; font-weight: 700; padding: 2px 6px; min-height: 0; }
 #panel-toggle { position: fixed; top: 12px; right: 12px; z-index: 6; display: none; }
 #joystick { position: fixed; left: 24px; bottom: calc(24px + env(safe-area-inset-bottom)); width: 120px; height: 120px;
   border-radius: 50%; background: rgba(255,255,255,.12); border: 2px solid rgba(255,255,255,.35); z-index: 4; touch-action: none; display: none; }

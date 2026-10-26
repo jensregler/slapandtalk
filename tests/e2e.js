@@ -15,6 +15,7 @@ const { synthE2E } = require('./e2e-synth');
 const { escE2E } = require('./e2e-esc');
 const { uploadE2E } = require('./e2e-upload');
 const { peelsE2E } = require('./e2e-peels');
+const { paletteE2E } = require('./e2e-palette');
 
 const BASE = process.env.BASE_URL || 'http://localhost:8787';
 const ROOM = 'e2e-test';
@@ -449,7 +450,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     assert(five.length === 5 && four.every((id) => five.includes(id)), 'en uppladdning under en långsam kontroll tas inte bort (5 kvar)');
 
     // Servern tappar 2 designs (som efter en omstart på Render): de laddas upp igen från enheten.
-    const del = (id) => fetch(`${BASE}/api/stickers/${id}`, { method: 'DELETE', headers: { 'x-admin-token': TOKEN } });
+    const del = (id) => fetch(`${BASE}/api/stickers/${id}?simulateLoss=1`, { method: 'DELETE', headers: { 'x-admin-token': TOKEN } });
     await del(five[0]); await del(five[1]);
     await d.reload(); await waitReady(d);
     await d.waitForFunction(() => /uploaded again/.test(document.getElementById('toast').textContent), null, { timeout: 8000 });
@@ -1201,6 +1202,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await synthE2E({ browser, BASE, assert, waitReady, testPng });
     await escE2E({ browser, BASE, assert, waitReady, devices });
     await uploadE2E({ browser, BASE, assert, waitReady, testPng, TOKEN });
+    await paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN });
 
     // Fullt rum: 10 är max. Den elfte får titta, och kommer in när någon går.
     const fullRoom = (await (await fetch(`${BASE}/api/rooms`, { method: 'POST' })).json()).room.id;

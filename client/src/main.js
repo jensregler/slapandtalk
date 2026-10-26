@@ -8,7 +8,7 @@ import { StampLayer, StampPreview } from './stamps.js';
 import { api } from './api.js';
 import { foldStamp } from './fold.js';
 import { readHistory, addHistory, removeHistory, roomHistory, trimHistory, deviceId, HISTORY_KEY, PER_ROOM } from './history.js';
-import { readMine, addMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob } from './designs.js';
+import { readMine, addMine, insertMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob, readFavs, setFav, moveFav, FAV_KEY } from './designs.js';
 import { initTogether } from './together.js';
 import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed } from './cameras.js';
 import { S, LOCALE } from './strings.js';
@@ -98,6 +98,7 @@ addEventListener('resize', resize); resize();
 const state = {
   selected: null, // vald bild { id, url, width, height }
   mine: readMine(),
+  favs: readFavs(), // favourite design ids ("staples")
   size: 0.3, rotation: 0, jitter: false,
   mode: 'slap', // 'slap' = Klibbläge (pekaren syns, klick stämplar), 'view' = Tittläge (bara titta)
   artist: localStorage.getItem('klibb.artist') || '',
@@ -149,21 +150,92 @@ function toast(msg, ms = 2200) {
 }
 function updateCount() { $('stamp-count').textContent = stamps.count; $('stamp-word').textContent = S.stickersWord(stamps.count); }
 
+// The palette. Each thumbnail: pick it (click), and on hover (desktop) or when it is selected /
+// long-pressed (touch) a star (favourite) top-left and a small red × top-right (remove it from
+// MY list only; stickers already on walls stay). Favourites keep their yellow star showing.
+let ctlShown = null, longPressed = false, pressTimer = 0; // touch: long-press state
 function renderTray() {
   const tray = $('tray'); tray.innerHTML = '';
   for (const img of designs()) {
+    const fav = state.favs.has(img.id);
+    const t = document.createElement('div');
+    t.className = 'thumb' + (state.selected?.id === img.id ? ' sel' : '') + (fav ? ' fav' : '') + (ctlShown === img.id ? ' show-ctl' : '');
+    t.dataset.id = img.id;
     const b = document.createElement('button');
-    b.type = 'button'; b.title = S.pickThis;
-    b.className = state.selected?.id === img.id ? 'sel' : '';
+    b.type = 'button'; b.title = S.pickThis; b.className = 'pick';
     b.innerHTML = `<img src="${img.url}" alt="">`;
-    b.onclick = () => select(img);
-    tray.appendChild(b);
+    b.onclick = () => { if (longPressed) { longPressed = false; return; } select(img); };
+    const f = document.createElement('button');
+    f.type = 'button'; f.className = 'fav-btn'; f.textContent = fav ? '★' : '☆';
+    f.title = fav ? S.favRemove : S.favAdd; f.setAttribute('aria-label', f.title); f.setAttribute('aria-pressed', String(fav));
+    f.onclick = (e) => { e.stopPropagation(); toggleFav(img.id); };
+    const x = document.createElement('button');
+    x.type = 'button'; x.className = 'del-btn'; x.textContent = '×';
+    x.title = S.removeDesign; x.setAttribute('aria-label', S.removeDesign);
+    x.onclick = (e) => { e.stopPropagation(); removeDesign(img.id); };
+    t.append(b, f, x);
+    tray.appendChild(t);
   }
 }
+// Touch (no hover): a long press on a thumbnail shows its star and ×; tapping elsewhere hides them.
+// The selected thumbnail always shows them on touch (CSS).
+$('tray').addEventListener('touchstart', (e) => {
+  const t = e.target.closest('.thumb'); if (!t || e.target.closest('.fav-btn, .del-btn')) return;
+  clearTimeout(pressTimer); longPressed = false;
+  pressTimer = setTimeout(() => { longPressed = true; ctlShown = t.dataset.id; renderTray(); }, 450);
+}, { passive: true });
+for (const ev of ['touchend', 'touchmove', 'touchcancel']) $('tray').addEventListener(ev, () => clearTimeout(pressTimer), { passive: true });
+$('tray').addEventListener('contextmenu', (e) => { if (e.target.closest('.thumb')) e.preventDefault(); });
+document.addEventListener('pointerdown', (e) => {
+  if (ctlShown && !e.target.closest?.(`.thumb[data-id="${ctlShown}"]`)) { ctlShown = null; renderTray(); }
+});
+
+function toggleFav(id) {
+  state.favs = setFav(id, !state.favs.has(id));
+  renderTray();
+  return state.favs.has(id);
+}
+
+// Remove one design from my palette (only this device's list). Undo for UNDO_MS; after that the
+// local copy of the image (IndexedDB) goes too. Nothing on the server or on the walls changes.
+const UNDO_MS = 5000;
+let undoDel = null; // { img, index, fav, wasSelected, timer }
+function commitRemove() {
+  if (!undoDel) return;
+  clearTimeout(undoDel.timer);
+  if (!state.mine.some((m) => m.id === undoDel.img.id)) deleteBlob(undoDel.img.id);
+  undoDel = null; $('undo-toast').hidden = true;
+}
+function removeDesign(id) {
+  commitRemove(); // only the latest removal can be undone
+  const list = readMine(), index = list.findIndex((m) => m.id === id);
+  if (index < 0) return false;
+  const img = list[index], fav = readFavs().has(id), wasSelected = state.selected?.id === id;
+  const order = designs(), pos = order.findIndex((d) => d.id === id);
+  state.mine = removeMine([id]);
+  if (fav) state.favs = setFav(id, false);
+  if (ctlShown === id) ctlShown = null;
+  if (wasSelected) { const rest = designs(); select(rest[Math.min(pos, rest.length - 1)]); } else { renderTray(); renderDesignHud(); }
+  undoDel = { img, index, fav, wasSelected, timer: setTimeout(commitRemove, UNDO_MS) };
+  $('undo-toast').hidden = false;
+  return true;
+}
+function undoRemove() {
+  if (!undoDel) return false;
+  const { img, index, fav, wasSelected, timer } = undoDel;
+  clearTimeout(timer); undoDel = null; $('undo-toast').hidden = true;
+  state.mine = insertMine(img, index);
+  if (fav) state.favs = setFav(img.id, true);
+  if (wasSelected) select(img); else { renderTray(); renderDesignHud(); }
+  return true;
+}
+$('undo-btn').onclick = (e) => { e.stopPropagation(); undoRemove(); };
+addEventListener('pagehide', commitRemove);
 // Mina designs i samma ordning som i menyn (nyaste först). R växlar mellan dem.
 function designs() { return state.mine.slice().reverse(); }
 // En annan flik ändrade listan: hämta den nya.
 addEventListener('storage', (e) => {
+  if (e.key === FAV_KEY) { state.favs = readFavs(); renderTray(); return; }
   if (e.key !== 'klibb.mine') return;
   state.mine = readMine();
   if (state.selected && !state.mine.some((m) => m.id === state.selected.id)) select(last(state.mine));
@@ -210,6 +282,7 @@ function dropDesigns(ids) {
   if (!ids.length) return;
   state.mine = removeMine(ids);
   ids.forEach(deleteBlob);
+  if (ids.some((id) => state.favs.has(id))) ids.forEach((id) => { state.favs = setFav(id, false); });
   if (!state.selected || ids.includes(state.selected.id)) select(last(state.mine));
   else { renderTray(); renderDesignHud(); }
 }
@@ -223,7 +296,7 @@ function restoreDesign(img) {
       const blob = await getBlob(img);
       if (!blob) return null;
       const fresh = await api.uploadSticker(blob, img.artist || state.artist);
-      if (fresh.id !== img.id) { await saveBlob(fresh.id, blob); deleteBlob(img.id); }
+      if (fresh.id !== img.id) { await saveBlob(fresh.id, blob); deleteBlob(img.id); state.favs = moveFav(img.id, fresh.id); }
       state.mine = addMine(fresh, img.id);
       stamps.textures.delete(img.id);
       if (state.selected?.id === img.id) await select(fresh); else { renderTray(); renderDesignHud(); }
@@ -256,7 +329,11 @@ async function validateDesigns() {
   if (!res || typeof res.images !== 'object' || !Array.isArray(res.missing)) return; // okänt svar: rör inget
   state.mine = updateMine(res.images);
   renderTray(); renderDesignHud();
-  const missing = checked.filter((m) => res.missing.includes(m.id) && !res.images[m.id]);
+  // Removed on purpose (an admin deleted it): gone from the palette, favourite or not, and never
+  // uploaded again from the local copy. Only designs the server LOST are restored from here.
+  const removed = Array.isArray(res.removed) ? res.removed : [];
+  dropDesigns(checked.filter((m) => removed.includes(m.id) && !res.images[m.id]).map((m) => m.id));
+  const missing = checked.filter((m) => res.missing.includes(m.id) && !removed.includes(m.id) && !res.images[m.id]);
   await handleMissing(missing);
 }
 
@@ -429,6 +506,7 @@ async function stampAt(ndc) {
     let res;
     try { res = await api.addStamp(ROOM, body); } catch (err) {
       if (!err.gone) throw err;
+      if (err.removed) { dropPending(nonce); dropDesigns([design.id]); toast(err.message); return null; } // removed on purpose: don't bring it back
       // Servern har tappat just den här designen: ladda upp den igen och stämpla en gång till.
       const fresh = await restoreDesign(design).catch(() => undefined);
       if (!fresh) { dropPending(nonce); if (fresh === null) await handleMissing([design]); else toast(S.slapFailed); return null; }
@@ -1085,7 +1163,10 @@ function onRoomEvent(e) {
     stamps.peelAway(e.id).then(updateCount);
     if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); scheduleHistory(); }
   } else if (e.type === 'room:reset') onRoomReset(e);
-  else if (e.type === 'image:remove') { stamps.removeImage(e.id); peelLayer.removeImage(e.id); updateCount(); }
+  else if (e.type === 'image:remove') {
+    stamps.removeImage(e.id); peelLayer.removeImage(e.id); updateCount();
+    if (e.removed && state.mine.some((m) => m.id === e.id)) dropDesigns([e.id]); // removed on purpose: out of my palette too
+  }
   else if (e.type === 'room:peels') {
     if (e.on) api.loadRoom(ROOM).then((r) => syncPeels(r.info, r.peels, r.images)).catch(() => {});
     else { peelLayer.setOn(false); updatePeelUi(); }
@@ -1370,5 +1451,5 @@ window.klibb = {
   reach: SLAP_REACH, farSlaps: () => farSlaps, skipReachCheck: false,
   reachState: () => ({ peels: peelLayer.on, far: preview.far, crosshairDim: document.body.classList.contains('out-of-reach'), flash: !!farFlash, visible: preview.mesh.visible, opacity: preview.mat.opacity }),
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
-  nextDesign, prevDesign, designs, validateDesigns, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, wallMaxCm: WALL_MAX_CM, freeMaxCm: FREE_MAX_CM,
+  nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, wallMaxCm: WALL_MAX_CM, freeMaxCm: FREE_MAX_CM,
 };

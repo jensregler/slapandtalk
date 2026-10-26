@@ -12,7 +12,13 @@ const MAX = 30;
 export function readMine() {
   try { const v = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(v) ? v.filter((m) => m && m.id && m.url) : []; } catch { return []; }
 }
-function writeMine(list) { localStorage.setItem(KEY, JSON.stringify(list.slice(-MAX))); return list.slice(-MAX); }
+// Over MAX: the oldest non-favourites go first (favourites, "staples", stay).
+function writeMine(list) {
+  list = list.slice();
+  const favs = readFavs();
+  while (list.length > MAX) { const i = list.findIndex((m) => !favs.has(m.id)); list.splice(i < 0 ? 0 : i, 1); }
+  localStorage.setItem(KEY, JSON.stringify(list)); return list;
+}
 
 // Lägg till (eller flytta sist = nyast). replaceId: byt ut en gammal post på samma plats.
 export function addMine(img, replaceId = null) {
@@ -22,8 +28,24 @@ export function addMine(img, replaceId = null) {
   if (at >= 0) rest.splice(Math.min(at, rest.length), 0, img); else rest.push(img);
   return writeMine(rest);
 }
+// Put a design back at its old place (undo after removing it from the palette).
+export function insertMine(img, index) {
+  const rest = readMine().filter((m) => m.id !== img.id);
+  rest.splice(Math.max(0, Math.min(index, rest.length)), 0, img);
+  return writeMine(rest);
+}
 export function removeMine(ids) { return writeMine(readMine().filter((m) => !ids.includes(m.id))); }
 export function updateMine(images) { return writeMine(readMine().map((m) => images[m.id] || m)); }
+
+// ---------- Favourites ("staples"): a list of design ids in localStorage ("klibb.favs") ----------
+export const FAV_KEY = 'klibb.favs';
+export function readFavs() {
+  try { const v = JSON.parse(localStorage.getItem(FAV_KEY) || '[]'); return new Set(Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []); } catch { return new Set(); }
+}
+function writeFavs(set) { localStorage.setItem(FAV_KEY, JSON.stringify([...set])); return set; }
+export function setFav(id, on) { const s = readFavs(); if (on) s.add(id); else s.delete(id); return writeFavs(s); }
+// A design got a new id (uploaded again after the server lost it): it stays a favourite.
+export function moveFav(from, to) { const s = readFavs(); if (!s.delete(from)) return s; s.add(to); return writeFavs(s); }
 
 // ---------- Bilderna i IndexedDB ----------
 let dbp;
