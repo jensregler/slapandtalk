@@ -9,8 +9,8 @@ async function json(res) {
 export const api = {
   loadRoom: (room) => fetch(`/api/rooms/${room}/stamps`).then(json),
 
-  // name: the original file name (its letter prefix sets the start height, shared/sizeprefix.mjs);
-  // startCm: when re-uploading a lost design, the start height it already had.
+  // name: the original file name (its letter prefix sets the start size, shared/sizeprefix.mjs);
+  // startCm: when re-uploading a lost design, the start size it already had.
   uploadSticker: (blob, artist, { name, startCm } = {}) => {
     const fd = new FormData();
     fd.append('artist', artist || '');

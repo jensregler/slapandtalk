@@ -16,10 +16,12 @@
 //                     with LS (store + product must match) and caches the verdict.
 //   DEV_UNLOCK=1      dev/test servers only: a browser with localStorage "klibb.devUnlock" = "1"
 //                     gets everything. Ignored unless the server sets this.
-// bigStickers: stickers larger than FREE_MAX_STICKER_M (no upper limit). Free = max 1 m.
+// bigStickers: stickers larger than FREE_MAX_STICKER_M (no upper limit) and smaller than
+// FREE_MIN_STICKER_M (down to 5 cm). Free = 15 cm – 1 m.
 // cleanVideo: finished videos without the 'slap and talk' channel bug and the link ticker.
 const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo'];
 const FREE_MAX_STICKER_M = 1;
+const FREE_MIN_STICKER_M = 0.15; // free version: at least 15 cm (= the A_ size); the full version keeps the 5 cm minimum
 const KEY_RE = /^[A-Za-z0-9_.~-]{12,128}$/;
 
 const none = () => Object.fromEntries(FEATURES.map((f) => [f, false]));
@@ -69,4 +71,4 @@ const fromReq = (req) => ({ key: req.get('x-unlock') || undefined, dev: req.get(
 // … and from a WebSocket hello: { unlock: { key, dev } }.
 const fromHello = (m) => { const u = m && typeof m.unlock === 'object' && m.unlock ? m.unlock : {}; return { key: typeof u.key === 'string' ? u.key : undefined, dev: u.dev === true }; };
 
-module.exports = { FEATURES, FREE_MAX_STICKER_M, KEY_RE, makeEntitlements, fromReq, fromHello, none, all };
+module.exports = { FEATURES, FREE_MAX_STICKER_M, FREE_MIN_STICKER_M, KEY_RE, makeEntitlements, fromReq, fromHello, none, all };

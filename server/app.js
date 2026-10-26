@@ -23,9 +23,9 @@ const MAX_PX = 1024;
 // Sticker size: no upper limit in the full version (bigStickers), even beyond the room (Jens,
 // 26 Oct 2026; a limit may come back). Free: at most FREE_MAX_STICKER_M (below). Only a technical
 // guard: the size must be a finite number ≥ 2 cm (checked on slap).
-// The starting height from a file-name letter prefix ("B_cat.png" = 7.5 cm): shared/sizeprefix.mjs.
+// The starting size from a file-name letter prefix ("B_cat.png" = 17.5 cm): shared/sizeprefix.mjs.
 const sizeMod = import('../shared/sizeprefix.mjs');
-const { makeEntitlements, fromReq, FREE_MAX_STICKER_M, KEY_RE } = require('./entitlements');
+const { makeEntitlements, fromReq, FREE_MAX_STICKER_M, FREE_MIN_STICKER_M, KEY_RE } = require('./entitlements');
 const { verifySignature } = require('./licenses');
 // Paid full version (Lemon Squeezy, see server/licenses.js and README "Full version: Lemon Squeezy").
 //   checkoutUrl  LS_CHECKOUT_URL (https only), tagged with checkout[custom][src]=app
@@ -138,7 +138,7 @@ app.post('/api/stickers', rateLimit(20), (req, res) => {
         .webp({ quality: 90, alphaQuality: 100 }).toBuffer({ resolveWithObject: true });
       // Samma bild två gånger blir samma design (id = innehållets hash).
       const id = contentId(out.data);
-      // Starting height from the original file name ("B_cat.png" = 7.5 cm, no prefix = 10 cm). The
+      // Starting size from the original file name ("B_cat.png" = 17.5 cm, no prefix = 15 cm). The
       // web app sends the name in `name` (its shrunk copy is always called klibba.png); a re-upload
       // of a lost design sends the startCm it already had.
       const Z = await sizeMod;
@@ -398,8 +398,11 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
   }
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Invalid position' });
   if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
-  // Same gate as fabrics: only the full version (bigStickers) may slap stickers bigger than 1 m.
-  if (b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK && !(await entOf(req)).bigStickers) b.size = FREE_MAX_STICKER_M;
+  // Same gate as fabrics: only the full version (bigStickers) may slap stickers bigger than 1 m or
+  // smaller than 15 cm. Free sizes outside 15 cm – 1 m are clamped (not refused), like before.
+  if ((b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK || b.size < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) && !(await entOf(req)).bigStickers) {
+    b.size = Math.min(FREE_MAX_STICKER_M, Math.max(FREE_MIN_STICKER_M, b.size));
+  }
   // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).
   const P = await peelsMod;
   let peelSt = await store.peelState(room);

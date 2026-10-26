@@ -111,7 +111,7 @@ const state = {
   mine: readMine(),
   library: [], // the curated sticker library (GET /api/library); the palette in the demo
   favs: readFavs(), // favourite design ids ("staples")
-  size: 0.1, rotation: 0, jitter: false, // size = the held size (longest side, m); each design starts at its own height (startSize)
+  size: 0.15, rotation: 0, jitter: false, // size = the held size (longest side, m); each design starts at its own size (startSize)
   mode: 'slap', // 'slap' = Klibbläge (pekaren syns, klick stämplar), 'view' = Tittläge (bara titta)
   artist: localStorage.getItem('klibb.artist') || '',
   artistLink: cleanArtistLink(localStorage.getItem('klibb.artistLink') || ''),
@@ -357,8 +357,11 @@ async function validateDesigns() {
 // The slider only travels to SLIDER_FULL_CM (a range input needs a finite end); the wheel goes on
 // past it, and the label shows the real size.
 const FREE_MAX_CM = 100;
+const FREE_MIN_CM = 15; // free version: at least 15 cm (= A_); the full version goes down to 5 cm
+const FULL_MIN_CM = 5;
 const SLIDER_FULL_CM = 400; // slider travel only, not a limit
 const maxSizeCm = () => (entitlements.full.bigStickers ? Infinity : FREE_MAX_CM);
+const minSizeCm = () => (entitlements.full.bigStickers ? FULL_MIN_CM : FREE_MIN_CM);
 const showSize = () => {
   const cm = Math.round(state.size * 200) / 2;
   $('size').value = String(Math.min(cm, Number($('size').max)));
@@ -366,7 +369,9 @@ const showSize = () => {
 };
 function applySizeLimit() {
   $('size').max = String(Number.isFinite(maxSizeCm()) ? maxSizeCm() : SLIDER_FULL_CM);
+  $('size').min = String(minSizeCm());
   if (state.size * 100 > maxSizeCm()) state.size = maxSizeCm() / 100;
+  if (state.size * 100 < minSizeCm()) state.size = minSizeCm() / 100;
   showSize();
 }
 $('size').oninput = (e) => { state.size = Number(e.target.value) / 100; showSize(); };
@@ -390,19 +395,19 @@ $('artist-link').oninput = (e) => {
 let maxToastAt = 0;
 function setSize(cm) {
   if (!Number.isFinite(cm)) return; // sanity guard only (NaN / endless wheel), not a size limit
-  const want = Math.round(cm * 2) / 2; // 0.5 cm steps (the letter heights are 2.5 cm apart)
+  const want = Math.round(cm * 2) / 2; // 0.5 cm steps (the letter sizes are 2.5 cm apart)
   const max = maxSizeCm();
-  cm = Math.min(Math.max(want, 5), max);
+  cm = Math.min(Math.max(want, minSizeCm()), max); // free 15 cm – 1 m, full 5 cm – no limit
   if (want > max && performance.now() - maxToastAt > 1500) {
     maxToastAt = performance.now();
     toast(S.maxSize((max / 100).toLocaleString(LOCALE)), 1500);
   }
   state.size = cm / 100; showSize();
 }
-// Each design starts at its own height (file-name letter prefix, shared/sizeprefix.mjs; no prefix
-// = 10 cm) whenever you switch to it: R/F, the palette, a new upload. Scaling after that is free,
-// as before, until you switch design again.
-function startSize(img) { setSize(startSizeCm(img, { maxCm: maxSizeCm() })); }
+// Each design starts at its own size (file-name letter prefix, shared/sizeprefix.mjs: A_ = 15 cm …
+// Z_ = 77.5 cm, no prefix = 15 cm; the value the size slider shows) whenever you switch to it: R/F,
+// the palette, a new upload. Scaling after that is free, as before, until you switch design again.
+function startSize(img) { setSize(startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() })); }
 function setRot(deg) { deg = ((deg + 540) % 360) - 180; $('rot').value = deg; $('rot').oninput({ target: $('rot') }); }
 
 // Bilden krymps i webbläsaren om den är stor, så uppladdningen går fort även på mobilen.
@@ -453,7 +458,7 @@ async function onFilePicked(input) {
     const img = await api.uploadSticker(blob, state.artist, { name: file.name }); // the name carries the size prefix
     try { await saveBlob(img.id, blob); } catch { /* local copy is a nice-to-have (private mode Safari) */ }
     state.mine = addMine(img);
-    if (state.selected && state.selected.id === img.id) startSize(img); // the same picture again (maybe renamed): its start height
+    if (state.selected && state.selected.id === img.id) startSize(img); // the same picture again (maybe renamed): its start size
     await select(img);
     toast(isTouch ? S.uploadedTouch : S.uploadedDesktop);
   } catch (err) { toast(err && err.message ? err.message : S.uploadFailed); } finally {
@@ -494,7 +499,7 @@ async function stampAt(ndc) {
   const h = hitSurface(ndc); if (!h) return null;
   if (outOfReach(h.point)) { tooFar(h); return null; } // peels på: för långt bort
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
-  const slapSize = Math.min(state.size, maxSizeCm() / 100);
+  const slapSize = Math.max(Math.min(state.size, maxSizeCm() / 100), minSizeCm() / 100);
   // På golvet: ligger den nya klibban mest på baksidespapper fastnar den inte (servern kollar samma sak).
   if (peelLayer.on && peelLayer.count && onFloor(h.surface, h.normal.toArray())) {
     const frac = await peelLayer.overlap(state.selected, { position: h.point.toArray(), quaternion: q.toArray(), size: slapSize });
@@ -1669,5 +1674,5 @@ window.klibb = {
   reach: SLAP_REACH, farSlaps: () => farSlaps, skipReachCheck: false,
   reachState: () => ({ peels: peelLayer.on, far: preview.far, crosshairDim: document.body.classList.contains('out-of-reach'), flash: !!farFlash, visible: preview.mesh.visible, opacity: preview.mat.opacity }),
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
-  nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, startSizeCm: (img) => startSizeCm(img, { maxCm: maxSizeCm() }),
+  nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }),
 };

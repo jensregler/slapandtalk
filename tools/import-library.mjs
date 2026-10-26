@@ -12,11 +12,12 @@
 //   2. a subfolder: <folder>/<Artist Name>/image.png
 //   3. the file name: "Artist Name - title.png" or "Artist Name__title.png"
 //   4. --artist "Name"   (else empty: the sticker shows no credit)
-// Start height: a letter prefix on the file name sets the sticker's starting height
-//   (shared/sizeprefix.mjs): "A_cat.png" = 5 cm, "B_cat.png" = 7.5 cm … "Z_cat.png" = 67.5 cm, none = 10 cm.
+// Start size: a letter + underscore at the start of the file name sets the sticker's starting size
+//   (the size slider's value, the longest side; shared/sizeprefix.mjs): "A_cat.png" = 15 cm,
+//   "B_cat.png" = 17.5 cm … "Z_cat.png" = 77.5 cm; none (also "b-cat", "C cat") = 15 cm.
 //   Stored as startCm in the manifest. The prefix is not part of the artist/title ("B_Ulla - cat.png" → Ulla).
 //   Every run also re-derives startCm for already-imported stickers from their original name (source).
-// --sizes    only re-derive startCm for the stickers already in the manifest (no folder needed)
+// --sizes    only re-derive startCm (start sizes) for the stickers already in the manifest (no folder needed)
 // --replace  start from an empty library (otherwise new images are added, existing ids updated)
 // --dry-run  report only, write nothing
 // After importing, commit library/ and deploy: the server copies new stickers to storage at start-up.
@@ -103,7 +104,7 @@ export function rederiveSizes(o, log = console.log) {
   let changed = 0;
   for (const s of man.stickers || []) { if (!s.source) continue; const cm = startHeightCm(s.source); if (s.startCm !== cm) { s.startCm = cm; changed++; } }
   if (!o.dry) fs.writeFileSync(manPath, JSON.stringify(man, null, 1) + '\n');
-  log(`${o.dry ? '[dry run] ' : ''}library: start heights re-derived, ${changed} changed`);
+  log(`${o.dry ? '[dry run] ' : ''}library: start sizes re-derived, ${changed} changed`);
   return { changed, total: (man.stickers || []).length };
 }
 

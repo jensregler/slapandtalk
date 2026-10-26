@@ -29,10 +29,10 @@ du går in i rummet.
 
 **På datorn:** klicka på *⬆ Upload sticker*, välj en bild och klicka på *Enter the room*.
 Gå med **W A S D**, titta med musen och **klicka** för att stämpla (*slap*). Scrollhjulet ändrar storlek
-(från 5 cm upp till 1 m i grundversionen; i fullversionen, `bigStickers`, finns ingen övre gräns, inte ens
+(från 15 cm upp till 1 m i grundversionen; i fullversionen, `bigStickers`, från 5 cm och ingen övre gräns, inte ens
 rummet – reglaget går till 4 m, hjulet längre. Storleken gäller klibbans längsta sida. Klibbor som redan sitter
-uppe får behålla sin storlek). Varje design **börjar på sin egen höjd** när du väljer den (R/F, paletten,
-en ny uppladdning): bokstaven först i filnamnet, se *Startstorlek från filnamnet* nedan, annars 10 cm),
+uppe får behålla sin storlek). Varje design **börjar på sin egen storlek** när du väljer den (R/F, paletten,
+en ny uppladdning): bokstaven + `_` först i filnamnet, se *Startstorlek från filnamnet* nedan, annars 15 cm),
 **Q/E** vrider klibban, **R** byter till nästa design, **F** till förra, **V** växlar mellan Slap mode och Look mode, **M**
 stänger av/slår på ljudet och **Esc** tar dig tillbaka till menyn.
 
@@ -529,21 +529,25 @@ feedback ≤ 0,95, wet, ping-pong), filter, bitcrush och distortion – per spel
 
 
 ### Startstorlek från filnamnet (A_, B_, … Z_)
-En bokstav först i bildens filnamn bestämmer klibbans **starthöjd**: höjd = 5 cm + bokstavens nummer × 2,5 cm,
-alltså `A_` = 5 cm, `B_` = 7,5 cm, `C_` = 10 cm … `Z_` = 67,5 cm. Utan prefix: 10 cm (som C).
-- **Regel:** EN bokstav A–Z (stor eller liten) allra först i filnamnet, sedan `_`, `-` eller mellanslag, sedan
-  en bokstav eller siffra: `A_katt.png`, `b-katt.png`, `C katt.png`. *Inte* prefix: `Apple.png`, `A.png`,
-  `A - katt.png` (formen "Konstnär - titel"), `A__katt.png`, `AB_katt.png`. Koden: `shared/sizeprefix.mjs`
-  (samma i webbappen, servern och `tools/import-library.mjs`).
-- **Höjd, inte längsta sida:** en liggande bild (t.ex. 2:1) med `D_` blir 12,5 cm hög, alltså 25 cm bred
-  (storleksreglaget visar längsta sidan). Gratisversionens 1 m gäller fortfarande; ingen annan gräns.
+En bokstav och ett understreck först i bildens filnamn bestämmer klibbans **startstorlek**, alltså det värde
+storleksreglaget visar (Esc → Size, klibbans längsta sida): storlek = 15 cm + bokstavens nummer × 2,5 cm,
+alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan prefix: 15 cm (som A).
+- **Regel:** EN bokstav A–Z (stor eller liten) allra först i filnamnet, sedan `_`, sedan en bokstav eller
+  siffra: `A_katt.png`, `b_katt.png`. *Inte* prefix (får 15 cm): `b-katt.png`, `C katt.png`, `Apple.png`,
+  `A.png`, `A - katt.png` (formen "Konstnär - titel"), `A__katt.png`, `AB_katt.png`. Koden:
+  `shared/sizeprefix.mjs` (samma i webbappen, servern och `tools/import-library.mjs`).
+- **Längsta sidan, för alla format:** en liggande bild med `D_` får 22,5 cm på reglaget, precis som en
+  kvadratisk (för kvadratiska och stående bilder är det också höjden).
+- **Gränser:** gratisversionen 15 cm – 1 m (både i webbappen – reglaget, hjulet, startstorleken – och på
+  servern vid slap, där för små/stora gratisklibbor klämms till 15 cm / 1 m). Fullversionen (`bigStickers`):
+  5 cm och uppåt, ingen övre gräns. Klibbor som redan sitter uppe behåller sin storlek.
 - **Var:** uppladdningar (webbappen skickar filnamnet, servern sparar `startCm` på bilden; samma bild igen
-  med ett annat prefix får den nya höjden), biblioteket (`startCm` i `library/manifest.json`; varje import
+  med ett annat prefix får den nya storleken), biblioteket (`startCm` i `library/manifest.json`; varje import
   räknar om den även för redan importerade ur originalnamnet `source`, och `--sizes` gör bara det).
   Prefixet räknas inte in i konstnärens namn (`B_Ulla - katt.png` → Ulla). Filnamnet visas ingenstans.
 - **R/F och skalning:** varje gång du byter design (R/F, paletten, ny uppladdning) börjar den på sin egen
-  höjd. Sedan skalar du fritt som förut (hjulet, reglaget) tills du byter design igen; byter du tillbaka
-  börjar den om på sin starthöjd (den skalade storleken sparas inte per design).
+  storlek. Sedan skalar du fritt som förut (hjulet, reglaget) inom gränserna tills du byter design igen;
+  byter du tillbaka börjar den om på sin startstorlek (den skalade storleken sparas inte per design).
 
 ## Demo profile (the free version, DEMO_PROFILE=1)
 

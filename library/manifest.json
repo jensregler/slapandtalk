@@ -8,7 +8,7 @@
    "height": 512,
    "artist": "Placeholder",
    "source": "Placeholder - blob.png",
-   "startCm": 10
+   "startCm": 15
   },
   {
    "id": "3167f23a2835814d",
@@ -17,7 +17,7 @@
    "height": 512,
    "artist": "Placeholder",
    "source": "Placeholder - eye.png",
-   "startCm": 10
+   "startCm": 15
   },
   {
    "id": "52b04e09796e75f0",
@@ -26,7 +26,7 @@
    "height": 512,
    "artist": "Placeholder",
    "source": "Placeholder - hej.png",
-   "startCm": 10
+   "startCm": 15
   },
   {
    "id": "75aecb60e4162208",
@@ -35,7 +35,7 @@
    "height": 512,
    "artist": "Placeholder",
    "source": "Placeholder - slap.png",
-   "startCm": 10
+   "startCm": 15
   },
   {
    "id": "9a9db30b7658784a",
@@ -44,7 +44,7 @@
    "height": 512,
    "artist": "Placeholder",
    "source": "Placeholder - star.png",
-   "startCm": 10
+   "startCm": 15
   },
   {
    "id": "0c33943aa47caf8d",
@@ -53,7 +53,7 @@
    "height": 512,
    "artist": "Placeholder",
    "source": "Placeholder - talk.png",
-   "startCm": 10
+   "startCm": 15
   }
  ]
 }
