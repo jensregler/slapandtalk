@@ -29,9 +29,10 @@ du går in i rummet.
 
 **På datorn:** klicka på *⬆ Upload sticker*, välj en bild och klicka på *Enter the room*.
 Gå med **W A S D**, titta med musen och **klicka** för att stämpla (*slap*). Scrollhjulet ändrar storlek
-(från 5 cm upp till 1 m i grundversionen; i fullversionen, `bigStickers`, upp till väggens höjd, 4 m. Det gäller
-klibbans längsta sida, så den blir aldrig högre än väggen ens om du vrider den. Klibbor som redan sitter
-uppe får behålla sin storlek),
+(från 5 cm upp till 1 m i grundversionen; i fullversionen, `bigStickers`, finns ingen övre gräns, inte ens
+rummet – reglaget går till 4 m, hjulet längre. Storleken gäller klibbans längsta sida. Klibbor som redan sitter
+uppe får behålla sin storlek). Varje design **börjar på sin egen höjd** när du väljer den (R/F, paletten,
+en ny uppladdning): bokstaven först i filnamnet, se *Startstorlek från filnamnet* nedan, annars 10 cm),
 **Q/E** vrider klibban, **R** byter till nästa design, **F** till förra, **V** växlar mellan Slap mode och Look mode, **M**
 stänger av/slår på ljudet och **Esc** tar dig tillbaka till menyn.
 
@@ -402,7 +403,7 @@ standard 80 MB, högst 2 samtidigt, 4 per minut och 20 per timme per IP).
 Grundversionen är ett lugnt, komplett klistermärkesrum: vanliga färger på gubben, egna (unika)
 standardljud och en diskret rumsakustik. Fullversionen lägger till de djupa menyerna ovanpå:
 **tyger** på gubben (`fabrics`), **Sound settings** med synth och effekter (`soundDesign`) och
-**superstora klibbor** större än 1 m, upp till väggens höjd (`bigStickers`; servern krymper större
+**superstora klibbor** större än 1 m, utan övre gräns (`bigStickers`; servern krymper större
 gratisklibbor till 1 m) och **färdiga videor utan kanallogga och länkrad** (`cleanVideo`).
 Allt sitter i en gemensam abstraktion, `entitlements.full.<funktion>` (server/entitlements.js och
 client/src/entitlements.js), så nya saker (t.ex. ljus) blir bara ett namn till i `FEATURES`.
@@ -526,6 +527,24 @@ feedback ≤ 0,95, wet, ping-pong), filter, bitcrush och distortion – per spel
 - Testerna: `tests/synth.test.mjs` och `tests/e2e-synth.js` (renderar alla patchar med
   `Tone.Offline` och kollar att de hörs och inte klipper).
 
+
+### Startstorlek från filnamnet (A_, B_, … Z_)
+En bokstav först i bildens filnamn bestämmer klibbans **starthöjd**: höjd = 5 cm + bokstavens nummer × 2,5 cm,
+alltså `A_` = 5 cm, `B_` = 7,5 cm, `C_` = 10 cm … `Z_` = 67,5 cm. Utan prefix: 10 cm (som C).
+- **Regel:** EN bokstav A–Z (stor eller liten) allra först i filnamnet, sedan `_`, `-` eller mellanslag, sedan
+  en bokstav eller siffra: `A_katt.png`, `b-katt.png`, `C katt.png`. *Inte* prefix: `Apple.png`, `A.png`,
+  `A - katt.png` (formen "Konstnär - titel"), `A__katt.png`, `AB_katt.png`. Koden: `shared/sizeprefix.mjs`
+  (samma i webbappen, servern och `tools/import-library.mjs`).
+- **Höjd, inte längsta sida:** en liggande bild (t.ex. 2:1) med `D_` blir 12,5 cm hög, alltså 25 cm bred
+  (storleksreglaget visar längsta sidan). Gratisversionens 1 m gäller fortfarande; ingen annan gräns.
+- **Var:** uppladdningar (webbappen skickar filnamnet, servern sparar `startCm` på bilden; samma bild igen
+  med ett annat prefix får den nya höjden), biblioteket (`startCm` i `library/manifest.json`; varje import
+  räknar om den även för redan importerade ur originalnamnet `source`, och `--sizes` gör bara det).
+  Prefixet räknas inte in i konstnärens namn (`B_Ulla - katt.png` → Ulla). Filnamnet visas ingenstans.
+- **R/F och skalning:** varje gång du byter design (R/F, paletten, ny uppladdning) börjar den på sin egen
+  höjd. Sedan skalar du fritt som förut (hjulet, reglaget) tills du byter design igen; byter du tillbaka
+  börjar den om på sin starthöjd (den skalade storleken sparas inte per design).
+
 ## Demo profile (the free version, DEMO_PROFILE=1)
 
 One switch on the server turns the app into the free demo. Nothing is deleted: turn it off and
@@ -553,6 +572,7 @@ What changes (shared/demo.json holds the numbers):
 
 ```
 node tools/import-library.mjs <folder> [--csv artists.csv] [--artist "Name"] [--replace] [--dry-run]
+node tools/import-library.mjs --sizes   # only re-derive start heights (A_ … Z_) for what is already imported
 ```
 
 Images: png, jpg, jpeg, webp, gif, avif, tiff. Artist per image, first match wins: the CSV

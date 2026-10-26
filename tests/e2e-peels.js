@@ -21,6 +21,7 @@ async function peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN }) {
     await A.setInputFiles('#file', testPng);
     await A.waitForFunction(() => window.klibb.state.selected);
     designId = await A.evaluate(() => window.klibb.state.selected.id);
+    await A.evaluate(() => window.klibb.setSize(30)); // the papers below are sized for 30 cm stickers (the design itself starts at 10 cm)
     await A.evaluate(() => document.getElementById('room-menu-btn').click());
     await B.evaluate(() => document.getElementById('room-menu-btn').click());
     assert(await A.isVisible('#peels-on') && !(await A.isChecked('#peels-on')) && !(await B.isVisible('#peels-box')), 'Room ▾: skaparen ser 🧻 Peels (av från början), de andra ser ingen knapp');

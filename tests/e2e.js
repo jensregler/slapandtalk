@@ -471,16 +471,16 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.waitForTimeout(500);
     assert((await mineIds()).join() === five.join(), 'ett 410-svar för en design tar inte bort någon annan design');
 
-    // ---------- Största storlek: gratis 1 m, fullversionen (bigStickers) väggens höjd ----------
+    // ---------- Största storlek: gratis 1 m, fullversionen (bigStickers) ingen gräns ----------
     await d.waitForTimeout(1600); // meddelandet visas högst var 1,5 s
     const cap = await d.evaluate(() => {
       const k = window.klibb;
-      const r = { max: k.maxSizeCm, wall: k.wallMaxCm, big: k.entitlements().full.bigStickers, sliderMax: document.getElementById('size').max };
+      const r = { max: k.maxSizeCm, big: k.entitlements().full.bigStickers, sliderMax: document.getElementById('size').max };
       k.setSize(1000); r.after = k.state.size; r.slider = document.getElementById('size').value;
       r.toast = document.getElementById('toast').textContent;
       return r;
     });
-    assert(cap.big === false && cap.max === 100 && cap.wall === 400 && cap.sliderMax === '100' && cap.after === 1 && cap.slider === '100' && cap.toast === 'Max size: 1 m',
+    assert(cap.big === false && cap.max === 100 && cap.sliderMax === '100' && cap.after === 1 && cap.slider === '100' && cap.toast === 'Max size: 1 m',
       `gratis: storleken stannar vid 1 m (reglaget max ${cap.sliderMax} cm) med bara "${cap.toast}", ingen uppgraderingstext`);
     // Scrollhjulet: låst mus, scrolla uppåt många gånger
     await d.evaluate(() => { window.klibb.setSize(300); window.klibb.moveTo(0, 0); window.klibb.look(0, 0); });
@@ -506,7 +506,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
         body: JSON.stringify({ imageId: k.state.selected.id, position: [0, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 3, surface: 'vägg-norr' }) });
       return (await r.json()).stamp; });
     assert(freeRaw && freeRaw.size === 1, `servern: en gratis klibba på 3 m blir 1 m (${freeRaw && freeRaw.size} m)`);
-    // Fullversionen (dev-upplåsning, testservern kör DEV_UNLOCK=1) med samma designs: upp till väggens höjd.
+    // Fullversionen (dev-upplåsning, testservern kör DEV_UNLOCK=1) med samma designs: ingen övre gräns (inte ens rummet).
     {
       const mineLs = await d.evaluate(() => localStorage.getItem('klibb.mine'));
       const bctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -516,15 +516,15 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       await b.evaluate(() => window.klibb.entitlementsReady());
       const bigCap = await b.evaluate(async () => {
         const k = window.klibb; k.skipReachCheck = true;
-        const r = { big: k.entitlements().full.bigStickers, max: k.maxSizeCm, sliderMax: document.getElementById('size').max };
+        const r = { big: k.entitlements().full.bigStickers, max: Number.isFinite(k.maxSizeCm) ? k.maxSizeCm : null, sliderMax: document.getElementById('size').max };
         k.setSize(1000); r.after = k.state.size; r.toast = document.getElementById('toast').textContent;
         k.moveTo(0, 0); k.look(0, 0); k.state.rotation = 0;
         const s = await k.stampAt(0, 0); r.stamp = s && s.size;
         return r;
       });
       await bctx.close();
-      assert(bigCap.big === true && bigCap.max === 400 && bigCap.sliderMax === '400' && bigCap.after === 4 && bigCap.toast === 'Max size: 4 m (wall height)' && bigCap.stamp === 4,
-        `fullversionen (bigStickers): upp till väggens höjd, 4 m, och servern godtar en 4 m-klibba (${JSON.stringify(bigCap)})`);
+      assert(bigCap.big === true && bigCap.max === null && bigCap.sliderMax === '400' && bigCap.after === 10 && !/Max size/.test(bigCap.toast) && bigCap.stamp === 10,
+        `fullversionen (bigStickers): ingen övre gräns – 10 m går (reglaget går till 4 m, hjulet längre), och servern godtar en 10 m-klibba (${JSON.stringify(bigCap)})`);
     }
 
     // ---------- Peel (ångra) och historik ----------
