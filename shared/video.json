@@ -1,0 +1,16 @@
+{
+  "_comment": "Finished videos (replay page). Jens: edit 'ticker.lines' freely. Free videos only; the full version (cleanVideo) has no bug and no ticker.",
+  "ticker": {
+    "lines": [
+      "slapandtalk.com · make your own room",
+      "slapandtalk.com · slap stickers with friends",
+      "slapandtalk.com · invite a friend and talk"
+    ],
+    "firstAfterSeconds": 8,
+    "everyMinSeconds": 20,
+    "everyMaxSeconds": 30,
+    "showSeconds": 4
+  },
+  "bug": { "opacity": 0.62, "widthFraction": 0.11 },
+  "output": { "maxSide": 1280, "fps": 30, "videoBitsPerSecond": 4000000 }
+}

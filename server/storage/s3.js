@@ -63,6 +63,29 @@ class S3Adapter {
   async put(key, buf, contentType = 'application/octet-stream') {
     await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: this.k(key), Body: buf, ContentType: contentType }));
   }
+  // Streaming (videos): upload from a temp file without holding it in memory (PutObject with a
+  // known ContentLength streams the body), read a byte range, ask for the size.
+  async putFile(key, src, contentType = 'application/octet-stream') {
+    const fs = require('fs');
+    const { size } = await fs.promises.stat(src);
+    await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: this.k(key), Body: fs.createReadStream(src), ContentLength: size, ContentType: contentType }));
+  }
+  async stat(key) {
+    try { const r = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: this.k(key) })); return { size: Number(r.ContentLength) || 0 }; } catch (e) {
+      if (e.name === 'NotFound' || e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) return null;
+      throw e;
+    }
+  }
+  async getStream(key, { start, end } = {}) {
+    const range = start !== undefined ? `bytes=${start}-${end !== undefined ? end : ''}` : undefined;
+    try {
+      const r = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: this.k(key), ...(range ? { Range: range } : {}) }));
+      return r.Body;
+    } catch (e) {
+      if (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) return null;
+      throw e;
+    }
+  }
   async delete(key) { await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: this.k(key) })); }
   async exists(key) {
     try { await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: this.k(key) })); return true; } catch (e) {

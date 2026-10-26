@@ -27,7 +27,10 @@ const { makeEntitlements, fromReq, FREE_MAX_STICKER_M } = require('./entitlement
 // Bigger, up to the wall height, needs the full version (bigStickers). Old stickers stay as they are.
 const FREE_SIZE_SLACK = 0.01;
 
-function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env) } = {}) {
+const { mountVideos, videoSettings } = require('./videos');
+const { createMailer } = require('./mail');
+
+function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), clock = () => Date.now() } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
@@ -618,6 +621,9 @@ app.delete('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
   if (!(await rightsTo(req, res, id))) return;
   res.json({ ok: await recorder.remove(id, String(req.params.rec)) });
 }));
+
+// ---------- Finished videos (see videos.js): upload, list, watch page, email the link ----------
+app.locals.videos = mountVideos(app, { store, recorder, entitle, fromReq, mailer, rightsTo, roomParam, wrap, isAdmin, settings: videos, clock });
 
 // ---------- Admin (dold) ----------
 app.get('/api/admin/check', (req, res) => res.json({ ok: isAdmin(req) }));

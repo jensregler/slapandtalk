@@ -31,6 +31,8 @@ async function cleanup() {
   try {
     const deleted = await store.cleanupRooms({ quickTtlMs: QUICK_TTL_HOURS * 3600_000 });
     if (deleted.length) console.log(`Städning: tog bort ${deleted.length} tomma snabbrum (${deleted.join(', ')})`);
+    const oldVideos = await app.locals.videos.cleanup().catch((e) => { console.error("Videostädningen misslyckades:", e.message); return []; }); // videos/ has its own retention (VIDEO_RETENTION_DAYS)
+    if (oldVideos.length) console.log(`Städning: tog bort ${oldVideos.length} gamla videor`);
     store.evictIdle(2 * 3600_000); // rum ingen använt på 2 h släpps ur minnet (de finns kvar i lagringen)
   } catch (e) { console.error('Städningen misslyckades:', e.message); }
 }

@@ -26,6 +26,23 @@ class LocalAdapter {
     await fsp.writeFile(tmp, buf);
     await fsp.rename(tmp, f);
   }
+  // Streaming (videos): copy a finished temp file in, read a byte range out, ask for the size.
+  async putFile(key, src) {
+    const f = this.file(key);
+    await fsp.mkdir(path.dirname(f), { recursive: true });
+    const tmp = `${f}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    await fsp.copyFile(src, tmp);
+    await fsp.rename(tmp, f);
+  }
+  async stat(key) {
+    try { const st = await fsp.stat(this.file(key)); return { size: st.size }; } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+  }
+  // start/end inclusive (like HTTP Range). Returns a Readable or null.
+  async getStream(key, { start, end } = {}) {
+    const f = this.file(key);
+    try { await fsp.access(f); } catch { return null; }
+    return fs.createReadStream(f, { start, end });
+  }
   async delete(key) { await fsp.rm(this.file(key), { force: true }); }
   async exists(key) { try { await fsp.access(this.file(key)); return true; } catch { return false; } }
   // Bara en mappnivå behövs: list('rooms/') -> ['rooms/stad.json', ...]

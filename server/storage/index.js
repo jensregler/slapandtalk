@@ -6,6 +6,10 @@
 //   delete(key)              -> tar bort (inget fel om den inte finns)
 //   list(prefix)             -> alla nycklar som börjar med prefix
 //   exists(key)              -> true/false
+// … and for big files (videos), streamed instead of held in memory:
+//   putFile(key, path, type) -> copies a local temp file in
+//   stat(key)                -> { size } or null
+//   getStream(key, {start,end}) -> a Readable (byte range, inclusive) or null
 //
 // Nycklar ser ut som sökvägar: "rooms/stad.json", "images/<id>.json", "uploads/<id>.webp".
 //
