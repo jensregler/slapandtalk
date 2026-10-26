@@ -46,7 +46,7 @@ export function buildTimeline(rec) {
   const players = new Map(), stamps = new Map(), cameras = new Map(), images = { ...(h.images || {}) };
   const styles = [{ t: 0, style: h.style || null }], chat = [];
   const player = (id) => {
-    if (!players.has(id)) players.set(id, { id, spans: [], looks: [], track: [] });
+    if (!players.has(id)) players.set(id, { id, spans: [], looks: [], track: [], talk: [] });
     return players.get(id);
   };
   const enter = (p, t) => {
@@ -70,6 +70,8 @@ export function buildTimeline(rec) {
       case 'leave': exit(e.id, t); break;
       case 'look': { const pl = player(e.id); pl.looks.push({ t, name: e.name, look: e.look }); break; }
       case 'move': { const pl = player(e.id); pl.track.push({ t, p: e.p, y: e.y || 0, pi: e.pi || 0 }); break; }
+      // Voice loudness (0…15) while someone talks, for the mouth and the auto-director (shared/director.mjs).
+      case 'talk': { const l = Number(e.l); if (Number.isFinite(l)) player(e.id).talk.push({ t, l: Math.max(0, Math.min(15, Math.round(l))) }); break; }
       case 'chat': chat.push({ t, id: e.mid, from: e.id, name: e.name, text: e.text }); break;
       case 'stamp:add':
         if (e.image) images[e.image.id] = e.image;
@@ -99,6 +101,9 @@ export function poseAt(track, t) {
   return { p: [lerp(a.p[0], b.p[0]), lerp(a.p[1], b.p[1]), lerp(a.p[2], b.p[2])], y: a.y + wrapAngle(b.y - a.y) * k, pi: lerp(a.pi, b.pi) };
 }
 
+// The talk level (0…15) at time t: the last sample, if it is fresh (they come ~every 80 ms).
+function talkLevel(talk, t) { if (!talk || !talk.length) return 0; const i = lastAt(talk, t); return i >= 0 && t - talk[i].t <= 260 ? talk[i].l : 0; }
+
 // Hela rummet vid tiden t (millisekunder från starten).
 export function snapshotAt(tl, t, { chatKeep = 8 } = {}) {
   const players = [];
@@ -106,7 +111,7 @@ export function snapshotAt(tl, t, { chatKeep = 8 } = {}) {
     if (!pl.spans.some((s) => s.from <= t && t < s.to)) continue;
     const li = lastAt(pl.looks, t); const lk = pl.looks[Math.max(0, li)];
     const pose = poseAt(pl.track, t); if (!pose) continue;
-    players.push({ id: pl.id, name: lk ? lk.name : '', look: lk ? lk.look : null, ...pose });
+    players.push({ id: pl.id, name: lk ? lk.name : '', look: lk ? lk.look : null, ...pose, talk: talkLevel(pl.talk, t) });
   }
   const stamps = [];
   for (const s of tl.stamps.values()) if (s.from <= t && t < s.to) stamps.push(s);
