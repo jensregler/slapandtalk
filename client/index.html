@@ -26,7 +26,8 @@
   <aside id="panel">
     <div class="brand-row">
       <h1 data-t="brand">Slap and Talk</h1>
-      <button id="sound-btn" type="button" class="icon-btn" data-t-title="soundToggleTitle" aria-pressed="false">🔊</button>
+      <span class="brand-btns"><button id="mic-btn" type="button" class="icon-btn mic" data-t-title="micTitleOff" aria-pressed="false" data-state="off">🎙</button>
+      <button id="sound-btn" type="button" class="icon-btn" data-t-title="soundToggleTitle" aria-pressed="false">🔊</button></span>
     </div>
     <section id="room-box" aria-label="Room">
       <div class="room-line">
@@ -36,8 +37,9 @@
       <div id="room-menu" class="room-btns" hidden>
         <button id="new-room" type="button" data-t="newRoom" data-t-title="newRoomTitle">＋ New quick room</button>
         <button id="share-room" type="button" data-t="shareRoom" data-t-title="shareRoomTitle">🔗 Share link</button>
-        <button id="to-stad" type="button" data-t="toCity" data-t-title="toCityTitle">🏙 Back to the City</button>
-        <div id="peels-box" hidden>
+        <p id="invite-note" class="hint" hidden aria-live="polite"></p>
+        <button id="to-stad" type="button" class="no-demo" data-t="toCity" data-t-title="toCityTitle">🏙 Back to the City</button>
+        <div id="peels-box" class="no-demo" hidden>
           <label class="check" data-t-title="peelsTitle"><input id="peels-on" type="checkbox" /> <span data-t="peelsToggle">🧻 Peels</span></label>
           <button id="peels-clear" type="button" data-t="peelsClear" hidden>🧹 Sweep up the peels</button>
         </div>
@@ -45,7 +47,7 @@
       <p id="presence"><span id="net-dot" class="dot connecting"></span> <span id="presence-text">Connecting…</span></p>
     </section>
 
-    <label class="upload">
+    <label class="upload no-demo">
       <input id="file" class="vh-file" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" />
       <span data-t="upload">⬆ Upload sticker</span>
     </label>
@@ -67,7 +69,7 @@
 
     <section class="more-sec" aria-label="Sticker">
       <h3 data-t="secSticker">Sticker</h3>
-      <p class="hint" data-t="uploadHint"></p>
+      <p class="hint no-demo" data-t="uploadHint"></p>
       <label><span><span data-t="size">Size</span>: <b id="size-val">30 cm</b></span>
         <input id="size" type="range" min="5" max="100" step="1" value="30" />
       </label>
@@ -75,13 +77,13 @@
         <input id="rot" type="range" min="-180" max="180" step="1" value="0" />
       </label>
       <label class="check"><input id="jitter" type="checkbox" /> <span data-t="jitter"></span></label>
-      <label><span data-t="artist"></span>
+      <label class="no-demo"><span data-t="artist"></span>
         <input id="artist" type="text" maxlength="60" data-t-placeholder="artistPlaceholder" />
       </label>
-      <label><span data-t="artistLink"></span>
+      <label class="no-demo"><span data-t="artistLink"></span>
         <input id="artist-link" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" maxlength="200" data-t-placeholder="artistLinkPlaceholder" />
       </label>
-      <p class="hint" id="artist-link-msg" aria-live="polite"></p>
+      <p class="hint no-demo" id="artist-link-msg" aria-live="polite"></p>
     </section>
 
     <section id="history" aria-label="My slaps in this room">
@@ -97,14 +99,14 @@
     <section class="more-sec" aria-label="People here">
       <h3 data-t="secPeople">People here</h3>
       <ul id="people" aria-label="In the room now"></ul>
-      <button id="my-avatar" type="button" data-t="myAvatar" data-t-title="myAvatarTitle">🧍 My avatar</button>
+      <button id="my-avatar" type="button" class="no-demo" data-t="myAvatar" data-t-title="myAvatarTitle">🧍 My avatar</button>
     </section>
 
     <section class="more-sec" aria-label="Room">
       <h3 data-t="secRoom">Room</h3>
       <p id="room-note" class="hint"></p>
       <p id="room-style" class="hint"></p>
-      <button id="edit-style" type="button" hidden data-t="editStyle">🎨 Change room look</button>
+      <button id="edit-style" type="button" class="no-demo" hidden data-t="editStyle">🎨 Change room look</button>
     </section>
 
     <section class="more-sec" aria-label="View">
@@ -118,11 +120,12 @@
     <section class="more-sec" aria-label="Sound">
       <h3 data-t="secSound">Sound</h3>
       <label class="check"><input id="sound-on" type="checkbox" checked /> <span data-t="sound">Sounds</span></label>
-      <button id="sound-design-btn" type="button" hidden data-t="soundDesign" data-t-title="soundDesignTitle">Sound settings…</button>
+      <label class="check"><input id="voice-near" type="checkbox" checked /> <span data-t="voiceNear">Voices fade with distance</span></label>
+      <button id="sound-design-btn" type="button" class="no-demo" hidden data-t="soundDesign" data-t-title="soundDesignTitle">Sound settings…</button>
     </section>
 
     <!-- Recording and cameras: only for the room's creator (or admin; in the City only admin). -->
-    <section id="rec-box" hidden aria-label="Recording and cameras">
+    <section id="rec-box" class="no-demo" hidden aria-label="Recording and cameras">
       <div class="history-head"><b data-t="recHeading">🎬 Recording</b> <span id="rec-time"></span></div>
       <p class="hint" data-t="recHint"></p>
       <div class="room-btns">
@@ -223,6 +226,7 @@
     </form>
     <div id="chat-hint" class="desktop-only" data-t="chatHint">T = chat</div>
   </section>
+  <button id="mic-touch" class="touch-only mic" type="button" data-t-aria="micTitleOff" data-state="off">🎙</button>
   <button id="chat-btn" class="touch-only" type="button" data-t-aria="chatAria" data-t-title="chatAria">💬<span id="chat-unread"></span></button>
   <!-- Sound settings (full version): a synth panel per sound + effects. Built by soundui.js. -->
   <aside id="sound-panel" hidden aria-label="Sound settings">
@@ -303,6 +307,20 @@
     </div>
   </dialog>
   <div id="toast" role="status" aria-live="polite"></div>
+  <!-- Demo profile: a quiet timer, the name question, and the card when the room has closed. -->
+  <div id="demo-timer" hidden role="timer" aria-live="off"></div>
+  <dialog id="name-dialog" aria-labelledby="name-title">
+    <form id="name-form" method="dialog">
+      <h2 id="name-title" data-t="nameTitle">What’s your name?</h2>
+      <input id="name-input" type="text" maxlength="24" autocomplete="nickname" enterkeyhint="go" data-t-placeholder="namePlaceholder" />
+      <p class="hint" data-t="nameHint"></p>
+      <div class="end-btns"><button id="name-ok" type="submit" class="primary" data-t="nameOk">Enter</button></div>
+    </form>
+  </dialog>
+  <div id="demo-closed" hidden role="alertdialog" aria-labelledby="demo-closed-title">
+    <div class="card"><h2 id="demo-closed-title"></h2><p id="demo-closed-text" class="hint"></p>
+      <button id="demo-closed-new" type="button" class="primary" data-t="closedNew">Start a new room</button></div>
+  </div>
   <div id="undo-toast" role="status" aria-live="polite" hidden><span id="undo-text" data-t="designRemovedToast">Removed</span> · <button id="undo-btn" type="button" data-t="undo">Undo</button></div>
   <dialog id="admin-dialog">
     <p id="admin-info"></p>

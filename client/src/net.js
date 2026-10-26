@@ -15,11 +15,11 @@
 export function connect(roomId, handlers) {
   const h = { hello: () => ({}), ...handlers };
   const noop = () => {};
-  for (const k of ['onYou', 'onWelcome', 'onJoin', 'onLeave', 'onMove', 'onLook', 'onChat', 'onEvent', 'onSignal', 'onStatus', 'onReconnect', 'onError']) h[k] = h[k] || noop;
+  for (const k of ['onDenied', 'onInvite', 'onYou', 'onWelcome', 'onJoin', 'onLeave', 'onMove', 'onLook', 'onChat', 'onEvent', 'onSignal', 'onStatus', 'onReconnect', 'onError']) h[k] = h[k] || noop;
   // Slumpas per sidladdning: kopplar samma flik upp sig igen vet servern att den gamla
   // anslutningen är död och tar bort den direkt (annars kunde man synas två gånger en stund).
   const sid = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
-  let ws = null, closed = false, attempt = 0, timer = null, lastMsg = 0, everOnline = false, status = 'offline', myId = null;
+  let deniedCode = null, ws = null, closed = false, attempt = 0, timer = null, lastMsg = 0, everOnline = false, status = 'offline', myId = null;
   const setStatus = (s) => { if (s !== status) { status = s; h.onStatus(s); } };
   const url = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?room=${encodeURIComponent(roomId)}`;
   const send = (m) => { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(m)); return true; } return false; };
@@ -53,13 +53,17 @@ export function connect(roomId, handlers) {
         case 'event': h.onEvent(m.e); break;
         case 'signal': h.onSignal(m.from, m.data); break;
         case 'error': h.onError(m.error); break;
+        case 'denied': deniedCode = m.code || 'invite'; h.onDenied(m); break; // demo: not let in (no retry)
+        case 'invite': h.onInvite(m); break;
         default: break; // pong m.m.
       }
     };
-    sock.onclose = () => {
+    sock.onclose = (ev) => {
       if (ws !== sock) return;
       ws = null; myId = null;
       if (closed) return;
+      // 4003 = not let in (demo invite rules), 4010 = the room has closed: trying again won't help.
+      if (ev && (ev.code === 4003 || ev.code === 4010)) { closed = true; setStatus(ev.code === 4010 ? 'closed' : 'denied'); h.onLeave('*'); return; }
       setStatus('offline'); h.onLeave('*'); // alla andra försvinner tills vi är tillbaka
       schedule();
     };
@@ -91,7 +95,9 @@ export function connect(roomId, handlers) {
     sendLook: (name, look) => send({ t: 'look', name, look }),
     sendChat: (text) => send({ t: 'chat', text }),
     sendUnlock: (unlock) => send({ t: 'unlock', unlock }), // new full-version key in this tab
-    sendSignal: (to, data) => send({ t: 'signal', to, data }), // röstchatt (nästa steg)
+    sendSignal: (to, data) => send({ t: 'signal', to, data }), // voice chat (voice.js)
+    sendInvite: (action = 'create') => send({ t: 'invite', action }), // demo: my single-use invite link
+    get denied() { return deniedCode; },
     reconnectNow: now,
     close() { closed = true; clearInterval(hb); clearTimeout(timer); if (ws) ws.close(); },
   };

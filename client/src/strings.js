@@ -248,6 +248,45 @@ export const EN = {
   adminDeleted: 'Deleted.', adminConfirmImage: 'Delete the image and ALL its stickers in every room?',
   adminImageDeleted: (n) => `Image deleted (${n} stickers).`,
   adminDelStamp: 'Delete this sticker', adminDelImage: 'Delete the image everywhere',
+
+  // ---------- Demo profile (the free version for the Thursday demo) ----------
+  nameTitle: 'What’s your name?',
+  nameHint: 'It shows above your character.',
+  namePlaceholder: 'Your name',
+  nameOk: 'Enter',
+  demoRoomHud: (id) => `Room · ${id}`,
+  demoTimer: (ms) => { const m = Math.ceil(ms / 60_000); if (ms <= 0) return 'closing'; if (ms < 5 * 60_000) { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} left`; } return `${m} min left`; },
+  demoTimerTitle: 'This room is temporary: it closes after an hour.',
+  demoWarn: (min) => (min <= 1 ? 'This room closes in a minute. Thanks for being here.' : `This room closes in ${min} minutes.`),
+  demoNote: (min) => `A temporary room for you and a few friends. It closes after ${min} minutes and everything in it goes away.`,
+  closedTitle: 'This room has closed',
+  closedText: 'Rooms here last an hour. Thanks for slapping.',
+  closedNew: 'Start a new room',
+  deniedInvite: 'This room is invite-only. Ask someone inside for an invite link.',
+  deniedUsed: 'This invite link has already been used.',
+  deniedFull: 'This room is full.',
+  deniedGone: 'This room has closed.',
+  invite: '✉ Invite a friend', inviteTitle: 'A link that lets one friend in',
+  inviteCopied: 'Invite link copied. It works once.',
+  inviteShareTitle: 'Come slap with me',
+  inviteOpen: 'Your invite link is ready. It works once.',
+  inviteUsed: (name) => (name ? `${name} came in with your invite.` : 'Your invite has been used.'),
+  inviteFull: 'The room is full.',
+  inviteNone: 'You can invite one friend.',
+  quickHelpDemo: 'Click to enter · WASD walk · click = slap · R/F next/prev sticker · Z peel · V look mode · C 3rd person · T chat · B talk',
+  helpDemoDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
+    + 'R/F = next/previous sticker from the library, Z = peel your last sticker, V = look mode (click a sticker to see who made it), C = 1st/3rd person, Esc = menu. '
+    + '<b>Together:</b> invite one friend with ✉ Invite a friend (the link works once). T or Enter = chat, 🎙 or B = talk (B again mutes). '
+    + '<b>Your room</b> is temporary: it closes after an hour and everything in it goes away.',
+  helpDemoTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look, tap = slap. The round button shows your sticker: tap it for the next one. '
+    + 'The eye 👁 = look mode (tap a sticker to see who made it). 👤 = 1st/3rd person. ↩ peels your last sticker. '
+    + '<b>Together:</b> ✉ Invite a friend (the link works once). 💬 = chat, 🎙 = talk. Your room closes after an hour.',
+  // ---------- Voice ----------
+  micOff: '🎙', micTitleOff: 'Talk: turn your microphone on', micTitleOn: 'Mute your microphone', micTitleMuted: 'Unmute your microphone',
+  micOnToast: 'Microphone on – the others can hear you.', micMutedToast: 'Microphone muted.',
+  micDenied: 'No microphone (permission was not given).',
+  micUnsupported: 'Voice does not work in this browser.',
+  voiceNear: 'Voices fade with distance',
 };
 
 export const S = EN;

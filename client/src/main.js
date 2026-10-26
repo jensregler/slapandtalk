@@ -22,11 +22,18 @@ import { initFullVersion } from './fullversion.js';
 import { Footsteps } from './steps.js';
 import { loadSoundLook, initSoundUI } from './soundui.js';
 import * as synthShared from '../../shared/synth.mjs';
+import { config } from './config.js';
+import * as demo from './demo.js';
+import { Voice } from './voice.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const ROOM = (params.get('room') || 'stad').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40) || 'stad';
 const isTouch = matchMedia('(pointer: coarse)').matches || params.has('touch');
+// The demo profile (server DEMO_PROFILE=1, see demo.js and server/demo.js): the free version –
+// library stickers, no uploads, no room editing, invite-only rooms that close after an hour.
+const DEMO = !!config.demo;
+document.body.classList.toggle('demo', DEMO);
 document.body.classList.toggle('touch', isTouch);
 $('room-name').textContent = ROOM;
 
@@ -101,6 +108,7 @@ addEventListener('resize', resize); resize();
 const state = {
   selected: null, // vald bild { id, url, width, height }
   mine: readMine(),
+  library: [], // the curated sticker library (GET /api/library); the palette in the demo
   favs: readFavs(), // favourite design ids ("staples")
   size: 0.3, rotation: 0, jitter: false,
   mode: 'slap', // 'slap' = Klibbläge (pekaren syns, klick stämplar), 'view' = Tittläge (bara titta)
@@ -235,7 +243,7 @@ function undoRemove() {
 $('undo-btn').onclick = (e) => { e.stopPropagation(); undoRemove(); };
 addEventListener('pagehide', commitRemove);
 // Mina designs i samma ordning som i menyn (nyaste först). R växlar mellan dem.
-function designs() { return state.mine.slice().reverse(); }
+function designs() { return DEMO ? state.library : state.mine.slice().reverse(); }
 // En annan flik ändrade listan: hämta den nya.
 addEventListener('storage', (e) => {
   if (e.key === FAV_KEY) { state.favs = readFavs(); renderTray(); return; }
@@ -259,7 +267,7 @@ function nextDesign() { return stepDesign(1); }
 function prevDesign() { return stepDesign(-1); }
 function stepDesign(dir) {
   const list = designs();
-  if (!list.length) { toast(S.uploadFirst); return null; }
+  if (!list.length) { if (!DEMO) toast(S.uploadFirst); return null; }
   const i = list.findIndex((d) => d.id === state.selected?.id);
   const next = list[i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length];
   select(next);
@@ -325,6 +333,7 @@ async function handleMissing(list) {
 // Kolla mot servern att mina sparade designs finns kvar. Bara id:n som servern säkert
 // säger saknas räknas (inte fel, timeout eller "för många förfrågningar").
 async function validateDesigns() {
+  if (DEMO) return; // the demo has no uploads: the palette is the library
   const checked = readMine();
   if (!checked.length) return;
   let res;
@@ -486,9 +495,10 @@ async function stampAt(ndc) {
   const body = { nonce, owner: deviceId(), ...(together.net.id ? { by: together.net.id } : {}), // by: så de andra ser min gubbe slappa
     imageId: design.id,
     position: h.point.toArray(), normal: h.normal.toArray(), quaternion: q.toArray(),
-    size: slapSize, rotation: state.rotation, surface: h.surface, artist: state.artist,
+    // A library sticker carries its own artist (the server makes sure of it too).
+    size: slapSize, rotation: state.rotation, surface: h.surface, artist: design.library ? design.artist || '' : state.artist,
     peelFrom: { p: [camera.position.x, camera.position.z], yaw: controls.yaw }, // var baksidespappret föds (peels)
-    ...(state.artistLink ? { artistLink: state.artistLink } : {}),
+    ...(design.library ? (design.artistLink ? { artistLink: design.artistLink } : {}) : state.artistLink ? { artistLink: state.artistLink } : {}),
   };
   // Klibban syns direkt (med ett tillfälligt id) och byts till serverns stämpel när svaret
   // kommer, via HTTP-svaret eller WebSocket, det som kommer först. Går det fel tas den bort.
@@ -717,7 +727,7 @@ function endOfHistory() {
   if (endDlg.open) return;
   if (endShown) { toast(S.endTitle, 1200); return; }
   endShown = true; endShows++;
-  const reset = canEditStyle();
+  const reset = canReset();
   $('end-q').textContent = reset ? S.endResetQ : S.endFreshQ;
   $('end-text').textContent = reset ? S.endResetText : S.endFreshText;
   const act = $('end-action');
@@ -731,7 +741,7 @@ function endOfHistory() {
 $('end-keep').onclick = () => endDlg.close();
 $('end-action').onclick = async () => {
   const b = $('end-action');
-  if (b.dataset.kind === 'new') { endDlg.close(); openStylePanel('create'); return; }
+  if (b.dataset.kind === 'new') { endDlg.close(); if (DEMO) demo.goToNewRoom().catch((e) => toast(e.message)); else openStylePanel('create'); return; }
   b.disabled = true;
   try {
     await api.resetRoom(ROOM, together.me().shownAs || together.me().name, auth());
@@ -1007,7 +1017,8 @@ function showRoomInfo(info) {
   $('room-note').textContent = type === 'quick'
     ? S.roomNoteQuick(info?.quickTtlHours ?? 24)
     : type === 'profile' ? S.roomNoteProfile(info.owner?.name) : '';
-  $('room-hud').textContent = S.roomHud(type, ROOM);
+  $('room-hud').textContent = DEMO ? S.demoRoomHud(ROOM) : S.roomHud(type, ROOM);
+  if (DEMO) { $('room-note').textContent = S.demoNote(config.roomMinutes || 60); badge.hidden = true; }
   roomType = type;
   if (info) currentStyle = normalizeStyle(info.style);
   if (info) updateStyleUi();
@@ -1023,7 +1034,9 @@ function saveRoomKey(id, key) { const k = roomKeys(); k[id] = key; localStorage.
 // var (inte let): showRoomInfo längre upp kan köras innan den här raden.
 var currentStyle = normalizeStyle(DEFAULT_STYLE); // eslint-disable-line no-var
 var roomType = ROOM === 'stad' ? 'stad' : 'quick'; // eslint-disable-line no-var
-const canEditStyle = () => !!state.adminToken || (roomType !== 'stad' && !!roomKeys()[ROOM]);
+const canEditStyle = () => !!state.adminToken || (!DEMO && roomType !== 'stad' && !!roomKeys()[ROOM]);
+// Reset (all stickers off): the creator, also in the demo (it is not "editing" the room).
+const canReset = () => canEditStyle() || (DEMO && !!roomKeys()[ROOM]);
 function updateStyleUi() {
   $('edit-style').hidden = !canEditStyle();
   $('rec-box').hidden = !canEditStyle();
@@ -1097,7 +1110,8 @@ function closeStylePanel(revert = true) {
   sp.open = false; $('style-panel').hidden = true;
   if (revert) showStyle(currentStyle);
 }
-$('new-room').onclick = () => openStylePanel('create');
+// Demo: straight into a new, empty room (the preset), no look picker.
+$('new-room').onclick = () => { if (DEMO) { $('new-room').disabled = true; demo.goToNewRoom().catch((e) => { $('new-room').disabled = false; toast(e.message); }); } else openStylePanel('create'); };
 $('edit-style').onclick = () => openStylePanel('edit');
 $('style-cancel').onclick = () => closeStylePanel(true);
 $('style-random').onclick = () => { sp.style = styleFromSeed(randomSeed()); previewStyle(); };
@@ -1123,6 +1137,7 @@ $('style-ok').onclick = async () => {
 };
 $('to-stad').onclick = () => { location.href = roomUrl('stad'); };
 $('share-room').onclick = async () => {
+  if (DEMO) return inviteFriend();
   const url = roomUrl(ROOM);
   const title = S.shareTitle(ROOM);
   if (isTouch && navigator.share) { try { await navigator.share({ title, url }); return; } catch (e) { if (e.name === 'AbortError') return; } }
@@ -1181,6 +1196,7 @@ function onRoomEvent(e) {
     if (!sp.open) { showStyle(currentStyle); toast(S.styleChanged, 1800); }
   } else if ((e.type === 'camera:add' || e.type === 'camera:update') && e.camera) { cams.upsert(e.camera); renderCams(); }
   else if (e.type === 'camera:remove') { cams.remove(e.id); if (camView === e.id) exitCamView(); renderCams(); }
+  else if (e.type === 'room:closed') demoClosed();
   else if (e.type === 'rec:start') setRec({ recId: e.recId, startedAt: e.startedAt }, { announce: 'start' });
   else if (e.type === 'rec:stop') setRec(null, { announce: 'stop', reason: e.reason });
 }
@@ -1207,8 +1223,13 @@ async function resyncRoom() {
 const together = initTogether({
   room: ROOM, scene, camera, controls, isTouch, toast, artist: () => state.artist,
   onEvent: onRoomEvent, onReconnect: resyncRoom,
-  onWelcome: (m) => setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }),
+  onWelcome: (m) => { setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }); if (DEMO) demoWelcome(m); if (voice) voice.reset(); },
   onSound: (s) => sound.setMine(s),
+  pass: () => (DEMO ? demo.passFor(ROOM) : null),
+  onDenied: (m) => { if (DEMO && m.code === 'gone') demo.forgetRoom(ROOM); if (DEMO) demoClosed(demo.deniedText(m.code), m.code === 'gone' ? S.closedTitle : ' '); },
+  onInvite: (m) => onInviteMsg(m),
+  onPeople: (ids) => { if (voice) voice.setPeople(ids); },
+  onSignal: (from, data) => { if (voice) voice.onSignal(from, data); },
 });
 // Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
 const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); fullUi.ready(); });
@@ -1395,10 +1416,101 @@ function walkSounds() {
   const ids = new Set();
   for (const pl of together.players.map.values()) {
     ids.add(pl.id);
-    footsteps.update(pl.id, pl.pos.x, pl.pos.z, { at: [pl.pos.x, 0.05, pl.pos.z], voice: pl.look?.sound || null });
+    footsteps.update(pl.id, pl.pos.x, pl.pos.z, { at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id) }); // their seed + slot colour
   }
   if (++stepsTick % 300 === 0) footsteps.forget(ids);
 }
+
+// ---------- Demo: the hour, invites, the closing card (demo.js) ----------
+// var: the WebSocket welcome can arrive before these lines have run.
+var demoTimer = null, demoEnded = false, inviteWanted = false, inviteState = 'none'; // eslint-disable-line no-var
+function demoWelcome(m) {
+  demo.onWelcome(ROOM, m);
+  if (m.expiresAt && !demoTimer) {
+    demoTimer = demo.startTimer({ expiresAt: m.expiresAt, serverNow: m.serverNow,
+      onWarn: (min) => { toast(S.demoWarn(min), 5000); together.sys(S.demoWarn(min)); },
+      onEnd: () => setTimeout(() => { if (!demoEnded) demoClosed(); }, 4000) }); // the server closes the room; this is the fallback
+  }
+  together.net.sendInvite('status');
+}
+// title ' ' = refused at the door (no heading), '' = the room's hour is over.
+function demoClosed(text = '', title = '') {
+  if (demoEnded) return;
+  demoEnded = true;
+  if (demoTimer) demoTimer();
+  if (voice) voice.closeAll();
+  try { controls.unlock?.(); preview.hide(); closeMore(); } catch { /* before the room is up */ }
+  const mine = readHistory().filter((h) => h.room === ROOM).map((h) => h.stampId);
+  if (!text && mine.length) removeHistory(mine);
+  if (!text) demo.forgetRoom(ROOM);
+  demo.showClosed(text || S.closedText, title.trim() ? { title } : title ? { title: '' } : {});
+}
+// ✉ Invite a friend: one single-use link per person (the server keeps track).
+function inviteNote(text) { const n = $('invite-note'); n.hidden = !text; n.textContent = text || ''; }
+async function shareInvite(token) {
+  const url = demo.inviteUrl(ROOM, token);
+  window.klibb && (window.klibb.lastInvite = url);
+  if (isTouch && navigator.share) { try { await navigator.share({ title: S.inviteShareTitle, url }); inviteNote(S.inviteOpen); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(url); toast(S.inviteCopied, 3500); } catch { toast(S.inviteOpen, 3500); prompt(S.copyLink, url); }
+  inviteNote(S.inviteOpen);
+}
+function inviteFriend() {
+  const saved = demo.myInvite(ROOM);
+  if (saved && inviteState === 'open') return shareInvite(saved);
+  inviteWanted = true;
+  if (!together.net.sendInvite('create')) { inviteWanted = false; toast(S.noConnection); }
+  return null;
+}
+function onInviteMsg(m) {
+  if (m.ok && m.token) { demo.saveInvite(ROOM, m.token); inviteState = 'open'; if (inviteWanted) { inviteWanted = false; shareInvite(m.token); } return; }
+  inviteWanted = false;
+  if (!m.ok) {
+    if (m.code === 'used') { inviteState = 'used'; inviteNote(S.inviteUsed(m.name)); $('share-room').disabled = true; } else if (m.code === 'full') inviteNote(S.inviteFull); else toast(m.error || S.inviteFull);
+    return;
+  }
+  const st = m.status; if (!st) return;
+  inviteState = st.state;
+  if (st.state === 'used') inviteNote(S.inviteUsed(st.name));
+  else if (st.state === 'open' && demo.myInvite(ROOM)) inviteNote(S.inviteOpen);
+  else if (st.left === 0) inviteNote(S.inviteFull);
+  else inviteNote(S.inviteNone);
+  $('share-room').disabled = st.state === 'used' || (st.state === 'none' && st.left === 0);
+}
+if (DEMO) {
+  $('share-room').textContent = S.invite; $('share-room').title = S.inviteTitle;
+  for (const el of document.querySelectorAll('.help.desktop-only')) el.innerHTML = S.helpDemoDesktopHtml;
+  for (const el of document.querySelectorAll('.help.touch-only')) el.innerHTML = S.helpDemoTouchHtml;
+  const qh = document.querySelector('.hint[data-t="quickHelp"]'); if (qh) qh.textContent = S.quickHelpDemo;
+}
+
+// ---------- Voice chat (voice.js): 🎙 / B ----------
+// var: together's welcome may call voice.reset() before this line has run (then it is undefined).
+var voice = new Voice({ // eslint-disable-line no-var
+  net: together.net, sound,
+  positionOf: (id) => { const pl = together.players.map.get(id); return pl ? { x: pl.pos.x, z: pl.pos.z } : null; },
+  listener: () => ({ x: camera.position.x, z: camera.position.z }),
+  onSpeaking: (id, on, level) => { together.setSpeaking(id, on, level); if (id === 'me') for (const b of micBtns()) b.classList.toggle('speaking', !!on); },
+  onState: (st) => renderMic(st),
+  toast: (k) => toast({ on: S.micOnToast, muted: S.micMutedToast, denied: S.micDenied, unsupported: S.micUnsupported }[k] || '', 1800),
+});
+voice.reset = () => { for (const id of [...voice.peers.keys()]) voice.drop(id); voice.setPeople([...together.players.map.keys()]); };
+voice.near = localStorage.getItem('klibb.voiceNear') !== '0';
+$('voice-near').checked = voice.near;
+$('voice-near').onchange = (e) => { voice.near = e.target.checked; localStorage.setItem('klibb.voiceNear', voice.near ? '1' : '0'); };
+function micBtns() { return [$('mic-btn'), $('mic-touch')]; }
+function renderMic(st = voice.state) {
+  for (const b of micBtns()) {
+    b.dataset.state = st; b.setAttribute('aria-pressed', String(st === 'on'));
+    const t = st === 'on' ? S.micTitleOn : st === 'muted' ? S.micTitleMuted : S.micTitleOff;
+    b.title = t; b.setAttribute('aria-label', t);
+  }
+}
+for (const b of micBtns()) b.onclick = (e) => { e.preventDefault(); voice.toggle(); };
+addEventListener('keydown', (e) => {
+  if (isTouch || e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTyping(e) || together.chatOpen()) return;
+  if (e.code === 'KeyB') voice.toggle();
+});
+renderMic();
 
 // ---------- Huvudloopen ----------
 const clock = new THREE.Clock();
@@ -1415,6 +1527,7 @@ function frame() {
   cams.update(cv ? null : eyeCam.position);
   peelLayer.update();
   walkSounds();
+  voice.update();
   updateCredit();
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
@@ -1439,9 +1552,18 @@ function frame() {
 
 renderTray();
 renderHistory();
-if (state.mine.length) select(last(state.mine));
+if (!DEMO && state.mine.length) select(last(state.mine));
+// The library (the demo's palette; also loaded outside the demo for later use).
+const LIB_SEL = 'klibb.libSel';
+const libraryReady = fetch('/api/library').then((r) => r.json()).then(({ stickers }) => {
+  state.library = Array.isArray(stickers) ? stickers : [];
+  if (!DEMO) return;
+  const keep = localStorage.getItem(LIB_SEL);
+  renderTray(); select(state.library.find((d) => d.id === keep) || state.library[0]);
+}).catch(() => {});
+if (DEMO) addEventListener('pagehide', () => { if (state.selected) localStorage.setItem(LIB_SEL, state.selected.id); });
 initAdmin();
-Promise.all([loadRoom(), validateDesigns()]).then(() => { window.klibb.ready = true; if (canEditStyle()) renderRecs(); });
+Promise.all([loadRoom(), validateDesigns(), libraryReady]).then(() => { window.klibb.ready = true; if (canEditStyle()) renderRecs(); });
 frame();
 
 // updateViaCache: 'none' = webbläsaren kollar alltid efter en ny sw.js, så appen inte fastnar på en gammal version.
@@ -1451,6 +1573,10 @@ if ('serviceWorker' in navigator) {
 
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 window.klibb = {
+  demo: DEMO, config, voice: () => voice.info(), voiceObj: () => voice, toggleMic: () => voice.toggle(), library: () => state.library.slice(),
+  demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
+    closedText: $('demo-closed-text').textContent, invite: inviteState, inviteNote: $('invite-note').hidden ? '' : $('invite-note').textContent, left: demoTimer && demoTimer.left ? demoTimer.left() : null }),
+  inviteFriend, mySlot: () => together.mySlot(), talking: () => together.talking(),
   soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => sound.steps, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },

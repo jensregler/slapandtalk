@@ -120,6 +120,17 @@ function labelTexture(text, { bg = 'rgba(0,0,0,.55)', color = '#fff', font = 600
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   return { tex, w: c.width, h: c.height };
 }
+// The speaking mark: three rounded bars on a soft dark pill, drawn once and shared.
+let talkTex = null;
+function talkTexture() {
+  if (talkTex) return talkTex;
+  const c = document.createElement('canvas'); c.width = 128; c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = 'rgba(0,0,0,.5)'; g.beginPath(); g.roundRect(4, 4, 120, 56, 28); g.fill();
+  g.fillStyle = '#9fe0a0';
+  [[38, 22], [64, 34], [90, 22]].forEach(([x, h]) => { g.beginPath(); g.roundRect(x - 6, 32 - h / 2, 12, h, 6); g.fill(); });
+  talkTex = new THREE.CanvasTexture(c); talkTex.colorSpace = THREE.SRGBColorSpace;
+  return talkTex;
+}
 // mpp = meter per pixel i bilden, så texten blir lika stor oavsett hur lång den är
 function makeSprite(text, opts, mpp) {
   const { tex, w, h } = labelTexture(text, opts);
@@ -204,6 +215,19 @@ export class Avatar {
     this.tag.position.set(0, TOP + 0.22, 0);
     this.root.add(this.tag);
   }
+  // Voice: a small, calm "speaking" mark above the name (three soft bars), only while they talk.
+  setSpeaking(on, level = 0) {
+    if (on && !this.talk) {
+      this.talk = new THREE.Sprite(new THREE.SpriteMaterial({ map: talkTexture(), depthWrite: false, transparent: true }));
+      this.talk.scale.set(0.16, 0.08, 1); this.talk.renderOrder = 11; this.talk.name = 'speaking';
+      this.root.add(this.talk);
+    }
+    if (!this.talk) return;
+    this.talk.visible = !!on;
+    this.talk.position.set(0, TOP + (this.tag ? 0.36 : 0.22), 0);
+    const k = 1 + Math.min(1, level * 6) * 0.25; this.talk.scale.set(0.16 * k, 0.08 * k, 1);
+  }
+  get speaking() { return !!(this.talk && this.talk.visible); }
   // Pratbubbla ovanför huvudet i några sekunder.
   say(text, ms = 5000) {
     this.unsay();
@@ -245,7 +269,7 @@ export class Avatar {
     if (this.bubble && performance.now() > this.bubbleUntil) this.unsay();
   }
   dispose() {
-    this.unsay(); this.setName('');
+    this.unsay(); this.setName(''); if (this.talk) { this.root.remove(this.talk); this.talk.material.dispose(); this.talk = null; }
     this.disposed = true;
     for (const e of Object.values(this.fab)) if (e.ok) releaseFabric(e.id);
     this.fab = {};
@@ -269,10 +293,10 @@ export class Players {
     this.scene.add(p.avatar.root);
     this.place(p, performance.now());
   }
-  upsert({ id, name, look, p, y }) {
+  upsert({ id, name, look, p, y, slot }) {
     let pl = this.map.get(id);
-    if (!pl) { pl = { id, name, look, snaps: [], pos: new THREE.Vector3(), yaw: 0, speed: 0 }; this.map.set(id, pl); }
-    pl.name = name; pl.look = look;
+    if (!pl) { pl = { id, name, look, snaps: [], pos: new THREE.Vector3(), yaw: 0, speed: 0, slot: 0 }; this.map.set(id, pl); }
+    pl.name = name; pl.look = look; if (Number.isInteger(slot)) pl.slot = slot;
     if (p) this.move(id, p, y, true);
     this.build(pl);
     if (pl.avatar) { pl.avatar.setLook(look); if (pl.avatar.name !== name) pl.avatar.setName(name); }
@@ -290,6 +314,7 @@ export class Players {
     const ids = id === '*' ? [...this.map.keys()] : [id];
     for (const i of ids) { const pl = this.map.get(i); if (!pl) continue; if (pl.avatar) { this.scene.remove(pl.avatar.root); pl.avatar.dispose(); } this.map.delete(i); }
   }
+  speaking(id, on, level = 0) { const pl = this.map.get(id); if (!pl) return false; pl.talking = !!on; pl.avatar?.setSpeaking(on, level); return true; }
   say(id, text) { const pl = this.map.get(id); if (pl?.avatar) pl.avatar.say(text); }
   // Någon annan slappade (eller peelade): deras gubbe gör rörelsen mot klibban.
   gesture(id, kind, point, normal = null) {
@@ -323,6 +348,6 @@ export class Players {
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
       walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false,
-      gestures: p.gestures || 0, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {} }));
+      gestures: p.gestures || 0, slot: p.slot, speaking: !!p.avatar?.speaking, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {} }));
   }
 }

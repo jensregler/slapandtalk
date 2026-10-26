@@ -12,7 +12,11 @@ import { loadSoundLook } from './soundui.js';
 const SEND_HZ = 12;
 const CHAT_FADE_MS = 15_000;
 
-export function initTogether({ room, scene, camera, controls, isTouch, toast, artist, onEvent, onReconnect, onWelcome = () => {}, onBusyChange = () => {}, onSound = () => {} }) {
+// pass(): demo admission ({ roomKey, member, invite }, see demo.js). onDenied/onInvite: demo messages.
+// onPeople(ids): the players in the room changed (voice.js builds its connections from it).
+// onSignal(from, data): WebRTC signalling for voice chat.
+export function initTogether({ room, scene, camera, controls, isTouch, toast, artist, onEvent, onReconnect, onWelcome = () => {}, onBusyChange = () => {}, onSound = () => {},
+  pass = () => null, onDenied = () => {}, onInvite = () => {}, onPeople = () => {}, onSignal = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const me = loadMyAvatar();
   if (!me.saved) saveMyAvatar(me.name, me.look); // en slumpad gubbe ska se likadan ut nästa gång
@@ -21,29 +25,30 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   // (the server drops them otherwise). Other players' fabrics are always shown.
   // Sound: my seed (= my own variation of the default sounds) always; custom patches/FX only
   // with soundDesign (the server drops them otherwise).
-  const shownSound = () => { const s = loadSoundLook(); if (!has('soundDesign')) { delete s.patches; delete s.fx; } return s; };
+  const shownSound = () => { const s = loadSoundLook(); if (!has('soundDesign')) { delete s.patches; delete s.fx; } s.colour = mySlot; return s; };
   const shownLook = () => { const l = { ...me.look, sound: shownSound() }; if (!has('fabrics')) delete l.fabric; return l; };
   const players = new Players(scene);
-  let status = 'connecting', full = false, unread = 0, serverName = ''; // serverName = det namn de andra ser på mig
+  let status = 'connecting', full = false, unread = 0, serverName = '', mySlot = 0; const talking = new Set(); // serverName = det namn de andra ser på mig
 
   // ---------- Anslutningen ----------
   const net = connect(room, {
-    hello: () => ({ name: myName(), look: shownLook(), unlock: credentials(), p: camera.position.toArray(), y: controls.yaw, pi: controls.pitch }),
+    hello: () => { const ps = pass(); return { name: myName(), look: shownLook(), unlock: credentials(), p: camera.position.toArray(), y: controls.yaw, pi: controls.pitch, ...(ps ? { pass: ps } : {}) }; },
     onYou(name) { serverName = name; renderPeople(); },
     onWelcome(m) {
-      serverName = m.you?.name || '';
+      serverName = m.you?.name || ''; mySlot = Number.isInteger(m.you?.slot) ? m.you.slot : 0; onSound(shownSound());
       players.remove('*');
       for (const p of m.players) players.upsert(p);
       full = !!m.full; $('full-banner').hidden = !full;
       setChatHistory(m.chat || []);
       last = null; renderPeople(); renderChatInput();
-      onWelcome(m);
+      onWelcome(m); onPeople(ids());
     },
-    onJoin(p, rejoin) { players.upsert(p); if (!rejoin) sys(S.joined(p.name)); renderPeople(); },
+    onJoin(p, rejoin) { players.upsert(p); if (!rejoin) sys(S.joined(p.name)); renderPeople(); onPeople(ids()); },
     onLeave(id, rejoin) {
       if (id !== '*' && !rejoin) { const pl = players.map.get(id); if (pl) sys(S.left(pl.name)); } // med det namn personen har nu
-      players.remove(id); renderPeople();
+      players.remove(id); if (id === '*') talking.clear(); else talking.delete(id); renderPeople(); onPeople(ids());
     },
+    onDenied, onInvite, onSignal,
     onMove: (id, p, y) => players.move(id, p, y),
     onLook(id, name, look) {
       const pl = players.map.get(id);
@@ -57,6 +62,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     onError: (e) => toast(e, 2500),
   });
 
+  const ids = () => [...players.map.keys()];
   // Skicka min position ~12 gånger per sekund, men bara när jag faktiskt rör mig.
   let last = null, acc = 0;
   function sendMove(dt, force = false) {
@@ -74,14 +80,16 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     const dot = $('net-dot'); dot.className = 'dot ' + status;
     const n = players.map.size + (status === 'online' ? 1 : 0);
     $('presence-text').textContent = status === 'online' ? S.presenceOnline(n)
-      : status === 'full' ? S.presenceFull(players.map.size) : status === 'connecting' ? S.presenceConnecting : S.presenceOffline;
+      : status === 'full' ? S.presenceFull(players.map.size) : status === 'connecting' ? S.presenceConnecting
+        : status === 'closed' ? S.deniedGone : status === 'denied' ? S.deniedInvite : S.presenceOffline;
     const ul = $('people'); ul.innerHTML = '';
-    const add = (name, color, mine) => {
+    const add = (name, color, mine, id) => {
       const li = document.createElement('li'); const i = document.createElement('i'); i.style.background = color;
+      if (talking.has(id)) li.classList.add('speaking');
       li.append(i, document.createTextNode(mine ? S.youSuffix(name || S.you) : name)); ul.appendChild(li);
     };
-    if (status === 'online') add(serverName || myName(), me.look.shirt, true);
-    for (const p of players.map.values()) add(p.name, p.look?.shirt || '#888', false);
+    if (status === 'online') add(serverName || myName(), me.look.shirt, true, 'me');
+    for (const p of players.map.values()) add(p.name, p.look?.shirt || '#888', false, p.id);
   }
 
   // ---------- Chatt ----------
@@ -275,7 +283,17 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   return {
     net, players,
     // A player's sound look (seed + custom patches) by connection id; mine for my own id.
-    voiceOf(id) { if (!id || id === net.id) return shownSound(); const pl = players.map.get(id); return pl ? pl.look?.sound || null : null; },
+    // colour = the player's slot in the room (shared/synth.mjs SLOT_COLOURS): up to 5 people sound distinct.
+    voiceOf(id) { if (!id || id === net.id) return shownSound(); const pl = players.map.get(id); return pl ? { ...(pl.look?.sound || {}), colour: pl.slot || 0 } : null; },
+    mySlot: () => mySlot,
+    // Voice: who is talking right now (the mark above the avatar and in People here). id 'me' = me.
+    setSpeaking(id, on, level = 0) {
+      const was = talking.has(id);
+      if (on) talking.add(id); else talking.delete(id);
+      if (id !== 'me') players.speaking(id, on, level);
+      if (was !== !!on) renderPeople();
+    },
+    talking: () => [...talking],
     // Sound settings saved: tell everyone (they play my patches; no other network cost).
     soundChanged() { onSound(shownSound()); if (net.status === 'online') net.sendLook(myName(), shownLook()); },
     shownSound,
