@@ -120,5 +120,21 @@ try {
   for (const c of clients) try { c.ws.close(); } catch { /* */ }
   rt.close?.(); server.close(); fs.rmSync(dir, { recursive: true, force: true });
 }
+// ---------- Slot colours (demo: up to five people sound distinct) ----------
+{
+  const S2 = await import('../shared/synth.mjs');
+  const ok2 = (c, m) => { if (!c) throw new Error('FEL: ' + m); console.log('✔ ' + m); };
+  ok2(S2.SLOT_COLOURS.length === 5 && S2.colourPatch(S2.DEFAULT_PATCHES.step, 0, 'step') === S2.DEFAULT_PATCHES.step, 'slot colours: five, slot 0 = the plain default');
+  for (const kind of S2.COLOURED) {
+    const freqs = S2.SLOT_COLOURS.map((_, i) => S2.colourPatch(S2.cleanPatch(S2.DEFAULT_PATCHES[kind]), i, kind));
+    const sig = freqs.map((p) => p.layers.map((l) => `${l.freq}/${l.cutoff}`).join());
+    ok2(new Set(sig).size === 5 && freqs.every((p) => S2.cleanPatch(p) && p.layers.every((l) => l.freq <= 8000 && l.cutoff <= 18000)), `slot colours: ${kind} sounds different in all five slots and stays in range`);
+    // at least ~2 semitones apart in pitch between any two slots
+    const pitch = S2.SLOT_COLOURS.map((c) => 12 * Math.log2(c.pitch)).sort((a, b) => a - b);
+    ok2(pitch.every((v, i) => i === 0 || v - pitch[i - 1] >= 1.9), `slot colours: ${kind} pitches at least 2 semitones apart (more than a player's own ±7 % variation)`);
+  }
+  ok2(S2.colourPatch(S2.DEFAULT_PATCHES.nope, 3, 'nope') === S2.DEFAULT_PATCHES.nope && S2.slotColour(7) === S2.SLOT_COLOURS[2], 'slot colours: "nope" stays plain; slots wrap around');
+}
 console.log('Alla synth-tester gick igenom.');
 process.exit(0);
+

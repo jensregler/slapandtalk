@@ -170,6 +170,26 @@ export function variant(patch, seed, sound = '') {
   })) });
 }
 
+// ---------- Slot colours: up to five people in a room sound distinct ----------
+// Each player in a room has a slot (0, 1, 2 … from the server). The slot gives their footsteps,
+// peels (the drag), slaps and duffs a colour: a pitch step and a filter tilt, far enough apart that
+// five people are told apart by ear, small enough to stay calm. Slot 0 = the plain default.
+//   pitch: ratio on every oscillator and filter · bright: extra ratio on the filters only
+export const SLOT_COLOURS = [
+  { name: 'plain', pitch: 1, bright: 1 },
+  { name: 'warm', pitch: 0.84, bright: 0.78 },   // −3 semitones, darker
+  { name: 'light', pitch: 1.19, bright: 1.28 },  // +3 semitones, brighter
+  { name: 'deep', pitch: 0.75, bright: 0.66 },   // −5 semitones, darkest
+  { name: 'airy', pitch: 1.33, bright: 1.5 },    // +5 semitones, brightest
+];
+export const COLOURED = ['slap', 'peel', 'step', 'duff'];
+export const slotColour = (slot) => SLOT_COLOURS[((Number(slot) | 0) % SLOT_COLOURS.length + SLOT_COLOURS.length) % SLOT_COLOURS.length];
+export function colourPatch(patch, slot, sound = '') {
+  const c = slotColour(slot);
+  if (!patch || (c.pitch === 1 && c.bright === 1) || (sound && !COLOURED.includes(sound))) return patch;
+  return cleanPatch({ ...patch, layers: patch.layers.map((l) => ({ ...l, freq: l.freq * c.pitch, cutoff: l.cutoff * c.pitch * c.bright })) });
+}
+
 // ---------- Duff: bigger paper = louder and lower ----------
 // area in m² (w × h of the peel). Reference: a 30 × 30 cm sticker (0.09 m²) → gain 1, rate 1.
 export function duffScale(area) {

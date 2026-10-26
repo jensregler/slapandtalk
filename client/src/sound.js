@@ -8,7 +8,7 @@
 // Paid "Sound settings" can replace a patch and add an FX chain (look.sound.patches / .fx).
 // Other people's sounds are spatial (HRTF panner, quieter with distance). The room's materials
 // add a subtle, automatic reverb (roomAcoustics). Mute is remembered ('klibb.muted').
-import { DEFAULT_PATCHES, variant, cleanPatch, cleanFx, duffScale, retune, roomAcoustics } from '../../shared/synth.mjs';
+import { DEFAULT_PATCHES, variant, cleanPatch, cleanFx, duffScale, retune, roomAcoustics, colourPatch } from '../../shared/synth.mjs';
 import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
 
 const MUTE_KEY = 'klibb.muted';
@@ -68,8 +68,9 @@ export class Sounds {
     const custom = sound && sound.patches && cleanPatch(sound.patches[kind]);
     if (custom) return { patch: custom, custom: true };
     const seed = sound && sound.seed || '';
-    const key = seed + ':' + kind;
-    if (!this.cache.has(key)) { if (this.cache.size > 200) this.cache.clear(); this.cache.set(key, seed ? variant(DEFAULT_PATCHES[kind], seed, kind) : cleanPatch(DEFAULT_PATCHES[kind])); }
+    const colour = sound && Number.isInteger(sound.colour) ? sound.colour : 0; // the player's slot colour (shared/synth.mjs)
+    const key = seed + ':' + colour + ':' + kind;
+    if (!this.cache.has(key)) { if (this.cache.size > 200) this.cache.clear(); this.cache.set(key, colourPatch(seed ? variant(DEFAULT_PATCHES[kind], seed, kind) : cleanPatch(DEFAULT_PATCHES[kind]), colour, kind)); }
     return { patch: this.cache.get(key), custom: false };
   }
   // kind: 'slap' | 'peel' | 'nope' | 'step' | 'duff'. at = [x, y, z] for a sound out in the
@@ -86,7 +87,7 @@ export class Sounds {
     const heard = remote ? 1.6 / (1.6 + Math.max(0, distance - 1.6)) : 1;
     const { patch, custom } = this.patchFor(kind, who);
     const entry = { kind, remote, distance: +distance.toFixed(2), gain: +heard.toFixed(3), level: +gain.toFixed(3), rate: +rate.toFixed(3),
-      seed: who?.seed || null, custom, muted: this.muted, time: Date.now(), ...(kind === 'duff' ? { area: +(+area || 0).toFixed(4) } : {}) };
+      seed: who?.seed || null, colour: who && Number.isInteger(who.colour) ? who.colour : 0, custom, muted: this.muted, time: Date.now(), ...(kind === 'duff' ? { area: +(+area || 0).toFixed(4) } : {}) };
     if (kind === 'step') this.steps++; else { this.log.push(entry); if (this.log.length > 50) this.log.shift(); }
     if (this.muted) return entry;
     if (!this.ensure()) return entry;
