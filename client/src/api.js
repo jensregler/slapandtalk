@@ -24,6 +24,12 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...unlockHeaders() }, body: JSON.stringify(stamp), // bigStickers
   }).then(json),
 
+  // Sticker array: copies of my own just-slapped sticker toward `to` (server/app.js, shared/array.mjs).
+  // body = { anchor: { id, token }, to, nonce, by?, peelFrom? }. Answer: { anchor, image, stamps: [{ i, stamp, peel? }] }
+  addArray: (room, body) => fetch(`/api/rooms/${room}/stamps/array`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(json),
+
   // Peela egna stämplar: items = [{ id, token }]. Svar: { results: { id: 'ok'|'notfound'|'forbidden' } }
   // by = mitt id i rummet (WebSocket), så de andra ser min gubbe peela. Valfritt.
   peel: (room, items, by = null) => fetch(`/api/rooms/${room}/peel`, {
