@@ -270,7 +270,7 @@ async function writeBehind() {
       const sizeRoom = (await (await fetch(`${base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json()).room.id;
       const slapSized = async (size, key) => (await (await fetch(`${base}/api/rooms/${sizeRoom}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(key ? { 'x-unlock': key } : {}) },
         body: JSON.stringify({ imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size, surface: 'vägg-norr' }) })).json()).stamp;
-      assert(big && big.size === 4, `full version: servern krymper för stora klibbor till väggens höjd i stället för att neka (6 m → ${big && big.size} m)`);
+      assert(big && big.size === 6, `full version: no upper limit, not even the room's height (6 m → ${big && big.size} m)`);
       const sized = { free6: (await slapSized(6)).size, free3: (await slapSized(3, 'wrong-key-123456')).size, freeTol: (await slapSized(1.005)).size,
         free1: (await slapSized(1)).size, sound: (await slapSized(3, SOUND_KEY)).size, part: (await slapSized(3, PART_KEY)).size };
       assert(sized.free6 === 1 && sized.free3 === 1 && sized.freeTol === 1.005 && sized.free1 === 1 && sized.sound === 1 && sized.part === 3,
@@ -280,7 +280,7 @@ async function writeBehind() {
         'bigStickers: en ensam nyckel låser upp allt (även bigStickers), delnycklar bara det uppräknade, gratis = max 1 m');
       await store.addStamp(r.room.id, { imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 5, surface: 'vägg-norr' });
       const loaded = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
-      assert(loaded.stamps.length === 3 && loaded.stamps.every((x) => x.size <= 4) && loaded.stamps[1].size === 4 && loaded.stamps[2].size === 4, 'gamla sparade stämplar större än väggen krymps när rummet laddas');
+      assert(loaded.stamps.length === 3 && loaded.stamps[1].size === 6 && loaded.stamps[2].size === 5, 'saved stickers bigger than the room load at their own size (no 4 m clamp any more)');
       room.stamps = loaded.stamps.slice(0, 1);
 
       // ---------- Rummets utseende ----------

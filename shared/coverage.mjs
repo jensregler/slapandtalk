@@ -50,12 +50,12 @@ function faceOf(faces, stamp, n) {
 }
 
 // A sticker ready for the math, or null (bad data / unknown image / no face).
-export function prepareStamp(stamp, image, mask, { faces = boxFaces(), maxSize = ROOM.height } = {}) {
+export function prepareStamp(stamp, image, mask, { faces = boxFaces() } = {}) {
   if (!stamp || !image || !isVec(stamp.position, 3) || !isVec(stamp.quaternion, 4) || !isNum(stamp.size)) return null;
   const q = stamp.quaternion, n = qApply(q, [0, 0, 1]);
   const F = faceOf(faces, stamp, n);
   if (!F) return null;
-  const [w, h] = stampDims(image, Math.min(stamp.size, maxSize));
+  const [w, h] = stampDims(image, stamp.size); // no size cap (the full version may go past the room)
   const c = stamp.position.slice(); c[F.k] = F.v;
   const flat = (v) => { v = v.slice(); v[F.k] = 0; const l = Math.hypot(...v) || 1; return v.map((x) => x / l); };
   return { id: stamp.id, order: stamp.order || 0, F, c, ex: flat(qApply(q, [1, 0, 0])), ey: flat(qApply(q, [0, 1, 0])), w, h, mask: mask || null, R: Math.hypot(w, h) / 2, imageId: stamp.imageId };
@@ -124,7 +124,7 @@ export function hiddenStamps(stamps, { images, masks = {}, candidates = null, th
   const faces = boxFaces(room);
   const get = (m, k) => (m instanceof Map ? m.get(k) : m[k]);
   const prep = [];
-  for (const s of stamps) { const im = get(images, s.imageId); const p = im && prepareStamp(s, im, get(masks, s.imageId), { faces, maxSize: room.height }); if (p) prep.push(p); }
+  for (const s of stamps) { const im = get(images, s.imageId); const p = im && prepareStamp(s, im, get(masks, s.imageId), { faces }); if (p) prep.push(p); }
   prep.sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const want = candidates ? new Set(candidates) : null;
   const out = [];

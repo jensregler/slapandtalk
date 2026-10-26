@@ -2,7 +2,8 @@
 // can slap, with the artist's name on each so the Look-mode credit works.
 //
 // On disk (in the repo, built by tools/import-library.mjs):
-//   library/manifest.json   { stickers: [{ id, file, width, height, artist, link?, title? }] }
+//   library/manifest.json   { stickers: [{ id, file, width, height, artist, link?, title?, startCm?, source? }] }
+//   startCm = starting height in cm from the original file name's letter prefix (source); see shared/sizeprefix.mjs
 //   library/images/<id>.webp  (re-encoded like an upload: WebP, max 1024 px, no metadata; id = content hash)
 // At start-up seedLibrary() copies every one into the normal image storage (images/<id>.json +
 // uploads/<id>.webp, R2 in production) with library: true, so stamps of them work exactly like
@@ -21,6 +22,8 @@ function loadLibrary(dir = LIB_DIR) {
   return list.filter((s) => s && ID_RE.test(s.id) && typeof s.file === 'string').map((s) => ({
     id: s.id, file: path.join(dir, 'images', path.basename(s.file)), width: s.width | 0, height: s.height | 0,
     artist: String(s.artist || '').slice(0, 60), ...(s.link ? { link: String(s.link).slice(0, 200) } : {}), ...(s.title ? { title: String(s.title).slice(0, 80) } : {}),
+    // The starting height (shared/sizeprefix.mjs): startCm from the import, else derived from source.
+    ...(typeof s.startCm === 'number' ? { startCm: s.startCm } : {}), ...(s.source ? { source: String(s.source).slice(0, 200) } : {}),
   }));
 }
 

@@ -16,7 +16,7 @@
 //                     with LS (store + product must match) and caches the verdict.
 //   DEV_UNLOCK=1      dev/test servers only: a browser with localStorage "klibb.devUnlock" = "1"
 //                     gets everything. Ignored unless the server sets this.
-// bigStickers: stickers larger than FREE_MAX_STICKER_M (up to the wall height). Free = max 1 m.
+// bigStickers: stickers larger than FREE_MAX_STICKER_M (no upper limit). Free = max 1 m.
 // cleanVideo: finished videos without the 'slap and talk' channel bug and the link ticker.
 const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo'];
 const FREE_MAX_STICKER_M = 1;

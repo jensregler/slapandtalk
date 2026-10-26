@@ -20,10 +20,11 @@ const peelsMod = import('../shared/peels.mjs');
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
-// Största klibban (längsta sidan) = väggens höjd, samma mått som rummet i webbappen.
-const MAX_STAMP_SIZE = require('../shared/room.json').height;
-// Större stämplar krymps (i stället för att nekas), så äldre appar inte får fel.
-const clampSize = (s) => Math.min(s, MAX_STAMP_SIZE);
+// Sticker size: no upper limit in the full version (bigStickers), even beyond the room (Jens,
+// 26 Oct 2026; a limit may come back). Free: at most FREE_MAX_STICKER_M (below). Only a technical
+// guard: the size must be a finite number ≥ 2 cm (checked on slap).
+// The starting height from a file-name letter prefix ("B_cat.png" = 7.5 cm): shared/sizeprefix.mjs.
+const sizeMod = import('../shared/sizeprefix.mjs');
 const { makeEntitlements, fromReq, FREE_MAX_STICKER_M, KEY_RE } = require('./entitlements');
 const { verifySignature } = require('./licenses');
 // Paid full version (Lemon Squeezy, see server/licenses.js and README "Full version: Lemon Squeezy").
@@ -113,10 +114,11 @@ app.get('/api/config', (req, res) => {
   res.json(demo ? demo.publicConfig() : { demo: false });
 });
 // The curated sticker library (server/library.js).
-app.get('/api/library', (req, res) => {
+// startCm: the design's starting height (cm) from its original file name's letter prefix.
+app.get('/api/library', (req, res, next) => sizeMod.then((Z) => {
   res.set('Cache-Control', 'no-cache');
-  res.json({ stickers: library.map(publicSticker) });
-});
+  res.json({ stickers: library.map((s) => ({ ...publicSticker(s), startCm: Z.designStartCm(s) })) });
+}).catch(next));
 // The demo: no uploads, no room editing (admin still can). Same 403 shape everywhere.
 const demoBlocks = (req, res) => {
   if (!demo || isAdmin(req)) return false;
@@ -136,13 +138,26 @@ app.post('/api/stickers', rateLimit(20), (req, res) => {
         .webp({ quality: 90, alphaQuality: 100 }).toBuffer({ resolveWithObject: true });
       // Samma bild två gånger blir samma design (id = innehållets hash).
       const id = contentId(out.data);
+      // Starting height from the original file name ("B_cat.png" = 7.5 cm, no prefix = 10 cm). The
+      // web app sends the name in `name` (its shrunk copy is always called klibba.png); a re-upload
+      // of a lost design sends the startCm it already had.
+      const Z = await sizeMod;
+      const name = typeof req.body?.name === 'string' ? req.body.name.slice(0, 200) : String(req.file.originalname || '');
+      const prefix = Z.parsePrefix(name);
+      const sent = Number(req.body?.startCm);
+      const startCm = prefix ? prefix.cm : Z.isStartCm(sent) ? sent : null;
       await store.clearRemoved(id); // a deliberate new upload brings an admin-removed design back
       const existing = await store.getImage(id);
-      if (existing && await store.hasImageFile(id)) return res.json(existing);
+      if (existing && await store.hasImageFile(id)) {
+        // Same picture, renamed with a (different) prefix: the new prefix wins. No prefix: keep what it had.
+        if (startCm !== null && existing.startCm !== startCm) return res.json(await store.addImage({ ...existing, startCm }));
+        return res.json(existing.startCm === undefined ? { ...existing, startCm: Z.DEFAULT_START_CM } : existing);
+      }
       await store.putImageFile(id, out.data);
       const meta = await store.addImage({
         id, url: `/uploads/${id}.webp`, width: out.info.width, height: out.info.height,
         artist: String(req.body?.artist || '').slice(0, 60), createdAt: new Date().toISOString(),
+        startCm: startCm ?? Z.DEFAULT_START_CM,
       });
       res.json(meta);
     } catch (e) {
@@ -341,7 +356,7 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
     const m = ok.get(s.imageId);
     if (m) images[s.imageId] = m;
     return !!m;
-  }).map((s) => publicStamp(isNum(s.size) && s.size > MAX_STAMP_SIZE ? { ...s, size: MAX_STAMP_SIZE } : s)); // gamla för stora stämplar
+  }).map(publicStamp);
   // Baksidespapper på golvet (bara när rummet har peels på). Bilden behövs för formen.
   let peels = [];
   if (room.peelsOn && Array.isArray(room.peels) && room.peels.length) {
@@ -410,7 +425,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(120), wrap(async (req, res) => {
     peelHash: hashToken(peelToken), peelOwner: hashToken(owner).slice(0, 24),
     imageId: image.id,
     position: b.position, normal: b.normal, quaternion: b.quaternion,
-    size: clampSize(b.size), rotation: isNum(b.rotation) ? b.rotation : 0,
+    size: b.size, rotation: isNum(b.rotation) ? b.rotation : 0,
     surface: String(b.surface || '').slice(0, 40),
     // A library sticker always carries its own artist (whoever slaps it), so the credit is right.
     ...(await artistFields(image.library ? { artist: image.artist, artistLink: image.artistLink } : b)),
@@ -493,7 +508,7 @@ async function imageMask(P, id) {
   return mask;
 }
 async function floorOverlap(P, image, b, peels) {
-  const [w, h] = P.stampDims(image, clampSize(b.size));
+  const [w, h] = P.stampDims(image, b.size);
   const { u, v } = P.stampFrame(b.quaternion);
   const sticker = { x: b.position[0], z: b.position[2], w, h, u, v };
   const R = Math.hypot(w, h) / 2;
@@ -689,7 +704,7 @@ app.post('/api/rooms/:room/recording/start', rateLimit(20), wrap(async (req, res
         const images = {}, stamps = [];
         for (const s of room.stamps) {
           if (!(s.imageId in images)) images[s.imageId] = await imageAvailable(s.imageId);
-          if (images[s.imageId]) stamps.push(publicStamp(isNum(s.size) && s.size > MAX_STAMP_SIZE ? { ...s, size: MAX_STAMP_SIZE } : s));
+          if (images[s.imageId]) stamps.push(publicStamp(s));
         }
         for (const k of Object.keys(images)) if (!images[k]) delete images[k];
         return { style: styleOf(room), stamps, images, cameras: room.cameras || [] };
