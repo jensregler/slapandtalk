@@ -216,27 +216,54 @@ Den som skapade rummet (eller admin; i Staden bara admin) ser **🎬 Recording**
   *🎬 Shot list* laddar ner bildlistan (JSON med tider, talare och vinkel) för klippning; vyerna
   *Close-up / Medium / Over the shoulder: <namn>* ger separata tagningar. Rösten finns **inte** med
   i videorna (den går direkt mellan webbläsarna). Se `docs/recording-format.md`.
-- **🎥 Auto cameraman (steg 1):** en kamera som ingen behöver placera. I 🎬 Recording väljer du
-  *Off / Perimeter / Diagonal sweep / Push-in / Any* (en per rum, sparas som en kamera `{ auto }`,
-  så den kommer med i inspelningen). En simulerad fotograf går längs en färdig bana ur rummets mått
+- **🎥 Auto cameramen:** kameror som ingen behöver placera (sparas som kameror `{ auto, start?, seq }`,
+  så de kommer med i inspelningen). En simulerad fotograf går en bana ur rummets mått
   (`shared/room.json`): **Perimeter** runt rummet 1,1 m från väggarna, sakta längs mittersta
-  tredjedelen av varje sida; **Diagonal sweep** hörn till hörn genom mitten (sakta genom mitten),
-  längs en vägg, andra diagonalen tillbaka; **Push-in** sakta in mot en vägg (vald av seeden),
-  stanna, backa till ett nytt ställe längs väggen. Takt: 0,5–1,0 m/s när den går, 0,18–0,32 m/s
-  när den komponerar, mjuka S-kurvor (≤ 0,45 m/s²), stannar 1,4–3 s i hörnen, ögonhöjd 1,5–1,7 m,
-  lite handhållen gungning, aldrig närmare en vägg än 0,6 m. Zoom 35–70 mm (fullformat), högst
-  10 mm per 4 s: andas lugnt 35–43 mm när inget händer, går in mot väggytor med klibbor som satts de
-  senaste 30 s (de som sitter där från början räknas inte), panorerar ≤ 60°/s.
-  Deterministisk: samma inspelning (id:t är seed) ger samma tagning. I uppspelaren finns alltid
-  *🎥 Auto cameraman: Perimeter / Diagonal sweep / Push-in* som vyer (rummets egen märkt *this
-  room’s*; med ingen som pratar startar uppspelningen där), de spelas in med **⏺ Record video**, och
-  medan rummets auto cameraman är på använder 🎬 Director den som rumsbild i tystnaderna (annars det
-  fasta hörnet). Bildlistan har tagningarna med tider (se `docs/recording-format.md`). Live i
-  rummet är det en förhandsvisning (börjar om varje hel timme, samma för alla); 👁 tittar genom den.
-  **Demo:** att placera kameror är avstängt där, och auto-kameran som rumsinställning också (servern
-  säger 403 som för andra kameror), men tagningarna i uppspelaren kräver ingen inställning och finns
-  för skaparen även i demon. Koden: `shared/autocam.mjs`. Steg 2 (en smartare fotograf som följer
-  det som händer) är en ny *target provider* där, se kommentaren överst i filen.
+  tredjedelen av varje sida; **Diagonal sweep** hörn till hörn genom mitten; **Push-in** sakta in mot
+  en vägg, stanna, backa till ett nytt ställe; **Loop** (bara med en startpunkt, se nedan). Takt:
+  0,5–1,0 m/s när den går, 0,18–0,32 m/s när den komponerar, mjuka S-kurvor (≤ 0,45 m/s²), stannar
+  1,4–3 s i hörnen, ögonhöjd 1,5–1,7 m, lite handhållen gungning, aldrig närmare en vägg än 0,6 m.
+  Zoom 35–70 mm (fullformat), högst 10 mm per 4 s, går in mot väggytor med nya klibbor (30 s),
+  panorerar ≤ 60°/s. Deterministisk: samma inspelning ger samma tagning (seed `recId:kameraId`).
+  - **Gratis (det som släpps, även demon):** *⚙ More → 🎬 Recording → 🎥 Auto cameraman* är en enkel
+    av/på-ruta. Exakt **en**, helt automatisk: seeden väljer banan, inga inställningar (servern
+    tvingar `auto: 'seeded'`, stryker `start`, PUT → 403, en andra → 400). **I demon får rummets
+    skapare slå på just den här** (att placera vanliga kameror är fortfarande avstängt där).
+  - **Fullversionen (`multiCam`):** *＋ Add cameraman* och sedan ett klick i rummet (golvpunkten under
+    siktet; klickar man på en vägg blir det 1 m ut från den) = där den börjar. Upp till **6**
+    samtidigt (`MAX_AUTO_CAMS`, egen budget bredvid de 12 placerade kamerorna). Varje rad i listan har
+    ett valfritt val *Automatic / Perimeter / Diagonal sweep / Push-in* (standard Automatic), 👁 och ✕.
+    Banan ur startpunkten: *Automatic* med start = **Loop**, en rektangel runt mitten av kamerans
+    område som går genom startpunkten (avståndet från starten till närmaste kant blir varvets
+    avstånd in från kanten); en vald bana behåller sin form och börjar på den punkt av banan som är
+    närmast klicket.
+  - **Flera krockar aldrig:** rummet delas i en cell per fotograf (1 = hela rummet, 2 = halvor,
+    3 = tredjedelar, 4 = 2×2, 5–6 = 3×2, längs den längre sidan), var och en går bara i sin cell, 0,6 m
+    från cellgränsen, så två banor är alltid ≥ 1,2 m isär. De filmar ändå hela rummet (bara var de
+    går delas upp, inte vart de tittar). Den med start får cellen där klicket var.
+  - **Uppspelaren:** varje fotograf är en egen vy (*🎥 Auto cameraman 1 / 2 / …*), plus de generella
+    *🎥 Auto cameraman: Perimeter / Diagonal sweep / Push-in*; med ingen som pratar startar
+    uppspelningen på den första. 🎬 Director använder dem som rumsbild i tystnaderna, **i tur och
+    ordning** (tystnad nr n → fotograf nr n bland dem som är på då), så klippet varierar; inga på →
+    det fasta hörnet. Bildlistan har ett spår per fotograf (`autocam.crew`, se
+    `docs/recording-format.md`). Live i rummet är det en förhandsvisning (börjar om varje hel timme,
+    samma för alla); läggs en till delas cellerna om, så de andra byter bana live.
+  Koden: `shared/autocam.mjs`. Steg 2 (en smartare fotograf som följer det som händer) är en ny
+  *target provider* där, se kommentaren överst i filen.
+- **📷 Photo:** knappen 📷 bredvid 🎙/🔊 i panelen, 📷 i kamerarutan när man tittar genom en kamera,
+  och **📷 Photo** i uppspelarens rad; tangenten **P** både live och i uppspelaren. Tar en stillbild av
+  exakt det du ser (första/tredje person, en kamera, eller vilken uppspelningsvy som helst: Director,
+  vinklar, fotograferna), renderad igen i ≥ 1920 px bredd (2× skärmen, högst 3840) utan
+  gränssnittet (siktet, förhandsklibban och kameramodellerna döljs), med ett diskret slutarljud
+  (tyst om ljudet är av) och en kort blixt. Den laddas ner direkt (`slapandtalk-<rum>-<ÅÅÅÅMMDD-hhmmss>.jpg`)
+  och laddas upp till `photos/<rum>/<id>.jpg` (+ `.json`, `photos/_index/<id>.json`) med en egen
+  delningslänk **`/p/<id>`** (id: 16 slumpade hex-tecken). Den listas bredvid videorna i 🎬 Recordings.
+  Gratis för alla, även i demon; gratisbilder får samma lilla kanallogga som gratisvideor
+  (`cleanVideo` tar bort den). Servern kodar om bilden (sharp: ingen EXIF, högst 4096 px), max
+  `PHOTO_MAX_MB` (8), 6 per minut och 60 per timme per IP, högst 3 samtidigt. Bilderna sparas
+  `PHOTO_RETENTION_DAYS` (standard = `VIDEO_RETENTION_DAYS`, annars 30) och ligger utanför `rooms/`
+  och `recordings/`, så **de finns kvar när ett demorum stängs**. Koden: `client/src/photo.js`,
+  `server/photos.js`.
 - Formatet på inspelningarna (versionerat, förberett för ljudspår och rendering) beskrivs i
   [`docs/recording-format.md`](docs/recording-format.md).
 - **OBS på Render (gratisnivån):** disken är tillfällig, så inspelningarna försvinner när
@@ -425,7 +452,8 @@ Grundversionen är ett lugnt, komplett klistermärkesrum: vanliga färger på gu
 standardljud och en diskret rumsakustik. Fullversionen lägger till de djupa menyerna ovanpå:
 **tyger** på gubben (`fabrics`), **Sound settings** med synth och effekter (`soundDesign`) och
 **superstora klibbor** större än 1 m, utan övre gräns (`bigStickers`; servern krymper större
-gratisklibbor till 1 m) och **färdiga videor utan kanallogga och länkrad** (`cleanVideo`).
+gratisklibbor till 1 m), **färdiga videor och 📷-bilder utan kanallogga och länkrad** (`cleanVideo`) och
+**flera auto cameramen med klickad startpunkt och valfri bana** (`multiCam`, upp till 6).
 Allt sitter i en gemensam abstraktion, `entitlements.full.<funktion>` (server/entitlements.js och
 client/src/entitlements.js), så nya saker (t.ex. ljus) blir bara ett namn till i `FEATURES`.
 Standard är `false` för allt. Alla ser och hör andras tyger och ljud; bara att *skicka* egna kräver
@@ -436,7 +464,7 @@ flaggan, och servern stryker/nekar tyg- och patchdata från den som inte har den
 1. Hitta på en hemlig nyckel (minst 12 tecken, `A–Z a–z 0–9 _ . ~ -`), t.ex. `openssl rand -hex 16`.
 2. Lägg den i miljövariabeln `FULL_ACCESS_KEYS` på servern (Render → Environment). Flera nycklar
    separeras med komma. `nyckel` ensam låser upp allt; `nyckel:fabrics+bigStickers` bara de uppräknade
-   (funktioner: `fabrics`, `soundDesign`, `bigStickers`, `cleanVideo`).
+   (funktioner: `fabrics`, `soundDesign`, `bigStickers`, `cleanVideo`, `multiCam`).
 3. Öppna `https://<sajten>/?unlock=<nyckel>` en gång i webbläsaren. Nyckeln sparas i den
    webbläsaren (localStorage `klibb.unlock`) och tas bort ur adressfältet. `?unlock=off` glömmer den.
 
@@ -652,7 +680,7 @@ uploads, room editing, the full version, the City etc. are all back.
 What changes (shared/demo.json holds the numbers):
 - **Name first.** "What's your name?" before anything loads; remembered per device. Each new person gets a random avatar; *My avatar* is hidden.
 - **Library only.** The palette is the curated library (`library/`), R/F browse it. `POST /api/stickers` → 403; no Instagram tag field. The artist comes from the library, so Look mode shows it on click.
-- **Rooms.** Opening the site creates your own room with the empty preset (tiles, concrete, classic ceiling); no style picker, no room editing, no sound settings, no placing cameras, no City. The room's creator can still **● REC** (and make videos with the 🎬 Director or the 🎥 Auto cameraman takes from the replay; the auto cameraman needs no camera entry, so it works here); recordings are deleted with the room, so make the video before the hour ends. *New quick room* goes straight into a new empty room.
+- **Rooms.** Opening the site creates your own room with the empty preset (tiles, concrete, classic ceiling); no style picker, no room editing, no sound settings, no placing cameras, no City. The room's creator can still **● REC**, switch on the one fully automatic 🎥 Auto cameraman (⚙ More → 🎬 Recording), and make videos with the 🎬 Director or the auto cameraman takes from the replay; anyone can take 📷 photos (P), which are kept like videos and survive the room; recordings are deleted with the room, so make the video before the hour ends. *New quick room* goes straight into a new empty room.
 - **Invites.** Max 5 per room and 5 members. Nobody gets in without an invite: each member can make one single-use link (✉ Invite a friend). Asking again re-shares the same unused link; once it is used, that member cannot invite again. The server keeps only hashes (of the room key, member keys and invite tokens). Members get a member key in their browser, so reloads and new tabs get back in. Extra tabs of a member beyond 5 players watch.
 - **One hour.** A quiet timer at the top; a calm note at 5 minutes. At the end everyone sees "This room has closed", the sockets close (code 4010, no reconnect) and (after any running recording is stopped) the room JSON (stamps, peels) and `recordings/<room>/` are deleted from storage. `videos/` is never touched. A sweep at start-up and every 5 minutes catches rooms that expired while the server was down.
 - **Voice.** 🎙 (or B) – off by default, asks for the microphone on the first press, then mutes/unmutes. Browser-to-browser (WebRTC mesh) through the existing signal relay, public STUN only (no TURN: some strict networks cannot connect). Voice also works outside the demo.
@@ -751,6 +779,9 @@ Id:t räknas fram ur bildens innehåll, så laddar två personer upp exakt samma
 | `ROOM_CLEANUP_INTERVAL_MINUTES` | `60` | Hur ofta städningen körs |
 | `VIDEO_RETENTION_DAYS` | `30` | Hur länge färdiga videor (`videos/`) sparas; städjobbet tar bort äldre |
 | `VIDEO_MAX_MB` | `80` | Största video som får laddas upp |
+| `PHOTO_RETENTION_DAYS` | = `VIDEO_RETENTION_DAYS` | Hur länge 📷-bilder (`photos/`) sparas |
+| `PHOTO_MAX_MB` | `8` | Största bild som får laddas upp |
+| `PHOTO_UPLOADS_PER_MINUTE` / `_PER_HOUR` | `6` / `60` | Bilduppladdningar per IP |
 | `RESEND_API_KEY` | – | Resend-nyckel för *Email me the link* (hemlig; utan den: bara *Copy link*) |
 | `MAIL_FROM` | – | Avsändare, t.ex. `Slap and Talk <video@slapandtalk.com>` (domänen verifierad i Resend) |
 | `PUBLIC_URL` | sajtens adress | Adressen i videolänkar och mejl, t.ex. `https://slapandtalk.com` |

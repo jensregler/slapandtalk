@@ -144,27 +144,45 @@ Samma logg ger alltid samma lista (och samma bild i uppspelarens vy *🎬 Direct
   än, t.ex. medan inspelningen pågår) och med *🎬 Shot list* i uppspelaren. Separata tagningar per
   vinkel spelas in med *⏺ Record video* och vyn *Close-up / Medium / Over the shoulder: <namn>*.
 
-### Auto cameraman i bildlistan (`shared/autocam.mjs`)
+### Auto cameramen i bildlistan (`shared/autocam.mjs`)
 
-Bildlistan får tre tillägg (samma `v: 1`, äldre läsare hoppar över dem):
+Bildlistan får tre tillägg (listan är fortfarande `v: 1`; `autocam` har egen version, nu `v: 2`):
 
 ```json
-{ "views": [{ "view": "director" }, { "view": "close:5e7d…" }, { "view": "auto:perimeter", "label": "Auto cameraman: Perimeter" }],
-  "shots": [{ "from": 0, "to": 1200, "kind": "room", "camera": "auto:pushin" }, { "kind": "close", "camera": "close:5e7d…" }],
-  "autocam": { "v": 1, "room": [{ "from": 5000, "to": 61234, "choice": "pushin", "view": "auto:pushin" }],
-    "params": { "walkMps": [0.5, 1], "frameMps": [0.18, 0.32], "mm": [35, 70], "beatMs": 4000 },
-    "takes": [{ "view": "auto:perimeter", "seed": "<recId>:perimeter", "eyeM": 1.62,
-      "legs": [{ "from": 0, "moveFrom": 2100, "to": 12800, "kind": "walk", "a": [-3.9, 3.9], "b": [-1.3, 3.9], "vMax": 0.81 }],
-      "beats": [{ "t": 0, "target": { "kind": "track", "p": [0, 1.4, -2] }, "mm": 35 }],
-      "track": { "stepMs": 1000, "columns": ["t", "x", "y", "z", "yaw", "pitch", "mm"], "samples": [[0, -3.9, 1.62, 3.9, 0.7, -0.03, 35]] } }] } }
+{ "views": [{ "view": "director" }, { "view": "close:5e7d…" }, { "view": "autocam:ab12cd34ef", "label": "Auto cameraman 1" },
+            { "view": "auto:perimeter", "label": "Auto cameraman: Perimeter" }],
+  "shots": [{ "from": 0, "to": 1200, "kind": "room", "camera": "autocam:ab12cd34ef" }, { "kind": "close", "camera": "close:5e7d…" }],
+  "autocam": { "v": 2, "directorRoomShot": "the room’s cameramen take turns in the silences (round robin), otherwise the fixed corner",
+    "params": { "walkMps": [0.5, 1], "frameMps": [0.18, 0.32], "mm": [35, 70], "beatMs": 4000, "crewGapM": 1.2 },
+    "crew": [{ "view": "autocam:ab12cd34ef", "id": "ab12cd34ef", "label": "Auto cameraman 1", "seed": "<recId>:ab12cd34ef",
+      "on": [{ "from": 5000, "to": 61234, "choice": "seeded", "path": "loop", "start": [2.1, -1.4] }],
+      "legs": [{ "from": 5000, "moveFrom": 5000, "to": 9800, "kind": "walk", "a": [2.1, -1.4], "b": [2.1, 1.9], "vMax": 0.74 }],
+      "beats": [{ "t": 8000, "target": { "kind": "track", "p": [5, 1.4, 0] }, "mm": 38 }],
+      "track": { "stepMs": 1000, "columns": ["t", "x", "y", "z", "yaw", "pitch", "mm"], "samples": [[5000, 2.1, 1.58, -1.4, 1.2, -0.03, 35]] } }],
+    "takes": [{ "view": "auto:perimeter", "seed": "<recId>:perimeter", "eyeM": 1.62, "legs": [], "beats": [], "track": {} }] } }
 ```
 
 - `views` = alla tagningar man kan klippa mellan (en vy i uppspelaren var, spelas in med ⏺ Record video).
-- `shots[].camera` = vilken tagning regissören använde: `auto:<bana>` för rumsbilden medan rummets auto
-  cameraman är på, annars `room` (det fasta hörnet), eller `<vinkel>:<talare>`.
-- `autocam.takes[]`: en per bana; `legs` (stå still `from`→`moveFrom`, gå → `to`), `beats` (var den
-  tittar och brännvidd var 4:e s), `track` (pose var `stepMs`, högst ~1200 rader). Seed = recId:bana,
-  så uppspelaren och listan ger exakt samma bild.
+- `shots[].camera` = vilken tagning regissören använde: `autocam:<kameraId>` för rumsbilden medan
+  rummet har fotografer (de turas om: tystnad nr n → fotograf nr n bland dem som är på då),
+  annars `room` (det fasta hörnet), eller `<vinkel>:<talare>`.
+- `autocam.crew[]`: en per fotograf i rummet (kamera `{ auto, start?, seq }`), i ordning (`seq`).
+  `on` = när den var på och med vilken bana (`choice` = det valda, `path` = det som blev, `start` =
+  klickpunkten [x, z] eller null); byter man bana blir det en ny rad i `on`. `track` har bara rader
+  medan den är på. Varje fotograf går i sin egen cell av rummet (≥ `crewGapM` från de andra).
+- `autocam.takes[]`: de generella banorna (en per bana, oberoende av rummets fotografer); `legs`
+  (stå still `from`→`moveFrom`, gå → `to`), `beats` (var den tittar och brännvidd var 4:e s), `track`
+  (pose var `stepMs`, högst ~1200 rader). Seed = recId:bana, så uppspelaren och listan ger exakt
+  samma bild.
+- `v: 1` (före flera fotografer) hade `autocam.room` i stället för `crew`; det fältet finns inte längre.
+
+### 📷 Bilder (`server/photos.js`)
+
+Inte en del av inspelningen, men sparas bredvid: `photos/<rum>/<id>.jpg`, `photos/<rum>/<id>.json`
+och `photos/_index/<id>.json` med `{ v: 1, id, room, source: "live" | "replay", recId, view, width,
+height, bytes, free, createdAt }`. `view` är vyn bilden togs från (`eyes`, `third`, `cam:<id>`,
+`autocam:<id>`, `director`, `close:<talare>` …). De rensas efter `PHOTO_RETENTION_DAYS` och aldrig när
+ett demorum stängs.
 
 ## Gränser
 
