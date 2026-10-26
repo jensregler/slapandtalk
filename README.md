@@ -146,6 +146,18 @@ inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) finns en 
   alla designer i en gemensam texturlista, så ett rum med tusentals klibbor kostar bara ett par ritanrop.
   Ritordning, vikning, utskurna kanter och ljus är som förut (`client/src/stamps.js`). Taket är
   `MAX_STAMPS_PER_ROOM` (3000): då försvinner den äldsta tyst. Mät: `node tools/bench-stamps.js`.
+- **✨ Clear hidden stickers (Room ▾, skaparen/admin, även i demon):** tar bort alla klibbor som är helt
+  dolda bakom nyare (≥ 98 % av klibbans synliga, utskurna yta täcks av nyare klibbor, räknat på ytan med
+  vridning, vikning över kanter och utskurna kanter; `shared/coverage.mjs`). Först en lugn fråga med antalet
+  (*Remove 322 hidden stickers? Visible ones stay.*). Det som syns ligger kvar i samma ordning och storlek
+  och blir rummets nya botten: peel-historiken nollställs för alla (gamla peel-nycklar slutar gälla), så
+  allt kan målas in. `GET /api/rooms/:rum/hidden` (antal) och `POST /api/rooms/:rum/clear-hidden` (gör det,
+  i ett låst steg; alla får `room:clear-hidden`). Samma rätt som *Reset room*. *Reset room* finns kvar som förut.
+- **Automatisk städning av dolda klibbor:** när en klibba lämnar peel-historiken (ingen kan peela den
+  längre, se de 20 senaste per person ovan) kollar servern strax efteråt (samlat, ~1,5 s, högst 8 s)
+  bara de klibborna: är en helt dold (samma regel) tas den bort, sparas och skickas som vanlig
+  `stamp:remove` (`quiet: true`, utan ljud). Synliga och de som någon fortfarande kan peela ligger kvar.
+  Loggas som `[auto-prune] room …: checked N, removed M`. Stängs av med `AUTO_PRUNE_HIDDEN=0` (`server/hidden.js`).
 - **Fullt rum:** högst 10 gubbar per rum (`MAX_PLAYERS_PER_ROOM`). Den elfte ser rummet, alla
   gubbar och chatten, men kan inte skriva och syns inte, och kommer in automatiskt när någon går.
 - **Tappar du anslutningen** (mobilen byter nät, servern startar om eller Render vaknar) kopplar
@@ -635,6 +647,7 @@ Id:t räknas fram ur bildens innehåll, så laddar två personer upp exakt samma
 | `PUBLIC_URL` | sajtens adress | Adressen i videolänkar och mejl, t.ex. `https://slapandtalk.com` |
 | `MAX_PLAYERS_PER_ROOM` | `10` | Hur många gubbar som får vara i ett rum samtidigt (fler kan titta) |
 | `MAX_STAMPS_PER_ROOM` | `3000` | Högst så många klibbor per rum. En ny slap över taket tar tyst bort den äldsta (vanlig `stamp:remove`) |
+| `AUTO_PRUNE_HIDDEN` | `1` | `0` = ingen automatisk städning av helt dolda klibbor när de lämnar peel-historiken (*Clear hidden stickers* fungerar ändå) |
 
 **Slå på Cloudflare R2 senare:** skapa en bucket och en API-token (Object Read & Write) i
 Cloudflare, sätt `STORAGE=s3` och S3-variablerna ovan i Render, och starta om. Befintliga

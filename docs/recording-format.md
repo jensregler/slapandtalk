@@ -60,6 +60,7 @@ Varje rad: `{ "t": <ms sedan start>, "e": "<typ>", …data }`. Raderna står i t
 | `stamp:add` | `stamp, image` | En klibba sattes. `stamp.artist` (högst 60 tecken) och `stamp.artistLink` (valfri, alltid en tvättad `https:`-länk, se `shared/artistlink.mjs`) säger vem som gjorde den. |
 | `stamp:remove` | `id` | En klibba peelades eller togs bort. |
 | `image:remove` | `id` | Admin tog bort en bild helt: alla klibbor med den bilden försvinner. |
+| `room:clear-hidden` | `ids, by, kept` | *Clear hidden stickers*: klibborna i `ids` (helt dolda bakom nyare) försvann. (Den automatiska städningen syns som vanliga `stamp:remove`.) |
 | `room:reset` | `by`, `removed` | Rummets skapare (eller admin) nollställde rummet: alla klibbor försvinner. `by` = namnet som visades. |
 | `room:style` | `style` | Rummets utseende ändrades. |
 | `camera:add` / `camera:update` | `camera` (hela kameran) | En kamera placerades / flyttades / ändrades. |
