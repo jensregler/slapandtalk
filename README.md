@@ -89,9 +89,10 @@ slappen/peelen och servern skickar det vidare i `stamp:add`/`stamp:remove` (äld
 bryr sig inte om fältet). Matten finns i `client/src/chasecam.js` och rörelsen i
 `client/src/slapanim.js` (tester: `tests/thirdperson.test.mjs`).
 
-**Vem gjorde klibban? (Look mode):** vilar pricken på en klibba i ungefär 150 ms syns en liten
-etikett bredvid pricken med konstnärens namn och länk, t.ex. *Ulla K · @ulla.k · Instagram*. Tryck
-**L** eller klicka medan etiketten syns: musen släpps och en liten ruta (*Open this link?*) visar
+**Vem gjorde klibban? (Look mode):** klicka på en klibba (pricken siktar) så syns en liten
+etikett bredvid pricken med konstnärens namn och länk, t.ex. *Ulla K · @ulla.k · Instagram*. Ingen
+hover: att bara titta på klibban visar ingenting. Klick på en annan klibba byter etikett; klick på
+tom vägg, Esc eller att lämna Look mode döljer den. Tryck **L** eller klicka på samma klibba igen: musen släpps och en liten ruta (*Open this link?*) visar
 hela adressen; **Open** öppnar den i en ny flik (`rel="noopener noreferrer"`). På mobilen: tryck på
 klibban i Look mode, så syns etiketten där du tryckte med en länk du kan trycka på. Klibbor utan namn
 och länk visar ingenting. Ditt namn och din länk ställer du in under ⚙ More (*Your artist name* och

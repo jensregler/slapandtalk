@@ -72,7 +72,7 @@ export const EN = {
   artistLinkOk: (label) => `Shows as: ${label}`,
 
   // ---------- Artist credit (Look mode) ----------
-  creditOpenKey: 'L or click: open link',
+  creditOpenKey: 'L or click again: open link',
   creditOpenTap: 'Tap the link to open it',
   linkTitle: 'Open this link?',
   linkNote: 'It opens in a new tab.',

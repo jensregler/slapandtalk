@@ -843,7 +843,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     assert(!(await RV.evaluate(() => window.klibb.endDialog().open)) && await RV.isVisible('#joystick'), 'mobil: Keep slapping stänger rutan');
     await rctx.close(); await vctx.close();
 
-    // ---------- Vem gjorde klibban? Namn och länk när pricken vilar på en klibba (Tittläge) ----------
+    // ---------- Vem gjorde klibban? Klicka (eller tryck på) en klibba i Tittläge: namn och länk ----------
     const CR = 'e2e-credit-' + Date.now().toString(36);
     const cctx = await browser.newContext({ viewport: { width: 1280, height: 800 } }), mvctx = await browser.newContext({ ...devices['Pixel 7'] });
     const C = await cctx.newPage(), CM = await mvctx.newPage();
@@ -862,24 +862,31 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       '⚙ More > Your link: javascript: nekas med en förklaring, @ulla.k blir Instagram');
     await C.evaluate(() => document.activeElement.blur()); await closeMore(C);
     const cs = await C.evaluate(async () => { const k = window.klibb; k.moveTo(0, 0); k.look(0, 0); k.setSize(60); const a = await k.stampAt(0, 0);
-      k.look(0.9, 0); k.state.artist = ''; k.state.artistLink = ''; const b = await k.stampAt(0, 0); k.look(0, 0); return [a, b]; });
+      k.look(0.9, 0); k.state.artist = ''; k.state.artistLink = ''; const b = await k.stampAt(0, 0);
+      k.look(-0.9, 0); k.state.artist = 'Marika'; k.state.artistLink = 'https://marika.example'; const c = await k.stampAt(0, 0); k.look(0, 0); return [a, b, c]; });
     assert(cs[0].artist === 'Ulla K' && cs[0].artistLink === 'https://www.instagram.com/ulla.k' && cs[1].artist === '' && !cs[1].artistLink,
       'klibban sparas med konstnärens namn och länk (och utan, när fälten är tomma)');
     await C.mouse.click(900, 400); await C.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
     await C.keyboard.press('v');
     await C.waitForFunction(() => window.klibb.state.mode === 'view');
+    // A click in Look mode, aimed by the dot. (Headless Chromium sends a big fake mousemove with a real
+    // mouse click under pointer lock, which turns the camera: so the click is dispatched on the canvas.)
+    const lookClick = () => C.evaluate(() => { const c = document.getElementById('scene');
+      for (const t of ['mousedown', 'mouseup', 'click']) c.dispatchEvent(new MouseEvent(t, { bubbles: true, button: 0 })); });
     await C.evaluate(() => window.klibb.look(0, 1.4)); await C.waitForTimeout(300); // titta upp i taket
+    await lookClick(); await C.waitForTimeout(200);
     const noneCeil = await C.evaluate(() => window.klibb.credit().shown);
-    const t0 = await C.evaluate(() => { window.klibb.look(0, 0); return performance.now(); });
+    await C.evaluate(() => window.klibb.look(0, 0)); await C.waitForTimeout(600);
+    const noHover = await C.evaluate(() => window.klibb.credit().shown);
+    await lookClick();
     await C.waitForFunction(() => window.klibb.credit().shown, null, { timeout: 3000 });
-    const t1 = await C.evaluate(() => performance.now());
     const cr = await C.evaluate(() => window.klibb.credit());
-    assert(!noneCeil && t1 - t0 >= 140 && cr.name === 'Ulla K' && cr.label === '@ulla.k · Instagram' && cr.link === 'https://www.instagram.com/ulla.k' && cr.hint === 'L or click: open link'
-      && cr.rect.left > 640 && cr.rect.left < 700 && cr.rect.top > 400 && cr.rect.top < 460,
-      `Tittläge: pricken på klibban i ~150 ms (${Math.round(t1 - t0)} ms) visar "Ulla K · @ulla.k · Instagram" bredvid pricken`);
+    assert(!noneCeil && !noHover && cr.name === 'Ulla K' && cr.label === '@ulla.k · Instagram' && cr.link === 'https://www.instagram.com/ulla.k' && cr.hint === 'L or click again: open link'
+      && cr.rect.left > 640 && cr.rect.left < 700 && cr.rect.top > 400 && cr.rect.top < 460 && (await C.evaluate(() => window.klibb.stamps.count)) === 3,
+      'Tittläge: resting the dot on a sticker shows nothing (no hover); a CLICK shows "Ulla K · @ulla.k · Instagram" next to the dot (and does not slap)');
     await C.waitForTimeout(200); await C.screenshot({ path: path.join(SHOTS, '41-konstnar-etikett-dator.png') });
     await C.keyboard.press('l');
-    await C.waitForFunction(() => window.klibb.linkDialog().open, null, { timeout: 3000 });
+    await C.waitForFunction(() => window.klibb.linkDialog().open && !window.klibb.controls.locked, null, { timeout: 3000 });
     const ld = await C.evaluate(() => [window.klibb.linkDialog(), window.klibb.controls.locked, window.klibb.credit().shown]);
     assert(ld[0].url === 'https://www.instagram.com/ulla.k' && ld[0].href === ld[0].url && ld[0].target === '_blank' && /noopener/.test(ld[0].rel) && !ld[1] && !ld[2],
       'L: musen släpps och en liten ruta visar adressen innan den öppnas i en ny flik (rel=noopener)');
@@ -893,23 +900,38 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await C.waitForFunction(() => !window.klibb.linkDialog().open, null, { timeout: 3000 });
     assert(popUrl === 'https://www.instagram.com/ulla.k' && opener === true, '[Open] öppnar länken i en ny flik utan window.opener, och rutan stängs');
     await C.mouse.click(900, 400); await C.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
+    await C.waitForTimeout(300);
+    const afterLock = await C.evaluate(() => window.klibb.credit().shown); // the click that locks shows nothing
+    await C.evaluate(() => window.klibb.look(0, 0)); await lookClick();
     await C.waitForFunction(() => window.klibb.credit().shown, null, { timeout: 3000 });
-    await C.mouse.click(900, 400);
+    await lookClick(); // the same sticker again: open the link
     await C.waitForFunction(() => window.klibb.linkDialog().open, null, { timeout: 3000 });
     const nStamps = await C.evaluate(() => window.klibb.stamps.count);
     await C.click('#link-cancel');
-    assert(!(await C.evaluate(() => window.klibb.linkDialog().open)) && nStamps === 2, 'klick medan etiketten syns frågar också (och stämplar inte); Cancel stänger');
+    assert(!afterLock && !(await C.evaluate(() => window.klibb.linkDialog().open)) && nStamps === 3, 'click shows the credit, clicking the same sticker again asks to open the link (and never slaps); Cancel closes');
     await C.mouse.click(900, 400); await C.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
-    await C.evaluate(() => window.klibb.look(0.9, 0)); await C.waitForTimeout(500);
-    const anon = await C.evaluate(() => window.klibb.credit().shown);
-    await C.evaluate(() => window.klibb.look(0, 0)); await C.waitForFunction(() => window.klibb.credit().shown, null, { timeout: 3000 });
+    const clickAt = async (yaw, pitch = 0) => { await C.evaluate(([y, p]) => window.klibb.look(y, p), [yaw, pitch]); await C.waitForTimeout(150); await lookClick(); await C.waitForTimeout(250); return C.evaluate(() => window.klibb.credit()); };
+    await clickAt(0, 1.4); // start from nothing shown (the re-lock click above may have shown one)
+    const crU = await clickAt(0), crM = await clickAt(-0.9);
+    assert(crU.shown && crU.name === 'Ulla K' && crM.shown && crM.name === 'Marika' && /marika\.example/.test(crM.link),
+      `clicking another sticker switches the credit to that one (${crU.name} → ${crM.name})`);
+    const anon = (await clickAt(0.9)).shown;
+    await clickAt(0); const crWall = (await clickAt(0, 1.4)).shown;
+    assert(!anon && !crWall, 'clicking a sticker without a name or link, or empty wall/ceiling, hides the credit');
+    await clickAt(0);
     await C.keyboard.press('v'); await C.waitForTimeout(300);
     const inSlap = await C.evaluate(() => window.klibb.credit().shown);
-    assert(!anon && !inSlap, 'klibbor utan namn och länk visar ingenting, och i Slap mode syns ingen etikett');
+    await C.keyboard.press('v'); await C.waitForTimeout(200);
+    await clickAt(0);
+    const crBefore = await C.evaluate(() => window.klibb.credit().shown);
+    await C.keyboard.press('Escape'); await C.waitForTimeout(400);
+    const crEsc = await C.evaluate(() => [window.klibb.credit().shown, window.klibb.controls.locked]);
+    const crN = await C.evaluate(() => window.klibb.stamps.count);
+    assert(!inSlap && crBefore && !crEsc[0] && crN === 3, 'leaving Look mode (V) and Esc hide the credit; no click in Look mode slapped anything');
     await C.evaluate(() => window.klibb.controls.unlock());
     // Mobil (en annan person): tryck på klibban i Tittläge -> etiketten med en länk att trycka på
     await CM.goto(`${BASE}/?room=${CR}`); await waitReady(CM);
-    await CM.waitForFunction(() => window.klibb.stamps.count === 2, null, { timeout: 8000 });
+    await CM.waitForFunction(() => window.klibb.stamps.count === 3, null, { timeout: 8000 });
     const cvp = CM.viewportSize();
     await CM.evaluate(() => { const k = window.klibb; k.moveTo(0, 0); k.look(0, 0); k.setMode('view'); });
     await CM.waitForTimeout(300);
@@ -919,7 +941,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await CM.screenshot({ path: path.join(SHOTS, '43-konstnar-etikett-mobil.png') });
     const tapTarget = await CM.evaluate(() => { const a = document.getElementById('credit-link').getBoundingClientRect(); const el = document.elementFromPoint(a.left + a.width / 2, a.top + a.height / 2); return el && el.id; });
     assert(mc.name === 'Ulla K' && mc.label === '@ulla.k · Instagram' && mc.tap && mc.hint === 'Tap the link to open it' && tapTarget === 'credit-link'
-      && mc.rect.left >= 0 && mc.rect.right <= cvp.width && mc.rect.top >= 0 && (await CM.evaluate(() => window.klibb.stamps.count)) === 2,
+      && mc.rect.left >= 0 && mc.rect.right <= cvp.width && mc.rect.top >= 0 && (await CM.evaluate(() => window.klibb.stamps.count)) === 3,
       'mobil, Tittläge: tryck på klibban visar namnet och en länk man kan trycka på (och stämplar inte)');
     await CM.evaluate(() => window.klibb.look(0.9, 0)); await CM.waitForTimeout(200);
     await CM.touchscreen.tap(cvp.width / 2, cvp.height / 2); await CM.waitForTimeout(300);

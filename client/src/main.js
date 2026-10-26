@@ -799,13 +799,13 @@ function pruneHistory(stampIds) {
 }
 
 // ---------- Vem gjorde klibban? (Tittläge) ----------
-// Vilar pricken på en klibba i ~150 ms syns konstnärens namn och länk bredvid pricken.
-// L eller klick öppnar länken (efter en liten fråga som visar adressen). På mobilen: tryck på
-// klibban i Tittläge, så syns etiketten där man tryckte, med en länk man kan trycka på.
+// Look mode: CLICK (desktop, the dot on a sticker) or TAP (phone) a sticker to show the artist's name
+// and link. Clicking another sticker switches to that one; clicking empty wall, Esc or leaving Look
+// mode hides it. No hover trigger. Desktop: L, or clicking the same sticker again, opens the link
+// (after a small dialog showing the address); on the phone the link itself is tappable.
 // Klibbor utan namn och länk visar ingenting. Länken tvättas igen här (servern har redan gjort det).
-const CREDIT_DELAY = 150;
 // var: setMode längre upp (hideCredit) kan köras innan den här raden.
-var credit = { id: null, since: 0, shown: null, lastPick: 0, timer: 0 }; // eslint-disable-line no-var
+var credit = { id: null, shown: null, timer: 0 }; // eslint-disable-line no-var
 function creditOf(stamp) {
   const name = cleanArtistName(stamp?.artist), link = cleanArtistLink(stamp?.artistLink || '');
   return name || link ? { id: stamp.id, name, link } : null;
@@ -840,24 +840,26 @@ function hideCredit() {
   if (!credit) return; // innan raden ovan har körts
   clearTimeout(credit.timer);
   if (credit.shown) $('credit').hidden = true;
-  credit.shown = null;
+  credit.shown = null; credit.id = null;
 }
-function updateHover(now) {
-  if (isTouch) return;
-  if (!(controls.locked && state.mode === 'view' && !camView && !sp.open)) {
-    credit.id = null; if (credit.shown) hideCredit(); return;
-  }
-  if (now - credit.lastPick < 40) return; // inte varje bildruta
-  credit.lastPick = now;
+// The credit only lives in Look mode with the mouse locked (desktop): anything else hides it.
+function updateCredit() {
+  if (isTouch || !credit.shown) return;
+  if (!(controls.locked && state.mode === 'view' && !camView && !sp.open)) hideCredit();
+}
+// Desktop click in Look mode: the sticker under the dot shows its credit (or switches to it);
+// the same sticker again opens its link; empty wall (or a sticker without a name/link) hides it.
+function clickCredit() {
+  if (camView || sp.open) return;
   const c = creditOf(pickStampAt(CENTER)?.stamp);
-  if (!c) { credit.id = null; if (credit.shown) hideCredit(); return; }
-  if (c.id !== credit.id) { credit.id = c.id; credit.since = now; if (credit.shown) hideCredit(); return; }
-  if (!credit.shown && now - credit.since >= CREDIT_DELAY) showCredit(c);
+  if (!c) { hideCredit(); return; }
+  if (credit.shown && credit.shown.id === c.id) { if (c.link) openLink(c.link); return; }
+  showCredit(c); credit.id = c.id;
 }
 const linkDlg = $('link-dialog');
 function openLink(url) {
   url = cleanArtistLink(url); if (!url) return false;
-  controls.unlock(); hideCredit(); credit.id = null;
+  controls.unlock(); hideCredit();
   $('link-url').textContent = url;
   $('link-open').href = url;
   linkDlg.showModal();
@@ -924,7 +926,7 @@ controls.onLockChange = (locked) => {
   document.body.classList.toggle('locked', locked);
   if (locked) { closeMore(); closeRoomMenu(); }
   $('crosshair').hidden = !locked;
-  if (!locked) preview.hide();
+  if (!locked) { preview.hide(); hideCredit(); } // Esc (leaving the room) hides the artist credit
 };
 
 if (!isTouch) {
@@ -933,7 +935,7 @@ if (!isTouch) {
     if (sp.open || together.busy()) return; // panelen för rummets utseende eller Min gubbe är öppen
     if (together.chatOpen()) { together.closeChat(); if (!controls.locked) controls.lock(); return; } // klick = stäng chatten, stämpla inte
     if (!controls.locked) controls.lock();
-    else if (state.mode === 'view' && credit.shown?.link) openLink(credit.shown.link); // klick på en konstnärslänk
+    else if (state.mode === 'view') clickCredit(); // Look mode: click a sticker = who made it? (never slaps)
     else action(CENTER);
   });
   addEventListener('wheel', (e) => { if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
@@ -976,7 +978,7 @@ if (!isTouch) {
       if (state.mode === 'view' && !camView) {
         // Tittläge: tryck på en klibba = vem gjorde den?
         const c = creditOf(pickStampAt(ndc)?.stamp);
-        if (c) showCredit(c, { x: e.clientX, y: e.clientY }); else hideCredit();
+        if (c) { showCredit(c, { x: e.clientX, y: e.clientY }); credit.id = c.id; } else hideCredit();
       } else { hideCredit(); action(ndc); }
     }
   };
@@ -1384,7 +1386,7 @@ function frame() {
   cams.update(cv ? null : eyeCam.position);
   peelLayer.update();
   walkSounds();
-  updateHover(performance.now());
+  updateCredit();
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
   if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
@@ -1439,6 +1441,7 @@ window.klibb = {
   net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
   openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
   cameras: () => cams.list(), camerasVisible: () => [...cams.map.values()].some((e) => e.obj.visible), addCamera: addCam, updateCamera: updateCam, removeCamera: removeCam,
+  creditAtDot: () => creditOf(pickStampAt(CENTER)?.stamp), clickCredit,
   credit: () => ({ shown: !!credit.shown && !$('credit').hidden, name: $('credit-name').textContent, link: $('credit-link').getAttribute('href') || '',
     label: $('credit-link').textContent, hint: $('credit-hint').textContent, tap: $('credit').classList.contains('tap'),
     rect: $('credit').hidden ? null : $('credit').getBoundingClientRect().toJSON() }),
