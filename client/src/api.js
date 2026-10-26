@@ -59,6 +59,9 @@ Object.assign(api, {
   recStatus: (room) => fetch(`/api/rooms/${room}/recording`).then(json),
   // Nollställ rummet (alla klibbor bort). Bara skaparen (rumsnyckel) eller admin.
   resetRoom: (room, by, auth) => send('POST', `/api/rooms/${room}/reset`, { by }, auth),
+  // Clear hidden stickers: how many (for the confirm), then do it. Same rights as resetting.
+  hiddenCount: (room, auth) => fetch(`/api/rooms/${room}/hidden`, { headers: rights(auth) }).then(json),
+  clearHidden: (room, by, auth) => send('POST', `/api/rooms/${room}/clear-hidden`, { by }, auth),
   startRec: (room, auth) => send('POST', `/api/rooms/${room}/recording/start`, {}, auth),
   stopRec: (room, auth) => send('POST', `/api/rooms/${room}/recording/stop`, {}, auth),
   listRecs: (room, auth) => fetch(`/api/rooms/${room}/recordings`, { headers: rights(auth) }).then(json),

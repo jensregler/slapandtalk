@@ -39,6 +39,7 @@
         <button id="share-room" type="button" data-t="shareRoom" data-t-title="shareRoomTitle">🔗 Share link</button>
         <p id="invite-note" class="hint" hidden aria-live="polite"></p>
         <button id="to-stad" type="button" class="no-demo" data-t="toCity" data-t-title="toCityTitle">🏙 Back to the City</button>
+        <button id="clear-hidden" type="button" hidden data-t="clearHidden" data-t-title="clearHiddenTitle">✨ Clear hidden stickers</button>
         <div id="peels-box" class="no-demo" hidden>
           <label class="check" data-t-title="peelsTitle"><input id="peels-on" type="checkbox" /> <span data-t="peelsToggle">🧻 Peels</span></label>
           <button id="peels-clear" type="button" data-t="peelsClear" hidden>🧹 Sweep up the peels</button>
@@ -296,6 +297,16 @@
     <div class="end-btns">
       <button id="end-action" type="button"></button>
       <button id="end-keep" type="button" class="primary" data-t="keepSlapping">Keep slapping</button>
+    </div>
+  </dialog>
+  <!-- Clear hidden stickers: a calm confirm with the count -->
+  <dialog id="clear-dialog" aria-labelledby="clear-title">
+    <h2 id="clear-title" data-t="clearHidden">✨ Clear hidden stickers</h2>
+    <p id="clear-q" class="end-q"></p>
+    <p id="clear-text" class="hint" data-t="clearText"></p>
+    <div class="end-btns">
+      <button id="clear-cancel" type="button" data-t="cancel">Cancel</button>
+      <button id="clear-go" type="button" class="primary" data-t="clearGo">Remove them</button>
     </div>
   </dialog>
   <dialog id="link-dialog" aria-labelledby="link-title">

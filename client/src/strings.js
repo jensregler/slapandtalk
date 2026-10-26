@@ -109,6 +109,13 @@ export const EN = {
   endFreshQ: 'Start a fresh room?', endFreshText: 'You’ve peeled all the slaps you can here. Want an empty room of your own?',
   resetRoom: 'Reset room', newRoomShort: 'New room', keepSlapping: 'Keep slapping',
   roomReset: (by) => `${by} reset the room`, resetFailed: 'Could not reset the room right now.',
+  // Clear hidden stickers (the room's creator): stickers fully covered by newer ones go, the visible ones stay.
+  clearHidden: '✨ Clear hidden stickers', clearHiddenTitle: 'Remove the stickers that are completely covered by newer ones. Everything you can see stays.',
+  clearQ: (n) => (n ? `Remove ${n} hidden sticker${n === 1 ? '' : 's'}? Visible ones stay.` : 'Nothing is hidden right now. Every sticker can still be seen.'),
+  clearCounting: 'Counting hidden stickers…',
+  clearText: 'What you see becomes the new base layer. Peel history in this room starts over, for everyone.',
+  clearGo: 'Remove them', clearFailed: 'Could not clear hidden stickers right now.',
+  clearedN: (by, n) => `${by} cleared ${n} hidden sticker${n === 1 ? '' : 's'}`,
   slowDown: 'Easy now – wait a moment.',
   peelFailed: 'Could not peel right now, try again.',
   peelBtnAria: 'Peel my last sticker', peelBtnTitle: 'Peel (undo) my last sticker',

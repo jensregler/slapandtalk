@@ -758,6 +758,43 @@ function onRoomReset(e) {
   updateCount(); scheduleHistory();
 }
 
+// ---------- Clear hidden stickers ----------
+// The creator (or admin) removes every sticker that is completely covered by newer ones; what you
+// see stays, in the same order and size, and becomes the room's new base layer (peel history reset).
+const clearDlg = $('clear-dialog');
+$('clear-hidden').onclick = async () => {
+  if (clearDlg.open) return;
+  controls.unlock(); preview.hide(); closeRoomMenu(); closeMore();
+  $('clear-q').textContent = S.clearCounting;
+  $('clear-go').disabled = true;
+  clearDlg.showModal();
+  $('clear-cancel').focus();
+  try {
+    const { hidden } = await api.hiddenCount(ROOM, auth());
+    $('clear-q').textContent = S.clearQ(hidden);
+    $('clear-go').disabled = !hidden;
+  } catch (err) { $('clear-q').textContent = err.message || S.clearFailed; }
+};
+$('clear-cancel').onclick = () => clearDlg.close();
+$('clear-go').onclick = async () => {
+  const b = $('clear-go');
+  b.disabled = true;
+  try {
+    await api.clearHidden(ROOM, together.me().shownAs || together.me().name, auth());
+    clearDlg.close();
+  } catch (err) { toast(err.message || S.clearFailed, 3000); b.disabled = false; }
+};
+// Everyone in the room: the hidden stickers go (quietly; nobody could see them), and nobody's
+// peel history reaches past this point any more, so everything left can be painted into the walls.
+function onClearHidden(e) {
+  for (const id of Array.isArray(e.ids) ? e.ids : []) stamps.remove(id);
+  const mine = readHistory().filter((h) => h.room === ROOM).map((h) => h.stampId);
+  if (mine.length) removeHistory(mine);
+  together.sys(S.clearedN(String(e.by || '').slice(0, 24) || '?', (e.ids || []).length));
+  updateCount(); scheduleHistory();
+  stamps.scheduleBake();
+}
+
 // Historiklistan ritas om högst en gång per bildruta, hur många peel det än blir.
 let historyRaf = 0;
 function scheduleHistory() { if (!historyRaf) historyRaf = requestAnimationFrame(() => { historyRaf = 0; renderHistory(); }); }
@@ -1039,6 +1076,7 @@ const canEditStyle = () => !!state.adminToken || (!DEMO && roomType !== 'stad' &
 const canReset = () => canEditStyle() || (DEMO && !!roomKeys()[ROOM]);
 function updateStyleUi() {
   $('edit-style').hidden = !canEditStyle();
+  $('clear-hidden').hidden = !canReset(); // same rule as resetting the room
   $('rec-box').hidden = !(canEditStyle() || (DEMO && canReset())); // the demo records too (no cameras there)
   updatePeelUi();
   const s = currentStyle;
@@ -1176,6 +1214,10 @@ function onRoomEvent(e) {
     // (by saknas från äldre klienter: då syns bara klibban, som förut.)
     if (typeof e.by === 'string' && e.by !== together.net.id && !stamps.meshes.has(e.stamp.id)) together.players.gesture(e.by, 'slap', e.stamp.position, e.stamp.normal);
     stamps.add(e.stamp, e.image).then(updateCount);
+  } else if (e.type === 'stamp:remove' && e.quiet) {
+    // The automatic cleanup: a sticker nobody could see any more (completely covered). No sound.
+    stamps.remove(e.id); updateCount();
+    if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); scheduleHistory(); }
   } else if (e.type === 'stamp:remove') {
     const m = stamps.meshes.get(e.id);
     if (m && !myPeels.has(e.id)) sound.play('peel', m.userData.stamp.position, { sound: together.voiceOf(e.by) });
@@ -1183,6 +1225,7 @@ function onRoomEvent(e) {
     stamps.peelAway(e.id).then(updateCount);
     if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); scheduleHistory(); }
   } else if (e.type === 'room:reset') onRoomReset(e);
+  else if (e.type === 'room:clear-hidden') onClearHidden(e);
   else if (e.type === 'image:remove') {
     stamps.removeImage(e.id); peelLayer.removeImage(e.id); updateCount();
     if (e.removed && state.mine.some((m) => m.id === e.id)) dropDesigns([e.id]); // removed on purpose: out of my palette too
