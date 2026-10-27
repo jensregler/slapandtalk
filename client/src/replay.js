@@ -13,9 +13,13 @@ import { CameraLayer, poseCamera, renderFramed, aspectRatio } from './cameras.js
 import * as photo from './photo.js';
 import { FirstPersonControls } from './controls.js';
 import { S, LOCALE } from './strings.js';
-import { parseRecording, buildTimeline, snapshotAt, participants } from '../../shared/replay.mjs';
+import { parseRecording, buildTimeline, snapshotAt, participants, gestureAt } from '../../shared/replay.mjs';
+import { SLAP_MS, PEEL_MS } from './slapanim.js';
+const GESTURE_MAX_MS = Math.max(SLAP_MS, PEEL_MS);
+const gestureLen = (kind) => (kind === 'peel' ? PEEL_MS : SLAP_MS);
 import { planShots, shotAt, shotPose, roomPose, speechSegments, openOf, TALK_LEVELS } from '../../shared/director.mjs';
 import { createAutoCam, stickerTargets, recordingCrew, roomShotCamera, crewView, AUTO_PATHS, autoView } from '../../shared/autocam.mjs';
+import { recordingPeople, recordingGroupFocus, personView } from '../../shared/personcam.mjs';
 import { createComposer, canRecordVideo } from './videocomposer.js';
 import { entitlements, loadEntitlements, unlockHeaders } from './entitlements.js';
 
@@ -55,7 +59,7 @@ function resize() { renderer.setSize(innerWidth, innerHeight, false); }
 addEventListener('resize', resize); resize();
 
 const fmt = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-const rp = { tl: null, meta: null, t: 0, playing: false, speed: 1, view: 'free', style: '', snap: null, chatShown: '', recorder: null, lastFrameT: 0, plan: null, speakers: [], shot: null, dirCam: null, dirDt: 0, auto: new Map(), rc: null, curShot: null };
+const rp = { tl: null, meta: null, t: 0, playing: false, speed: 1, view: 'free', style: '', snap: null, chatShown: '', recorder: null, lastFrameT: 0, plan: null, speakers: [], shot: null, dirCam: null, dirDt: 0, auto: new Map(), rc: null, pp: null, curShot: null };
 // The auto cameraman (shared/autocam.mjs): one take per path, seeded by the recording id, so the
 // same recording always gives the same take (the server's shot list has the same ones).
 // The room's own cameramen (one or more camera entries { auto }) are a crew (recordingCrew): each
@@ -63,6 +67,9 @@ const rp = { tl: null, meta: null, t: 0, playing: false, speed: 1, view: 'free',
 const autoPose = (path, t = rp.t) => rp.auto.get(path)?.poseAt(t) || null;
 const crewPose = (id, t = rp.t) => (rp.rc ? rp.rc.poseAt(id, t) : null);
 const crewSpan = (id, t = rp.t) => (rp.rc ? rp.rc.at(id, t) : null);
+// One cameraman per participant (shared/personcam.mjs): the view 'person:<id>', that person the
+// subject the whole time, on the recording's clock like every other view (cut between them freely).
+const personPose = (id, t = rp.t) => (rp.pp ? rp.pp.poseAt(id, t) : null);
 
 // ---------- Synka scenen mot inspelningen vid tiden t ----------
 async function showStyle(style) {
@@ -114,6 +121,10 @@ function syncPlayers(list, dt, jumped) {
     // glitches the same every time this moment is played (mouth.js).
     a.avatar.setSpeaking(p.talk >= 2, p.talk / TALK_LEVELS);
     a.avatar.setMouth(openOf(p.talk), rp.t);
+    // The slap (and peel) arm gesture from the recording (stamp:add/remove by this player), on the
+    // replay's clock: every view – the auto cameramen, the person cameramen, the director, the video – shows it.
+    const g = gestureAt(rp.tl, p.id, rp.t, GESTURE_MAX_MS);
+    if (g && gestureLen(g.kind) > g.age) a.avatar.gesture.pin(g.kind, g.p, g.normal, g.age, `${g.kind}@${g.t}`); else a.avatar.gesture.unpin();
     a.avatar.update(dt, a.speed);
   }
   for (const [id, a] of avatars) if (!seen.has(id)) { scene.remove(a.avatar.root); a.avatar.dispose(); avatars.delete(id); }
@@ -153,6 +164,8 @@ function renderViewOptions(s) {
   const opts = [['free', S.viewFree]];
   if (rp.speakers.length) opts.unshift(['director', S.viewDirector]);
   // Every cameraman the room had in this recording (off right now = "not here now"), then the generic paths.
+  // A cameraman per participant (off while they are not in the room), then the room's own ones.
+  if (rp.pp) for (const x of rp.pp.list) opts.push([personView(x.id), S.viewPerson(s.players.find((p) => p.id === x.id)?.name || x.name, s.players.some((p) => p.id === x.id))]);
   if (rp.rc) for (const id of rp.rc.ids) { const sp = rp.rc.spans.filter((x) => x.id === id), now = crewSpan(id); opts.push([crewView(id), S.viewCrew((now || sp[sp.length - 1]).name, rp.rc.crew.get((now || sp[sp.length - 1]).key).path, !!now)]); }
   for (const p of AUTO_PATHS) opts.push([autoView(p), S.viewAuto(p)]);
   // One take per speaker and angle: pick it and ⏺ Record video for raw material to cut between.
@@ -200,6 +213,8 @@ function viewPose() {
   }
   const m = /^(close|medium|rear):(.+)$/.exec(rp.view);
   if (m) return directedPose(m[1], m[2], rp.view);
+  const pm = /^person:(.+)$/.exec(rp.view);
+  if (pm) { const q = personPose(pm[1]), who = s.players.find((x) => x.id === pm[1]); if (q) { rp.shot = { kind: 'person', speaker: pm[1], key: rp.view, camera: rp.view, size: q.shot.kind }; return { ...q, aspect: '', label: S.personLabel(who?.name || pm[1], q.shot.kind, q.mm) }; } return null; }
   const cm = /^autocam:(\w+)$/.exec(rp.view);
   if (cm) { const q = crewPose(cm[1]), sp = crewSpan(cm[1]); if (q) { rp.shot = { kind: 'auto', speaker: null, key: rp.view, camera: rp.view }; return { ...q, aspect: '', label: S.crewLabel(sp.name, q.mm) }; } return null; }
   const am = /^auto:(\w+)$/.exec(rp.view), aq = am && autoPose(am[1]);
@@ -403,8 +418,10 @@ async function load() {
     // The auto-director's cut (the same as the shot list the server saved with the recording).
     rp.plan = planShots(rp.tl);
     const targets = stickerTargets(rp.tl);
-    for (const p of AUTO_PATHS) rp.auto.set(p, createAutoCam({ path: p, seed: `${REC}:${p}`, provider: targets }));
-    rp.rc = recordingCrew(rp.tl, { seed: REC, provider: targets });
+    const focus = recordingGroupFocus(rp.tl); // the people first: every auto cameraman keeps the participants in frame
+    for (const p of AUTO_PATHS) rp.auto.set(p, createAutoCam({ path: p, seed: `${REC}:${p}`, provider: targets, focus }));
+    rp.rc = recordingCrew(rp.tl, { seed: REC, provider: targets, focus });
+    rp.pp = recordingPeople(rp.tl, { seed: REC });
     const segs = speechSegments(rp.tl);
     rp.speakers = participants(rp.tl).filter((p) => segs.some((x) => x.speaker === p.id));
     if (rp.speakers.length) { rp.view = 'director'; cams.setHideAll(true); }
@@ -440,6 +457,8 @@ window.replay = {
   }),
   plan: () => rp.plan, speakers: () => rp.speakers.slice(),
   autoPose: (path, t) => autoPose(path, t), crewPose: (id, t) => crewPose(id, t), crewIds: () => (rp.rc ? rp.rc.ids.slice() : []),
+  personPose: (id, t) => personPose(id, t), personIds: () => (rp.pp ? rp.pp.list.map((x) => x.id) : []),
+  gesture: (id) => { const a = avatars.get(id); if (!a) return null; const g = a.avatar.gesture; return { active: g.active(), pinned: !!g.pinned, age: g.freeze, kind: g.g ? g.g.kind : null, hands: g.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray().map((n) => +n.toFixed(3))) }; },
   startVideo, stopVideo, photo: () => snapPhoto(), lastPhoto: () => rp.lastPhoto || null,
   // Finished video (tests): the composer's state, the recording canvas, the upload result.
   composer: () => rp.recorder, lastVideo: () => rp.lastVideo || null, upload: () => rp.upload || null, video: () => rp.video || null,

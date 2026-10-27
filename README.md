@@ -262,7 +262,22 @@ Den som skapade rummet (eller admin; i Staden bara admin) ser **🎬 Recording**
     det fasta hörnet. Bildlistan har ett spår per fotograf (`autocam.crew`, se
     `docs/recording-format.md`). Live i rummet är det en förhandsvisning (börjar om varje hel timme,
     samma för alla); läggs en till delas cellerna om, så de andra byter bana live.
-  Koden: `shared/autocam.mjs`. Steg 2 (en smartare fotograf som följer det som händer) är en ny
+  - **Folket först (v3):** rummets fotografer siktar på deltagarna, inte på tomma väggar: så länge
+    någon är i rummet ramar de in hela gruppen (mitten av dem, objektivet vidgas så alla får plats,
+    22–70 mm); med ingen där går de tillbaka till väggarna/klibborna. Spåren finns kvar som
+    **översiktsspår** (`autocam.crew`).
+  - **🎥 Cameraman: \<namn\> (en per deltagare, i uppspelaren):** varje deltagare får en egen fotograf
+    (`shared/personcam.mjs`) som föds när de kommer in och försvinner när de går (*(not here now)* i
+    listan medan de är borta). Personen är alltid motivet: växlar mellan närbild (~1 m, 50 mm),
+    halvbild (~1,9 m) och helbild (~3,1 m), och vinklar (framifrån, 3/4, från sidan, lite under/över),
+    blir nyfiken (går närmare vid en klibba eller när de pratar, backar när de går), panorerar bara
+    lite, håller sig ≥ 0,45 m från väggarna (kliver närmare/byter vinkel i hörn). Byten är mjuka
+    glidningar eller rena klipp vid stora vinkelbyten. Alla spår går på inspelningens klocka, så man kan
+    klippa mellan personerna i *#rp-view*-listan utan att tiden hoppar. Bildlistan: `autocam.people`.
+  - **Klibbrörelsen syns i bild:** uppspelaren spelar nu armrörelsen (klibba/peel) på den filmade
+    dockan, låst till inspelningens klocka (`stamp:add`/`stamp:remove` med `by`), så den syns i
+    uppspelning, foton och videor; live syns ens egen docka när man tittar genom en kamera.
+  Koden: `shared/autocam.mjs`, `shared/personcam.mjs`. Steg 2 (en smartare fotograf som följer det som händer) är en ny
   *target provider* där, se kommentaren överst i filen.
 - **📷 Photo:** knappen 📷 bredvid 🎙/🔊 i panelen, 📷 i kamerarutan när man tittar genom en kamera,
   och **📷 Photo** i uppspelarens rad; tangenten **P** både live och i uppspelaren. Tar en stillbild av

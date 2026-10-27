@@ -69,6 +69,14 @@ export class ArmGesture {
     this.count++;
     return true;
   }
+  // The replay (client/src/replay.js): show the gesture that started `age` ms ago on the recording's
+  // clock (seeking, pausing and the finished video all agree). key = which gesture (its start time).
+  pin(kind, target, normal, age, key) {
+    if (!this.g || this.g.key !== key) { if (!this.start(kind, target, normal)) return false; this.g.key = key; }
+    this.freeze = Math.max(0, age); this.pinned = true;
+    return true;
+  }
+  unpin() { if (this.pinned) { this.g = null; this.freeze = null; this.pinned = false; } }
   elapsed(now) { return this.freeze != null ? this.freeze : now - this.g.t0; }
   active(now = performance.now()) { return !!(this.g && gestureAt(this.g.kind, this.elapsed(now))); }
   // Efter mixer.update(): lägg armen ovanpå. root = gubbens rot (för världsmatriserna).

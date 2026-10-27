@@ -154,20 +154,25 @@ Samma logg ger alltid samma lista (och samma bild i uppspelarens vy *🎬 Direct
 
 ### Auto cameramen i bildlistan (`shared/autocam.mjs`)
 
-Bildlistan får tre tillägg (listan är fortfarande `v: 1`; `autocam` har egen version, nu `v: 2`):
+Bildlistan får tre tillägg (listan är fortfarande `v: 1`; `autocam` har egen version, nu `v: 3`):
 
 ```json
-{ "views": [{ "view": "director" }, { "view": "close:5e7d…" }, { "view": "autocam:ab12cd34ef", "label": "Auto cameraman 1" },
+{ "views": [{ "view": "director" }, { "view": "close:5e7d…" }, { "view": "person:5e7d…", "label": "Cameraman: Jens" },
+            { "view": "autocam:ab12cd34ef", "label": "Auto cameraman 1" },
             { "view": "auto:perimeter", "label": "Auto cameraman: Perimeter" }],
   "shots": [{ "from": 0, "to": 1200, "kind": "room", "camera": "autocam:ab12cd34ef" }, { "kind": "close", "camera": "close:5e7d…" }],
-  "autocam": { "v": 2, "directorRoomShot": "the room’s cameramen take turns in the silences (round robin), otherwise the fixed corner",
+  "autocam": { "v": 3, "directorRoomShot": "the room’s cameramen take turns in the silences (round robin), otherwise the fixed corner",
     "params": { "walkMps": [0.5, 1], "frameMps": [0.18, 0.32], "mm": [35, 70], "beatMs": 4000, "crewGapM": 1.2 },
     "crew": [{ "view": "autocam:ab12cd34ef", "id": "ab12cd34ef", "label": "Auto cameraman 1", "seed": "<recId>:ab12cd34ef",
       "on": [{ "from": 5000, "to": 61234, "choice": "seeded", "path": "loop", "start": [2.1, -1.4] }],
       "legs": [{ "from": 5000, "moveFrom": 5000, "to": 9800, "kind": "walk", "a": [2.1, -1.4], "b": [2.1, 1.9], "vMax": 0.74 }],
       "beats": [{ "t": 8000, "target": { "kind": "track", "p": [5, 1.4, 0] }, "mm": 38 }],
       "track": { "stepMs": 1000, "columns": ["t", "x", "y", "z", "yaw", "pitch", "mm"], "samples": [[5000, 2.1, 1.58, -1.4, 1.2, -0.03, 35]] } }],
-    "takes": [{ "view": "auto:perimeter", "seed": "<recId>:perimeter", "eyeM": 1.62, "legs": [], "beats": [], "track": {} }] } }
+    "takes": [{ "view": "auto:perimeter", "seed": "<recId>:perimeter", "eyeM": 1.62, "legs": [], "beats": [], "track": {} }],
+    "people": [{ "view": "person:5e7d…", "id": "5e7d…", "name": "Jens", "label": "Cameraman: Jens", "seed": "<recId>:person:5e7d…",
+      "on": [{ "from": 0, "to": 61234 }],
+      "shots": [{ "from": 0, "to": 4800, "kind": "medium", "angle": 0.75 }],
+      "track": { "stepMs": 1000, "columns": ["t", "x", "y", "z", "yaw", "pitch", "mm"], "samples": [[0, 1.2, 1.4, -0.8, 2.1, -0.05, 38]] } }] } }
 ```
 
 - `views` = alla tagningar man kan klippa mellan (en vy i uppspelaren var, spelas in med ⏺ Record video).
@@ -182,7 +187,17 @@ Bildlistan får tre tillägg (listan är fortfarande `v: 1`; `autocam` har egen 
   (stå still `from`→`moveFrom`, gå → `to`), `beats` (var den tittar och brännvidd var 4:e s), `track`
   (pose var `stepMs`, högst ~1200 rader). Seed = recId:bana, så uppspelaren och listan ger exakt
   samma bild.
-- `v: 1` (före flera fotografer) hade `autocam.room` i stället för `crew`; det fältet finns inte längre.
+- `autocam.people[]` (v3): en fotograf per deltagare (`person:<spelarId>`), `on` = när personen var i
+  rummet (join → leave; kommer de tillbaka blir det en ny rad), `shots` = tagningarna (`kind` close /
+  medium / wide, `angle` i rad relativt hur personen är vänd),
+  `track` på samma `stepMs`-klocka som `crew`/`takes` (bara rader medan personen är där), så alla
+  spår är tidslinjerade och man kan klippa mellan dem. Seed `recId:person:<id>`.
+- v3: `crew`-fotograferna siktar på gruppen av deltagare medan någon är i rummet (`beats[].target.kind`
+  = `people`), annars som förut.
+- Armrörelserna i uppspelningen kommer ur loggen: `stamp:add` med `by` (bara första raden i en array,
+  `batch.i = 0`) = klibba, `stamp:remove` med `by` (inte `quiet`) = peel (`shared/replay.mjs`
+  `buildTimeline().gestures`, `gestureAt`).
+- `v: 2` hade inte `people`. `v: 1` (före flera fotografer) hade `autocam.room` i stället för `crew`; det fältet finns inte längre.
 
 ### 📷 Bilder (`server/photos.js`)
 

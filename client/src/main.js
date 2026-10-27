@@ -14,6 +14,7 @@ import { initTogether } from './together.js';
 import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed, aspectRatio } from './cameras.js';
 import * as photo from './photo.js';
 import { createAutoCrew, liveStickerTargets, AUTO_CHOICES, autoCamsOf, MAX_AUTO_CAMS } from '../../shared/autocam.mjs';
+import { groupFocus } from '../../shared/personcam.mjs';
 import { S, LOCALE } from './strings.js';
 import { Sounds } from './sound.js';
 import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView } from './chasecam.js';
@@ -1786,10 +1787,13 @@ function liveCrew() {
   const t0 = Math.floor(Date.now() / 3600000) * 3600000, key = `${t0}|${list.map((c) => `${c.id}:${c.auto}:${c.start || ''}`).join(',')}`;
   if (liveAuto.key !== key) {
     liveAuto.key = key; liveAuto.t0 = t0;
-    liveAuto.crew = createAutoCrew(list.map((c) => ({ key: c.id, path: c.auto, seed: c.id, start: c.start })), { provider: liveStickerTargets(() => [...stamps.meshes.values()].map((m) => m.userData.stamp).filter((s) => s && !s.pending), t0) });
+    liveAuto.crew = createAutoCrew(list.map((c) => ({ key: c.id, path: c.auto, seed: c.id, start: c.start })), { provider: liveStickerTargets(() => [...stamps.meshes.values()].map((m) => m.userData.stamp).filter((s) => s && !s.pending), t0), focus: livePeople });
   }
   return liveAuto.crew;
 }
+// The people in the room right now (me included), for the cameramen: they keep everyone in frame.
+const livePeople = groupFocus(() => [{ id: 'me', p: [camera.position.x, camera.position.y, camera.position.z] },
+  ...[...together.players.map.values()].map((pl) => ({ id: pl.id, p: [pl.pos.x, camera.position.y, pl.pos.z] }))]);
 function liveAutoPose(c) { const crew = liveCrew(), m = crew && crew.get(c.id); return m ? m.poseAt(Date.now() - liveAuto.t0) : null; }
 $('cam-show').checked = camShow;
 $('cam-show').onchange = (e) => { camShow = e.target.checked; localStorage.setItem('klibb.camShow', camShow ? '1' : '0'); cams.setVisible(state.mode !== 'view' && camShow); };
@@ -1815,12 +1819,14 @@ $('camview-exit').onclick = () => exitCamView();
 // ---------- Första eller tredje person (C, knappen i ⚙ More, 👤 på mobilen) ----------
 // Förstapersonsläget är precis som förut (ingen hand syns). I tredjepersonsvy står kameran bakom
 // och lite ovanför min gubbe, och gubben slappar mot väggen. Valet sparas på enheten.
+// var: setView() runs at start-up, before this line's neighbours below are reached.
+var selfShown = null; // eslint-disable-line no-var -- together.showSelf(): third person, or looking through a camera
 function setView(v, { quiet = false } = {}) {
   view = saveView(v);
   const t = view === 'third';
   document.body.classList.toggle('third-person', t);
   chase.eye = null; chase.dist = null; // börja om utan glidning
-  together.showSelf(t);
+  together.showSelf(t); selfShown = t;
   $('view-first').setAttribute('aria-pressed', String(!t)); $('view-third').setAttribute('aria-pressed', String(t));
   $('view-btn').setAttribute('aria-pressed', String(t));
   $('view-btn').title = t ? S.viewBtnToFirst : S.viewBtnToThird;
@@ -1958,8 +1964,14 @@ function frame() {
   const tp = !cv && view === 'third';
   if (tp) updateChase(dt);
   const eyeCam = cv ? viewCam : tp ? tpCam : camera;
+  // Looking through a camera (a placed one or an auto cameraman): my own avatar stands where I
+  // stand and is filmed too (also in first person, where it is otherwise not built), unless that
+  // camera is right at it. Back in my own eyes the first-person view hides it again.
+  const wantSelf = view === 'third' || !!cv;
+  if (wantSelf !== selfShown) { selfShown = wantSelf; together.showSelf(wantSelf); }
+  const camAtMe = cv && Math.hypot(camera.position.x - viewCam.position.x, camera.position.z - viewCam.position.z) < 0.45;
   // gubbar precis vid kameran döljs, och min egen om kameran kommer för nära (t.ex. mot en vägg)
-  together.update(dt, eyeCam.position, { hideSelf: !tp || chase.dist < CHASE.hideBelow });
+  together.update(dt, eyeCam.position, { hideSelf: cv ? camAtMe : !tp || chase.dist < CHASE.hideBelow });
   cams.update(cv ? null : eyeCam.position);
   peelLayer.update();
   walkSounds();

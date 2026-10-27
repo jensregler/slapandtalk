@@ -249,6 +249,9 @@ export const EN = {
   autoLabel: (path, mm) => `🎥 Auto cameraman · ${EN.autoPaths[path] || path} · ${Math.round(mm)} mm`,
   viewCrew: (name, path, here) => `🎥 ${name} (${EN.autoPaths[path] || path})${here ? '' : ' (off now)'}`,
   crewLabel: (name, mm) => `🎥 ${name} · ${Math.round(mm)} mm`,
+  // One cameraman per participant (shared/personcam.mjs): that person is the subject all the time.
+  viewPerson: (name, here) => `🎥 Cameraman: ${name}${here ? '' : ' (not here now)'}`,
+  personLabel: (name, size, mm) => `🎥 Cameraman: ${name} · ${({ close: 'close-up', medium: 'medium', wide: 'wide' })[size] || size} · ${Math.round(mm)} mm`,
   viewAngle: (kind, name) => `${{ close: '😮 Close-up', medium: '🧍 Medium', rear: '🔙 Over the shoulder' }[kind] || kind}: ${name}`,
   shotLabel: (kind, name) => (kind === 'room' || !name ? '🎬 The room' : `🎬 ${{ close: 'Close-up', medium: 'Medium', rear: 'Over the shoulder' }[kind] || kind} · ${name}`),
   shotList: '🎬 Shot list',
