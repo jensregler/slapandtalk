@@ -507,6 +507,8 @@ function stampAt(ndc, { onStart = null, auto = null } = {}) {
   return p;
 }
 async function slapAt(ndc, info, onStart, auto = null) {
+  // The room is full (FREE_MAX_PLAYERS): watchers can't slap (the server refuses it too) until someone leaves.
+  if (together.net.status === 'full') { if (!auto) toast(S.fullNoSlap, 1800); return null; }
   if (!state.selected) { if (!auto) toast(S.pickFirst); return null; }
   const h = hitSurface(ndc); if (!h) return null;
   if (auto && auto.check && !auto.check(h)) return null;

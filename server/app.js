@@ -9,7 +9,7 @@ const express = require('express');
 const multer = require('multer');
 const sharp = require('sharp');
 const { contentId } = require('./store');
-const { broadcast, cleanName, playerPosition } = require('./realtime');
+const { broadcast, cleanName, playerPosition, roomSeat } = require('./realtime');
 const { createHidden, autoPruneOn } = require('./hidden');
 const { publicSticker } = require('./library');
 
@@ -425,6 +425,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
     if ((await demo.roomOpen(room)) !== 'ok') return res.status(410).json({ error: 'This room has closed.', closed: true });
     if (!playerPosition(room, playerId(b.by))) return res.status(403).json({ error: 'Join the room first.', demo: true });
   }
+  if (roomIsFullFor(req, room, b)) return res.status(409).json({ error: roomFullText(room), full: true });
   const image = await imageAvailable(b.imageId);
   if (!image) {
     if (await store.isRemoved(String(b.imageId || ''))) return res.status(410).json({ error: 'That design was removed.', gone: true, removed: true });
@@ -519,6 +520,7 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
     if ((await demo.roomOpen(room)) !== 'ok') return res.status(410).json({ error: 'This room has closed.', closed: true });
     if (!playerPosition(room, playerId(b.by))) return res.status(403).json({ error: 'Join the room first.', demo: true });
   }
+  if (roomIsFullFor(req, room, b)) return res.status(409).json({ error: roomFullText(room), full: true });
   const a = b.anchor || {};
   if (typeof a.id !== 'string' || !/^[a-f0-9]{16}$/.test(a.id) || typeof a.token !== 'string' || !a.token) return res.status(400).json({ error: 'Invalid anchor' });
   if (!isVec(b.to, 3)) return res.status(400).json({ error: 'Invalid position' });
@@ -574,6 +576,14 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
 
 // Var stod den som slappade? { p: [x, z], yaw } från klienten, inom rummet. Annars gissar vi:
 // en bit framför klibban (längs normalen), vänd mot den.
+// The room limit (FREE_MAX_PLAYERS, server/realtime.js): while a room is full, only its players
+// (WebSocket ids in b.by) may slap. Watchers and connection-less requests get 409 { full: true }.
+function roomIsFullFor(req, room, b) {
+  if (isAdmin(req)) return false;
+  const seat = roomSeat(room, playerId(b.by));
+  return !!(seat && seat.full && !seat.player);
+}
+function roomFullText(room) { const s = roomSeat(room, null); return `This room is full (${s && s.max} people max – one wall each). You can watch until someone leaves.`; }
 function cleanFrom(f) {
   if (!f || typeof f !== 'object' || !isVec(f.p, 2) || !isNum(f.yaw)) return null;
   const hx = ROOM_SIZE.width / 2, hz = ROOM_SIZE.depth / 2;

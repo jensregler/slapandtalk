@@ -54,6 +54,14 @@ function playerPosition(roomId, id) {
   for (const f of finders) { const p = f(roomId, id); if (p) return p; }
   return null;
 }
+// Is the room full, and is this WebSocket id one of its players (not a watcher)? null = nobody is
+// connected to the room on this server. app.js refuses slaps from non-players while a room is full.
+const seaters = new Set();
+function roomSeat(roomId, id) {
+  for (const f of seaters) { const s = f(roomId, typeof id === 'string' ? id : null); if (s) return s; }
+  return null;
+}
+const fullText = (max) => `This room is full (${max} people max – one wall each). You can watch and read the chat; you get in automatically when someone leaves.`;
 
 const ROOM_RE = /^[a-z0-9-]{1,40}$/;
 const CHAT_KEEP = 50;
@@ -105,7 +113,7 @@ function soundField(s, ent) {
 // Samma regler som shared/fabric.mjs (webbläsaren); tests/fabric.test.mjs kollar att de är lika.
 // Äldre klienter känner inte till fältet och visar bara färgen.
 const FAB = require('../shared/fabric.json');
-const { makeEntitlements, fromHello } = require('./entitlements');
+const { makeEntitlements, fromHello, FREE_MAX_PLAYERS } = require('./entitlements');
 const FAB_ID_RE = /^[a-f0-9]{16}$/;
 function cleanFabricParam(name, v) {
   const p = FAB.params[name];
@@ -145,7 +153,7 @@ function bucket(rate, burst) {
 }
 
 function attachRealtime(server, {
-  maxPlayers = 10, path = '/ws', heartbeatMs = 15_000, maxPerIp = 30, clock = () => Date.now(),
+  maxPlayers = FREE_MAX_PLAYERS, path = '/ws', heartbeatMs = 15_000, maxPerIp = 30, clock = () => Date.now(),
   roomSize = require('../shared/room.json'), recorder = null, entitle = makeEntitlements(process.env), gate = null,
 } = {}) {
   const bounds = { x: roomSize.width / 2, y: roomSize.height, z: roomSize.depth / 2 };
@@ -196,13 +204,18 @@ function attachRealtime(server, {
     return c && c.p && c.ws.readyState === 1 ? { p: c.p.slice(), y: c.y, moves: c.moves || 0 } : null;
   };
   finders.add(finder);
+  const seater = (roomId, id) => {
+    const r = rooms.get(roomId); if (!r) return null;
+    return { full: r.players.size >= maxPlayers, player: !!id && r.players.has(id), max: maxPlayers, count: r.players.size };
+  };
+  seaters.add(seater);
   const off = onBroadcast((roomId, e) => {
     const list = roomId === '*' ? [...rooms.values()] : rooms.has(roomId) ? [rooms.get(roomId)] : [];
     for (const r of list) toRoom(r, { t: 'event', e });
   });
 
   function welcome(c, r) {
-    send(c, { t: 'welcome', now: clock(), id: c.id, you: { id: c.id, name: c.name, slot: c.slot ?? 0 }, full: !c.player, ...(c.extra || {}), max: maxPlayers, count: r.players.size,
+    send(c, { t: 'welcome', now: clock(), id: c.id, you: { id: c.id, name: c.name, slot: c.slot ?? 0 }, full: !c.player, ...(c.player ? {} : { fullText: fullText(maxPlayers) }), ...(c.extra || {}), max: maxPlayers, count: r.players.size,
       players: [...r.players.values()].filter((p) => p !== c).map(pub), chat: r.chat, rec: recorder ? recorder.status(r.id) : null });
   }
   // Någon gick: släpp in den som väntat längst (om rummet var fullt).
@@ -371,11 +384,11 @@ function attachRealtime(server, {
     stats: () => Object.fromEntries([...rooms.values()].map((r) => [r.id, { players: r.players.size, watchers: r.watchers.length, chat: r.chat.length }])),
     // Vid omstart: säg till alla att servern startar om (kod 1012), så de kopplar upp sig igen.
     close(code = 1012, reason = 'Servern startar om') {
-      clearInterval(hb); off(); finders.delete(finder); server.off('upgrade', onUpgrade);
+      clearInterval(hb); off(); finders.delete(finder); seaters.delete(seater); server.off('upgrade', onUpgrade);
       for (const ws of wss.clients) ws.close(code, reason);
       wss.close();
     },
   };
 }
 
-module.exports = { broadcast, onBroadcast, playerPosition, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };
+module.exports = { broadcast, onBroadcast, playerPosition, roomSeat, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };

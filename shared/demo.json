@@ -1,7 +1,5 @@
 {
-  "_about": "The Thursday demo of the FREE version (server env DEMO_PROFILE=1). Read by server/demo.js and the web app (via GET /api/config). Turn the flag off and everything else comes back.",
-  "maxPlayers": 5,
-  "maxMembers": 5,
+  "_about": "The Thursday demo of the FREE version (server env DEMO_PROFILE=1). Read by server/demo.js and the web app (via GET /api/config). Turn the flag off and everything else comes back. Players and members per room: FREE_MAX_PLAYERS (server/entitlements.js).",
   "roomMinutes": 60,
   "warnMinutes": 5,
   "style": { "floor": "betong", "wall": "kakel", "wallColor": "vit", "ceiling": "klassisk" }

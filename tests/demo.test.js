@@ -1,5 +1,5 @@
 // The demo profile (DEMO_PROFILE=1) on the server: config, no uploads, no room editing, free
-// entitlements even with keys, invite-only rooms (single-use links, max 5 members), slots, the
+// entitlements even with keys, invite-only rooms (single-use links, max 4 members = FREE_MAX_PLAYERS), slots, the
 // one-hour expiry (room + recordings deleted, videos/ untouched), the library and its importer.
 // Run: node tests/demo.test.js (part of npm test)
 const fs = require('fs');
@@ -35,7 +35,7 @@ function client(base, room, hello = {}) {
   // ---------- Settings and entitlements ----------
   assert(demoSettings({}) === null && demoSettings({ DEMO_PROFILE: '0' }) === null, 'DEMO_PROFILE unset/0: no demo (the normal app)');
   const st = demoSettings({ DEMO_PROFILE: '1' });
-  assert(st && st.maxPlayers === 5 && st.maxMembers === 5 && st.roomMs === 3600_000 && st.warnMs === 300_000, 'DEMO_PROFILE=1: 5 per room, 5 members, 60 min, warn at 5 min');
+  assert(st && st.maxPlayers === 4 && st.maxMembers === 4 && st.roomMs === 3600_000 && st.warnMs === 300_000, 'DEMO_PROFILE=1: 4 per room, 4 members (the free version: one wall each), 60 min, warn at 5 min');
   assert(demoSettings({ DEMO_PROFILE: '1', DEMO_ROOM_MINUTES: '2' }).roomMs === 120_000, 'DEMO_ROOM_MINUTES overrides the hour (tests/rehearsals)');
   assert(DEMO.style.floor === 'betong' && DEMO.style.wall === 'kakel' && DEMO.style.ceiling === 'klassisk', 'preset: concrete floor, tiled walls, classic ceiling');
   const KEY = 'demo-key-1234567890';
@@ -71,14 +71,14 @@ function client(base, room, hello = {}) {
       send({ t: 'invite', ok: true, status: await demo.inviteStatus(c.room, c.member) });
     },
   };
-  rt = attachRealtime(server, { maxPlayers: 5, heartbeatMs: 500, gate, entitle: entDemo, clock, recorder });
+  rt = attachRealtime(server, { maxPlayers: st.maxPlayers, heartbeatMs: 500, gate, entitle: entDemo, clock, recorder });
   const base = `http://127.0.0.1:${server.address().port}`;
   const all = [];
   const join = (room, hello) => { const c = client(base, room, hello); all.push(c); return c; };
   const J = (r) => r.json();
   try {
     const cfg = await J(await fetch(`${base}/api/config`));
-    assert(cfg.demo === true && cfg.maxPlayers === 5 && cfg.roomMinutes === 60 && cfg.warnMinutes === 5 && cfg.style.wall === 'kakel', 'GET /api/config tells the web app it is the demo (5 per room, 60 min, preset)');
+    assert(cfg.demo === true && cfg.maxPlayers === 4 && cfg.roomMinutes === 60 && cfg.warnMinutes === 5 && cfg.style.wall === 'kakel', 'GET /api/config tells the web app it is the demo (4 per room, 60 min, preset)');
     const libRes = await J(await fetch(`${base}/api/library`));
     assert(libRes.stickers.length === lib.length && libRes.stickers.every((s) => s.url === `/uploads/${s.id}.webp` && s.artist && s.library), 'GET /api/library lists the curated stickers with url and artist');
     assert((await fetch(`${base}/uploads/${lib[0].id}.webp`)).status === 200, 'a library image is served from /uploads like any sticker');
@@ -110,10 +110,10 @@ function client(base, room, hello = {}) {
     assert(den && den.code === 'invite' && (await stranger.waitClosed()) === 4003 && !stranger.msgs.some((m) => m.t === 'welcome'), 'no invite, no key: denied ("invite-only"), socket closed 4003, never welcomed (no watching either)');
     const owner = join(R, { name: 'Jens', pass: { roomKey: RK } }); await owner.ready;
     const ow = await owner.wait((m) => m.t === 'welcome');
-    assert(ow && ow.member === 'owner' && ow.expiresAt === made.room.expiresAt && ow.serverNow && ow.you.slot === 0 && ow.max === 5, 'the creator (room key) gets in as member "owner", slot 0, with expiresAt and the server time');
+    assert(ow && ow.member === 'owner' && ow.expiresAt === made.room.expiresAt && ow.serverNow && ow.you.slot === 0 && ow.max === 4, 'the creator (room key) gets in as member "owner", slot 0, with expiresAt and the server time');
     owner.send({ t: 'invite', action: 'status' });
     const s0 = await owner.wait((m) => m.t === 'invite' && m.status);
-    assert(s0.status.state === 'none' && s0.status.left === 4, 'invite status: none yet, 4 places left');
+    assert(s0.status.state === 'none' && s0.status.left === 3, 'invite status: none yet, 3 places left');
     owner.send({ t: 'invite', action: 'create' });
     const inv1 = await owner.wait((m) => m.t === 'invite' && m.token);
     assert(inv1 && /^[A-Za-z0-9_-]{20,}$/.test(inv1.token) && inv1.status.state === 'open', 'the creator gets a single-use invite token');
@@ -142,8 +142,8 @@ function client(base, room, hello = {}) {
     const marika2 = join(R, { name: 'Marika', pass: { member: mw.pass } }); await marika2.ready;
     const mw2 = await marika2.wait((m) => m.t === 'welcome');
     assert(mw2 && mw2.member === mw.member && !mw2.pass, 'Marika comes back (reload) with her member key: same member, no new key');
-    // Chain: Marika → A → B → C. That makes 5; nobody can invite a sixth.
-    const chain = [marika2]; const welSlots = [mw2.you.slot]; const names = ['Chattis', 'Ulla', 'Sylvester'];
+    // Chain: Marika → A → B. That makes 4; nobody can invite a fifth.
+    const chain = [marika2]; const welSlots = [mw2.you.slot]; const names = ['Chattis', 'Ulla'];
     for (const n of names) {
       const inviter = chain[chain.length - 1]; inviter.msgs.length = 0; inviter.send({ t: 'invite', action: 'create' });
       const t = await inviter.wait((m) => m.t === 'invite' && m.token);
@@ -154,8 +154,8 @@ function client(base, room, hello = {}) {
     }
     const last = chain[chain.length - 1]; last.msgs.length = 0; last.send({ t: 'invite', action: 'create' });
     const full = await last.wait((m) => m.t === 'invite');
-    assert(full.ok === false && full.code === 'full', 'five members (creator + 4): the fifth cannot invite a sixth ("full")');
-    assert(new Set([0, ...welSlots]).size === 5, `five people, five different slots (${[0, ...welSlots].join(',')})`);
+    assert(full.ok === false && full.code === 'full', 'four members (creator + 3): the fourth cannot invite a fifth ("full")');
+    assert(new Set([0, ...welSlots]).size === 4, `four people, four different slots (${[0, ...welSlots].join(',')})`);
 
     // ---------- Slapping: only connected members, library artist wins ----------
     const body = (by) => ({ imageId: lib[1].id, position: [0, 1.5, -4.99], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'wall-back', artist: 'Not me', by });
