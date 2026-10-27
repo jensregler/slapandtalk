@@ -26,44 +26,51 @@ const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
   const a = peelPlan('abc123', from, target), b = peelPlan('abc123', from, target), c = peelPlan('xyz789', from, target);
   assert(JSON.stringify(a) === JSON.stringify(b) && (a.x !== c.x || a.z !== c.z), 'samma seed ger exakt samma landning, ett annat seed en annan');
   assert(JSON.stringify(pathParams('abc123')) === JSON.stringify(pathParams('abc123')), 'banan (svaj, tumling, falltid) är också bestämd av seedet');
-  assert(a.start[1] === PEEL.birthHeight, `pappret föds i höfthöjd (${PEEL.birthHeight} m)`);
+  assert(a.start[1] === target[1], `pappret föds i släphöjd: på klibbans egen höjd (${target[1]} m), inte i höfthöjd`);
+  // Olika väggslappar: starten följer släphöjden (lågt, högt), några cm ut från klibban mot den som slappade
+  for (const y of [0.3, 1.0, 2.2, 3.5]) {
+    const f = { x: 0, z: 0, yaw: 0 }, t = [0, y, -4.88], p = peelPlan('h' + y, f, t);
+    assert(p.start[1] === y && near(p.start[0], 0, 1e-3) && near(p.start[2], -4.88 + PEEL.birthOff, 1e-3), `väggslap på ${y} m: pappret föds på ${y} m, ${PEEL.birthOff * 100} cm ut från väggen`);
+  }
   let ok = 0; const durs = [], drifts = [];
   for (let i = 0; i < 300; i++) {
     const f = { x: (i % 7) - 3, z: (i % 5) - 2, yaw: i * 0.37 };
     const t = [f.x + Math.cos(i) * 2, 1.2, f.z + Math.sin(i) * 2];
     const p = peelPlan('s' + i, f, t), side = slapSide(f, t);
-    const [rx, rz] = [Math.cos(f.yaw), -Math.sin(f.yaw)];
-    const outward = ((p.start[0] - f.x) * rx + (p.start[2] - f.z) * rz) * side > 0;
     const d = Math.hypot(p.x - p.start[0], p.z - p.start[2]);
     drifts.push(d); durs.push(pathParams('s' + i).dur);
     const mx = ROOM.width / 2 - PEEL.wallMargin, mz = ROOM.depth / 2 - PEEL.wallMargin;
     const inside = Math.abs(p.x) <= mx + 1e-9 && Math.abs(p.z) <= mz + 1e-9;
     const clamped = Math.abs(Math.abs(p.x) - mx) < 1e-3 || Math.abs(Math.abs(p.z) - mz) < 1e-3;
-    // född på linjen mot slappen (högst birthSide vid sidan), högst birthAlongMax ut
-    const dx = (t[0] - f.x) / 2, dz = (t[2] - f.z) / 2, sx = p.start[0] - f.x, sz = p.start[2] - f.z;
-    const along = sx * dx + sz * dz, offLine = Math.abs(sx * dz - sz * dx);
-    const onLine = along > 0 && along <= PEEL.birthAlongMax + PEEL.birthSide + 1e-3 && offLine <= PEEL.birthSide + 1e-3;
+    // född vid slappen: på dess höjd, birthOff ut från den mot den som slappade (inne i rummet)
+    const atSlap = p.start[1] === t[1] && (Math.hypot(p.start[0] - t[0], p.start[2] - t[2]) <= PEEL.birthOff + 1e-3 || Math.abs(Math.abs(p.start[0]) - mx) < 1e-3 || Math.abs(Math.abs(p.start[2]) - mz) < 1e-3);
     const nearFoot = Math.hypot(p.x - t[0], p.z - t[2]) <= PEEL.footBack + PEEL.footScatter + 1e-3;
-    if (outward && p.side === side && inside && onLine && (nearFoot || clamped) && p.yaw >= 0 && p.yaw < Math.PI * 2) ok++;
+    if (p.side === side && inside && atSlap && (nearFoot || clamped) && p.yaw >= 0 && p.yaw < Math.PI * 2) ok++;
   }
-  assert(ok === 300, 'föds i höfthöjd på linjen mot slappen (armens sida), landar vid foten av slappen inne i rummet med slumpad vridning');
+  assert(ok === 300, 'föds i släphöjd vid slappen (armens sida räknas fortfarande), landar vid foten av slappen inne i rummet med slumpad vridning');
   // Golvklibba: pappret landar lite framför klibban (mot den som slappade), inte ovanpå den
   let floorOk = 0;
   for (let i = 0; i < 100; i++) {
     const f = { x: 0, z: 0, yaw: i * 0.5 }, t = [Math.cos(i) * 1.5, 0, Math.sin(i) * 1.5];
     const p = peelPlan('g' + i, f, t), foot = [t[0] * (1 - PEEL.footBackFloor / 1.5), t[2] * (1 - PEEL.footBackFloor / 1.5)];
-    if (Math.hypot(p.x - foot[0], p.z - foot[1]) <= PEEL.footScatter + 1e-3) floorOk++;
+    const born = p.start[1] === PEEL.birthFloorLift && Math.hypot(p.start[0] - t[0], p.start[2] - t[2]) <= PEEL.birthOff + 1e-3;
+    let down = true, prevY = Infinity;
+    for (let k = 0; k <= 50; k++) { const y = peelPose({ seed: 'g' + i, ...p }, k / 50).p[1]; if (y > prevY + 1e-9) down = false; prevY = y; }
+    if (born && down && Math.hypot(p.x - foot[0], p.z - foot[1]) <= PEEL.footScatter + 1e-3) floorOk++;
   }
-  assert(floorOk === 100, `golvklibba: pappret landar ${PEEL.footBackFloor} m framför den (±${PEEL.footScatter} m), inte ovanpå`);
+  assert(floorOk === 100, `golvklibba: pappret föds ${PEEL.birthFloorLift * 100} cm över klibban, sjunker hela vägen (ingen hoppning uppåt) och landar ${PEEL.footBackFloor} m framför den (±${PEEL.footScatter} m), inte ovanpå`);
   // Takklibba rakt ovanför: pappret faller nästan rakt ner, bredvid gubben
   const up = peelPlan('tak', { x: 1, z: 1, yaw: 0 }, [1.2, 4, 1]);
-  assert(Math.hypot(up.x - 1.2, up.z - 1) <= PEEL.footBack + PEEL.footScatter && up.start[1] === PEEL.birthHeight, 'takklibba: pappret landar under slappen');
+  assert(Math.hypot(up.x - 1.2, up.z - 1) <= PEEL.footBack + PEEL.footScatter && up.start[1] === ROOM.height - PEEL.birthCeilingGap, 'takklibba: pappret föds strax under taket och landar under slappen');
+  // Landningen är oförändrad (samma slump som förut): bara starten har flyttats
+  const wall = peelPlan('abc123', from, [3, 0.4, -5]);
+  assert(wall.x === a.x && wall.z === a.z && wall.yaw === a.yaw, 'landningsplatsen beror inte på släphöjden (samma som förut)');
   assert(Math.min(...durs) >= PEEL.fallMin && Math.max(...durs) <= PEEL.fallMax, `falltiden är ${PEEL.fallMin}–${PEEL.fallMax} s`);
   const peel = { seed: 'abc123', ...a };
   const p0 = peelPose(peel, 0), p1 = peelPose(peel, 1), mid = peelPose(peel, 0.5);
   const flat = flatQuat(a.yaw);
   assert(p0.p.every((v, i) => near(v, a.start[i])) && near(p1.p[0], a.x) && near(p1.p[2], a.z) && near(p1.p[1], PEEL.floorY) && p1.q.every((v, i) => near(v, flat[i])),
-    'banan börjar vid höften och slutar platt på golvet exakt där servern sparade landningen');
+    'banan börjar vid slappen och slutar platt på golvet exakt där servern sparade landningen');
   const straight = [a.start[0] + (a.x - a.start[0]) * 0.5, a.start[2] + (a.z - a.start[2]) * 0.5];
   let maxOff = 0, monotone = true, prevY = Infinity;
   for (let i = 0; i <= 50; i++) {
@@ -71,7 +78,7 @@ const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
     maxOff = Math.max(maxOff, off); if (i > 25 && q.p[1] > prevY + 1e-9) monotone = false; prevY = q.p[1];
   }
   const tilt = Math.abs(peelPose(peel, 0.3).q[3] - flat[3]) + Math.abs(peelPose(peel, 0.3).q[0] - flat[0]);
-  assert(maxOff > 0.02 && mid.p[1] > PEEL.floorY && mid.p[1] < PEEL.birthHeight && monotone && tilt > 0.05 && straight,
+  assert(maxOff > 0.02 && mid.p[1] > PEEL.floorY && mid.p[1] < a.start[1] && monotone && tilt > 0.05 && straight,
     `inte rakt ner: banan svänger (${maxOff.toFixed(2)} m från raka linjen), tumlar och sjunker mot golvet`);
 }
 

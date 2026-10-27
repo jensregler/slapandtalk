@@ -83,7 +83,7 @@ export class PeelLayer {
     } else g.edge.setMatrixAt(i, _m.makeScale(0, 0, 0));
     if (u >= 1 && !e.landed) { e.landed = true; this.falling.delete(it.id); this.landedCount++; if (this.onLand) this.onLand(e.peel, e.by); }
   }
-  // peel = { id, imageId, w, h, seed, start, x, z, yaw }. animate = fall from the hip (a new slap).
+  // peel = { id, imageId, w, h, seed, start, x, z, yaw }. animate = fall from the slap (a new slap).
   // by: who slapped it ('me' or a player id) – the landing "duff" uses their sound (onLand).
   // born (replay): when it was slapped, on the now() clock; it falls if that was < dur ago.
   async add(peel, image, { animate = false, by = null, born = null } = {}) {

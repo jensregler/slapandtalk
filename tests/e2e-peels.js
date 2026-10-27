@@ -31,7 +31,7 @@ async function peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN }) {
     assert((await A.evaluate(() => window.klibb.peels().on)) && (await A.isVisible('#peels-clear')), 'peels på: B får veta det direkt');
     await A.evaluate(() => document.getElementById('room-menu-btn').click());
 
-    // En slap: pappret faller från höften och landar
+    // En slap: pappret faller från släphöjden (där klibban satt) och landar
     await A.evaluate(() => { const k = window.klibb; k.setView('third', { quiet: true }); k.moveTo(0.4, -3.0); k.look(0.35, 0.12); });
     await A.waitForFunction(() => window.klibb.selfAvatar().visible, null, { timeout: 10000 });
     await A.waitForTimeout(400);

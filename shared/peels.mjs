@@ -1,8 +1,8 @@
 // Peels (backing paper): when a room has peels on, every slap drops the sticker's glossy
 // backing paper, a pure-white copy with the same silhouette, which flutters to the floor and stays.
 // Shared by the browser, the server and the tests, so everyone computes the same thing:
-//   - peelPlan(seed, from, target): where it is born (hip height, on the line from the slapper towards
-//     the slap) and where it lands (near the foot of the slap: the wall base, or just short of a floor
+//   - peelPlan(seed, from, target): where it is born (at the slap itself: the sticker's own height on
+//     the wall, just off its surface) and where it lands (near the foot of the slap: the wall base, or just short of a floor
 //     sticker). Deterministic from the seed (the slap's nonce, or the stamp id), the server stores it.
 //   - peelPose(peel, u): position + rotation along the scripted fall path at u = 0..1 (no physics).
 //   - overlapFraction(sticker, peels): how much of a new floor sticker lies on peels (easter egg:
@@ -13,10 +13,10 @@ import ROOM from './room.json' with { type: 'json' };
 export const PEEL = {
   maxPerRoom: 300,          // oldest peels go first
   refuseOverlap: 0.4,       // a floor sticker more than this much on peels doesn't stick
-  birthHeight: 1.0,         // m: hip height of the slapping player
-  birthAlong: 0.5,          // born this fraction of the way from the slapper towards the slap …
-  birthAlongMax: 0.9,       // m: … but at most this far out (it comes off at the hand, at hip height)
-  birthSide: 0.12,          // m: a little to the side of the slapping arm
+  birthOff: 0.06,           // m: born this far out from the slapped sticker (towards the slapper), at the slap's own height
+  birthFloorLift: 0.08,     // m: a floor slap's paper comes up this little off the floor (then settles, no hop)
+  birthCeilingGap: 0.06,    // m: a ceiling slap's paper starts at least this far below the ceiling
+  floatRef: 1.0,            // m: the small mid-fall float is full from this start height, smaller below (no upward hop on low starts)
   footBack: 0.22,           // m: lands this far back from the foot of a wall slap (towards the slapper)
   footBackFloor: 0.4,       // m: a floor slap's paper lands this much short of the sticker (not on it)
   footScatter: 0.25,        // m: random scatter around that spot
@@ -67,20 +67,21 @@ export function pathParams(seed) {
 
 // from = { x, z, yaw } of the slapping player, target = [x, y, z] where the sticker landed.
 // Returns the stored part: start (born), x/z/yaw (resting place), side (+1 right / −1 left).
-// Born at hip height on the line from the slapper towards the slap; lands near the foot of the
-// slap (the wall base, right under a ceiling slap, just short of a floor sticker).
+// Born at the slap (the stamp's own height, a few cm out from it towards the slapper); lands near the
+// foot of the slap (the wall base, right under a ceiling slap, just short of a floor sticker).
+// A floor slap is born just above the floor sticker and settles a bit short of it.
 export function peelPlan(seed, from, target, room = ROOM) {
   const r = seeded('land:' + seed);
   const side = slapSide(from, target);
-  const [rx, rz] = rightOf(from.yaw);
   const mx = room.width / 2 - PEEL.wallMargin, mz = room.depth / 2 - PEEL.wallMargin;
   const hx = clamp(from.x, -mx, mx), hz = clamp(from.z, -mz, mz);
   let dx = target[0] - hx, dz = target[2] - hz;
   const D = Math.hypot(dx, dz);
   if (D > 0.05) { dx /= D; dz /= D; } else [dx, dz] = forwardOf(from.yaw); // rakt upp/ner: framåt
-  const a = Math.min(D * PEEL.birthAlong, PEEL.birthAlongMax);
-  const start = [hx + dx * a + rx * PEEL.birthSide * side, PEEL.birthHeight, hz + dz * a + rz * PEEL.birthSide * side];
   const floor = target[1] < 0.15;
+  const off = Math.min(PEEL.birthOff, D);
+  const sy = floor ? PEEL.birthFloorLift : clamp(target[1], PEEL.birthFloorLift, (room.height ?? 4) - PEEL.birthCeilingGap);
+  const start = [clamp(target[0] - dx * off, -mx, mx), sy, clamp(target[2] - dz * off, -mz, mz)];
   const back = Math.min(floor ? PEEL.footBackFloor : PEEL.footBack, D);
   const ang = r() * Math.PI * 2, rad = Math.sqrt(r()) * PEEL.footScatter;
   const x = clamp(target[0] - dx * back + Math.cos(ang) * rad, -mx, mx), z = clamp(target[2] - dz * back + Math.sin(ang) * rad, -mz, mz);
@@ -111,7 +112,7 @@ export function peelPose(peel, u, params = pathParams(peel.seed)) {
   const x = sx + dx * e + px * (bend + sway), z = sz + dz * e + pz * (bend + sway);
   // Height: floats a little, then sinks; lands exactly on the floor at u = 1.
   const fall = u * (0.35 + 0.65 * u);
-  const y = lerp(sy, PEEL.floorY, fall) + Math.sin(u * Math.PI) * 0.04;
+  const y = lerp(sy, PEEL.floorY, fall) + Math.sin(u * Math.PI) * 0.04 * clamp(sy / PEEL.floatRef, 0, 1);
   // Tumbling that unwinds to flat, plus a fading rock.
   const k = (1 - u) ** 1.6;
   const tumble = qAxis(params.axis, params.turns * Math.PI * 2 * k + Math.sin(u * params.swayCycles * Math.PI * 2) * PEEL.flutterTilt * params.flutter * k);
