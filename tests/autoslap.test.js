@@ -59,6 +59,9 @@ const FULL = 'auto-full-key-test1';
     const adds = new Set(log.events.filter((e) => e.e === 'stamp:add').map((e) => e.stamp.id));
     assert([first, ...rest].every((r) => adds.has(r.stamp.id)) && log.events.filter((e) => e.e === 'stamp:remove').length >= 31, 'the recording has every auto slap (stamp:add) and the burst peel');
     assert(!log.events.some((e) => e.stamp && (e.stamp.peelHash || e.stamp.peelOwner)), 'no peel keys in the recording');
+    // Sticker arrays are gone (auto-slap never used them): the endpoint no longer exists.
+    const arr = await fetch(`${base}/api/rooms/${R}/stamps/array`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anchor: { id: first.stamp.id, token: first.peelToken }, to: [1, 1, -5] }) });
+    assert(arr.status === 404, `sticker arrays removed: POST …/stamps/array is gone (${arr.status})`);
 
     // ---------- Rate budget ----------
     const { room: { id: R2 } } = (await json('POST', '/api/rooms', {})).body;

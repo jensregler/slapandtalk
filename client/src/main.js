@@ -32,9 +32,6 @@ import { config } from './config.js';
 import * as demo from './demo.js';
 import { noteVisit } from './landing.js';
 import { Voice } from './voice.js';
-import { ArrayGhosts } from './arraydrag.js';
-import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
-import { boxFaces } from '../../shared/coverage.mjs';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -496,8 +493,8 @@ function hitSurface(ndc) {
 let pendingJitter = 0;
 function nextRotation() { return state.rotation + (state.jitter ? pendingJitter : 0); }
 
-// onStart(info): called the moment the sticker shows (before the server answers), with what a
-// sticker array (hold + drag) needs: where, how, which design, and info.result = this slap's promise.
+// onStart(info): called the moment the sticker shows (before the server answers), with where, how,
+// which design, and info.result = this slap's promise.
 // auto: an auto-slap (autoslap.js) { burst, volume, check(h) }: quiet when it can't slap (no "too far",
 // no "nope"), and it joins the burst's first sticker's peel key (one undo step per burst).
 function stampAt(ndc, { onStart = null, auto = null } = {}) {
@@ -611,119 +608,8 @@ function dropPending(nonce) {
   pendingSlaps.delete(nonce); stamps.remove(p.tempId); updateCount();
 }
 
-// ---------- Sticker arrays: slap at A, keep the button held, look toward B ----------
-// While held, see-through ghosts repeat the sticker from A toward the crosshair, edge to edge on A's
-// face (spacing: shared/array.mjs; never round a corner). Release = all copies at once (optimistic,
-// like a slap; the server recomputes the row from the saved anchor: POST …/stamps/array). Esc,
-// right-click, leaving pointer lock or Look mode = cancel the copies (A stays). A plain click is
-// exactly a slap. The row is ONE peel step: A's history entry gets extra = the copies' ids.
-// Desktop only (on touch a drag looks around).
+// Left mouse button held down (desktop): auto-slap pauses meanwhile (autoSlapBlock 'drag').
 let mouseHeld = false;
-let arrayDrag = null; // { a: stampAt info, w, h, face, to: Vector3|null, items }
-const arrayOps = []; // released rows waiting for the server (Z peels the newest as one step)
-const ARRAY_FACES = boxFaces();
-const ghosts = new ArrayGhosts(scene, stamps.faces);
-const arrayPlane = new THREE.Plane(), arrayHit = new THREE.Vector3();
-function startArray(a) {
-  const [w, h] = StampLayer.dims(a.design, a.size);
-  arrayDrag = { a, w, h, face: faceFor(ARRAY_FACES, a.surface, a.point.toArray(), a.normal.toArray()), to: null, items: [] };
-  arrayPlane.setFromNormalAndCoplanarPoint(a.normal, a.point);
-  ghosts.setTexture(null);
-  stamps.texture(a.design).then((t) => { if (arrayDrag && arrayDrag.a === a) ghosts.setTexture(t); }).catch(() => {});
-}
-// Every frame while dragging: B = where the crosshair's ray meets A's plane. Returns the ghost count.
-function updateArray() {
-  const d = arrayDrag;
-  aimRay(CENTER);
-  if (raycaster.ray.intersectPlane(arrayPlane, arrayHit)) d.to = arrayHit.clone(); // looking away from the plane: keep the last B
-  d.items = d.to ? arrayPlan({ position: d.a.point.toArray(), quaternion: d.a.q.toArray(), surface: d.a.surface }, d.w, d.h, d.to.toArray()).items.filter((x) => x.i > 0) : [];
-  if (d.items.length) ghosts.show(d.items, d.a.q, d.a.normal, d.w, d.h, d.a.surface, d.face); else ghosts.hide();
-  return d.items.length;
-}
-function cancelArray() { if (!arrayDrag) return; arrayDrag = null; ghosts.hide(); }
-// Others' rows: one slap sound per row (the copies arrive as separate stamp:add events).
-const rowsHeard = new Map();
-function rowHeard(g) {
-  const now = performance.now();
-  for (const [k, t] of rowsHeard) if (now - t > 5000) rowsHeard.delete(k);
-  if (rowsHeard.has(g)) return true;
-  rowsHeard.set(g, now); return false;
-}
-function commitArray() {
-  const d = arrayDrag; arrayDrag = null; ghosts.hide();
-  if (!d || !d.to) return null;
-  const items = d.items.length ? d.items : [];
-  if (!items.length) return null;
-  const { a } = d, design = a.design;
-  const from = { x: camera.position.x, z: camera.position.z, yaw: controls.yaw };
-  const op = { a, temps: [], peeled: false, done: null };
-  let settle; const settled = new Promise((r) => { settle = r; });
-  const now = new Date().toISOString();
-  let papers = 0;
-  for (const { i, position } of items) {
-    const nonce = `${a.nonce}x${i}`;
-    myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
-    const tempId = 'tmp-' + nonce;
-    pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, row: a.nonce });
-    stamps.add({ ...a.temp, id: tempId, position, order: stamps.topOrder() + 1, createdAt: now, pending: true }, design).then(updateCount);
-    if (peelLayer.on && papers < PEELS_PER_ARRAY) {
-      papers++;
-      const [pw, ph] = stampDims(design, a.size);
-      peelLayer.add({ id: tempId, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, from, position) }, design, { animate: true, by: 'me' });
-    }
-    op.temps.push({ i, nonce, tempId });
-  }
-  // A quick, soft rattle along the row (A already made the real slap sound on the way down).
-  for (let k = 0; k < Math.min(3, items.length); k++) setTimeout(() => sound.play('slap', null, { volume: 0.4 - k * 0.1 }), 45 * (k + 1));
-  arrayOps.push(op);
-  const dropAll = () => { for (const t of op.temps) { dropPending(t.nonce); peelLayer.remove([t.tempId]); } };
-  op.done = (async () => {
-    try {
-      const anchor = await a.result; // the first sticker's own slap (it may still be on its way)
-      if (!anchor || op.peeled) { dropAll(); return; }
-      const hist = roomHistory(ROOM).find((x) => x.stampId === anchor.id);
-      if (!hist) { dropAll(); return; } // peeled (or gone) before the row got there
-      let res;
-      try {
-        res = await api.addArray(ROOM, { anchor: { id: anchor.id, token: hist.token }, to: d.to.toArray(), nonce: a.nonce,
-          ...(together.net.id ? { by: together.net.id } : {}), peelFrom: { p: [from.x, from.z], yaw: from.yaw } });
-      } catch (err) {
-        dropAll();
-        if (err.nope) nope(); else if (!err.gone) toast(err.status === 429 ? S.slowDown : err.message);
-        return;
-      }
-      const got = new Map(res.stamps.map((x) => [x.i, x]));
-      for (const t of op.temps) {
-        const r = got.get(t.i);
-        if (!r) { dropPending(t.nonce); peelLayer.remove([t.tempId]); continue; }
-        confirmSlap(t.nonce, r.stamp, res.image);
-        if (r.peel) { if (!peelLayer.confirm(t.tempId, r.peel)) peelLayer.add(r.peel, res.image, { animate: false }); } else peelLayer.remove([t.tempId]);
-      }
-      const ids = res.stamps.map((x) => x.stamp.id);
-      const cur = roomHistory(ROOM).find((x) => x.stampId === anchor.id);
-      if (op.peeled) { // Z while the row was on its way: peel the copies too (same key), quietly
-        for (const id of ids) peelWhenSaved.delete(id);
-        startPeel([{ ...hist, stampId: ids[0], extra: ids.slice(1) }], { quiet: true });
-      } else if (cur && ids.length) addHistory({ ...cur, extra: ids });
-      updateCount(); renderHistory();
-    } finally {
-      settle();
-      const k = arrayOps.indexOf(op); if (k >= 0) arrayOps.splice(k, 1);
-    }
-  })();
-  return op.done;
-}
-// Z while a row is on its way to the server: it all goes at once (the anchor too), as one step.
-function peelArrayOp(op) {
-  op.peeled = true;
-  peelGesture(op.temps[0]?.tempId);
-  for (const t of op.temps) { const p = pendingSlaps.get(t.nonce); if (p) p.peel = true; stamps.peelAway(t.tempId); peelLayer.remove([t.tempId]); }
-  const pa = pendingSlaps.get(op.a.nonce);
-  if (pa) { pa.peel = true; stamps.peelAway(pa.tempId).then(updateCount); } // the anchor itself is still pending
-  else op.a.result.then((st) => { const h = st && roomHistory(ROOM).find((x) => x.stampId === st.id); if (h) startPeel([h], { quiet: true }); });
-  sound.play('peel'); toast(S.peeled, 900);
-  return op.done.then(() => op.a.result).then(() => peelSettled()).then(() => true);
-}
 
 // ---------- Admin (dold): öppna sidan med ?admin=NYCKEL ----------
 async function initAdmin() {
@@ -775,7 +661,6 @@ function action(ndc, opts) {
 // R byter fortfarande design (man stannar i Tittläge), så man kan förbereda nästa klibba.
 function setMode(mode, { quiet = false } = {}) {
   state.mode = mode === 'view' ? 'view' : 'slap';
-  if (state.mode === 'view') cancelArray();
   const view = state.mode === 'view';
   document.body.classList.toggle('view-mode', view);
   if (view) preview.hide(); else hideCredit();
@@ -809,7 +694,8 @@ const peeling = new Map(); // stampId -> historikpost: peelad på skärmen, serv
 let peelOutbox = []; // väntar på att skickas
 let peelInFlight = null;
 const peelable = () => roomHistory(ROOM).filter((h) => !peeling.has(h.stampId));
-// A history entry is one peel step: one sticker, or a whole sticker array (the anchor + h.extra).
+// A history entry is one peel step: one sticker, or a whole auto-slap burst (the first + h.extra;
+// older entries from the removed sticker arrays look the same).
 const idsOf = (h) => [h.stampId, ...(Array.isArray(h.extra) ? h.extra : [])];
 
 // Peela de här posterna direkt på skärmen och skicka dem till servern. Returnerar antal.
@@ -840,7 +726,7 @@ function peelGesture(id) {
 function flushPeels() {
   if (peelInFlight) return peelInFlight;
   if (!peelOutbox.length) return Promise.resolve();
-  // At most 200 stickers per call (the server's limit); a sticker array is never split.
+  // At most 200 stickers per call (the server's limit); a burst is never split.
   const batch = []; let n = 0;
   while (peelOutbox.length && (!batch.length || n + idsOf(peelOutbox[0]).length <= 200)) { const h = peelOutbox.shift(); batch.push(h); n += idsOf(h).length; }
   peelInFlight = (async () => {
@@ -864,9 +750,6 @@ function flushPeels() {
 async function peelSettled() { while (peelInFlight || peelOutbox.length) await flushPeels(); }
 
 function peelLast() {
-  // A sticker array still on its way to the server: the whole row (and its anchor) goes, as one step.
-  const op = last(arrayOps.filter((o) => !o.peeled));
-  if (op) return peelArrayOp(op);
   // Den senaste klibban väntar fortfarande på servern: peela den direkt på skärmen, och på
   // riktigt så fort servern har svarat (annars skulle ↩ ta klibban före).
   const pend = last([...pendingSlaps.values()].filter((p) => !p.peel));
@@ -1147,7 +1030,6 @@ function escTarget() {
 }
 function onEscape(e) {
   if (e.key !== 'Escape' || e.defaultPrevented) return;
-  if (arrayDrag) { e.preventDefault(); cancelArray(); return; } // Esc while dragging: no copies (the first sticker stays)
   if (endDlg.open || linkDlg.open) return;          // <dialog> closes itself on Esc
   if (together.chatOpen()) return;                   // the chat input closes itself (together.js)
   if (isTyping(e)) { e.target.blur(); return; }      // first Esc just leaves the text field
@@ -1161,7 +1043,6 @@ function onEscape(e) {
 }
 addEventListener('keydown', onEscape);
 controls.onLockChange = (locked) => {
-  if (!locked) cancelArray(); // Esc leaves pointer lock first: that cancels a sticker array too
   // Esc (the player left the game) turns auto-slap off; our own unlocks (menus, chat) and a hidden tab only pause it.
   if (!locked && autoSlap && autoSlap.on && performance.now() - softUnlockAt > 400 && document.visibilityState === 'visible' && document.hasFocus()) autoSlap.setOn(false);
   if (!locked) escGate.unlockedAt = performance.now();
@@ -1180,16 +1061,10 @@ if (!isTouch) {
     if (!controls.locked) controls.lock();
     else if (placingCam) placeCamAt(CENTER); // ＋ Add cameraman: this click sets where it starts
     else if (state.mode === 'view') clickCredit(); // Look mode: click a sticker = who made it? (never slaps)
-    else {
-      // Hold the button and look/drag away: the sticker repeats toward the crosshair (sticker arrays).
-      mouseHeld = true;
-      action(CENTER, { onStart: (a) => { if (mouseHeld && controls.locked && state.mode === 'slap') startArray(a); } });
-    }
+    else { mouseHeld = true; action(CENTER); }
   });
-  addEventListener('mouseup', (e) => { if (e.button !== 0) return; mouseHeld = false; if (arrayDrag) commitArray(); });
-  // Right-click while dragging: cancel the copies (the first sticker stays).
-  canvas.addEventListener('mousedown', (e) => { if (e.button === 2 && arrayDrag) { e.preventDefault(); cancelArray(); } });
-  canvas.addEventListener('contextmenu', (e) => { if (arrayDrag || controls.locked) e.preventDefault(); });
+  addEventListener('mouseup', (e) => { if (e.button !== 0) return; mouseHeld = false; });
+  canvas.addEventListener('contextmenu', (e) => { if (controls.locked) e.preventDefault(); });
   addEventListener('wheel', (e) => { if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
   addEventListener('keydown', (e) => {
     if (isTyping(e)) return; // inte medan man skriver
@@ -1417,12 +1292,10 @@ function onRoomEvent(e) {
     // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
     if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); if (e.peel) peelLayer.confirm('tmp-' + e.nonce, e.peel); return; } // min egen, redan synlig
     if (e.peel && !(e.nonce && myNonces.has(e.nonce))) peelLayer.add(e.peel, e.image, { animate: true, by: e.by }); // någon annans papper faller
-    // A sticker array comes as one stamp:add per copy (e.batch = { g, i, n }): one sound, one gesture per row.
-    const quietCopy = !!(e.batch && typeof e.batch.g === 'string' && rowHeard(e.batch.g));
-    if (!quietCopy && !(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id)) sound.play('slap', e.stamp.position, { sound: together.voiceOf(e.by) });
+    if (!(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id)) sound.play('slap', e.stamp.position, { sound: together.voiceOf(e.by) });
     // Någon annans slap: deras gubbe slår handen mot väggen samtidigt som klibban dyker upp.
     // (by saknas från äldre klienter: då syns bara klibban, som förut.)
-    if (!quietCopy && typeof e.by === 'string' && e.by !== together.net.id && !stamps.meshes.has(e.stamp.id)) together.players.gesture(e.by, 'slap', e.stamp.position, e.stamp.normal);
+    if (typeof e.by === 'string' && e.by !== together.net.id && !stamps.meshes.has(e.stamp.id)) together.players.gesture(e.by, 'slap', e.stamp.position, e.stamp.normal);
     stamps.add(e.stamp, e.image).then(updateCount);
   } else if (e.type === 'stamp:remove' && e.quiet) {
     // The automatic cleanup: a sticker nobody could see any more (completely covered). No sound.
@@ -1553,7 +1426,7 @@ function autoCanFire() {
   if (document.visibilityState !== 'visible') return 'hidden';
   if (sp.open || together.busy() || together.chatOpen() || !$('more-panel').hidden || endDlg.open || linkDlg.open) return 'menu';
   if (camView || placingCam) return 'camera';
-  if (arrayDrag || mouseHeld) return 'drag';
+  if (mouseHeld) return 'drag';
   if (!state.selected || state.adminToken) return 'nodesign';
   return true;
 }
@@ -1969,8 +1842,7 @@ function frame() {
   voice.update();
   updateCredit();
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
-  if (arrayDrag && controls.locked && updateArray()) preview.hide(); // dragging a row: the ghosts are the preview
-  else if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
+  if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
     if (h) {
       const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100));
@@ -2026,7 +1898,6 @@ window.klibb = {
   look(yaw, pitch) { controls.yaw = yaw; controls.pitch = pitch; controls.apply(); },
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
-  arrayState: () => ({ dragging: !!arrayDrag, ghosts: ghosts.count, inFlight: arrayOps.length, items: arrayDrag ? arrayDrag.items.length : 0 }), arrayPlan,
   pendingSlaps: () => pendingSlaps.size, // klibbor som syns men inte är bekräftade av servern än
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
   net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
