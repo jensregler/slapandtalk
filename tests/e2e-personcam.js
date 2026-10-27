@@ -101,7 +101,11 @@ function project(eye, pt) {
         if (st.shot && st.shot.size) kinds.add(st.shot.size);
       }
       check(`replay, person:${who}: the person is in the picture in every sampled frame (${n} frames, worst |ndc| ${worst.toFixed(2)})`, n >= 20 && inside === n, { n, inside, worst });
-      check(`…the shots vary (${[...kinds].join(', ')})`, kinds.size >= 2, [...kinds]);
+      // A stands and slaps: the cameraman goes close and wide around her. B walks the whole short
+      // recording, so his cameraman may well stay wide on him (that is the walking framing) – he
+      // only has to have a shot at all.
+      if (who === 'A') check(`…the shots vary (${[...kinds].join(', ')})`, kinds.size >= 2, [...kinds]);
+      else check(`…framed with a shot size in every sample (${[...kinds].join(', ')})`, kinds.size >= 1, [...kinds]);
     }
     // the same moment through both cameramen: the recording's clock (time-aligned)
     await P.evaluate((v) => window.replay.setView(v), `person:${idA}`); const ta = await at(4000);

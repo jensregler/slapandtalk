@@ -71,6 +71,15 @@ function client(base, room, hello = {}) {
     assert(rAnon.status === 409, 'a slap with no player id while the room is full is refused too (can\'t get around it)');
     const rIn = await slap(four[1].w.id);
     assert(rIn.status === 200, 'the four inside slap as usual');
+    // Sticker arrays (POST …/stamps/array) follow the same full-room rule.
+    const anc = await rIn.json();
+    const row = (by) => fetch(`${base}/api/rooms/rum4/stamps/array`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ anchor: { id: anc.stamp.id, token: anc.peelToken }, to: [1.2, 1, -5], ...(by ? { by } : {}) }) });
+    const rRow5 = await row(we.id), jRow5 = await rRow5.json();
+    assert(rRow5.status === 409 && jRow5.full === true, 'the fifth cannot drag out a sticker array either: …/stamps/array answers 409 full');
+    assert((await row(null)).status === 409, '…nor without a player id');
+    const rRowIn = await row(four[1].w.id), jRowIn = await rRowIn.json();
+    assert(rRowIn.status === 200 && jRowIn.stamps && jRowIn.stamps.length > 0, `the four inside drag out arrays as usual (${jRowIn.stamps && jRowIn.stamps.length} copies)`);
     const rAdmin = await slap(null, { 'x-admin-token': 'hemligt-test' });
     assert(rAdmin.status === 200, 'admin is not limited');
     const other = await fetch(`${base}/api/rooms/annat-rum/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },

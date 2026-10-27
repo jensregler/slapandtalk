@@ -735,6 +735,14 @@ exactly a slap, as before. **Desktop only**: on a phone a drag looks around (no 
 - **Peels (backing paper):** A drops its paper as usual, plus one for each of the first 4 copies
   (5 at most per row) so a long row doesn't bury the floor.
 - **Sound:** A's normal slap on the way down, then a short soft rattle (three quiet taps) on release.
+- **Fallback** (arrays work in some browsers and not in others): whatever fails on the array path,
+  a click is still exactly ONE sticker – the first one is an ordinary slap of its own. A click and
+  release without a drag = one; starting the row, the ghosts or the release throwing = the row is
+  dropped, the first sticker stays; `…/stamps/array` failing = the copies go, the first stays (404/405/
+  501 = an older server: arrays off for the session, plain slaps); a browser that cannot lock the
+  pointer at all (it never locked once) = a click slaps one where it lands. Clicks on the desktop
+  sticker strip never slap or start a row. Tests: `tests/e2e-arrayfallback.js`.
+- **Room limit:** `…/stamps/array` answers 409 `{ full }` like `…/stamps` (tests/roomlimit.test.js).
 - **Demo:** works the same (not a paid control). Tests: `tests/array.test.mjs`, `tests/e2e-array.js`.
 
 ### Startstorlek från filnamnet (A_, B_, … Z_)

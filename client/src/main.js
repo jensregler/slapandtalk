@@ -593,7 +593,11 @@ async function slapAt(ndc, info, onStart, auto = null) {
   let settle; const settled = new Promise((r) => { settle = r; });
   pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, ...(auto ? { burst: auto.burst } : {}) });
   stamps.add(temp, design).then(updateCount);
-  if (onStart) { Object.assign(info, { point: h.point.clone(), normal: h.normal.clone(), q: q.clone(), size: slapSize, surface: h.surface, design, nonce, temp }); onStart(info); }
+  if (onStart) {
+    Object.assign(info, { point: h.point.clone(), normal: h.normal.clone(), q: q.clone(), size: slapSize, surface: h.surface, design, nonce, temp });
+    // The array path must never cost the slap itself: if starting a row fails, this is a plain slap.
+    try { onStart(info); } catch (err) { arrayFailed('start', err); }
+  }
   const burst = auto && auto.burst, firstOfBurst = !!burst && auto.first;
   try {
     if (burst && !firstOfBurst) { // join the burst's first sticker (one peel key = one undo step)
@@ -666,7 +670,18 @@ const arrayOps = []; // released rows waiting for the server (Z peels the newest
 const ARRAY_FACES = boxFaces();
 const ghosts = new ArrayGhosts(scene, stamps.faces);
 const arrayPlane = new THREE.Plane(), arrayHit = new THREE.Vector3();
+// Arrays work in some browsers and not in others. Whatever goes wrong on the array path (starting
+// the row, the ghosts, the release, the server's …/stamps/array), the click is still exactly one
+// sticker – the first one, which is a normal slap of its own. arrayFaults: test hooks only.
+const arrayFaults = { start: false, update: false, commit: false };
+let arraysOff = false; // the server has no …/stamps/array (404/405/501): plain slaps from now on
+function arrayFailed(where, err) {
+  console.warn(`sticker array (${where}) failed – one sticker instead:`, err && err.message ? err.message : err);
+  arrayDrag = null; try { ghosts.hide(); } catch { /* the ghosts themselves may be what failed */ }
+}
 function startArray(a) {
+  if (arraysOff) return;
+  if (arrayFaults.start) throw new Error('test: array start unavailable');
   const [w, h] = StampLayer.dims(a.design, a.size);
   arrayDrag = { a, w, h, face: faceFor(ARRAY_FACES, a.surface, a.point.toArray(), a.normal.toArray()), to: null, items: [] };
   arrayPlane.setFromNormalAndCoplanarPoint(a.normal, a.point);
@@ -676,6 +691,7 @@ function startArray(a) {
 // Every frame while dragging: B = where the crosshair's ray meets A's plane. Returns the ghost count.
 function updateArray() {
   const d = arrayDrag;
+  if (arrayFaults.update) throw new Error('test: array update unavailable');
   aimRay(CENTER);
   if (raycaster.ray.intersectPlane(arrayPlane, arrayHit)) d.to = arrayHit.clone(); // looking away from the plane: keep the last B
   d.items = d.to ? arrayPlan({ position: d.a.point.toArray(), quaternion: d.a.q.toArray(), surface: d.a.surface }, d.w, d.h, d.to.toArray()).items.filter((x) => x.i > 0) : [];
@@ -693,6 +709,7 @@ function rowHeard(g) {
 }
 function commitArray() {
   const d = arrayDrag; arrayDrag = null; ghosts.hide();
+  if (arrayFaults.commit) throw new Error('test: array commit unavailable');
   if (!d || !d.to) return null;
   const items = d.items.length ? d.items : [];
   if (!items.length) return null;
@@ -730,7 +747,8 @@ function commitArray() {
         res = await api.addArray(ROOM, { anchor: { id: anchor.id, token: hist.token }, to: d.to.toArray(), nonce: a.nonce,
           ...(together.net.id ? { by: together.net.id } : {}), peelFrom: { p: [from.x, from.z], yaw: from.yaw } });
       } catch (err) {
-        dropAll();
+        dropAll(); // the row did not make it: the first sticker (its own slap) stays – one sticker
+        if ([404, 405, 501].includes(err.status)) { arraysOff = true; console.warn('sticker arrays not supported here – plain slaps'); return; }
         if (err.nope) nope(); else if (!err.gone) toast(err.status === 429 ? S.slowDown : err.message);
         return;
       }
@@ -1173,7 +1191,13 @@ function tryLock() {
     if (r && typeof r.catch === 'function') r.catch(() => {}); // refused: the hint stays, quietly
   } catch { /* old browsers: same */ }
 }
-document.addEventListener('pointerlockerror', () => {}, { passive: true }); // handled by the hint
+// A browser that cannot lock the pointer at all (it never locked once): clicks then slap where they
+// land. A refused re-lock after a working one (Chrome: too soon after Esc) is NOT that.
+document.addEventListener('pointerlockerror', () => { if (!everLocked) lockBroken = true; }, { passive: true }); // handled by the hint
+document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement) { everLocked = true; lockBroken = false; } });
+var everLocked = false; // eslint-disable-line no-var
+// var: the mousedown handler reads it; no Pointer Lock API at all = broken from the start.
+var lockBroken = typeof HTMLCanvasElement !== 'undefined' && !HTMLCanvasElement.prototype.requestPointerLock; // eslint-disable-line no-var
 function resumeGame() { setResuming(true); tryLock(); }
 // The topmost thing Esc should close, or null.
 function escTarget() {
@@ -1220,6 +1244,11 @@ if (!isTouch) {
     if (e.button !== 0) return;
     if (sp.open || together.busy()) return; // panelen för rummets utseende eller Min gubbe är öppen
     if (together.chatOpen()) { together.closeChat(); if (!controls.locked) controls.lock(); return; } // klick = stäng chatten, stämpla inte
+    if (!controls.locked && lockBroken && !placingCam && state.mode === 'slap') {
+      // No pointer lock in this browser: a click still slaps – one sticker where you clicked (no arrays).
+      action(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
+      return;
+    }
     if (!controls.locked) controls.lock();
     else if (placingCam) placeCamAt(CENTER); // ＋ Add cameraman: this click sets where it starts
     else if (state.mode === 'view') clickCredit(); // Look mode: click a sticker = who made it? (never slaps)
@@ -1229,7 +1258,10 @@ if (!isTouch) {
       action(CENTER, { onStart: (a) => { if (mouseHeld && controls.locked && state.mode === 'slap') startArray(a); } });
     }
   });
-  addEventListener('mouseup', (e) => { if (e.button !== 0) return; mouseHeld = false; if (arrayDrag) commitArray(); });
+  addEventListener('mouseup', (e) => {
+    if (e.button !== 0) return; mouseHeld = false;
+    if (arrayDrag) { try { commitArray(); } catch (err) { arrayFailed('release', err); } }
+  });
   // Right-click while dragging: cancel the copies (the first sticker stays).
   canvas.addEventListener('mousedown', (e) => { if (e.button === 2 && arrayDrag) { e.preventDefault(); cancelArray(); } });
   canvas.addEventListener('contextmenu', (e) => { if (arrayDrag || controls.locked) e.preventDefault(); });
@@ -2044,7 +2076,9 @@ function frame() {
   voice.update();
   updateCredit();
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
-  if (arrayDrag && controls.locked && updateArray()) preview.hide(); // dragging a row: the ghosts are the preview
+  let dragging = false;
+  if (arrayDrag && controls.locked) { try { dragging = updateArray() > 0; } catch (err) { arrayFailed('drag', err); } }
+  if (dragging) preview.hide(); // dragging a row: the ghosts are the preview
   else if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
     if (h) {
@@ -2101,6 +2135,7 @@ window.klibb = {
   look(yaw, pitch) { controls.yaw = yaw; controls.pitch = pitch; controls.apply(); },
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
+  arrayFaults, arraysOff: () => arraysOff, lockBroken: () => lockBroken,
   arrayState: () => ({ dragging: !!arrayDrag, ghosts: ghosts.count, inFlight: arrayOps.length, items: arrayDrag ? arrayDrag.items.length : 0 }), arrayPlan,
   pendingSlaps: () => pendingSlaps.size, // klibbor som syns men inte är bekräftade av servern än
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
