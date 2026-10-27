@@ -6,9 +6,12 @@
 // - The menu: 📒 Stickers (the sticker book: your palette + ⬆ Upload), 🧍 Character, 🏠 Room (the
 //   room's info and Room ▾ on top of ⚙ More: recording, sound, cameras …), ↩ Undo, 👤 3rd person,
 //   📷 Photo, and the Talk card (💬 chat, 🎙 microphone). A tap outside closes it.
-// - The held sticker floats in its holder at the bottom. There is no Slap/Look switch on touch: the
-//   timer (shared/heldtimer.mjs) decides. While it is up, the editing sliders sit on the screen
-//   edges: rotation on the left, size on the right (the green arrows in Jens's sketch).
+// - The editing view (Jens's picture 4): the held sticker sits in its holder in the middle of the
+//   screen, sharp; the green sliders on the edges: rotation on the left, size on the right; the three
+//   menu buttons (📒 Stickers, 🧍 Character, 🏠 Room) stay lit at the bottom; everything else is
+//   hidden (💬/🎙 are on the menu's Talk card). Release it from the holder: tap it (it slaps where
+//   it is, the middle of the screen) or drag it out and let go where it should go; or tap a wall.
+// - There is no Slap/Look switch on touch: the timer (shared/heldtimer.mjs) decides.
 import { createHeldTimer, HELD_VISIBLE_MS, HELD_FADE_MS } from '../../shared/heldtimer.mjs';
 
 const $ = (id) => document.getElementById(id);
@@ -126,10 +129,30 @@ export function initStackMenu(o) {
         ed.el.setAttribute('aria-valuenow', String(k === 'rot' ? rot : cm));
       }
       body.classList.toggle('held-faded', op === 0);
+      body.classList.toggle('editing', op > 0 && !open); // picture 4: holder + sliders + the three buttons
     }
     requestAnimationFrame(render);
   }
   requestAnimationFrame(render);
+
+  // ---- Release from the holder: tap it, or drag it out and let go over the spot ----
+  const hold = $('held'); let rel = null;
+  hold.addEventListener('pointerdown', (e) => {
+    if (!hold.classList.contains('up')) return;
+    e.preventDefault(); e.stopPropagation(); try { hold.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
+    rel = { id: e.pointerId, x: e.clientX, y: e.clientY, t: now() }; hold.classList.add('dragging');
+  });
+  hold.addEventListener('pointermove', (e) => {
+    if (!rel || e.pointerId !== rel.id) return;
+    hold.style.setProperty('--dx', `${e.clientX - rel.x}px`); hold.style.setProperty('--dy', `${e.clientY - rel.y}px`);
+  });
+  const letGo = (e, ok) => {
+    if (!rel || e.pointerId !== rel.id) return;
+    rel = null; hold.classList.remove('dragging'); hold.style.setProperty('--dx', '0px'); hold.style.setProperty('--dy', '0px');
+    if (ok) o.release(e.clientX, e.clientY);
+  };
+  hold.addEventListener('pointerup', (e) => letGo(e, true));
+  hold.addEventListener('pointercancel', (e) => letGo(e, false));
 
   // a sticker was chosen (book, swipe, upload): sharp in the holder until it is placed
   function chosen() { held.choose(now()); }
@@ -146,6 +169,7 @@ export function initStackMenu(o) {
     info() {
       const t = now(), vis = (id) => { const el = $(id); return !!el && el.getClientRects().length > 0 && Number(getComputedStyle(el).opacity) > 0.01; };
       return { ...held.info(t), visibleMs: HELD_VISIBLE_MS, fadeMs: HELD_FADE_MS, menuOpen: open, bookOpen: !$('sticker-book').hidden,
+        editing: body.classList.contains('editing'), heldRect: $('held').getBoundingClientRect().toJSON(),
         heldShown: vis('held'), heldOpacity: Number($('held').style.opacity || 0), edges: { rot: vis('edge-rot'), size: vis('edge-size') } };
     },
   };

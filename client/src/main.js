@@ -1237,25 +1237,28 @@ if (!isTouch) {
     if (p && !p.drag && performance.now() - p.t < 400 && e.type === 'pointerup') {
       const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
       if (placingCam) placeCamAt(ndc);
-      else if (stackMenu && !camView && !state.adminToken) {
-        // Touch: no Slap/Look switch – the held sticker's timer decides (shared/heldtimer.mjs).
-        // Sharp = this tap slaps (and restarts the 10 s). Fading/faded = this tap only brings the
-        // sticker back (never a slap by accident); on a sticker it also shows who made it.
-        if (stackMenu.isOpen()) { stackMenu.close(); return; }
-        if (sp.open || together.busy()) return;
-        if (stackMenu.tap() === 'wake') {
-          const c = creditOf(pickStampAt(ndc)?.stamp);
-          if (c) { showCredit(c, { x: e.clientX, y: e.clientY }); credit.id = c.id; } else hideCredit();
-        } else {
-          hideCredit();
-          if (state.selected && hitSurface(ndc)) stackMenu.placed();
-          action(ndc);
-        }
-      } else if (state.mode === 'view' && !camView) {
+      else if (stackMenu && !camView && !state.adminToken) heldTap(ndc, e.clientX, e.clientY);
+      else if (state.mode === 'view' && !camView) {
         // Tittläge: tryck på en klibba = vem gjorde den?
         const c = creditOf(pickStampAt(ndc)?.stamp);
         if (c) { showCredit(c, { x: e.clientX, y: e.clientY }); credit.id = c.id; } else hideCredit();
       } else { hideCredit(); action(ndc); }
+    }
+  };
+  // Touch: no Slap/Look switch – the held sticker's timer decides (shared/heldtimer.mjs).
+  // Sharp = this tap slaps (and restarts the 10 s). Fading/faded = this tap only brings the
+  // sticker back (never a slap by accident); on a sticker it also shows who made it.
+  // Also used when the sticker is released from its holder (stackmenu.js).
+  var heldTap = (ndc, x, y) => { // eslint-disable-line no-var
+    if (stackMenu.isOpen()) { stackMenu.close(); return; }
+    if (sp.open || together.busy()) return;
+    if (stackMenu.tap() === 'wake') {
+      const c = creditOf(pickStampAt(ndc)?.stamp);
+      if (c) { showCredit(c, { x, y }); credit.id = c.id; } else hideCredit();
+    } else {
+      hideCredit();
+      if (state.selected && hitSurface(ndc)) stackMenu.placed();
+      action(ndc);
     }
   };
   canvas.addEventListener('pointerup', up);
@@ -1267,6 +1270,7 @@ if (!isTouch) {
     S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
     peelLast: () => peelLast(), toggleView: () => toggleView(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
     chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(),
+    release: (x, y) => { if (!camView && !placingCam) heldTap(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), x, y); },
   });
 }
 

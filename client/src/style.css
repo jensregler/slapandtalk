@@ -555,8 +555,14 @@ body.touch #design-btn .stack-back[hidden] { display: none; }
 body.touch.stack-open #design-btn { box-shadow: 0 0 0 4px rgba(255,212,0,.35), 0 4px 12px rgba(0,0,0,.45); }
 .stack-back { display: none; }
 /* The held sticker: floats in its holder at the bottom centre (opacity = the timer, set per frame) */
-body.touch #held { display: block; position: fixed; left: 50%; bottom: calc(34px + env(safe-area-inset-bottom)); z-index: 3; pointer-events: none;
-  width: var(--held-px, 90px); height: var(--held-px, 90px); transform: translateX(-50%); opacity: 0; }
+body.touch #held { display: block; position: fixed; left: 50%; top: 50%; z-index: 3; pointer-events: none; touch-action: none;
+  width: var(--held-px, 90px); height: var(--held-px, 90px); transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))); opacity: 0; }
+body.touch #held.up { pointer-events: auto; }
+body.touch #held.dragging img { animation: none; scale: 1.06; }
+/* the holder (picture 4): a soft ring the sticker hovers in */
+body.touch #held::before { content: ''; position: absolute; inset: -14px; border-radius: 50%; border: 2px dashed rgba(255,255,255,.55);
+  background: radial-gradient(closest-side, rgba(255,255,255,.12), transparent); pointer-events: none; }
+body.touch #held.dragging::before { opacity: .35; }
 body.touch #held img { width: 100%; height: 100%; object-fit: contain; display: block; transform: rotate(var(--held-rot, 0deg));
   filter: drop-shadow(0 8px 10px rgba(0,0,0,.45)); animation: held-hover 2.6s ease-in-out infinite; }
 body.touch #held:not(.up) img { animation: none; }
@@ -607,3 +613,17 @@ body.touch #design-btn.empty::after { content: '＋'; position: absolute; inset:
 body.touch #held::after { content: ''; position: absolute; left: 12%; right: 12%; bottom: -10px; height: 12px; border-radius: 50%;
   background: radial-gradient(closest-side, rgba(0,0,0,.45), transparent); z-index: -1; }
 body.touch #undo-toast, body.touch #toast { z-index: 11; } /* above the sticker book sheet (Undo after × on a sticker) */
+/* The editing view (picture 4): holder, sliders, and the three menu buttons lit at the bottom between
+   the joystick and the stack; 💬/🎙 bubbles hidden (they are on the menu's Talk card) */
+body.touch.editing:not(.stack-open) #stack-menu { display: block; position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+body.touch.editing:not(.stack-open) #stack-menu > :not(#sm-book):not(#sm-avatar):not(#sm-room) { display: none; }
+body.touch.editing:not(.stack-open) #stack-menu .sm-item { width: 44px; height: 44px; bottom: calc(44px + env(safe-area-inset-bottom)) !important;
+  border-color: #ffd400; box-shadow: 0 0 0 3px rgba(255,212,0,.25), 0 3px 10px rgba(0,0,0,.45); animation: none; }
+body.touch.editing:not(.stack-open) #stack-menu .sm-item .sm-ico { font-size: 19px; line-height: 40px; }
+body.touch.editing:not(.stack-open) #stack-menu .sm-lab { display: none; }
+body.touch.editing:not(.stack-open) #sm-room { right: calc(100px + env(safe-area-inset-right)) !important; }
+body.touch.editing:not(.stack-open) #sm-avatar { right: calc(148px + env(safe-area-inset-right)) !important; }
+body.touch.editing:not(.stack-open) #sm-book { right: calc(196px + env(safe-area-inset-right)) !important; }
+body.touch.editing:not(.stack-open) #sm-avatar[hidden], body.demo.touch.editing #sm-avatar { display: none; }
+body.touch.editing #chat-btn, body.touch.editing #mic-touch { display: none !important; }
+body.touch.editing.book-open #stack-menu, body.touch.editing.more-open #stack-menu { display: none !important; }

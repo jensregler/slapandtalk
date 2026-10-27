@@ -118,9 +118,12 @@ inga 👤/↩/👁-knappar. Styrspaken = gå, **dra med fingret** = titta.
   inspelning för rummets skapare, ljud, kameror, hjälp), **↩ Undo** (menyn står kvar, så du kan
   ångra flera), **👤 3rd person**, **📷 Photo**, och kortet **💬 Talk / 🎙 Mic**. Tryck utanför =
   stäng. **Svep upp/ner på högen** = nästa/förra klibba direkt i handen.
-- **Klibban i handen** svävar i sin hållare längst ner i mitten. Medan den syns finns
-  redigeringsreglagen på kanterna: **rotation till vänster**, **storlek till höger**.
-- **Klibba:** tryck på en vägg (golv, tak) där den ska sitta, som förut.
+- **Redigeringsvyn (Jens bild 4):** klibban i handen svävar skarp i sin **hållare mitt på skärmen**.
+  Gröna reglage på kanterna: **rotation till vänster**, **storlek till höger** (dra upp/ner). De tre
+  menyknapparna **📒 🧍 🏠** lyser längst ner mellan styrspaken och högen; allt annat är dolt
+  (💬/🎙 ligger på menyns Talk-kort).
+- **Klibba:** **släpp den ur hållaren** – tryck på den (den sätts mitt på skärmen) eller dra ut den
+  och släpp där den ska sitta – eller tryck på en vägg (golv, tak) där den ska sitta, som förut.
 - **Ingen Slap mode / Look mode på mobilen** – en timer i stället (`shared/heldtimer.mjs`):
   en nyvald klibba är skarp tills du satt den första gången; efter varje klibba syns den
   `HELD_VISIBLE_MS` = 10 s och tonar sedan bort på `HELD_FADE_MS` = 1 s. Bortonad = bara titta

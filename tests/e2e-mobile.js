@@ -19,7 +19,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PHONE = { ...devices['iPhone 13'], viewport: { width: 390, height: 844 }, permissions: ['microphone'] };
 // what is on the screen (fixed UI), apart from toasts
 const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn', 'view-btn', 'mode-btn', 'mode-hud', 'room-hud', 'chat-btn', 'mic-touch',
-  'held', 'edge-rot', 'edge-size', 'stack-menu', 'sticker-book', 'more-panel', 'design-hud'];
+  'held', 'edge-rot', 'edge-size', 'stack-menu', 'sm-book', 'sm-avatar', 'sm-room', 'sm-talk', 'sticker-book', 'more-panel', 'design-hud'];
 
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
@@ -86,6 +86,12 @@ const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn'
     const h2 = await held(), s2 = await shown();
     check('picking a sticker closes the book and puts it in my hand: sharp, with rotation (left) and size (right) sliders',
       (await P.evaluate(() => window.klibb.state.selected.id)) === other && !h2.bookOpen && h2.state === 'holding' && h2.heldOpacity === 1 && h2.edges.rot && h2.edges.size, { h2, s2 });
+    // picture 4: the editing view – holder in the middle, the sliders, the three menu buttons lit, nothing else
+    const mid = h2.heldRect ? [h2.heldRect.x + h2.heldRect.width / 2, h2.heldRect.y + h2.heldRect.height / 2] : [0, 0];
+    const lit = await P.evaluate(() => ['sm-book', 'sm-avatar', 'sm-room'].map((id) => getComputedStyle(document.getElementById(id)).borderTopColor));
+    check('editing view: the sticker sits in its holder in the middle of the screen, sharp; rotation slider left, size slider right; 📒 🧍 🏠 lit at the bottom; no 💬/🎙 (they are on the Talk card)',
+      h2.editing && Math.abs(mid[0] - vp.width / 2) < 3 && Math.abs(mid[1] - vp.height / 2) < 3 &&
+      s2.join() === 'joystick,design-btn,held,edge-rot,edge-size,stack-menu,sm-book,sm-avatar,sm-room' && lit.every((c) => c === 'rgb(255, 212, 0)'), { mid, s2, lit });
     // the edge sliders (real touch drags)
     const cdp0 = await ctx.newCDPSession(P);
     const drag = async (sel, f0, f1) => { const b = await P.locator(sel).boundingBox(), x = b.x + b.width / 2;
@@ -100,6 +106,10 @@ const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn'
     check(`size slider (right edge) scales the held sticker (${Math.round(sz0 * 100)} → ${after.sizeLabel}), rotation slider (left edge) turns it (${after.rotLabel})`,
       after.size > sz0 + 0.05 && after.rot > 30 && after.rot < 150 && (await count()) === c00, after);
     await quiet(); await P.screenshot({ path: path.join(SHOTS, '04-editing-view-edge-controls.png') });
+    // the three buttons work from the editing view
+    await P.tap('#sm-book'); await P.waitForTimeout(250);
+    const fromEdit = await held(); await P.tap('#book-close'); await P.waitForTimeout(250);
+    check('editing view: 📒 opens the sticker book directly (no menu needed)', fromEdit.bookOpen && !fromEdit.menuOpen, fromEdit);
     await P.evaluate(() => { window.klibb.setSize(30); document.getElementById('rot').value = 0; document.getElementById('rot').oninput({ target: document.getElementById('rot') }); });
 
     // ---------- The timer: sharp until the first stamp ----------
@@ -138,6 +148,19 @@ const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn'
     await P.waitForFunction((n) => window.klibb.stamps.count === n + 2, c2, { timeout: 6000 }).catch(() => {});
     const h9 = await held();
     check(`each new stamp restarts the 10 s (age ${before.age} → ${h9.age} ms)`, (await count()) === c2 + 2 && before.age > 3500 && h9.age < 1000, { before, h9 });
+    await P.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 6000 });
+    // release from the holder: a tap on it slaps where it is (the middle); drag it out = slaps where you let go
+    const c4 = await count();
+    await P.touchscreen.tap(vp.width / 2, vp.height / 2);
+    await P.waitForFunction((n) => window.klibb.stamps.count === n + 1, c4, { timeout: 6000 }).catch(() => {});
+    const relTap = await count();
+    const cdpR = await ctx.newCDPSession(P);
+    await cdpR.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: vp.width / 2, y: vp.height / 2 }] });
+    for (let k = 1; k <= 8; k++) await cdpR.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: vp.width / 2 - k * 12, y: vp.height / 2 - k * 25 }] });
+    await P.waitForTimeout(100); await P.screenshot({ path: path.join(SHOTS, '05b-release-drag.png') });
+    await cdpR.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await P.waitForFunction((n) => window.klibb.stamps.count === n + 1, relTap, { timeout: 6000 }).catch(() => {});
+    check('release: tapping the sticker in its holder slaps it (middle of the screen); dragging it out and letting go slaps it there', relTap === c4 + 1 && (await count()) === c4 + 2, { c4, relTap, now: await count() });
     await P.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 6000 });
 
     // ---------- The other options ----------
