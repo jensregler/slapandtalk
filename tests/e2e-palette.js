@@ -170,6 +170,8 @@ async function paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) 
     }
     const tids = await m.evaluate(() => window.klibb.designs().map((x) => x.id)); tids.forEach((id) => made.add(id));
     const [T1, T2, T3] = tids; // T1 selected
+    const book = () => m.evaluate(() => window.klibb.stackMenu().openBook()); // touch: the palette is in the sticker book (stack menu → 📒 Stickers)
+    await book();
     const mctl = (id) => m.evaluate((id) => { const t = document.querySelector(`#tray .thumb[data-id="${id}"]`); const x = t.querySelector('.del-btn'), f = t.querySelector('.fav-btn');
       const r = x.getBoundingClientRect(); return { del: +getComputedStyle(x).opacity, fav: +getComputedStyle(f).opacity, w: r.width, x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, id);
     const noHover = await m.evaluate(() => matchMedia('(hover: none)').matches);
@@ -192,7 +194,8 @@ async function paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) 
     await m.tap(`#tray .thumb[data-id="${T3}"] .fav-btn`);
     await m.waitForTimeout(150);
     const tFav = await m.evaluate((id) => JSON.parse(localStorage.getItem('klibb.favs') || '[]').includes(id), T3);
-    await m.tap(`#tray .thumb[data-id="${T2}"] .pick`); // select T2: its controls show
+    await m.tap(`#tray .thumb[data-id="${T2}"] .pick`); // select T2: its controls show (picking closes the book: open it again)
+    await m.waitForTimeout(150); await book();
     await m.waitForTimeout(450);
     const t2 = await mctl(T2);
     await m.tap(`#tray .thumb[data-id="${T2}"] .del-btn`);

@@ -532,3 +532,78 @@ body.placing-cam #crosshair { outline: 2px dashed #ff5a5a; outline-offset: 6px; 
 .auto-param { flex-direction: row; white-space: nowrap; }
 #auto-step { gap: 10px; }
 .auto-step-n { opacity: .65; }
+
+/* ---------- Touch layout (stackmenu.js): the joystick + the sticker stack, nothing else at first ---------- */
+#held, .edge, #stack-menu, #stack-scrim, #sticker-book { display: none; }
+body.touch #panel, body.touch #panel-toggle, body.touch #peel-btn, body.touch #view-btn, body.touch #mode-btn,
+body.touch #mode-hud, body.touch #room-hud, body.touch #design-btn-num { display: none !important; }
+/* 💬 and 🎙 live on the menu's Talk card; the bubbles only come back while they matter
+   (an unread message, a live or muted microphone) */
+body.touch #chat-btn, body.touch #mic-touch { display: none; }
+body.touch #chat-btn:has(#chat-unread:not(:empty)) { display: block; }
+body.touch #mic-touch[data-state="on"], body.touch #mic-touch[data-state="muted"] { display: block; top: 60px; }
+body.touch #chat-btn:has(#chat-unread:not(:empty)) ~ #mic-touch { top: 116px; }
+/* The stack: the sticker in your hand on top, two more under it */
+body.touch #design-btn { touch-action: none; border-radius: 16px; width: 76px; height: 76px; padding: 5px; background: #f4f1ea; border: 3px solid #ffd400;
+  box-shadow: 0 4px 12px rgba(0,0,0,.45); overflow: visible; }
+body.touch #design-btn > #design-btn-img { border-radius: 10px; position: relative; z-index: 1; }
+body.touch #design-btn .stack-back { position: absolute; inset: 5px; width: calc(100% - 10px); height: calc(100% - 10px); object-fit: contain;
+  border-radius: 12px; background: #f4f1ea; border: 2px solid rgba(0,0,0,.15); box-shadow: 0 2px 6px rgba(0,0,0,.4); pointer-events: none; }
+body.touch #design-btn .stack-back.b1 { transform: translate(-7px, -8px) rotate(-8deg); }
+body.touch #design-btn .stack-back.b2 { transform: translate(-13px, -15px) rotate(-15deg); }
+body.touch #design-btn .stack-back[hidden] { display: none; }
+body.touch.stack-open #design-btn { box-shadow: 0 0 0 4px rgba(255,212,0,.35), 0 4px 12px rgba(0,0,0,.45); }
+.stack-back { display: none; }
+/* The held sticker: floats in its holder at the bottom centre (opacity = the timer, set per frame) */
+body.touch #held { display: block; position: fixed; left: 50%; bottom: calc(34px + env(safe-area-inset-bottom)); z-index: 3; pointer-events: none;
+  width: var(--held-px, 90px); height: var(--held-px, 90px); transform: translateX(-50%); opacity: 0; }
+body.touch #held img { width: 100%; height: 100%; object-fit: contain; display: block; transform: rotate(var(--held-rot, 0deg));
+  filter: drop-shadow(0 8px 10px rgba(0,0,0,.45)); animation: held-hover 2.6s ease-in-out infinite; }
+body.touch #held:not(.up) img { animation: none; }
+@keyframes held-hover { 0%, 100% { translate: 0 0; } 50% { translate: 0 -7px; } }
+/* The editing sliders on the edges: rotation left (above the joystick), size right (above the stack) */
+body.touch .edge { display: flex; flex-direction: column; align-items: center; gap: 6px; position: fixed; z-index: 4; width: 52px;
+  height: min(40vh, 320px); opacity: 0; pointer-events: none; touch-action: none; user-select: none; -webkit-user-select: none; }
+body.touch .edge.up { pointer-events: auto; }
+body.touch #edge-rot { left: calc(8px + env(safe-area-inset-left)); bottom: calc(172px + env(safe-area-inset-bottom)); }
+body.touch #edge-size { right: calc(8px + env(safe-area-inset-right)); bottom: calc(126px + env(safe-area-inset-bottom)); }
+.edge-val { font: 700 11.5px/1 system-ui, sans-serif; color: #fff; background: rgba(0,0,0,.55); padding: 3px 6px; border-radius: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.edge-name { font-size: 16px; color: #fff; text-shadow: 0 1px 3px #000; }
+.edge-track { position: relative; flex: 1; width: 8px; border-radius: 4px; background: rgba(255,255,255,.3); box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+.edge-track::before { content: ''; position: absolute; left: 50%; top: -10px; transform: translateX(-50%); border: 6px solid transparent; border-bottom: 8px solid rgba(255,255,255,.75); border-top: 0; }
+.edge-fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 4px; background: #8fd18f; }
+.edge-thumb { position: absolute; left: 50%; width: 32px; height: 32px; margin: 0 0 -16px -16px; border-radius: 50%; background: #fff; border: 3px solid #5fb85f; box-shadow: 0 2px 6px rgba(0,0,0,.5); }
+/* The menu: fans out up/left of the stack (two arcs) + the Talk card; a tap outside closes it */
+body.touch.stack-open #stack-scrim { display: block; position: fixed; inset: 0; z-index: 6; background: rgba(0,0,0,.32); }
+body.touch.stack-open #stack-menu { display: block; position: fixed; inset: 0; z-index: 7; pointer-events: none; --sm-half: 29px; }
+body.touch.stack-open #design-btn { z-index: 8; }
+#stack-menu .sm-item { position: absolute; width: 58px; height: 58px; padding: 0; border-radius: 50%; pointer-events: auto; touch-action: manipulation;
+  background: rgba(24,24,24,.92); border: 2px solid rgba(255,255,255,.55); color: #fff; box-shadow: 0 3px 10px rgba(0,0,0,.45); animation: sm-pop .18s ease-out both; }
+#stack-menu .sm-item .sm-ico { font-size: 24px; line-height: 54px; display: block; }
+#stack-menu .sm-lab { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 3px; font: 600 11.5px/1.2 system-ui, sans-serif;
+  color: #fff; white-space: nowrap; text-shadow: 0 1px 3px #000, 0 0 2px #000; pointer-events: none; }
+#stack-menu .sm-item[aria-pressed="true"] { background: #ffd400; border-color: #ffd400; color: #111; }
+#stack-menu .sm-item[hidden] { display: none; }
+#sm-talk { position: absolute; right: calc(12px + env(safe-area-inset-right)); bottom: calc(330px + env(safe-area-inset-bottom)); display: flex; gap: 6px; padding: 6px;
+  border-radius: 14px; background: rgba(24,24,24,.92); border: 1px solid #444; pointer-events: auto; box-shadow: 0 3px 10px rgba(0,0,0,.45); animation: sm-pop .18s ease-out both; }
+#sm-talk button { display: flex; align-items: center; gap: 6px; padding: 9px 14px; font-weight: 600; position: relative; }
+#sm-talk .sm-ico { font-size: 18px; }
+#sm-unread:not(:empty) { position: absolute; top: -6px; right: -6px; background: #e0352b; color: #fff; font-size: 11px; font-weight: 800; border-radius: 9px; padding: 1px 6px; }
+@keyframes sm-pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
+body.touch.stack-open #held, body.touch.stack-open .edge, body.touch.stack-open #joystick { display: none !important; }
+/* The sticker book: a sheet from below (the palette, ⬆ Upload) */
+body.touch #sticker-book:not([hidden]) { display: flex; flex-direction: column; gap: 9px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; max-height: 70%;
+  overflow: auto; background: rgba(20,20,20,.96); border: 1px solid #333; border-radius: 14px 14px 0 0; padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); }
+#book-tray #tray { gap: 10px; }
+#book-tray #tray .pick { width: 64px; height: 64px; }
+body.touch.book-open #joystick, body.touch.book-open #design-btn, body.touch.book-open #held, body.touch.book-open .edge { display: none !important; }
+body.touch.more-open #held, body.touch.more-open .edge, body.touch.more-open #stack-menu, body.touch.more-open #stack-scrim { display: none !important; }
+body.touch #more-panel #room-box { border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 4px; }
+body.camview #held, body.camview .edge, body.camview #stack-menu, body.camview #stack-scrim, body.camview #sticker-book,
+body.replay #held, body.replay .edge, body.replay #stack-menu, body.replay #stack-scrim, body.replay #sticker-book { display: none !important; }
+body.touch #design-btn.empty > #design-btn-img { visibility: hidden; }
+body.touch #design-btn.empty::after { content: '＋'; position: absolute; inset: 0; display: grid; place-items: center; font-size: 30px; color: #555; z-index: 2; }
+/* the holder: a soft shadow plate the held sticker hovers over */
+body.touch #held::after { content: ''; position: absolute; left: 12%; right: 12%; bottom: -10px; height: 12px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0,0,0,.45), transparent); z-index: -1; }
+body.touch #undo-toast, body.touch #toast { z-index: 11; } /* above the sticker book sheet (Undo after × on a sticker) */

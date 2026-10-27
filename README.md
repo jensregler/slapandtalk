@@ -109,11 +109,25 @@ exempel *2/4*. Vill du sätta samma klibba många gånger trycker du bara inte p
 Dina uppladdade designs sparas i webbläsaren och finns kvar när du laddar om sidan, så länge
 servern har kvar bilderna. Designs som har försvunnit från servern tas bort ur listan automatiskt.
 
-**På mobilen:** ladda upp en bild i menyn och fäll ihop menyn med **☰**. Styrspaken nere till
-vänster tar dig framåt, **dra med fingret** för att titta och **tryck** där du vill stämpla.
-Den **runda knappen nere till höger** visar vald design: tryck på den för att byta till nästa.
-**↩** peelar (ångrar) din senaste klibba. **Ögat 👁** bredvid slår på Look mode (pekaren försvinner och tryck stämplar inte, designknappen
-dämpas); tryck på ögat igen för att klibba.
+**På mobilen (touch):** när du kommer in syns bara **styrspaken** nere till vänster och din
+**klibbhög** nere till höger (dina klibbor, den du håller överst). Ingen panel, ingen ☰ Stickers,
+inga 👤/↩/👁-knappar. Styrspaken = gå, **dra med fingret** = titta.
+- **Tryck på högen** → menyn fäller ut sig uppåt/åt vänster: **📒 Stickers** (klibbboken: dina
+  klibbor + ⬆ Upload sticker; stjärna/× med långt tryck som förut), **🧍 Character** (Min gubbe),
+  **🏠 Room** (rummets namn och Room ▾ – nytt snabbrum, dela länk, Staden … – överst i ⚙ More, med
+  inspelning för rummets skapare, ljud, kameror, hjälp), **↩ Undo** (menyn står kvar, så du kan
+  ångra flera), **👤 3rd person**, **📷 Photo**, och kortet **💬 Talk / 🎙 Mic**. Tryck utanför =
+  stäng. **Svep upp/ner på högen** = nästa/förra klibba direkt i handen.
+- **Klibban i handen** svävar i sin hållare längst ner i mitten. Medan den syns finns
+  redigeringsreglagen på kanterna: **rotation till vänster**, **storlek till höger**.
+- **Klibba:** tryck på en vägg (golv, tak) där den ska sitta, som förut.
+- **Ingen Slap mode / Look mode på mobilen** – en timer i stället (`shared/heldtimer.mjs`):
+  en nyvald klibba är skarp tills du satt den första gången; efter varje klibba syns den
+  `HELD_VISIBLE_MS` = 10 s och tonar sedan bort på `HELD_FADE_MS` = 1 s. Bortonad = bara titta
+  (tryck på en klibba visar vem som gjorde den). **Ett tryck på skärmen tar tillbaka den** (nya
+  10 s) – det trycket klibbar aldrig. Varje ny klibba startar om de 10 s. Datorn har kvar V / Look mode.
+- 💬- och 🎙-bubblorna uppe till höger syns bara när de behövs (olästa meddelanden, mikrofonen på).
+Koden: `client/src/stackmenu.js` (+ CSS under *Touch layout* i `style.css`). Datorlayouten är oförändrad.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.
 
 ### Tillsammans: gubbar, chatt och live-klibbor

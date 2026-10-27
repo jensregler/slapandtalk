@@ -36,6 +36,7 @@ import { Voice } from './voice.js';
 import { ArrayGhosts } from './arraydrag.js';
 import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
+import { initStackMenu } from './stackmenu.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -284,10 +285,16 @@ function stepDesign(dir) {
 function renderDesignHud() {
   const list = designs(), sel = state.selected;
   const i = sel ? list.findIndex((d) => d.id === sel.id) : -1;
+  // touch: the stack shows the next two stickers under the one on top
+  for (const [k, id] of [[1, 'design-btn-b1'], [2, 'design-btn-b2']]) {
+    const d = list.length > k ? list[(i + k + list.length) % list.length] : null;
+    $(id).hidden = !d; if (d) $(id).src = d.url;
+  }
   const hud = $('design-hud'), btn = $('design-btn');
   hud.hidden = !sel;
-  btn.hidden = !sel;
-  if (!sel) return;
+  btn.hidden = !sel && !isTouch; // touch: the stack is always there (empty: tap it → 📒 Stickers → ⬆ Upload)
+  btn.classList.toggle('empty', !sel);
+  if (!sel) { $('design-btn-img').removeAttribute('src'); $('design-btn-num').textContent = ''; return; }
   $('design-hud-img').src = sel.url;
   $('design-btn-img').src = sel.url;
   $('design-hud-num').textContent = `${i + 1}/${list.length}`;
@@ -463,6 +470,7 @@ async function onFilePicked(input) {
     state.mine = addMine(img);
     if (state.selected && state.selected.id === img.id) startSize(img); // the same picture again (maybe renamed): its start size
     await select(img);
+    stackMenu?.chosen(); stackMenu?.closeBook(); // touch: the new sticker is in your hand
     toast(isTouch ? S.uploadedTouch : S.uploadedDesktop);
   } catch (err) { toast(err && err.message ? err.message : S.uploadFailed); } finally {
     input.value = ''; // so picking the same file again fires 'change' again
@@ -788,6 +796,7 @@ function setMode(mode, { quiet = false } = {}) {
 }
 const toggleMode = () => setMode(state.mode === 'view' ? 'slap' : 'view');
 // var: setMode längre ner använder den innan raden här har körts.
+var stackMenu = null; // eslint-disable-line no-var -- touch only: the sticker stack menu + the held sticker's timer (stackmenu.js)
 var camShow = localStorage.getItem('klibb.camShow') !== '0'; // eslint-disable-line no-var
 setMode('slap', { quiet: true });
 $('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); };
@@ -1228,7 +1237,21 @@ if (!isTouch) {
     if (p && !p.drag && performance.now() - p.t < 400 && e.type === 'pointerup') {
       const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
       if (placingCam) placeCamAt(ndc);
-      else if (state.mode === 'view' && !camView) {
+      else if (stackMenu && !camView && !state.adminToken) {
+        // Touch: no Slap/Look switch – the held sticker's timer decides (shared/heldtimer.mjs).
+        // Sharp = this tap slaps (and restarts the 10 s). Fading/faded = this tap only brings the
+        // sticker back (never a slap by accident); on a sticker it also shows who made it.
+        if (stackMenu.isOpen()) { stackMenu.close(); return; }
+        if (sp.open || together.busy()) return;
+        if (stackMenu.tap() === 'wake') {
+          const c = creditOf(pickStampAt(ndc)?.stamp);
+          if (c) { showCredit(c, { x: e.clientX, y: e.clientY }); credit.id = c.id; } else hideCredit();
+        } else {
+          hideCredit();
+          if (state.selected && hitSurface(ndc)) stackMenu.placed();
+          action(ndc);
+        }
+      } else if (state.mode === 'view' && !camView) {
         // Tittläge: tryck på en klibba = vem gjorde den?
         const c = creditOf(pickStampAt(ndc)?.stamp);
         if (c) { showCredit(c, { x: e.clientX, y: e.clientY }); credit.id = c.id; } else hideCredit();
@@ -1237,12 +1260,14 @@ if (!isTouch) {
   };
   canvas.addEventListener('pointerup', up);
   canvas.addEventListener('pointercancel', up);
-  $('design-btn').onclick = (e) => { e.preventDefault(); nextDesign(); };
-  $('panel-toggle').onclick = () => {
-    const hidden = $('panel').classList.toggle('hidden');
-    if (hidden) closeMore();
-    $('panel-toggle').setAttribute('aria-expanded', String(!hidden));
-  };
+  // The touch layout: joystick + sticker stack; the panel, ☰ Stickers and the 👤 ↩ 👁 buttons are
+  // gone (CSS) – everything they did is in the stack's menu (stackmenu.js).
+  $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false');
+  stackMenu = initStackMenu({
+    S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
+    peelLast: () => peelLast(), toggleView: () => toggleView(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
+    chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(),
+  });
 }
 
 // ---------- Rum: typ, nytt snabbrum, dela länk, till Staden ----------
@@ -1830,6 +1855,7 @@ function setView(v, { quiet = false } = {}) {
   $('view-first').setAttribute('aria-pressed', String(!t)); $('view-third').setAttribute('aria-pressed', String(t));
   $('view-btn').setAttribute('aria-pressed', String(t));
   $('view-btn').title = t ? S.viewBtnToFirst : S.viewBtnToThird;
+  $('sm-view').setAttribute('aria-pressed', String(t)); $('sm-view').querySelector('.sm-lab').textContent = t ? S.smViewFirst : S.smView;
   if (!quiet) toast(t ? S.viewToastThird(isTouch) : S.viewToastFirst(isTouch), 1600);
   return view;
 }
@@ -1937,7 +1963,7 @@ voice.reset = () => { for (const id of [...voice.peers.keys()]) voice.drop(id); 
 voice.near = localStorage.getItem('klibb.voiceNear') !== '0';
 $('voice-near').checked = voice.near;
 $('voice-near').onchange = (e) => { voice.near = e.target.checked; localStorage.setItem('klibb.voiceNear', voice.near ? '1' : '0'); };
-function micBtns() { return [$('mic-btn'), $('mic-touch')]; }
+function micBtns() { return [$('mic-btn'), $('mic-touch'), $('sm-mic')]; }
 function renderMic(st = voice.state) {
   for (const b of micBtns()) {
     b.dataset.state = st; b.setAttribute('aria-pressed', String(st === 'on'));
@@ -2054,6 +2080,7 @@ window.klibb = {
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
+  held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu,
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }),

@@ -316,8 +316,12 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await m.waitForFunction(() => window.klibb.state.selected);
     created.add(await m.evaluate(() => window.klibb.state.selected.id));
     await m.screenshot({ path: path.join(SHOTS, '05-mobil-meny.png') });
+    // The touch layout (stackmenu.js): the panel is gone; 🏠 Room in the sticker stack's menu has Room ▾
+    const smenu = async (id) => { if (!(await m.evaluate(() => window.klibb.stackMenu().isOpen()))) { await m.tap('#design-btn'); await m.waitForTimeout(250); } await m.tap(id); await m.waitForTimeout(250); };
+    assert(await m.isHidden('#panel') && await m.isHidden('#panel-toggle'), 'mobil: panelen och ☰ Stickers finns inte längre');
+    await smenu('#sm-room');
     await m.tap('#room-menu-btn');
-    assert((await m.textContent('#room-hud')) === 'Quick room · e2e-test' && await m.isVisible('#new-room'), 'mobil: rumsmenyn (Room ▾) och rumsetiketten syns');
+    assert((await m.textContent('#room-hud')) === 'Quick room · e2e-test' && await m.isVisible('#new-room'), 'mobil: 🏠 Room → rumsmenyn (Room ▾)');
     await m.waitForFunction(() => !document.getElementById('toast').classList.contains('show'), null, { timeout: 5000 });
     await m.waitForTimeout(300);
     await m.screenshot({ path: path.join(SHOTS, '12-rum-meny-mobil.png') });
@@ -329,9 +333,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await m.tap('#style-cancel'); await m.waitForTimeout(300);
     assert(mBox.width <= m.viewportSize().width && mColorHidden && (await m.isHidden('#style-panel')) && (await m.evaluate(() => window.klibb.currentStyle().floor)) === 'klassisk',
       'mobil: utseendepanelen får plats och Avbryt återställer rummet');
-    await m.tap('#panel-toggle');
-    await m.tap('#panel-toggle');
-    await m.evaluate(() => { window.klibb.moveTo(0, 1.5); window.klibb.look(0, 0); });
+    await m.evaluate(() => window.klibb.closeMore());
+    await m.evaluate(() => { window.klibb.moveTo(0, 1.5); window.klibb.look(0, 0); window.klibb.stackMenu().chosen(); });
     const vp = m.viewportSize();
     const mBefore = await m.evaluate(() => window.klibb.stamps.count);
     await m.touchscreen.tap(vp.width * 0.7, vp.height * 0.35);
@@ -349,39 +352,29 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     const after = await m.evaluate(() => window.klibb.camera.position.z);
     assert(after < before - 0.3, `mobil: styrspaken går framåt (${before.toFixed(2)} → ${after.toFixed(2)})`);
-    // Mobil: den runda knappen byter design
+    // Mobil: svep upp/ner på klibbhögen byter design
     await m.setInputFiles('#file', gridPng);
     await m.waitForFunction(() => window.klibb.state.mine.length === 2);
     created.add(await m.evaluate(() => window.klibb.state.selected.id));
-    const sel = () => m.evaluate(() => [window.klibb.state.selected.id, document.getElementById('design-btn-num').textContent]);
+    const sel = () => m.evaluate(() => window.klibb.state.selected.id);
     const s0 = await sel();
-    assert(await m.isVisible('#design-btn'), `mobil: designknappen syns (${s0[1]})`);
-    await m.tap('#design-btn'); await m.waitForTimeout(150);
-    const s1 = await sel();
-    await m.tap('#design-btn'); await m.waitForTimeout(150);
-    const s2 = await sel();
-    assert(s1[0] !== s0[0] && s2[0] === s0[0] && s1[1] === '2/2', 'mobil: tryck på designknappen byter design och börjar om');
-    assert((await m.evaluate(() => window.klibb.stamps.count)) === mBefore + 1, 'mobil: knappen stämplar inte av misstag');
-    // Mobil: ögat växlar Tittläge, tryck stämplar inte då
-    assert(await m.isVisible('#mode-btn'), 'mobil: ögonknappen syns');
-    await m.tap('#mode-btn'); await m.waitForTimeout(200);
-    const mv = await m.evaluate(() => [window.klibb.state.mode, getComputedStyle(document.getElementById('design-btn')).opacity, window.klibb.stamps.count, getComputedStyle(document.getElementById('design-btn')).borderTopStyle]);
-    await m.touchscreen.tap(vp.width * 0.4, vp.height * 0.3); await m.waitForTimeout(700);
-    const mvc = await m.evaluate(() => window.klibb.stamps.count);
-    assert(mv[0] === 'view' && Number(mv[1]) === 1 && mv[3] === 'dashed' && mvc === mv[2], 'mobil: 👁 ger Tittläge, designknappen får streckad ram (inte genomskinlig) och tryck stämplar inte');
-    await m.waitForFunction(() => !document.getElementById('toast').classList.contains('show'), null, { timeout: 5000 });
-    await m.screenshot({ path: path.join(SHOTS, '14-tittlage-mobil.png') });
-    await m.tap('#mode-btn'); await m.waitForTimeout(200);
-    await m.touchscreen.tap(vp.width * 0.4, vp.height * 0.3);
-    await m.waitForFunction((n) => window.klibb.stamps.count === n + 1, mvc, { timeout: 5000 });
-    await m.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 5000 }); // servern har bekräftat
-    assert((await m.evaluate(() => window.klibb.state.mode)) === 'slap', 'mobil: 👁 igen ger Klibbläge och tryck stämplar');
-    // Mobil: ↩ peelar min senaste
+    assert(await m.isVisible('#design-btn'), 'mobil: klibbhögen syns');
+    const sb = await m.locator('#design-btn').boundingBox();
+    const swipe = async (dir) => { const x = sb.x + sb.width / 2, y = sb.y + sb.height / 2;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (let i = 1; i <= 5; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + dir * i * 10 }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await m.waitForTimeout(200); };
+    await swipe(-1); const s1 = await sel();
+    await swipe(1); const s2 = await sel();
+    assert(s1 !== s0 && s2 === s0, 'mobil: svep upp på klibbhögen = nästa design, ner = förra');
+    assert((await m.evaluate(() => window.klibb.stamps.count)) === mBefore + 1, 'mobil: högen stämplar inte av misstag');
+    // Mobil: ↩ Undo i menyn peelar min senaste
     const pc = await m.evaluate(() => [window.klibb.stamps.count, window.klibb.roomHistory().length]);
     await m.screenshot({ path: path.join(SHOTS, '16-peel-mobil.png') });
-    await m.tap('#peel-btn'); await m.waitForTimeout(500);
+    await smenu('#sm-undo'); await m.waitForTimeout(500);
     const pc2 = await m.evaluate(() => [window.klibb.stamps.count, window.klibb.roomHistory().length]);
-    assert(await m.isVisible('#peel-btn') && pc[1] >= 1 && pc2[0] === pc[0] - 1 && pc2[1] === pc[1] - 1, 'mobil: ↩ peelar min senaste klibba');
+    assert(pc[1] >= 1 && pc2[0] === pc[0] - 1 && pc2[1] === pc[1] - 1, 'mobil: ↩ Undo peelar min senaste klibba');
+    await m.evaluate(() => window.klibb.stackMenu().close());
     await m.waitForTimeout(300);
     await m.screenshot({ path: path.join(SHOTS, '06-mobil-rum.png') });
     await m.tap('#design-btn'); await m.waitForTimeout(300);
@@ -833,7 +826,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     assert(!(await RA.evaluate(() => window.klibb.endDialog().open)) && (await RA.evaluate(() => window.klibb.stamps.count)) === 0 && rServer.stamps.length === 0 && rv.includes('Ulla reset the room'),
       '[Reset room] tar bort ALLA klibbor (även andras) på servern och för alla, och chatten säger "Ulla reset the room"');
     // Besökaren på mobilen: ↩ förbi slutet -> "Start a fresh room?"
-    await RV.tap('#peel-btn'); await RV.waitForTimeout(200); await RV.tap('#peel-btn').catch(() => {});
+    await RV.evaluate(() => { window.klibb.peelLast(); setTimeout(() => window.klibb.peelLast(), 200); }); // the phone's ↩ Undo (sticker stack menu)
     await RV.waitForFunction(() => window.klibb.endDialog().open, null, { timeout: 3000 });
     const rvd = await RV.evaluate(() => window.klibb.endDialog());
     const box = await RV.locator('#end-dialog').boundingBox();
@@ -1259,17 +1252,17 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await M.goto(`${BASE}/?room=${fullRoom}`); await waitReady(M);
     await M.waitForTimeout(800);
     await M.screenshot({ path: path.join(SHOTS, '37-mobil-start.png') });
-    await M.tap('#more-btn'); await M.waitForSelector('#more-panel', { state: 'visible' }); await M.waitForTimeout(300);
+    await M.tap('#design-btn'); await M.waitForTimeout(250); await M.tap('#sm-room'); await M.waitForSelector('#more-panel', { state: 'visible' }); await M.waitForTimeout(300);
     const sheet = await M.locator('#more-panel').boundingBox();
     await M.screenshot({ path: path.join(SHOTS, '38-mobil-mer.png') });
     assert(sheet.width <= M.viewportSize().width && sheet.y + sheet.height <= M.viewportSize().height + 1 && !(await M.isVisible('#joystick')),
-      'mobil: ⚙ More öppnas som ett ark nerifrån (styrspaken göms så länge)');
+      'mobil: 🏠 Room (⚙ More) öppnas som ett ark nerifrån (styrspaken göms så länge)');
     await M.tap('#more-close'); await M.waitForTimeout(200);
-    await M.tap('#view-btn'); await M.waitForTimeout(300);
-    const tpMob = await M.evaluate(() => [window.klibb.view(), localStorage.getItem('klibb.view'), document.getElementById('view-btn').getAttribute('aria-pressed')].join());
+    await M.tap('#design-btn'); await M.waitForTimeout(250); await M.tap('#sm-view'); await M.waitForTimeout(300);
+    const tpMob = await M.evaluate(() => [window.klibb.view(), localStorage.getItem('klibb.view'), document.getElementById('sm-view').getAttribute('aria-pressed')].join());
     await M.waitForFunction(() => window.klibb.selfAvatar().visible, null, { timeout: 10000 }); await M.waitForTimeout(500);
     await M.screenshot({ path: path.join(SHOTS, '46-tredje-person-mobil.png') });
-    await M.tap('#view-btn'); await M.waitForTimeout(200);
+    await M.tap('#design-btn'); await M.waitForTimeout(250); await M.tap('#sm-view'); await M.waitForTimeout(200);
     assert(tpMob === 'third,third,true' && (await M.evaluate(() => window.klibb.view())) === 'first', 'mobil: 👤 växlar mellan första och tredje person (sparas)');
     assert(await M.isVisible('#joystick') && await M.isHidden('#more-panel'), 'mobil: ✕ stänger ⚙ More och styrspaken är tillbaka');
     await openMore(M); await M.tap('#my-avatar');
@@ -1277,8 +1270,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await M.tap('#av-random'); await M.evaluate(() => { document.getElementById('avatar-panel').scrollTop = 0; }); await M.waitForTimeout(1200);
     const mPanel = await M.locator('#avatar-panel').boundingBox();
     await M.screenshot({ path: path.join(SHOTS, '26-gubbe-mobil.png') });
-    await M.tap('#av-ok');
-    await M.tap('#chat-btn');
+    await M.tap('#av-ok'); await M.waitForTimeout(300);
+    await M.tap('#design-btn'); await M.waitForTimeout(250); await M.tap('#sm-chat'); // 💬 is on the sticker stack menu's Talk card
     await M.waitForSelector('#chat-input', { state: 'visible' });
     await M.fill('#chat-input', 'Hej från mobilen 👋'); await M.tap('#chat-form button[type=submit]');
     await M.waitForFunction(() => [...document.querySelectorAll('#chat-log li')].some((li) => li.textContent.includes('Hej från mobilen')), null, { timeout: 5000 });
