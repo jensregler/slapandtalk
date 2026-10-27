@@ -500,7 +500,8 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
 // as ordinary stamp:add events (recordings, replays, videos, older clients all just work) with
 // nonce = "<nonce>x<i>" and batch = { g: anchorId, i, n }.
 // Limits: ARRAY_MAX stickers per drag (anchor included), 30 drags and ARRAY_BUDGET copies per IP and
-// minute, the room cap (oldest drop), floor copies that land on backing paper are skipped (peels on). Backing paper: one per copy for the first PEELS_PER_ARRAY (4; + the anchor's own = 5 at most).
+// minute, the room cap (oldest drop), floor copies that land on backing paper are skipped (peels on). Backing paper: one per copy (PEELS_PER_ARRAY = ARRAY_MAX, so every copy of any row; + the anchor's own), at most
+// PEEL.maxPerRoom on the floor (oldest go first); the paper rate is bounded by the same ARRAY_BUDGET copies per IP and minute.
 const arrayMod = import('../shared/array.mjs');
 const ARRAY_BUDGET = 1000;
 const arrayHits = new Map(); // ip -> [{ t, n }]

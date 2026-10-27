@@ -73,6 +73,24 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     await p.mouse.up();
     await settle();
     check('Esc while dragging: the ghosts go and nothing is repeated, the first sticker stays', up.ghosts > 0 && !esc.dragging && esc.ghosts === 0 && (await onServer()).length === base + 1, { up, esc });
+    // 4) Peels on: EVERY sticker in a row of ~10 drops its backing paper (was only the first 4 copies).
+    await fetch(`${S.base}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': made.roomKey }, body: JSON.stringify({ on: true }) });
+    await p.waitForFunction(() => window.klibb.peels().on, null, { timeout: 5000 });
+    await p.evaluate(() => window.klibb.look(0, 0));
+    const floor0 = (await (await fetch(`${S.base}/api/rooms/${R}/stamps`)).json()).peels?.length ?? 0;
+    const c0 = await p.evaluate(() => window.klibb.peels().count);
+    await p.mouse.down();
+    await p.waitForTimeout(150);
+    await p.evaluate(() => window.klibb.look(-0.62, 0));
+    await p.waitForFunction(() => window.klibb.arrayState().ghosts >= 9, null, { timeout: 5000 }).catch(() => {});
+    const ten = await p.evaluate(() => window.klibb.arrayState());
+    await p.mouse.up();
+    await settle();
+    await p.waitForFunction((n) => window.klibb.peels().count >= n, c0 + 1 + ten.ghosts, { timeout: 8000 }).catch(() => {});
+    const c1 = await p.evaluate(() => window.klibb.peels().count);
+    const floor1 = (await (await fetch(`${S.base}/api/rooms/${R}/stamps`)).json()).peels?.length ?? 0;
+    check(`peels on: a row of ${1 + ten.ghosts} stickers drops ${1 + ten.ghosts} papers (one per sticker), live and on the server`, ten.ghosts >= 9 && c1 - c0 === 1 + ten.ghosts && floor1 - floor0 === 1 + ten.ghosts,
+      { ghosts: ten.ghosts, live: c1 - c0, server: floor1 - floor0 });
     check('no page errors', !errors.length, errors);
     await ctx.close();
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }

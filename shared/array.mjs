@@ -73,9 +73,11 @@ export function arrayPlan(anchor, w, h, to, { faces = boxFaces(), max = ARRAY_MA
   return { step, dir, count, items };
 }
 
-// Backing paper (peels on): the anchor drops its own as usual, and the first PEELS_PER_ARRAY copies
-// one each, seeded "<nonce>x<i>" (so a long row doesn't bury the floor in paper).
-export const PEELS_PER_ARRAY = 4;
+// Backing paper (peels on): the anchor drops its own as usual, and every copy one each, seeded
+// "<nonce>x<i>" (was only the first 4). The cap is the longest row there is (ARRAY_MAX), so it never
+// bites a real drag; the floor still holds at most PEEL.maxPerRoom papers (oldest go first, as for
+// single slaps) and the server's per-IP budget (ARRAY_BUDGET copies a minute) bounds the rate.
+export const PEELS_PER_ARRAY = ARRAY_MAX;
 
 // Is a sticker centred at `position` with bounding radius r fully inside the face (no fold needed)?
 export function insideFace(face, position, r) {

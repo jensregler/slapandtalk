@@ -14,7 +14,7 @@ const { createStore } = require('../server/store');
 const { createApp } = require('../server/app');
 const { attachRealtime, onBroadcast } = require('../server/realtime');
 const { createRecorder } = require('../server/recorder');
-const { arrayPlan, arrayStep, ARRAY_MAX } = await import('../shared/array.mjs');
+const { arrayPlan, arrayStep, ARRAY_MAX, PEELS_PER_ARRAY } = await import('../shared/array.mjs');
 const { parseRecording, buildTimeline } = await import('../shared/replay.mjs');
 
 let n = 0;
@@ -135,7 +135,8 @@ try {
   const tl = buildTimeline(parseRecording(await (await fetch(`${base}/api/rooms/${R}/recordings/${rec.recId}/log`)).text()));
   assert(ids.every((id) => tl.stamps.has(id) && tl.stamps.get(id).to !== Infinity) && big.stamps.every((x) => tl.stamps.has(x.stamp.id)), 'the recording has every copy (and their peel), so replays and videos show the row');
 
-  // Peels on (backing paper): no reach limit; one paper per copy for the first 4 (5 with the anchor's).
+  // Peels on (backing paper): no reach limit; one paper per copy, every copy (+ the anchor's own).
+  assert(PEELS_PER_ARRAY === ARRAY_MAX, 'the paper cap per row is the longest row there is (every copy of any drag peels)');
   await fetch(`${base}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': KEY }, body: JSON.stringify({ on: true }) });
   const ws = new WebSocket(`${base.replace('http', 'ws')}/ws?room=${R}`); sockets.push(ws);
   const msgs = []; ws.on('message', (d) => msgs.push(JSON.parse(d.toString())));
@@ -144,8 +145,16 @@ try {
   const pa = await slap([0, 1, -5], { by: w.id, nonce: 'pp1', owner: 'device-dddd' });
   assert(pa.peel, 'peels on: the anchor drops its own backing paper');
   const pr = await (await array({ anchor: { id: pa.stamp.id, token: pa.peelToken }, to: [4.5, 1, -5], by: w.id, nonce: 'pp1' })).json();
-  assert(pr.stamps.length === 15 && pr.stamps.filter((x) => x.peel).length === 4 && pr.stamps.slice(0, 4).every((x) => x.peel && x.peel.seed === `pp1x${x.i}`),
-    'peels on: the row runs along the wall, and the first 4 copies drop a paper each (seed = their nonce)', pr.stamps.map((x) => !!x.peel));
+  assert(pr.stamps.length === 15 && pr.stamps.every((x) => x.peel && x.peel.seed === `pp1x${x.i}`),
+    'peels on: the row runs along the wall, and EVERY copy drops a paper (seed = their nonce)', pr.stamps.map((x) => !!x.peel));
+  // Jens's case: a row of 10 stickers (the anchor + 9 copies) = 10 papers on the floor.
+  const floorBefore = (await store.getRoom(R)).peels.length;
+  const ten = await slap([-4.5, 3, -5], { by: w.id, nonce: 'ten1', owner: 'device-eeee' });
+  const tr = await (await array({ anchor: { id: ten.stamp.id, token: ten.peelToken }, to: [-4.5 + 9 * 0.3, 3, -5], by: w.id, nonce: 'ten1' })).json();
+  const floorAfter = (await store.getRoom(R)).peels;
+  const peelAdds = events.filter((x) => x.e.type === 'stamp:add' && x.e.batch && x.e.batch.g === ten.stamp.id && x.e.peel);
+  assert(ten.peel && tr.stamps.length === 9 && tr.stamps.every((x) => x.peel) && floorAfter.length === floorBefore + 10 && peelAdds.length === 9,
+    'a row of 10 stickers: 10 papers (the anchor’s + one per copy), saved on the floor and broadcast with each stamp:add', { n: tr.stamps.length, peels: tr.stamps.filter((x) => x.peel).length, floor: floorAfter.length - floorBefore, bc: peelAdds.length });
   const fr = await post(`/api/rooms/${R}/stamps`, { imageId: img.id, position: [0, 1, 4.9], normal: [0, 0, -1], quaternion: [0, 1, 0, 0], size: 0.3, surface: 'vägg-söder', by: w.id });
   assert(fr.status === 200, 'peels on: a slap ~8.5 m away is accepted too (no reach limit)', fr);
 } finally {
