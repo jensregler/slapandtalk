@@ -4,23 +4,11 @@
 //   - peelPlan(seed, from, target): where it is born (hip height, on the line from the slapper towards
 //     the slap) and where it lands (near the foot of the slap: the wall base, or just short of a floor
 //     sticker). Deterministic from the seed (the slap's nonce, or the stamp id), the server stores it.
-//   - SLAP_REACH / inReach(eye, target): with peels on, you can only slap what is within arm's reach
-//     (so the paper lands near the slap). Checked in the browser and, with a little slack, on the server.
 //   - peelPose(peel, u): position + rotation along the scripted fall path at u = 0..1 (no physics).
 //   - overlapFraction(sticker, peels): how much of a new floor sticker lies on peels (easter egg:
 //     stickers don't stick on backing paper; more than PEEL.refuseOverlap is refused).
 // All the tweakable numbers are in PEEL.
 import ROOM from './room.json' with { type: 'json' };
-
-// With peels on, the furthest you can slap: metres from the avatar's eyes to the hit point (3D).
-// 2.5 m reaches a wall at eye height from 2.5 m, the floor up to ~1.9 m ahead and the 4 m ceiling
-// when standing almost under the spot. With peels off there is no reach limit at all.
-export const SLAP_REACH = 2.5;
-// The server measures from the last position it heard over the WebSocket, which can be a step
-// behind (moves are sent ~12×/s), so it allows this much extra before it refuses.
-export const REACH_TOLERANCE = 0.6;
-export const reachDistance = (eye, target) => Math.hypot(target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]);
-export const inReach = (eye, target, slack = 0) => reachDistance(eye, target) <= SLAP_REACH + slack;
 
 export const PEEL = {
   maxPerRoom: 300,          // oldest peels go first

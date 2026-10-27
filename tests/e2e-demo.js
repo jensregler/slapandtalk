@@ -92,7 +92,7 @@ const startServer = (port, extra) => startWith(port, { ADMIN_TOKEN: ADMIN, ...ex
     const chosen = await sel();
 
     // Slap a library sticker: its artist rides along (not my name) → Look mode click credit.
-    await jp.evaluate(() => { const k = window.klibb; k.moveTo(0, 0); k.look(0, 0); k.skipReachCheck = true; });
+    await jp.evaluate(() => { const k = window.klibb; k.moveTo(0, 0); k.look(0, 0); });
     const slapped = await jp.evaluate(async () => {
       const k = window.klibb;
       // face a wall: try the four directions until the dot hits something
@@ -170,7 +170,7 @@ const startServer = (port, extra) => startWith(port, { ADMIN_TOKEN: ADMIN, ...ex
     check('Marika comes back after a reload: no name dialog, still a member', mBack.status === 'online' && mBack.name === 'Marika' && !mBack.dialog, mBack);
 
     // ---- Unique history per participant ----
-    await mp.evaluate(() => { const k = window.klibb; k.skipReachCheck = true; k.moveTo(0, 0); });
+    await mp.evaluate(() => { const k = window.klibb; k.moveTo(0, 0); });
     const ms = await mp.evaluate(async (yaw) => { const k = window.klibb; k.look(yaw + 0.25, 0); return !!(await k.stampAt(0, 0)); }, slapped ? slapped.yaw : 0);
     await mp.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 8000 }).catch(() => {});
     await jp.waitForFunction(() => window.klibb.stamps.count >= 2, null, { timeout: 5000 }).catch(() => {});
@@ -250,7 +250,7 @@ const startServer = (port, extra) => startWith(port, { ADMIN_TOKEN: ADMIN, ...ex
     const ep = await enter(ctxE, B.base + '/', 'Clock');
     await ep.waitForURL(/\?room=/, { timeout: 20000 }); await waitReady(ep);
     const RE = await ep.evaluate(() => window.klibb.room);
-    await ep.evaluate(async () => { const k = window.klibb; k.skipReachCheck = true; for (const y of [0, Math.PI / 2, Math.PI]) { k.look(y, 0); if (await k.stampAt(0, 0)) break; } });
+    await ep.evaluate(async () => { const k = window.klibb; for (const y of [0, Math.PI / 2, Math.PI]) { k.look(y, 0); if (await k.stampAt(0, 0)) break; } });
     await sleep(800);
     const has = (rel) => fs.existsSync(path.join(B.dir, rel));
     const roomFile = () => fs.readdirSync(path.join(B.dir, 'rooms')).some((f) => f.startsWith(RE));

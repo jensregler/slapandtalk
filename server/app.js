@@ -440,14 +440,6 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).
   const P = await peelsMod;
   let peelSt = await store.peelState(room);
-  // Peels på: man når bara så långt armen räcker (P.SLAP_REACH), mätt från där servern senast
-  // hörde att spelaren stod. Peels av: ingen gräns alls.
-  let reachFrom = null;
-  if (peelSt.on) {
-    const reach = await checkReach(P, room, b);
-    if (!reach.ok) return res.status(409).json({ error: 'Out of reach.', tooFar: true, ...(reach.distance ? { distance: reach.distance } : {}) });
-    reachFrom = reach.from;
-  }
   if (peelSt.on && peelSt.peels.length && P.onFloor(String(b.surface || ''), b.normal)) {
     const frac = await floorOverlap(P, image, b, peelSt.peels);
     if (frac > P.PEEL.refuseOverlap) return res.status(409).json({ error: 'Nope.', nope: true, overlap: Math.round(frac * 1000) / 1000 });
@@ -487,7 +479,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   // Peels på: baksidespappret faller från den som slappade (fallet räknas ut av klienterna från seed).
   let peel = null;
   if (peelSt.on || (await store.peelState(room)).on) {
-    const from = reachFrom || cleanFrom(b.peelFrom) || fallbackFrom(b.position, b.normal);
+    const from = cleanFrom(b.peelFrom) || fallbackFrom(b.position, b.normal);
     const seed = nonce && /^[A-Za-z0-9_-]{1,40}$/.test(nonce) ? nonce : saved.id;
     const { side, ...plan } = P.peelPlan(seed, from, b.position);
     const [w, h] = P.stampDims(image, stamp.size);
@@ -507,8 +499,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
 // as ordinary stamp:add events (recordings, replays, videos, older clients all just work) with
 // nonce = "<nonce>x<i>" and batch = { g: anchorId, i, n }.
 // Limits: ARRAY_MAX stickers per drag (anchor included), 30 drags and ARRAY_BUDGET copies per IP and
-// minute, the room cap (oldest drop), floor copies that land on backing paper are skipped (peels on),
-// and the reach is the anchor's only. Backing paper: one per copy for the first PEELS_PER_ARRAY (4; + the anchor's own = 5 at most).
+// minute, the room cap (oldest drop), floor copies that land on backing paper are skipped (peels on). Backing paper: one per copy for the first PEELS_PER_ARRAY (4; + the anchor's own = 5 at most).
 const arrayMod = import('../shared/array.mjs');
 const ARRAY_BUDGET = 1000;
 const arrayHits = new Map(); // ip -> [{ t, n }]
@@ -580,34 +571,6 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
   }
   res.json({ anchor: anchor.id, image, stamps: rows });
 }));
-
-// Räckvidden med peels på. Spelaren måste vara ansluten till rummet (WebSocket, b.by) så servern
-// vet var den står. Positionen kan ligga ett steg efter (move går över WebSocket, slappen över
-// HTTP): säger klienten att den står inom räckhåll väntar vi högst REACH_WAIT_MS på nästa move.
-// Svar: { ok, from } där from = var pappret föds från (klientens egen position om den stämmer med
-// serverns, så pappret landar på samma ställe för alla, annars serverns), eller { ok: false, distance }.
-const REACH_WAIT_MS = 400;
-async function checkReach(P, room, b) {
-  const by = playerId(b.by);
-  let pos = playerPosition(room, by);
-  if (!pos) return { ok: false };
-  const limit = P.SLAP_REACH + P.REACH_TOLERANCE;
-  const dist = (q) => P.reachDistance(q.p, b.position);
-  const claimed = cleanFrom(b.peelFrom);
-  if (dist(pos) > limit) {
-    const claimOk = claimed && P.reachDistance([claimed.x, pos.p[1], claimed.z], b.position) <= P.SLAP_REACH + 0.05;
-    const t0 = Date.now();
-    while (claimOk && Date.now() - t0 < REACH_WAIT_MS) {
-      await new Promise((r) => setTimeout(r, 20));
-      const q = playerPosition(room, by); if (!q) break;
-      if (q.moves !== pos.moves) { pos = q; if (dist(pos) <= limit) break; }
-    }
-    if (dist(pos) > limit) return { ok: false, distance: Math.round(dist(pos) * 100) / 100 };
-  }
-  const ours = { x: pos.p[0], z: pos.p[2], yaw: isNum(pos.y) ? pos.y : 0 };
-  const from = claimed && Math.hypot(claimed.x - ours.x, claimed.z - ours.z) <= P.REACH_TOLERANCE ? claimed : ours;
-  return { ok: true, from };
-}
 
 // Var stod den som slappade? { p: [x, z], yaw } från klienten, inom rummet. Annars gissar vi:
 // en bit framför klibban (längs normalen), vänd mot den.

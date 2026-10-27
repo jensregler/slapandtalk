@@ -688,7 +688,7 @@ exactly a slap, as before. **Desktop only**: on a phone a drag looks around (no 
   from the saved anchor, so the size limits that hit A (free 15 cm–1 m) hold for every copy, and adds
   all copies in one locked step. Copies that would land on backing paper on the floor are skipped.
   Limits: 200 per drag, 30 drags and 1000 copies per IP and minute, the room cap of 3000 (oldest go),
-  the demo's room/membership rules. Reach (peels on) applies to A only; the row may run past it.
+  the demo's room/membership rules.
   Each copy goes out as an ordinary `stamp:add` (with `batch: { g, i, n }` and nonce `<nonce>x<i>`),
   so other players, recordings, replays and videos see it without changes; others hear one slap per row.
 - **One peel step:** the copies share A's peel key and are saved with `group` = A's id. In this browser

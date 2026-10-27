@@ -1,8 +1,8 @@
 // E2E (short): auto-slap. Own server (port 8853, normal app). Free: no Auto-slap row, H does nothing.
 // Full version: the sequence editor for 1–32 steps (and clamping), H toggles, it fires at about the
 // right rate (free rate and on the beat), skips when the crosshair stands still, pauses in Look mode
-// and in the chat, stops on Esc (leaving pointer lock), the burst is one undo step (Z), and the reach
-// rule holds (peels on, too far = nothing).
+// and in the chat, stops on Esc (leaving pointer lock), the burst is one undo step (Z), and there is
+// no reach limit (peels on, far from the wall = it still slaps).
 const sharp = require('sharp');
 const fs = require('fs');
 const os = require('os');
@@ -134,15 +134,15 @@ const KEY = 'autoslap-e2e-full-key';
     check('Esc (leaving pointer lock): off', !esc.on && esc.chip === '', esc);
     await settle();
 
-    // reach: peels on, far from the wall
+    // no reach limit: peels on, far from the wall, it still slaps
     await fetch(`${S.base}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': made.roomKey }, body: '{"on":true}' });
     await p.waitForFunction(() => window.klibb.peels().on, null, { timeout: 5000 }).catch(() => {});
     await p.evaluate(() => { const k = window.klibb; k.moveTo(0, 3); k.look(0, 0); });
     await p.mouse.click(500, 325); await p.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
-    const r0 = await onServer(), rs0 = (await info()).skipped.reach || 0;
+    const r0 = await onServer();
     await p.keyboard.press('KeyH'); await sweep(1500); await p.keyboard.press('KeyH'); await settle();
     const rr = await info();
-    check('peels on and the wall 8 m away: nothing slaps (skipped "reach", quietly)', (await onServer()) === r0 && (rr.skipped.reach || 0) - rs0 >= 2, rr.skipped);
+    check('peels on and the wall 8 m away: it still slaps (no reach limit)', (await onServer()) > r0 && !rr.skipped.reach, rr.skipped);
     check('no page errors', !p.errors.length, p.errors);
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }
   finally { await browser.close(); S.child.kill(); fs.rmSync(tmp, { recursive: true, force: true }); }

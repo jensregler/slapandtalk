@@ -111,7 +111,7 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     await A.waitForFunction(() => window.klibb.peels().on, null, { timeout: 5000 });
     const duffs = [];
     for (const size of [0.15, 0.6]) {
-      await A.evaluate((size) => { const k = window.klibb; k.state.size = size; k.moveTo(-1 + size * 3, -3.0); k.look(0, 0.1); }, size); // inom räckhåll (peels)
+      await A.evaluate((size) => { const k = window.klibb; k.state.size = size; k.moveTo(-1 + size * 3, -3.0); k.look(0, 0.1); }, size);
       const n = await A.evaluate(() => window.klibb.soundLog().length);
       const st = await A.evaluate(async () => { const r = await window.klibb.stampAt(0, 0); return JSON.stringify(r); });
       try { await A.waitForFunction((n) => window.klibb.soundLog().slice(n).some((e) => e.kind === 'duff'), n, { timeout: 10000 }); } catch (e) {

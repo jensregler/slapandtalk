@@ -482,9 +482,6 @@ export class StampLayer {
 // Hur genomskinlig klibban man håller i är. 1 = helt ogenomskinlig, som en riktig klibba
 // (Tittläget V finns för att se väggen utan klibban i vägen). Sätt t.ex. 0.55 för att gå tillbaka.
 export const HELD_OPACITY = 1;
-// Peels på och målet är utom räckhåll: klibban man håller i bleknar och blir lite grå (ingen text).
-export const FAR_OPACITY = 0.38;
-export const FAR_TINT = 0xb8b8b8;
 
 // Förhandsvisningen av klibban man håller i, som följer siktet (1:a och 3:e person).
 // Den viks på samma sätt som den riktiga klibban, så man ser hur den hamnar i hörn.
@@ -501,15 +498,7 @@ export class StampPreview {
     this.mesh.visible = false;
     this.mesh.frustumCulled = false;
     this.key = '';
-    this.far = false;
     scene.add(this.mesh);
-  }
-  // Utom räckhåll (peels på): blek och gråaktig. Tillbaka till vanlig direkt när man är nära igen.
-  setFar(far) {
-    far = !!far; if (far === this.far) return;
-    this.far = far;
-    this.mat.opacity = far ? FAR_OPACITY : HELD_OPACITY;
-    this.mat.color.set(far ? FAR_TINT : 0xffffff);
   }
   setTexture(tex) { this.mat.map = tex; this.mat.needsUpdate = true; }
   show(point, normal, quaternion, w, h, surface) {

@@ -82,37 +82,29 @@ async function peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN }) {
     const hack = await A.evaluate(async ({ x, z, id }) => (await fetch(`/api/rooms/${window.klibb.room}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageId: id, by: window.klibb.net.id, position: [x, 0, z], normal: [0, 1, 0], quaternion: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2], size: 0.3, surface: 'golv' }) })).status, { ...target, id: designId });
     assert(hack === 409, 'servern nekar också (409) om någon försöker gå förbi webbläsaren');
+    // Samma sak långt ifrån (4 m): golvet på papper nekas oavsett avstånd, det är ingen räckviddsgräns
+    const bf = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.nopes()]);
+    await A.evaluate(({ x, z }) => { const k = window.klibb; k.moveTo(x, z + 4); k.camera.position.y = 1.6; k.look(0, -Math.atan(1.6 / 4)); }, target);
+    const farRefused = await A.evaluate(() => window.klibb.stampAt(0, 0));
+    await A.waitForTimeout(300);
+    const af2 = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.nopes(), window.klibb.soundLog().at(-1).kind]);
+    assert(farRefused === null && af2[0] === bf[0] && af2[1] === bf[1] + 1 && af2[2] === 'nope', 'golvet på papper nekas också 4 m bort (nope), avståndet spelar ingen roll');
     await A.evaluate(() => { const k = window.klibb; k.moveTo(3.6, -3.6); k.look(0, -0.9); });
     const okFloor = await A.evaluate(() => window.klibb.stampAt(0, 0).then((s) => !!s));
     assert(okFloor, 'på tomt golv fastnar klibban som vanligt');
 
-    // Räckvidden: med peels på når man bara SLAP_REACH meter
-    const reach = await A.evaluate(() => window.klibb.reach);
+    // Ingen räckviddsgräns: med peels på fastnar klibban även 8 m från väggen, i 1:a och 3:e person
     for (const v of ['first', 'third']) {
       await A.evaluate((v) => { const k = window.klibb; k.setView(v, { quiet: true }); k.moveTo(0, 3); k.look(0, 0.05); }, v);
       await A.waitForTimeout(150);
-      const b4 = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.peels().count, window.klibb.farSlaps(), window.klibb.nopes(), window.klibb.soundLog().length]);
-      const res = await A.evaluate(() => window.klibb.stampAt(0, 0));
+      const b4 = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.peels().count, window.klibb.nopes()]);
+      const ok = await A.evaluate(() => window.klibb.stampAt(0, 0).then((s) => !!s));
       await A.waitForTimeout(250);
-      const af = await A.evaluate(() => ({ n: [window.klibb.stamps.count, window.klibb.peels().count, window.klibb.farSlaps(), window.klibb.nopes()], snd: window.klibb.soundLog().at(-1), st: window.klibb.reachState(), shrug: document.querySelector('#nope-shrug.show') }));
-      assert(res === null && af.n[0] === b4[0] && af.n[1] === b4[1] && af.n[2] === b4[2] + 1 && af.n[3] === b4[3] && af.snd.kind === 'nope' && af.snd.level < 0.5 && af.st.flash && af.st.far && af.st.crosshairDim,
-        `${v === 'first' ? '1:a' : '3:e'} person, 8 m från väggen (räckvidd ${reach} m): ingen klibba, inget papper, ett tyst "nej" (${af.snd.level}) och en blek, grå skugga där man siktade – ingen axelryckning, ingen text`);
+      const af = await A.evaluate(() => ({ n: [window.klibb.stamps.count, window.klibb.peels().count, window.klibb.nopes()], dim: document.body.classList.contains('out-of-reach') }));
+      assert(ok && af.n[0] === b4[0] + 1 && af.n[1] === b4[1] + 1 && af.n[2] === b4[2] && !af.dim,
+        `${v === 'first' ? '1:a' : '3:e'} person, 8 m från väggen med peels på: klibban fastnar och pappret faller (ingen räckviddsgräns, inget "nej")`);
     }
-    await A.waitForTimeout(800);
-    const faded = await A.evaluate(() => window.klibb.reachState());
-    assert(!faded.flash && !faded.crosshairDim && faded.opacity === 1, 'skuggan försvinner efter en kort stund och klibban man håller i är som vanligt igen');
-    await A.evaluate(() => { const k = window.klibb; k.setView('first', { quiet: true }); k.moveTo(0, -3.2); k.look(0, 0.05); });
-    const near = await A.evaluate(() => window.klibb.stampAt(0, 0).then((s) => !!s));
-    assert(near, 'går man fram till väggen fastnar klibban');
-    // Servern nekar också (om webbläsaren luras): den optimistiska klibban och pappret tas bort igen
-    await A.evaluate(() => { const k = window.klibb; k.skipReachCheck = true; k.moveTo(0, 3); k.look(0, 0.05); });
-    const b5 = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.peels().count, window.klibb.farSlaps()]);
-    const srvNo = await A.evaluate(() => window.klibb.stampAt(0, 0));
-    await A.waitForTimeout(200);
-    const a5 = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.peels().count, window.klibb.farSlaps(), window.klibb.pendingSlaps(), window.klibb.peels().peels.filter((p) => p.id.startsWith('tmp-')).length]);
-    await A.evaluate(() => { window.klibb.skipReachCheck = false; });
-    assert(srvNo === null && a5[0] === b5[0] && a5[1] === b5[1] && a5[2] === b5[2] + 1 && a5[3] === 0 && a5[4] === 0,
-      'servern nekar en slap utom räckhåll (409): den optimistiska klibban och det fallande pappret rullas tillbaka rent, samma tysta "nej"');
+    await A.evaluate(() => window.klibb.setView('first', { quiet: true }));
     await A.evaluate(() => document.getElementById('room-menu-btn').click());
     await A.click('#peels-clear');
     await B.waitForFunction(() => window.klibb.peels().count === 0, null, { timeout: 5000 });

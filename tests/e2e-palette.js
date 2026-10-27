@@ -79,7 +79,7 @@ async function paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) 
 
     // A sticker of C on the wall: it must stay when C leaves my palette.
     const stampC = await d.evaluate(async (id) => {
-      const k = window.klibb; k.skipReachCheck = true; k.state.selected = k.state.mine.find((m) => m.id === id);
+      const k = window.klibb; k.state.selected = k.state.mine.find((m) => m.id === id);
       k.moveTo(0, 1); k.look(0, 0); const s = await k.stampAt(0, 0); return s && s.id;
     }, C);
     assert(!!stampC, 'a sticker of design C is on the wall');

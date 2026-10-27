@@ -515,7 +515,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       await b.goto(`${BASE}/?room=${ROOM}`); await waitReady(b);
       await b.evaluate(() => window.klibb.entitlementsReady());
       const bigCap = await b.evaluate(async () => {
-        const k = window.klibb; k.skipReachCheck = true;
+        const k = window.klibb;
         const r = { big: k.entitlements().full.bigStickers, max: Number.isFinite(k.maxSizeCm) ? k.maxSizeCm : null, sliderMax: document.getElementById('size').max };
         k.setSize(1000); r.after = k.state.size; r.toast = document.getElementById('toast').textContent;
         k.moveTo(0, 0); k.look(0, 0); k.state.rotation = 0;

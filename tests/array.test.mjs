@@ -135,8 +135,7 @@ try {
   const tl = buildTimeline(parseRecording(await (await fetch(`${base}/api/rooms/${R}/recordings/${rec.recId}/log`)).text()));
   assert(ids.every((id) => tl.stamps.has(id) && tl.stamps.get(id).to !== Infinity) && big.stamps.every((x) => tl.stamps.has(x.stamp.id)), 'the recording has every copy (and their peel), so replays and videos show the row');
 
-  // Peels on (backing paper + reach): the reach is checked on the anchor only; one paper per copy for
-  // the first 4 (5 with the anchor's).
+  // Peels on (backing paper): no reach limit; one paper per copy for the first 4 (5 with the anchor's).
   await fetch(`${base}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': KEY }, body: JSON.stringify({ on: true }) });
   const ws = new WebSocket(`${base.replace('http', 'ws')}/ws?room=${R}`); sockets.push(ws);
   const msgs = []; ws.on('message', (d) => msgs.push(JSON.parse(d.toString())));
@@ -146,9 +145,9 @@ try {
   assert(pa.peel, 'peels on: the anchor drops its own backing paper');
   const pr = await (await array({ anchor: { id: pa.stamp.id, token: pa.peelToken }, to: [4.5, 1, -5], by: w.id, nonce: 'pp1' })).json();
   assert(pr.stamps.length === 15 && pr.stamps.filter((x) => x.peel).length === 4 && pr.stamps.slice(0, 4).every((x) => x.peel && x.peel.seed === `pp1x${x.i}`),
-    'peels on: the row reaches past the 2.5 m reach along the wall, and the first 4 copies drop a paper each (seed = their nonce)', pr.stamps.map((x) => !!x.peel));
+    'peels on: the row runs along the wall, and the first 4 copies drop a paper each (seed = their nonce)', pr.stamps.map((x) => !!x.peel));
   const fr = await post(`/api/rooms/${R}/stamps`, { imageId: img.id, position: [0, 1, 4.9], normal: [0, 0, -1], quaternion: [0, 1, 0, 0], size: 0.3, surface: 'vägg-söder', by: w.id });
-  assert(fr.status === 409, '(the anchor itself still has to be within reach)');
+  assert(fr.status === 200, 'peels on: a slap ~8.5 m away is accepted too (no reach limit)', fr);
 } finally {
   off(); for (const s of sockets) s.terminate(); await recorder.close(); rt.close(); server.close(); fs.rmSync(dir, { recursive: true, force: true });
 }
