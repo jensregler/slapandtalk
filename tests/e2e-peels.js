@@ -63,8 +63,9 @@ async function peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN }) {
     await B.waitForFunction((n) => window.klibb.peels().landed >= n, spots.length + 1, { timeout: 10000 });
     const info = await B.evaluate(() => window.klibb.peels());
     assert(info.count === spots.length + 1 && info.drawCalls === 2, `B ser ${info.count} papper på golvet, ritade med instancing (${info.drawCalls} draw calls)`);
-    const wallFoot = await B.evaluate(() => window.klibb.peels().peels.every((p) => p.z < -3.6));
-    assert(wallFoot, 'pappren landar vid väggens fot, nära där man slappade (inte mitt i rummet)');
+    const outs = await B.evaluate(() => window.klibb.peels().peels.map((p) => p.z + 5));
+    assert(outs.every((d) => d > 0.1 && d < 2.0) && Math.max(...outs) - Math.min(...outs) > 0.4,
+      `pappren sprids ut på golvet framför väggen efter släphöjden (${Math.min(...outs).toFixed(2)}–${Math.max(...outs).toFixed(2)} m ut), inte i en klump vid foten och inte mitt i rummet`);
     await A.evaluate(() => { const k = window.klibb; k.setView('third', { quiet: true }); k.moveTo(-0.2, 3.4); k.look(0, -0.42); });
     await A.waitForTimeout(700);
     await A.screenshot({ path: path.join(OUT, 'peels-floor-3rd-person.png') });

@@ -17,7 +17,12 @@ export const PEEL = {
   birthFloorLift: 0.08,     // m: a floor slap's paper comes up this little off the floor (then settles, no hop)
   birthCeilingGap: 0.06,    // m: a ceiling slap's paper starts at least this far below the ceiling
   floatRef: 1.0,            // m: the small mid-fall float is full from this start height, smaller below (no upward hop on low starts)
-  footBack: 0.22,           // m: lands this far back from the foot of a wall slap (towards the slapper)
+  // A wall slap's paper glides out from the wall the higher it starts: it lands
+  //   travelBase + travelPerM × start height  out from the wall (0.3 m → 0.37 m … 3.5 m → 1.65 m),
+  //   ± (scatterBase + scatterPerM × start height) of random scatter (0.3 m → ±0.20 m … 3.5 m → ±0.68 m).
+  travelBase: 0.25, travelPerM: 0.4,
+  scatterBase: 0.15, scatterPerM: 0.15,
+  wallSnap: 0.05,           // m: a slap this close to a wall counts as on that wall (glides out along its normal)
   footBackFloor: 0.4,       // m: a floor slap's paper lands this much short of the sticker (not on it)
   footScatter: 0.25,        // m: random scatter around that spot
   curve: 0.35,              // the drift bends this much (fraction of the distance), random sign
@@ -68,8 +73,9 @@ export function pathParams(seed) {
 // from = { x, z, yaw } of the slapping player, target = [x, y, z] where the sticker landed.
 // Returns the stored part: start (born), x/z/yaw (resting place), side (+1 right / −1 left).
 // Born at the slap (the stamp's own height, a few cm out from it towards the slapper); lands near the
-// foot of the slap (the wall base, right under a ceiling slap, just short of a floor sticker).
-// A floor slap is born just above the floor sticker and settles a bit short of it.
+// foot of the slap, out on the floor in proportion to the start height (a wall slap at 0.3 m lands
+// ~0.37 m from the wall, one at 3.5 m ~1.65 m out), right under a ceiling slap, just short of a floor
+// sticker. A floor slap is born just above the floor sticker and settles a bit short of it.
 export function peelPlan(seed, from, target, room = ROOM) {
   const r = seeded('land:' + seed);
   const side = slapSide(from, target);
@@ -82,9 +88,22 @@ export function peelPlan(seed, from, target, room = ROOM) {
   const off = Math.min(PEEL.birthOff, D);
   const sy = floor ? PEEL.birthFloorLift : clamp(target[1], PEEL.birthFloorLift, (room.height ?? 4) - PEEL.birthCeilingGap);
   const start = [clamp(target[0] - dx * off, -mx, mx), sy, clamp(target[2] - dz * off, -mz, mz)];
-  const back = Math.min(floor ? PEEL.footBackFloor : PEEL.footBack, D);
-  const ang = r() * Math.PI * 2, rad = Math.sqrt(r()) * PEEL.footScatter;
-  const x = clamp(target[0] - dx * back + Math.cos(ang) * rad, -mx, mx), z = clamp(target[2] - dz * back + Math.sin(ang) * rad, -mz, mz);
+  // Which way is "out from the wall": the wall's inward normal for a wall slap, else back towards the slapper.
+  const wx = room.width / 2 - PEEL.wallSnap, wz = room.depth / 2 - PEEL.wallSnap;
+  const onWall = !floor && (Math.abs(target[0]) >= wx || Math.abs(target[2]) >= wz);
+  let ox = -dx, oz = -dz, back, scatter;
+  if (floor) { back = Math.min(PEEL.footBackFloor, D); scatter = PEEL.footScatter; }
+  else {
+    if (onWall) {
+      const ex = Math.abs(target[0]) - wx, ez = Math.abs(target[2]) - wz; // the wall it is nearest/past
+      if (ex >= ez) { ox = -Math.sign(target[0]); oz = 0; } else { ox = 0; oz = -Math.sign(target[2]); }
+    }
+    const travel = PEEL.travelBase + PEEL.travelPerM * sy;
+    back = onWall ? travel : Math.min(travel, D); // a ceiling slap: still lands around under it
+    scatter = PEEL.scatterBase + PEEL.scatterPerM * sy;
+  }
+  const ang = r() * Math.PI * 2, rad = Math.sqrt(r()) * scatter;
+  const x = clamp(target[0] + ox * back + Math.cos(ang) * rad, -mx, mx), z = clamp(target[2] + oz * back + Math.sin(ang) * rad, -mz, mz);
   const yaw = r() * Math.PI * 2;
   return { start: start.map(round), x: round(x), z: round(z), yaw: round(yaw), side };
 }
