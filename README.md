@@ -159,8 +159,11 @@ inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) finns en 
   bara de klibborna: är en helt dold (samma regel) tas den bort, sparas och skickas som vanlig
   `stamp:remove` (`quiet: true`, utan ljud). Synliga och de som någon fortfarande kan peela ligger kvar.
   Loggas som `[auto-prune] room …: checked N, removed M`. Stängs av med `AUTO_PRUNE_HIDDEN=0` (`server/hidden.js`).
-- **Fullt rum:** högst 10 gubbar per rum (`MAX_PLAYERS_PER_ROOM`). Den elfte ser rummet, alla
-  gubbar och chatten, men kan inte skriva och syns inte, och kommer in automatiskt när någon går.
+- **Fullt rum:** gratisversionen har högst 4 i ett rum (`FREE_MAX_PLAYERS` i `server/entitlements.js`:
+  fyra väggar, en var). Den femte ser rummet, alla gubbar och chatten, men syns inte, kan inte skriva
+  eller prata och kan inte slappa (servern svarar 409 `full`), och kommer in automatiskt när någon går.
+  `MAX_PLAYERS_PER_ROOM` kan bara sänka gränsen. Rummen har ingen betald nivå (fullversionen gäller
+  per spelare), så gränsen gäller alla rum, även Staden. Admin (`x-admin-token`) begränsas inte.
 - **Tappar du anslutningen** (mobilen byter nät, servern startar om eller Render vaknar) kopplar
   appen upp sig igen av sig själv: först efter en halv sekund, sedan längre och längre, som mest
   10 sekunder. När den är tillbaka hämtar den rummet igen så att du ser det du missat.
@@ -733,14 +736,14 @@ uploads, room editing, the full version, the City etc. are all back.
 | `DEMO_PROFILE` | `1` | Required. Unset (or `0`) = the normal app. |
 | `DEMO_ROOM_MINUTES` | e.g. `60` | Optional, default 60. How long a room lives. |
 
-`MAX_PLAYERS_PER_ROOM` is ignored in the demo (always 5). Keys in `FULL_ACCESS_KEYS` and
+`MAX_PLAYERS_PER_ROOM` is ignored in the demo (always `FREE_MAX_PLAYERS` = 4). Keys in `FULL_ACCESS_KEYS` and
 `DEV_UNLOCK` unlock nothing while the demo is on. Storage vars (`STORAGE`, `S3_*`) stay as they are.
 
 What changes (shared/demo.json holds the numbers):
 - **Name first.** "What's your name?" before anything loads; remembered per device. Each new person gets a random avatar; *My avatar* is hidden.
 - **Library only.** The palette is the curated library (`library/`), R/F browse it. `POST /api/stickers` → 403; no Instagram tag field. The artist comes from the library, so Look mode shows it on click.
 - **Rooms.** Opening the site creates your own room with the empty preset (tiles, concrete, classic ceiling); no style picker, no room editing, no sound settings, no placing cameras, no City. The room's creator can still **● REC**, switch on the one fully automatic 🎥 Auto cameraman (⚙ More → 🎬 Recording), and make videos with the 🎬 Director or the auto cameraman takes from the replay; anyone can take 📷 photos (P), which are kept like videos and survive the room; recordings are deleted with the room, so make the video before the hour ends. *New quick room* goes straight into a new empty room.
-- **Invites.** Max 5 per room and 5 members. Nobody gets in without an invite: each member can make one single-use link (✉ Invite a friend). Asking again re-shares the same unused link; once it is used, that member cannot invite again. The server keeps only hashes (of the room key, member keys and invite tokens). Members get a member key in their browser, so reloads and new tabs get back in. Extra tabs of a member beyond 5 players watch.
+- **Invites.** Max 4 per room and 4 members (`FREE_MAX_PLAYERS`: the creator + 3). Nobody gets in without an invite: each member can make one single-use link (✉ Invite a friend). Asking again re-shares the same unused link; once it is used, that member cannot invite again. The server keeps only hashes (of the room key, member keys and invite tokens). Members get a member key in their browser, so reloads and new tabs get back in. Extra tabs of a member beyond 4 players watch.
 - **One hour.** A quiet timer at the top; a calm note at 5 minutes. At the end everyone sees "This room has closed", the sockets close (code 4010, no reconnect) and (after any running recording is stopped) the room JSON (stamps, peels) and `recordings/<room>/` are deleted from storage. `videos/` is never touched. A sweep at start-up and every 5 minutes catches rooms that expired while the server was down.
 - **Voice.** 🎙 (or B) – off by default, asks for the microphone on the first press, then mutes/unmutes. Browser-to-browser (WebRTC mesh) through the existing signal relay, public STUN only (no TURN: some strict networks cannot connect). Voice also works outside the demo.
 
@@ -844,7 +847,7 @@ Id:t räknas fram ur bildens innehåll, så laddar två personer upp exakt samma
 | `RESEND_API_KEY` | – | Resend-nyckel för *Email me the link* (hemlig; utan den: bara *Copy link*) |
 | `MAIL_FROM` | – | Avsändare, t.ex. `Slap and Talk <video@slapandtalk.com>` (domänen verifierad i Resend) |
 | `PUBLIC_URL` | sajtens adress | Adressen i videolänkar och mejl, t.ex. `https://slapandtalk.com` |
-| `MAX_PLAYERS_PER_ROOM` | `10` | Hur många gubbar som får vara i ett rum samtidigt (fler kan titta) |
+| `MAX_PLAYERS_PER_ROOM` | `4` | Hur många som får vara med i ett rum samtidigt (fler kan titta). Kan bara sänka gratisgränsen `FREE_MAX_PLAYERS` = 4 |
 | `MAX_STAMPS_PER_ROOM` | `3000` | Högst så många klibbor per rum. En ny slap över taket tar tyst bort den äldsta (vanlig `stamp:remove`) |
 | `AUTO_PRUNE_HIDDEN` | `1` | `0` = ingen automatisk städning av helt dolda klibbor när de lämnar peel-historiken (*Clear hidden stickers* fungerar ändå) |
 

@@ -23,6 +23,14 @@
 // optional path choice. Free = one automatic cameraman, no settings.
 const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam'];
 const FREE_MAX_STICKER_M = 1;
+// The free version (the one being released): at most this many people IN a room at once, four
+// walls = one wall each (a session is ~30 min of slapping, then looking at it together). Rooms have
+// no paid tier (the full version is per player, not per room), so this is THE room limit everywhere:
+// the normal server, Staden, and the demo (DEMO_PROFILE=1: also the member cap, creator + 3 invites).
+// More can connect, but they only watch (invisible, read-only chat, can't slap) until someone leaves.
+// MAX_PLAYERS_PER_ROOM can only lower it.
+const FREE_MAX_PLAYERS = 4;
+const maxPlayersFor = (env = process.env) => { const n = Math.floor(Number(env.MAX_PLAYERS_PER_ROOM)); return n > 0 ? Math.min(n, FREE_MAX_PLAYERS) : FREE_MAX_PLAYERS; };
 const FREE_MIN_STICKER_M = 0.15; // free version: at least 15 cm (= the A_ size); the full version keeps the 5 cm minimum
 const KEY_RE = /^[A-Za-z0-9_.~-]{12,128}$/;
 
@@ -73,4 +81,4 @@ const fromReq = (req) => ({ key: req.get('x-unlock') || undefined, dev: req.get(
 // … and from a WebSocket hello: { unlock: { key, dev } }.
 const fromHello = (m) => { const u = m && typeof m.unlock === 'object' && m.unlock ? m.unlock : {}; return { key: typeof u.key === 'string' ? u.key : undefined, dev: u.dev === true }; };
 
-module.exports = { FEATURES, FREE_MAX_STICKER_M, FREE_MIN_STICKER_M, KEY_RE, makeEntitlements, fromReq, fromHello, none, all };
+module.exports = { FEATURES, FREE_MAX_PLAYERS, maxPlayersFor, FREE_MAX_STICKER_M, FREE_MIN_STICKER_M, KEY_RE, makeEntitlements, fromReq, fromHello, none, all };

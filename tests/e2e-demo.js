@@ -35,7 +35,7 @@ const startServer = (port, extra) => startWith(port, { ADMIN_TOKEN: ADMIN, ...ex
   try {
     console.log('Demo profile (server A, ' + A.base + ')');
     const cfg = await (await fetch(A.base + '/api/config')).json();
-    check('GET /api/config says demo, 5 players, 60 min', cfg.demo === true && cfg.maxPlayers === 5 && cfg.roomMinutes === 60, cfg);
+    check('GET /api/config says demo, 4 players, 60 min', cfg.demo === true && cfg.maxPlayers === 4 && cfg.roomMinutes === 60, cfg);
     const up = await fetch(A.base + '/api/stickers', { method: 'POST' });
     check('POST /api/stickers → 403 in the demo', up.status === 403, up.status);
 

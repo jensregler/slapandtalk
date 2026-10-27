@@ -39,6 +39,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       players.remove('*');
       for (const p of m.players) players.upsert(p);
       full = !!m.full; $('full-banner').hidden = !full;
+      if (full) $('full-banner').textContent = Number.isInteger(m.max) ? S.fullBannerMax(m.max) : S.fullBanner;
       setChatHistory(m.chat || []);
       last = null; renderPeople(); renderChatInput();
       onWelcome(m); onPeople(ids());

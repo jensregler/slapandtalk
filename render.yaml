@@ -12,9 +12,10 @@ services:
         generateValue: true
       - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
         value: "1"
-      # Flerspelare (WebSocket på /ws, samma port): hur många som syns i ett rum samtidigt.
+      # Flerspelare (WebSocket på /ws, samma port): hur många som är med i ett rum samtidigt.
+      # Gratisversionen: högst FREE_MAX_PLAYERS = 4 (server/entitlements.js); värdet här kan bara sänka det.
       - key: MAX_PLAYERS_PER_ROOM
-        value: "10"
+        value: "4"
       # Fullversionen (tyger, Sound settings): hemliga nycklar, se README "Fullversionen".
       # Sätts i Render-panelen (sync: false = värdet ligger inte i repot).
       - key: FULL_ACCESS_KEYS

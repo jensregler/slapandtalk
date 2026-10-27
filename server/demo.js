@@ -5,7 +5,7 @@
 //   - entitlements: everyone is "free" (no fabrics, Sound settings or big stickers, even with a key)
 //   - no uploads (POST /api/stickers → 403); stickers come from the curated library (server/library.js)
 //   - no room editing: look, peels, recording, cameras → 403 (admin still can)
-//   - MAX 5 players per room, invite-only rooms, and every room closes after one hour
+//   - MAX FREE_MAX_PLAYERS (4) players per room, invite-only rooms, and every room closes after one hour
 //
 // Rooms and invites (all stored in the room's own JSON, so it goes away with the room)
 //   room.demo = { expiresAt, members: [{ id, hash, name, invitedBy, joinedAt }], invites: [{ hash, by, createdAt, usedBy?, usedAt? }] }
@@ -14,7 +14,7 @@
 //   - Using the link makes you a member: the server hands back a private member key that this
 //     browser keeps (localStorage), so a reload or a reconnect lets you straight back in.
 //   - A used link is dead. No link, no key: no entry (not even as a watcher).
-//   - At most maxMembers (5) people: the creator plus 4. Unused invites count, so the chain
+//   - At most maxMembers (FREE_MAX_PLAYERS = 4) people: the creator plus 3. Unused invites count, so the chain
 //     creator → A → B → C → D can never grow past 5.
 //   - Only hashes of keys and invite tokens are stored.
 // The hour
@@ -25,12 +25,13 @@
 //   A sweep at start-up and every few minutes catches rooms that expired while the server slept.
 const crypto = require('crypto');
 const DEMO = require('../shared/demo.json');
+const { FREE_MAX_PLAYERS } = require('./entitlements');
 
 const isOn = (v) => v === '1' || String(v).toLowerCase() === 'true';
 function demoSettings(env = process.env) {
   if (!isOn(env.DEMO_PROFILE)) return null;
   const minutes = Number(env.DEMO_ROOM_MINUTES) > 0 ? Number(env.DEMO_ROOM_MINUTES) : DEMO.roomMinutes;
-  return { on: true, roomMs: Math.round(minutes * 60_000), warnMs: DEMO.warnMinutes * 60_000, maxPlayers: DEMO.maxPlayers, maxMembers: DEMO.maxMembers, style: { ...DEMO.style } };
+  return { on: true, roomMs: Math.round(minutes * 60_000), warnMs: DEMO.warnMinutes * 60_000, maxPlayers: FREE_MAX_PLAYERS, maxMembers: FREE_MAX_PLAYERS, style: { ...DEMO.style } };
 }
 
 const hash = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
