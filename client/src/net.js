@@ -97,6 +97,7 @@ export function connect(roomId, handlers) {
     sendUnlock: (unlock) => send({ t: 'unlock', unlock }), // new full-version key in this tab
     sendSignal: (to, data) => send({ t: 'signal', to, data }), // voice chat (voice.js)
     sendTalk: (l) => send({ t: 'talk', l }), // my own voice level 0…15 while I talk (recordings only)
+    sendHeld: (h) => send({ t: 'held', h }), // the sticker I hold and aim with, or null (recordings only)
     sendInvite: (action = 'create') => send({ t: 'invite', action }), // demo: my single-use invite link
     get denied() { return deniedCode; },
     reconnectNow: now,

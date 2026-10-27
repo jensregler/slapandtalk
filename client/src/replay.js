@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { applyStyle, normalizeStyle, DEFAULT_STYLE } from './roomstyle.js';
-import { StampLayer } from './stamps.js';
+import { StampLayer, StampPreview } from './stamps.js';
 import { PeelLayer } from './peels.js';
 import { Avatar, loadAvatarModel } from './avatars.js';
 import { CameraLayer, poseCamera, renderFramed, aspectRatio } from './cameras.js';
@@ -129,6 +129,25 @@ function syncPlayers(list, dt, jumped) {
   }
   for (const [id, a] of avatars) if (!seen.has(id)) { scene.remove(a.avatar.root); a.avatar.dispose(); avatars.delete(id); }
 }
+// The sticker each person holds and aims with: drawn on the wall where they aim, like their own
+// preview live (stamps.js StampPreview), from the moment they pick it up until they let go
+// (recording event 'held', shared/replay.mjs heldAt). Every view and the finished video show it.
+const helds = new Map(); // id -> { prev: StampPreview, img }
+const v3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+function syncHeld(list) {
+  const here = new Set(list.map((p) => p.id));
+  for (const p of list) {
+    const h = p.held; let e = helds.get(p.id);
+    if (!h) { if (e) e.prev.hide(); continue; }
+    if (!e) { e = { prev: new StampPreview(scene, stamps.faces), img: null }; helds.set(p.id, e); }
+    if (e.img !== h.img) {
+      const want = h.img; e.img = want; e.prev.setTexture(null);
+      stamps.texture(h.image).then((tex) => { if (e.img === want) e.prev.setTexture(tex); }).catch(() => {});
+    }
+    e.prev.show(v3(h.p), v3(h.n), new THREE.Quaternion(h.q[0], h.q[1], h.q[2], h.q[3]), h.w, h.h, h.s);
+  }
+  for (const [id, e] of helds) if (!here.has(id)) { e.prev.hide(); scene.remove(e.prev.mesh); e.prev.mesh.geometry.dispose(); e.prev.mat.dispose(); helds.delete(id); }
+}
 function syncChat(list, prevT, t) {
   const key = list.map((m) => m.id).join(',');
   if (key !== rp.chatShown) {
@@ -152,6 +171,7 @@ function apply(t, dt = 0, jumped = false) {
   syncPeels(s);
   cams.set(s.cameras);
   syncPlayers(s.players, dt, jumped);
+  syncHeld(s.players);
   syncChat(s.chat, prevT, t);
   renderViewOptions(s);
   $('rp-time').textContent = `${fmt(t)} / ${fmt(rp.tl.duration)}`;
@@ -453,6 +473,7 @@ window.replay = {
     eye: { p: view.position.toArray().map((n) => +n.toFixed(3)), q: view.quaternion.toArray().map((n) => +n.toFixed(3)), fov: view.fov, aspect: +view.aspect.toFixed(3) },
     chat: [...document.querySelectorAll('#rp-chat li')].map((l) => l.textContent),
     shot: rp.shot, mouths: Object.fromEntries([...avatars.entries()].map(([id, a]) => [id, a.avatar.mouthInfo])),
+    held: Object.fromEntries([...helds.entries()].map(([id, e]) => [id, { img: e.img, visible: e.prev.mesh.visible, textured: !!e.prev.mat.map, at: rp.snap?.players.find((x) => x.id === id)?.held?.p?.map((n) => +n.toFixed(3)) ?? null }])),
     speaking: [...avatars.entries()].filter(([, a]) => a.avatar.speaking).map(([id]) => id),
   }),
   plan: () => rp.plan, speakers: () => rp.speakers.slice(),

@@ -69,7 +69,7 @@ export function buildTimeline(rec) {
     gestures.get(by).push({ t, kind, p: st.position.slice(), normal: Array.isArray(st.normal) ? st.normal.slice() : null });
   };
   const player = (id) => {
-    if (!players.has(id)) players.set(id, { id, spans: [], looks: [], track: [], talk: [] });
+    if (!players.has(id)) players.set(id, { id, spans: [], looks: [], track: [], talk: [], held: [] });
     return players.get(id);
   };
   const enter = (p, t) => {
@@ -96,6 +96,14 @@ export function buildTimeline(rec) {
       case 'move': { const pl = player(e.id); pl.track.push({ t, p: e.p, y: e.y || 0, pi: e.pi || 0 }); break; }
       // Voice loudness (0…15) while someone talks, for the mouth and the auto-director (shared/director.mjs).
       case 'talk': { const l = Number(e.l); if (Number.isFinite(l)) player(e.id).talk.push({ t, l: Math.max(0, Math.min(15, Math.round(l))) }); break; }
+      // The sticker someone holds and aims with (the preview on the wall), from the moment they
+      // pick it up until they let go: h = { img, p, n, q, w, h, s } or null. Older recordings have none.
+      case 'held': {
+        if (e.image && e.image.id && !images[e.image.id]) images[e.image.id] = e.image;
+        const hv = e.h && typeof e.h === 'object' && typeof e.h.img === 'string' && Array.isArray(e.h.p) && Array.isArray(e.h.q) ? e.h : null;
+        if (typeof e.id === 'string') player(e.id).held.push({ t, h: hv });
+        break;
+      }
       case 'chat': chat.push({ t, id: e.mid, from: e.id, name: e.name, text: e.text }); break;
       case 'stamp:add':
         if (e.image) images[e.image.id] = e.image;
@@ -134,6 +142,28 @@ export function poseAt(track, t) {
   return { p: [lerp(a.p[0], b.p[0]), lerp(a.p[1], b.p[1]), lerp(a.p[2], b.p[2])], y: a.y + wrapAngle(b.y - a.y) * k, pi: lerp(a.pi, b.pi) };
 }
 
+// The held sticker at time t: { img, image, p, n, q, w, h, s } or null. Between two updates of
+// the same sticker on the same surface it glides (at most GLIDE_MS), like positions.
+export function heldAt(tl, id, t) {
+  const pl = tl.players.get(id); const list = pl && pl.held; if (!list || !list.length) return null;
+  const i = lastAt(list, t); if (i < 0) return null;
+  const a = list[i].h; if (!a) return null;
+  const image = tl.images[a.img] || null; if (!image) return null;
+  const out = { img: a.img, image, p: a.p.slice(), n: a.n ? a.n.slice() : [0, 0, 1], q: a.q.slice(), w: a.w, h: a.h, s: a.s || '' };
+  const nx = list[i + 1], b = nx && nx.h;
+  if (b && b.img === a.img && (b.s || '') === out.s && b.w === a.w && b.h === a.h) {
+    const span = Math.min(nx.t - list[i].t, GLIDE_MS), start = nx.t - span;
+    const k = span > 0 ? Math.min(1, Math.max(0, (t - start) / span)) : 1;
+    if (k > 0) {
+      for (let j = 0; j < 3; j++) out.p[j] = a.p[j] + (b.p[j] - a.p[j]) * k;
+      const sg = a.q[0] * b.q[0] + a.q[1] * b.q[1] + a.q[2] * b.q[2] + a.q[3] * b.q[3] < 0 ? -1 : 1;
+      const q = a.q.map((x, j) => x + (sg * b.q[j] - x) * k), m = Math.hypot(...q) || 1;
+      out.q = q.map((x) => x / m);
+    }
+  }
+  return out;
+}
+
 // The talk level (0…15) at time t: the last sample, if it is fresh (they come ~every 80 ms).
 function talkLevel(talk, t) { if (!talk || !talk.length) return 0; const i = lastAt(talk, t); return i >= 0 && t - talk[i].t <= 260 ? talk[i].l : 0; }
 
@@ -144,7 +174,7 @@ export function snapshotAt(tl, t, { chatKeep = 8 } = {}) {
     if (!pl.spans.some((s) => s.from <= t && t < s.to)) continue;
     const li = lastAt(pl.looks, t); const lk = pl.looks[Math.max(0, li)];
     const pose = poseAt(pl.track, t); if (!pose) continue;
-    players.push({ id: pl.id, name: lk ? lk.name : '', look: lk ? lk.look : null, ...pose, talk: talkLevel(pl.talk, t) });
+    players.push({ id: pl.id, name: lk ? lk.name : '', look: lk ? lk.look : null, ...pose, talk: talkLevel(pl.talk, t), held: heldAt(tl, pl.id, t) });
   }
   const stamps = [];
   for (const s of tl.stamps.values()) if (s.from <= t && t < s.to) stamps.push(s);

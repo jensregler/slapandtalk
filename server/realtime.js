@@ -11,6 +11,7 @@
 //   klient → server: hello {name, look, p, y, pi, unlock?: {key, dev}} · move {p, y, pi} · look {name, look} · chat {text}
 //                    unlock {unlock: {key, dev}}  (new full-version key in an open tab)
 //                    ping · signal {to, data}  (signal = för röstchatt via WebRTC, se nedan)
+//                    talk {l} · held {h}  (recording only: my voice level / the sticker I aim with, never relayed)
 //   server → klient: welcome {id, you, players, chat, max, full, rec, now (server ms: the shared clock for the footstep groove)} · join {player} · leave {id}
 //                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
 //                    event {e} · signal {from, data} · pong · error {error}
@@ -140,6 +141,23 @@ const cleanPitch = (n) => (isNum(n) ? round(clampN(n, -1.57, 1.57)) : 0);
 function cleanPos(p, bounds) {
   if (!Array.isArray(p) || p.length !== 3 || !p.every(isNum)) return null;
   return [round(clampN(p[0], -bounds.x, bounds.x)), round(clampN(p[1], 0, bounds.y)), round(clampN(p[2], -bounds.z, bounds.z))];
+}
+// The sticker I am holding and aiming with (the see-through preview on the wall), for a running
+// session recording only: { img, p, n, q, w, h, s } or null (nothing held / not aiming at a wall).
+// Returns undefined for anything malformed (dropped). Never passed on to the others live.
+const r4 = (n) => Math.round(n * 1e4) / 1e4;
+function unitVec(v, len) {
+  if (!Array.isArray(v) || v.length !== len || !v.every(isNum)) return null;
+  const m = Math.hypot(...v); if (!(m > 1e-6)) return null;
+  return v.map((x) => r4(x / m));
+}
+function cleanHeld(h, bounds) {
+  if (h === null) return null;
+  if (!h || typeof h !== 'object' || typeof h.img !== 'string' || !/^[a-f0-9]{16}$/.test(h.img)) return undefined;
+  const p = cleanPos(h.p, bounds), n = unitVec(h.n, 3), q = unitVec(h.q, 4);
+  if (!p || !n || !q || !isNum(h.w) || !isNum(h.h)) return undefined;
+  const s = typeof h.s === 'string' ? h.s.replace(/[\p{Cc}\p{Cf}]/gu, '').slice(0, 40) : '';
+  return { img: h.img, p, n, q, w: r4(clampN(h.w, 0.01, 4)), h: r4(clampN(h.h, 0.01, 4)), s };
 }
 
 // Enkel "hink" per anslutning: högst `rate` meddelanden per sekund i snitt, `burst` på en gång.
@@ -328,6 +346,14 @@ function attachRealtime(server, {
       if (!Number.isFinite(l) || l < 0 || l > 15) return;
       return rec(r.id, 'talk', { id: c.id, l });
     }
+    if (m.t === 'held') {
+      // The sticker I hold and aim with (client/src/main.js sends it only while the room is being
+      // recorded, ~8 a second while it moves, null when I stop holding/aiming). Like 'talk': only
+      // into the recording (shared/replay.mjs heldAt), so replays and videos show it on the wall.
+      if (!c.player || (m.h !== null && !c.heldLimit())) return; // a null (let go) always gets through
+      const h = cleanHeld(m.h, bounds); if (h === undefined) return;
+      return rec(r.id, 'held', { id: c.id, h });
+    }
     if (m.t === 'signal') {
       // För röstchatt (WebRTC): skickas bara vidare till en spelare i samma rum.
       if (!c.player || !c.signalLimit() || typeof m.to !== 'string') return;
@@ -340,7 +366,7 @@ function attachRealtime(server, {
   wss.on('connection', (ws, req, roomId, ip) => {
     const c = {
       id: crypto.randomBytes(5).toString('hex'), ws, room: roomId, ip, joined: false, player: false, strikes: 0,
-      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10), talkLimit: bucket(15, 20),
+      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10), talkLimit: bucket(15, 20), heldLimit: bucket(12, 20),
     };
     perIp.set(ip, (perIp.get(ip) || 0) + 1);
     ws.on('pong', () => { ws.klibbDead = false; });
@@ -391,4 +417,4 @@ function attachRealtime(server, {
   };
 }
 
-module.exports = { broadcast, onBroadcast, playerPosition, roomSeat, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };
+module.exports = { cleanHeld, broadcast, onBroadcast, playerPosition, roomSeat, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };

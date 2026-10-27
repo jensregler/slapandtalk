@@ -2049,6 +2049,27 @@ addEventListener('keydown', (e) => {
 });
 renderMic();
 
+// ---------- The held sticker in session recordings ----------
+// While the room is being recorded, the sticker I hold and aim with (the preview on the wall) goes
+// to the server (~8 a second while it moves, null when I let go / stop aiming), so replays and
+// videos show it on the wall from the moment I pick it up – not only once it is slapped.
+// Not sent when nobody records; never shown to the others live. (shared/replay.mjs heldAt)
+const HELD_SEND_MS = 125;
+const heldTx = { key: null, at: 0, img: null };
+const r3 = (n) => Math.round(n * 1000) / 1000;
+function recordHeld(x) {
+  if (!rec || together.net.status !== 'online') { heldTx.key = null; return; }
+  const msg = x ? { img: state.selected.id, p: x.h.point.toArray().map(r3), n: x.h.normal.toArray().map(r3), q: x.q.toArray().map(r3), w: r3(x.w), h: r3(x.hh), s: x.h.surface } : null;
+  const key = msg ? JSON.stringify(msg) : 'null';
+  if (key === heldTx.key) return;
+  const t = performance.now();
+  // let go, a new design or the first one: at once; moving the aim: at most every HELD_SEND_MS
+  if (!msg || heldTx.key === 'null' || heldTx.key === null || heldTx.img !== msg.img || t - heldTx.at >= HELD_SEND_MS) {
+    if (together.net.sendHeld(msg) === false) return;
+    heldTx.key = key; heldTx.at = t; heldTx.img = msg ? msg.img : null;
+  }
+}
+
 // ---------- Huvudloopen ----------
 const clock = new THREE.Clock();
 function frame() {
@@ -2078,14 +2099,24 @@ function frame() {
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
   let dragging = false;
   if (arrayDrag && controls.locked) { try { dragging = updateArray() > 0; } catch (err) { arrayFailed('drag', err); } }
+  let heldNow = null; // what goes into a running recording as the sticker I hold (recordHeld)
   if (dragging) preview.hide(); // dragging a row: the ghosts are the preview
   else if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
     if (h) {
       const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100));
-      preview.show(h.point, h.normal, StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh, h.surface);
+      const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
+      preview.show(h.point, h.normal, q, w, hh, h.surface);
+      heldNow = { h, q, w, hh };
     } else preview.hide();
+  } else if (isTouch && stackMenu && rec && !camView && state.selected && !state.adminToken && !stackMenu.isOpen() && !stackMenu.bookOpen()
+    && stackMenu.held.opacity(performance.now()) > 0) {
+    // Touch: no preview on the wall live (the sticker sits in its holder), but while it is held
+    // (sharp, or still fading out) the recording shows it where the middle of the screen aims.
+    const h = hitSurface(CENTER);
+    if (h) { const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100)); heldNow = { h, q: StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh }; }
   }
+  recordHeld(heldNow);
   if (cv) renderFramed(renderer, scene, viewCam, cv.aspect || '');
   else { if (camView) exitCamView(); renderer.render(scene, tp ? tpCam : camera); }
   requestAnimationFrame(frame);
@@ -2154,7 +2185,7 @@ window.klibb = {
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
-  held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu,
+  held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0, n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: $('strip-row').scrollLeft, rect: $('design-strip').getBoundingClientRect().toJSON() }),
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),

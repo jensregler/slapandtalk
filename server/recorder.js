@@ -78,6 +78,30 @@ function createRecorder(store, {
     r.moves.delete(id); r.lastMove.set(id, clock());
     write(r, 'move', m);
   }
+  // The held sticker (event 'held'): the design's metadata rides on the first 'held' line that
+  // uses it (unless the header or a stamp:add already has it), so the replay can draw it.
+  function lookupImage(r, id) {
+    if (r.images.has(id)) return;
+    r.images.set(id, undefined); // looking it up
+    Promise.resolve().then(async () => {
+      const m = await store.getImage(id);
+      const ok = m && (!store.hasImageFile || await store.hasImageFile(id));
+      r.images.set(id, ok ? m : null);
+    }).catch(() => r.images.set(id, null)).then(() => { if (r.status === 'recording') for (const pid of [...r.helds.keys()]) flushHeld(r, pid); });
+  }
+  function flushHeld(r, id, force = false) {
+    const d = r.helds.get(id); if (!d) return;
+    if (!force && d.h && clock() - (r.lastHeld.get(id) || 0) < moveMs) return; // throttled: the latest goes later
+    let image = null;
+    if (d.h) {
+      const im = r.images.get(d.h.img);
+      if (im === undefined) return; // still looking the design up
+      if (im === null) { r.helds.delete(id); return; } // unknown design: not recorded
+      if (!r.imgSent.has(d.h.img)) { image = im; r.imgSent.add(d.h.img); }
+    }
+    r.helds.delete(id); r.lastHeld.set(id, clock());
+    write(r, 'held', { id, h: d.h, ...(image ? { image } : {}) });
+  }
 
   // Händelser från realtime.js (gubbar, positioner, chatt).
   function log(room, e, data) {
@@ -88,7 +112,14 @@ function createRecorder(store, {
       if (clock() - (r.lastMove.get(data.id) || 0) >= moveMs) flushMove(r, data.id);
       return;
     }
-    if (e === 'leave') { flushMove(r, data.id); r.lastMove.delete(data.id); }
+    if (e === 'held') {
+      // Like positions: at most ~10 a second, the latest always comes; null (let go) at once.
+      r.helds.set(data.id, data);
+      if (data.h) lookupImage(r, data.h.img);
+      flushHeld(r, data.id, !data.h);
+      return;
+    }
+    if (e === 'leave') { flushMove(r, data.id); r.lastMove.delete(data.id); r.helds.delete(data.id); r.lastHeld.delete(data.id); }
     if (e === 'join' || e === 'look') r.people.set(data.id, data.name);
     write(r, e, data);
   }
@@ -96,7 +127,11 @@ function createRecorder(store, {
     if (!ev || !ROOM_EVENTS.has(ev.type)) return;
     const list = roomId === '*' ? [...active.values()] : active.has(roomId) ? [active.get(roomId)] : [];
     const { type, ...data } = ev;
-    for (const r of list) { if (type.startsWith('camera:')) r.cameraCount = Math.max(r.cameraCount, 1); write(r, type, data); }
+    for (const r of list) {
+      if (type.startsWith('camera:')) r.cameraCount = Math.max(r.cameraCount, 1);
+      if (type === 'stamp:add' && data.image && data.image.id) r.imgSent.add(data.image.id); // the replay knows it now
+      write(r, type, data);
+    }
   });
 
   async function start(room, { by = null, snapshot }) {
@@ -105,7 +140,7 @@ function createRecorder(store, {
     const now = clock();
     const r = {
       id: crypto.randomBytes(8).toString('hex'), room, start: now, by, status: 'recording', lines: [], bytes: 0, header: null, endLine: null,
-      people: new Map(), moves: new Map(), lastMove: new Map(), writing: Promise.resolve(), reason: null, stoppedAt: null, emptySince: null, cameraCount: 0,
+      people: new Map(), moves: new Map(), lastMove: new Map(), helds: new Map(), lastHeld: new Map(), images: new Map(), imgSent: new Set(), writing: Promise.resolve(), reason: null, stoppedAt: null, emptySince: null, cameraCount: 0,
     };
     active.set(room, r);
     // Vilka är här just nu (med position och blickriktning) blir startläget.
@@ -124,10 +159,12 @@ function createRecorder(store, {
       limits: { maxMs, maxBytes },
     };
     r.bytes += Buffer.byteLength(JSON.stringify(r.header)) + 1; // storleksgränsen gäller hela filen
+    for (const id of Object.keys(r.header.images)) r.imgSent.add(id);
     r.timer = setTimeout(() => stop(room, 'time'), maxMs); r.timer.unref?.();
     r.flusher = setInterval(() => flush(r), flushMs); r.flusher.unref?.();
     r.ticker = setInterval(() => {
       for (const id of [...r.moves.keys()]) if (clock() - (r.lastMove.get(id) || 0) >= moveMs) flushMove(r, id);
+      for (const id of [...r.helds.keys()]) flushHeld(r, id);
       const n = presence(room).length;
       if (n) r.emptySince = null; else if (r.emptySince === null) r.emptySince = clock(); else if (clock() - r.emptySince >= emptyMs) stop(room, 'empty');
     }, tickMs); r.ticker.unref?.();
@@ -140,6 +177,7 @@ function createRecorder(store, {
   async function stop(room, reason = 'stop') {
     const r = active.get(room); if (!r || r.status !== 'recording') return null;
     for (const id of [...r.moves.keys()]) flushMove(r, id);
+    for (const id of [...r.helds.keys()]) flushHeld(r, id, true);
     r.status = 'done'; r.reason = reason; r.stoppedAt = clock();
     r.endLine = JSON.stringify({ t: r.stoppedAt - r.start, e: 'end', reason });
     clearTimeout(r.timer); clearInterval(r.flusher); clearInterval(r.ticker);
