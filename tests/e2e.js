@@ -1228,10 +1228,10 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await paletteE2E({ browser, BASE, assert, waitReady, devices, TOKEN });
     await bakeE2E({ browser, BASE, assert, waitReady, TOKEN });
 
-    // Fullt rum: 10 är max. Den elfte får titta, och kommer in när någon går.
+    // Fullt rum: 4 är max (FREE_MAX_PLAYERS, en vägg var). Den femte får titta, och kommer in när någon går.
     const fullRoom = (await (await fetch(`${BASE}/api/rooms`, { method: 'POST' })).json()).room.id;
     const bots = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 4; i++) {
       const ws = new WebSocket(`${BASE.replace('http', 'ws')}/ws?room=${fullRoom}`);
       await new Promise((r, j) => { ws.on('open', r); ws.on('error', j); });
       ws.send(JSON.stringify({ t: 'hello', name: `Robot ${i + 1}`, p: [-4 + i * 0.9, 1.6, -3.5 + (i % 2) * 0.8], y: Math.PI }));
@@ -1242,14 +1242,14 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await F.goto(`${BASE}/?room=${fullRoom}`); await waitReady(F);
     await F.waitForFunction(() => window.klibb.net.status === 'full', null, { timeout: 8000 });
     const fullUi = await F.evaluate(() => [document.getElementById('full-banner').hidden, window.klibb.players().length, document.getElementById('chat-input').disabled]);
-    assert(!fullUi[0] && fullUi[1] === 10 && fullUi[2], 'fullt rum (10): den elfte ser "The room is full", kan titta på alla 10 men inte chatta');
+    assert(!fullUi[0] && fullUi[1] === 4 && fullUi[2], 'fullt rum (4): den femte ser "The room is full", kan titta på alla 4 men inte chatta');
     await F.waitForFunction(() => window.klibb.players().every((p) => p.built), null, { timeout: 10000 });
     await F.evaluate(() => { const k = window.klibb; k.moveTo(0, 3.6); k.look(0, -0.1); document.getElementById('panel').style.visibility = 'hidden'; });
     await F.waitForTimeout(800);
     await F.screenshot({ path: path.join(SHOTS, '27-fullt-rum.png') });
     bots[0].close();
     await F.waitForFunction(() => window.klibb.net.status === 'online', null, { timeout: 8000 });
-    assert((await F.isHidden('#full-banner')) && (await F.evaluate(() => window.klibb.players().length)) === 9, 'när någon går kommer den som väntade in automatiskt');
+    assert((await F.isHidden('#full-banner')) && (await F.evaluate(() => window.klibb.players().length)) === 3, 'när någon går kommer den som väntade in automatiskt');
     for (const b of bots) b.close();
     await fctx.close();
 
