@@ -216,7 +216,7 @@ await test('shot list v2: one track per room cameraman (autocam:<id>), the gener
   const spans = autoCamSpans(tl);
   assert.deepEqual(spans.map((x) => [x.id, x.from, x.start]), [['aaaaaaaaaa', 5000, null], ['bbbbbbbbbb', 6000, [3, 2]]]);
   const list = withAutoCam(shotList(tl), tl);
-  assert.ok(list.format === 'slapandtalk-shots' && list.autocam.v === 2 && !('room' in list.autocam));
+  assert.ok(list.format === 'slapandtalk-shots' && list.autocam.v === 3 && Array.isArray(list.autocam.people) && !('room' in list.autocam));
   assert.deepEqual(list.autocam.crew.map((c) => [c.view, c.label, c.on[0].path]), [['autocam:aaaaaaaaaa', 'Auto cameraman', 'pushin'], ['autocam:bbbbbbbbbb', 'Auto cameraman 2', 'loop']]);
   assert.deepEqual(list.autocam.takes.map((t) => t.view), ['auto:perimeter', 'auto:diagonal', 'auto:pushin']);
   for (const v of ['director', 'close:p1', 'autocam:aaaaaaaaaa', 'autocam:bbbbbbbbbb', 'auto:pushin']) assert.ok(list.views.some((x) => x.view === v), v);
@@ -273,7 +273,7 @@ await test('server, free: ONE cameraman, always automatic (no path, no start), n
     await new Promise((r) => setTimeout(r, 300));
     await api('POST', `/api/rooms/${R}/recording/stop`, { key: KEY });
     const shots = await (await api('GET', `/api/rooms/${R}/recordings/${rs.recording.recId}/shots`)).json();
-    assert.ok(shots.autocam.v === 2 && shots.autocam.crew.length === 1 && shots.autocam.crew[0].view === `autocam:${a.camera.id}` && shots.autocam.takes.length === 3, JSON.stringify(shots.autocam.crew.map((c) => c.view)));
+    assert.ok(shots.autocam.v === 3 && Array.isArray(shots.autocam.people) && shots.autocam.crew.length === 1 && shots.autocam.crew[0].view === `autocam:${a.camera.id}` && shots.autocam.takes.length === 3, JSON.stringify(shots.autocam.crew.map((c) => c.view)));
     assert.equal((await api('DELETE', `/api/rooms/${R}/cameras/${a.camera.id}`, { key: KEY })).status, 200, 'off = removed');
   } finally { await close(); }
 });

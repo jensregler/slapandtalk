@@ -109,11 +109,28 @@ exempel *2/4*. Vill du sätta samma klibba många gånger trycker du bara inte p
 Dina uppladdade designs sparas i webbläsaren och finns kvar när du laddar om sidan, så länge
 servern har kvar bilderna. Designs som har försvunnit från servern tas bort ur listan automatiskt.
 
-**På mobilen:** ladda upp en bild i menyn och fäll ihop menyn med **☰**. Styrspaken nere till
-vänster tar dig framåt, **dra med fingret** för att titta och **tryck** där du vill stämpla.
-Den **runda knappen nere till höger** visar vald design: tryck på den för att byta till nästa.
-**↩** peelar (ångrar) din senaste klibba. **Ögat 👁** bredvid slår på Look mode (pekaren försvinner och tryck stämplar inte, designknappen
-dämpas); tryck på ögat igen för att klibba.
+**På mobilen (touch):** när du kommer in syns bara **styrspaken** nere till vänster och din
+**klibbhög** nere till höger (dina klibbor, den du håller överst). Ingen panel, ingen ☰ Stickers,
+inga 👤/↩/👁-knappar. Styrspaken = gå, **dra med fingret** = titta.
+- **Tryck på högen** → menyn fäller ut sig uppåt/åt vänster: **📒 Stickers** (klibbboken: dina
+  klibbor + ⬆ Upload sticker; stjärna/× med långt tryck som förut), **🧍 Character** (Min gubbe),
+  **🏠 Room** (rummets namn och Room ▾ – nytt snabbrum, dela länk, Staden … – överst i ⚙ More, med
+  inspelning för rummets skapare, ljud, kameror, hjälp), **↩ Undo** (menyn står kvar, så du kan
+  ångra flera), **👤 3rd person**, **📷 Photo**, och kortet **💬 Talk / 🎙 Mic**. Tryck utanför =
+  stäng. **Svep upp/ner på högen** = nästa/förra klibba direkt i handen.
+- **Redigeringsvyn (Jens bild 4):** klibban i handen svävar skarp i sin **hållare mitt på skärmen**.
+  Gröna reglage på kanterna: **rotation till vänster**, **storlek till höger** (dra upp/ner). De tre
+  menyknapparna **📒 🧍 🏠** lyser längst ner mellan styrspaken och högen; allt annat är dolt
+  (💬/🎙 ligger på menyns Talk-kort).
+- **Klibba:** **släpp den ur hållaren** – tryck på den (den sätts mitt på skärmen) eller dra ut den
+  och släpp där den ska sitta – eller tryck på en vägg (golv, tak) där den ska sitta, som förut.
+- **Ingen Slap mode / Look mode på mobilen** – en timer i stället (`shared/heldtimer.mjs`):
+  en nyvald klibba är skarp tills du satt den första gången; efter varje klibba syns den
+  `HELD_VISIBLE_MS` = 10 s och tonar sedan bort på `HELD_FADE_MS` = 1 s. Bortonad = bara titta
+  (tryck på en klibba visar vem som gjorde den). **Ett tryck på skärmen tar tillbaka den** (nya
+  10 s) – det trycket klibbar aldrig. Varje ny klibba startar om de 10 s. Datorn har kvar V / Look mode.
+- 💬- och 🎙-bubblorna uppe till höger syns bara när de behövs (olästa meddelanden, mikrofonen på).
+Koden: `client/src/stackmenu.js` (+ CSS under *Touch layout* i `style.css`). Datorlayouten är oförändrad.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.
 
 ### Tillsammans: gubbar, chatt och live-klibbor
@@ -265,7 +282,22 @@ Den som skapade rummet (eller admin; i Staden bara admin) ser **🎬 Recording**
     det fasta hörnet. Bildlistan har ett spår per fotograf (`autocam.crew`, se
     `docs/recording-format.md`). Live i rummet är det en förhandsvisning (börjar om varje hel timme,
     samma för alla); läggs en till delas cellerna om, så de andra byter bana live.
-  Koden: `shared/autocam.mjs`. Steg 2 (en smartare fotograf som följer det som händer) är en ny
+  - **Folket först (v3):** rummets fotografer siktar på deltagarna, inte på tomma väggar: så länge
+    någon är i rummet ramar de in hela gruppen (mitten av dem, objektivet vidgas så alla får plats,
+    22–70 mm); med ingen där går de tillbaka till väggarna/klibborna. Spåren finns kvar som
+    **översiktsspår** (`autocam.crew`).
+  - **🎥 Cameraman: \<namn\> (en per deltagare, i uppspelaren):** varje deltagare får en egen fotograf
+    (`shared/personcam.mjs`) som föds när de kommer in och försvinner när de går (*(not here now)* i
+    listan medan de är borta). Personen är alltid motivet: växlar mellan närbild (~1 m, 50 mm),
+    halvbild (~1,9 m) och helbild (~3,1 m), och vinklar (framifrån, 3/4, från sidan, lite under/över),
+    blir nyfiken (går närmare vid en klibba eller när de pratar, backar när de går), panorerar bara
+    lite, håller sig ≥ 0,45 m från väggarna (kliver närmare/byter vinkel i hörn). Byten är mjuka
+    glidningar eller rena klipp vid stora vinkelbyten. Alla spår går på inspelningens klocka, så man kan
+    klippa mellan personerna i *#rp-view*-listan utan att tiden hoppar. Bildlistan: `autocam.people`.
+  - **Klibbrörelsen syns i bild:** uppspelaren spelar nu armrörelsen (klibba/peel) på den filmade
+    dockan, låst till inspelningens klocka (`stamp:add`/`stamp:remove` med `by`), så den syns i
+    uppspelning, foton och videor; live syns ens egen docka när man tittar genom en kamera.
+  Koden: `shared/autocam.mjs`, `shared/personcam.mjs`. Steg 2 (en smartare fotograf som följer det som händer) är en ny
   *target provider* där, se kommentaren överst i filen.
 - **📷 Photo:** knappen 📷 bredvid 🎙/🔊 i panelen, 📷 i kamerarutan när man tittar genom en kamera,
   och **📷 Photo** i uppspelarens rad; tangenten **P** både live och i uppspelaren. Tar en stillbild av

@@ -38,6 +38,7 @@
 // engine, the views, the recording and the shot list stay as they are.
 import ROOM from './room.json' with { type: 'json' };
 import { hash01 } from './director.mjs';
+import { recordingGroupFocus, recordingPeople, personView } from './personcam.mjs';
 
 export const AUTOCAM = {
   walk: [0.5, 1.0],      // m/s cruising between framing points (a real cameraman's walk)
@@ -61,11 +62,14 @@ export const AUTOCAM = {
   sway: { pos: 0.012, bob: 0.006, yaw: 0.0045, pitch: 0.0035 }, // handheld (m, rad)
   crewGapM: 1.2,         // m two cameramen's tracks are at least this far apart (own cells; sway ≤ 3 cm)
   minLoopHalfM: 0.9,     // a derived loop is at least 1.8 m across
+  peopleMm: [22, 70],    // the lens range while framing the people (wider than the idle range so a group fits)
+  peopleSmoothMs: 900,   // the group's position is softened over this long
 };
 export const MAX_AUTO_CAMS = 6; // per room (server/app.js has the same number); free version: 1
 export const AUTO_PATHS = ['perimeter', 'diagonal', 'pushin'];
 export const AUTO_CHOICES = [...AUTO_PATHS, 'seeded']; // 'seeded' = one of the paths, picked by the seed
 export const autoView = (path) => `auto:${path}`;
+export { personView };
 export const mmToFov = (mm) => +((2 * Math.atan(12 / mm) * 180) / Math.PI).toFixed(3);
 export const fovToMm = (fov) => 12 / Math.tan((fov * Math.PI) / 360);
 export const isStart = (s) => Array.isArray(s) && s.length === 2 && s.every((n) => typeof n === 'number' && Number.isFinite(n));
@@ -288,7 +292,7 @@ function makeMember(spec, idx, bounds, P, cell, single) {
     sw: [0, 1, 2, 3, 4, 5].map((i) => hash01(seed, name, 'sway', i) * Math.PI * 2) };
 }
 
-export function createAutoCrew(specs, { bounds = roomBounds(), provider = noTargets, ...o } = {}) {
+export function createAutoCrew(specs, { bounds = roomBounds(), provider = noTargets, focus = null, ...o } = {}) {
   const P = { ...AUTOCAM, ...o, sway: { ...AUTOCAM.sway, ...(o.sway || {}) } };
   const lim = { minX: bounds.minX + P.wallGap, maxX: bounds.maxX - P.wallGap, minZ: bounds.minZ + P.wallGap, maxZ: bounds.maxZ - P.wallGap };
   const { out, single } = assignCells(specs, bounds);
@@ -315,6 +319,19 @@ export function createAutoCrew(specs, { bounds = roomBounds(), provider = noTarg
     const L = legAt(m, t), tau = (t - L.t1) / 1000, s = legDist(L.prof, tau), k = L.prof.d > 0 ? s / L.prof.d : 1;
     const ds = legDist(L.prof, tau + 0.01) - legDist(L.prof, tau - 0.01);
     return { L, p: [lerp(L.a[0], L.b[0], k), m.eye, lerp(L.a[1], L.b[1], k)], speed: tau > 0 && tau < L.prof.T ? ds / 0.02 : 0 };
+  }
+  // The group, softened: the mean over the last peopleSmoothMs of where it was (w = how much of
+  // that time anyone was there, so a join or leave turns the camera softly, not in one frame).
+  function focusAt(t) {
+    if (!focus || typeof focus.focusAt !== 'function') return null;
+    const n = 6; let x = 0, y = 0, z = 0, r = 0, k = 0, ids = null;
+    for (let i = 0; i < n; i++) {
+      const f = focus.focusAt(Math.max(0, t - (P.peopleSmoothMs * i) / (n - 1))); if (!f) continue;
+      if (!ids) ids = f.ids || [];
+      x += f.p[0]; y += f.p[1]; z += f.p[2]; r = Math.max(r, f.r || 0); k++;
+    }
+    if (!k || !ids) return null;
+    return { p: [x / k, y / k, z / k], r, ids, w: smooth(k / n) };
   }
   // Beats: aim and focal length every beatMs, in order (≤ maxMmStep from one beat to the next).
   function beat(m, k) {
@@ -349,10 +366,22 @@ export function createAutoCrew(specs, { bounds = roomBounds(), provider = noTarg
       clamp(B.p[2] + S.pos * (0.6 * Math.sin(ts * 1.5 + sw[3]) + 0.4 * Math.sin(ts * 2.9 + sw[4])), lim.minZ, lim.maxZ),
     ];
     const a0 = aim(p, b0.target.p), a1 = aim(p, b1.target.p);
-    const yaw = wrap(a0.yaw + wrap(a1.yaw - a0.yaw) * pan + S.yaw * (0.7 * Math.sin(ts * 0.9 + sw[5]) + 0.3 * Math.sin(ts * 2.3)));
-    const pitch = lerp(a0.pitch, a1.pitch, pan) + S.pitch * (0.6 * Math.sin(ts * 1.1 + sw[1]) + 0.4 * Math.sin(ts * 2.7 + sw[3]));
-    const mm = lerp(b0.mm, b1.mm, smooth(u));
-    const target = pan < 0.5 ? b0.target : b1.target;
+    let yaw0 = wrap(a0.yaw + wrap(a1.yaw - a0.yaw) * pan), pitch0 = lerp(a0.pitch, a1.pitch, pan);
+    let mm = lerp(b0.mm, b1.mm, smooth(u));
+    let target = pan < 0.5 ? b0.target : b1.target;
+    // The people come first (focus = shared/personcam.mjs groupFocus): while anyone is in the room
+    // the cameraman keeps the whole group in frame – aims at them however he walks, and the lens
+    // widens so everyone fits – and turns softly toward them when they come (or someone leaves).
+    const G = focusAt(t);
+    if (G) {
+      const g = aim(p, G.p), w = G.w;
+      yaw0 = wrap(yaw0 + wrap(g.yaw - yaw0) * w); pitch0 = lerp(pitch0, g.pitch, w);
+      const fit = (12 * Math.max(0.3, Math.hypot(G.p[0] - p[0], G.p[2] - p[2]))) / Math.max(1.05, (G.r + 0.65) / 1.6);
+      mm = lerp(mm, clamp(Math.min(mm, fit), P.peopleMm[0], P.mm[1]), w);
+      if (w > 0.5) target = { id: `people:${G.ids.join(',')}`, kind: 'people', p: G.p.map(r4) };
+    }
+    const yaw = wrap(yaw0 + S.yaw * (0.7 * Math.sin(ts * 0.9 + sw[5]) + 0.3 * Math.sin(ts * 2.3)));
+    const pitch = pitch0 + S.pitch * (0.6 * Math.sin(ts * 1.1 + sw[1]) + 0.4 * Math.sin(ts * 2.7 + sw[3]));
     return { p: p.map(r4), yaw: r4(yaw), pitch: r4(pitch), fov: mmToFov(mm), mm: +mm.toFixed(2), speed: +B.speed.toFixed(3), leg: B.L.kind === 'frame' && t >= B.L.t1 ? 'frame' : t < B.L.t1 ? 'hold' : 'walk', target };
   }
   const api = members.map((m) => ({
@@ -372,12 +401,12 @@ export function createAutoCam({ path = 'seeded', seed = '', start = null, ...o }
 }
 
 // The take descriptions that go into the shot list: one per generic path (not the room's own).
-export function autoCamTakes(tl, { seed = tl.header?.id || '', room = null, paths = AUTO_PATHS, stepMs = null, labels = null } = {}) {
+export function autoCamTakes(tl, { seed = tl.header?.id || '', room = null, paths = AUTO_PATHS, stepMs = null, labels = null, focus = recordingGroupFocus(tl) } = {}) {
   const duration = Math.max(0, tl.duration || 0);
   const step = stepMs || trackStep(duration);
   const provider = stickerTargets(tl);
   return paths.map((p) => {
-    const c = createAutoCam({ path: p, seed: `${seed}:${p}`, provider, ...(room ? { bounds: roomBounds(room) } : {}) });
+    const c = createAutoCam({ path: p, seed: `${seed}:${p}`, provider, focus, ...(room ? { bounds: roomBounds(room) } : {}) });
     return { view: autoView(p), path: p, label: labels ? labels(p) : `Auto cameraman: ${p}`, seed: `${seed}:${p}`, eyeM: c.eye, provider: c.provider,
       legs: c.legsUntil(duration), beats: c.beatsUntil(duration), track: { stepMs: step, columns: TRACK_COLS, samples: c.track(duration, step) } };
   });
@@ -404,9 +433,9 @@ export function autoCamSpans(tl) {
 }
 // The crew of a recording: every camera version that was on at some point, in the order they came
 // (= priority when they meet), seeded `${recId}:${cameraId}` – so each one has its own take.
-export function recordingCrew(tl, { seed = tl.header?.id || '', provider = stickerTargets(tl), ...o } = {}) {
+export function recordingCrew(tl, { seed = tl.header?.id || '', provider = stickerTargets(tl), focus = recordingGroupFocus(tl), ...o } = {}) {
   const spans = autoCamSpans(tl), keys = [...new Map(spans.map((s) => [s.key, s])).values()];
-  const crew = createAutoCrew(keys.map((s) => ({ key: s.key, group: s.id, path: s.auto, seed: `${seed}:${s.id}`, start: s.start })), { provider, ...o });
+  const crew = createAutoCrew(keys.map((s) => ({ key: s.key, group: s.id, path: s.auto, seed: `${seed}:${s.id}`, start: s.start })), { provider, focus, ...o });
   // which version of camera id is on at t (or null)
   const at = (id, t) => { let hit = null; for (const s of spans) if (s.id === id && s.from <= t && t < s.to) hit = s; return hit; };
   const activeAt = (t) => { const ids = []; for (const s of spans) if (s.from <= t && t < s.to && !ids.includes(s.id)) ids.push(s.id); return ids.map((id) => at(id, t)); };
@@ -444,16 +473,25 @@ export function withAutoCam(list, tl, o = {}) {
     return { view: crewView(id), id, label: last.name, seed: `${seed}:${id}`, on: sp.map((v) => ({ from: v.from, to: Number.isFinite(v.to) ? v.to : duration, choice: v.auto, path: rc.crew.get(v.key).path, start: v.start })),
       legs, beats, track: { stepMs: step, columns: TRACK_COLS, samples } };
   });
+  // One cameraman per participant (shared/personcam.mjs): a track per person while they are in
+  // the room, on the recording's clock like every other take, labelled with their name.
+  const pp = recordingPeople(tl, { seed });
+  const people = pp.list.map((x) => {
+    const on = x.spans.map((s) => ({ from: s.from, to: Number.isFinite(s.to) ? s.to : duration }));
+    return { view: x.view, id: x.id, label: `Cameraman: ${x.name}`, name: x.name, seed: `${seed}:person:${x.id}`, on,
+      shots: x.cam.shotsUntil(duration), track: { stepMs: step, columns: TRACK_COLS, samples: x.cam.track(duration, step, (t) => on.some((s) => s.from <= t && t < s.to)) } };
+  });
   const views = [{ view: 'director', label: 'Director' },
     ...(list.speakers || []).flatMap((sp) => ['close', 'medium', 'rear'].map((k) => ({ view: `${k}:${sp.id}`, label: `${k}: ${sp.name}` }))),
+    ...people.map((c) => ({ view: c.view, label: c.label })),
     ...crew.map((c) => ({ view: c.view, label: c.label })), ...takes.map((t) => ({ view: t.view, label: t.label }))];
   return {
     ...list, shots, views,
     autocam: {
-      v: 2, note: 'Deterministic from the recording and the seed; times in ms from the recording start (add introMs in a finished video).',
+      v: 3, note: 'Deterministic from the recording and the seed; times in ms from the recording start (add introMs in a finished video).',
       directorRoomShot: crew.length ? 'the room’s cameramen take turns in the silences (round robin), otherwise the fixed corner' : 'fixed corner',
       params: { walkMps: AUTOCAM.walk, frameMps: AUTOCAM.frame, accelMps2: AUTOCAM.accel, eyeM: AUTOCAM.eye, mm: AUTOCAM.mm, beatMs: AUTOCAM.beatMs, panMs: AUTOCAM.panMs, maxMmPerBeat: AUTOCAM.maxMmStep, crewGapM: AUTOCAM.crewGapM },
-      crew, takes,
+      crew, takes, people,
     },
   };
 }

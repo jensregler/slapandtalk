@@ -59,6 +59,15 @@ export function buildTimeline(rec) {
     peels.set(peel.id, p); order.push(p); open++;
     while (open > PEELS_MAX) peelOut(order[oldest++], t);
   };
+  // The slap/peel arm gesture per player (stamp:add / stamp:remove with by = who did it): the
+  // replay plays the slap animation on that avatar (client/src/replay.js), the cameramen push in.
+  // An array row is one gesture (its first copy). gestures: id -> [{ t, kind, p, normal }] in time order.
+  const gestures = new Map();
+  const gesture = (by, kind, t, st) => {
+    if (typeof by !== 'string' || !by || !st || !Array.isArray(st.position)) return;
+    if (!gestures.has(by)) gestures.set(by, []);
+    gestures.get(by).push({ t, kind, p: st.position.slice(), normal: Array.isArray(st.normal) ? st.normal.slice() : null });
+  };
   const player = (id) => {
     if (!players.has(id)) players.set(id, { id, spans: [], looks: [], track: [], talk: [] });
     return players.get(id);
@@ -92,8 +101,9 @@ export function buildTimeline(rec) {
         if (e.image) images[e.image.id] = e.image;
         if (e.stamp && !stamps.has(e.stamp.id)) stamps.set(e.stamp.id, { stamp: e.stamp, image: e.image || images[e.stamp.imageId] || null, from: t, to: Infinity });
         if (e.peel) addPeel(e.peel, t, false); // its backing paper starts falling now (one per slap, the first few of an array row)
+        if (!(e.batch && e.batch.i > 0)) gesture(e.by, 'slap', t, e.stamp);
         break;
-      case 'stamp:remove': { const s = stamps.get(e.id); if (s && s.to === Infinity) s.to = t; break; }
+      case 'stamp:remove': { const s = stamps.get(e.id); if (s && s.to === Infinity) { s.to = t; if (!e.quiet) gesture(e.by, 'peel', t, s.stamp); } break; }
       case 'room:clear-hidden': for (const id of Array.isArray(e.ids) ? e.ids : []) { const s = stamps.get(id); if (s && s.to === Infinity) s.to = t; } break;
       case 'room:reset': for (const s of stamps.values()) if (s.to === Infinity) s.to = t; break;
       case 'image:remove':
@@ -109,7 +119,7 @@ export function buildTimeline(rec) {
       default: break; // okända händelser (nyare versioner) hoppas över
     }
   }
-  return { header: h, duration: rec.duration, players, stamps, cameras, styles, chat, images, grooves, peels, peelsOn };
+  return { header: h, duration: rec.duration, players, stamps, cameras, styles, chat, images, grooves, peels, peelsOn, gestures };
 }
 
 // Var stod spelaren och åt vilket håll tittade den vid tiden t?
@@ -155,6 +165,15 @@ export function snapshotAt(tl, t, { chatKeep = 8 } = {}) {
   if (tl.peels) for (const p of tl.peels.values()) if (p.from <= t && t < p.to && p.image) peels.push({ peel: p.peel, image: p.image, age: p.pre ? Infinity : t - p.from });
   const peelsOn = tl.peelsOn ? !!tl.peelsOn[lastAt(tl.peelsOn, t)]?.on : false;
   return { t, players, stamps, cameras, style, chat, groove, peels, peelsOn };
+}
+
+// The gesture (slap/peel) a player is doing at t: { kind, p, normal, age } (age = ms since it
+// started, < maxMs) or null. Pure function of t, so seeking and the finished video agree.
+export function gestureAt(tl, id, t, maxMs = 500) {
+  const list = tl.gestures && tl.gestures.get(id); if (!list || !list.length) return null;
+  const i = lastAt(list, t); if (i < 0) return null;
+  const g = list[i], age = t - g.t;
+  return age >= 0 && age < maxMs ? { kind: g.kind, p: g.p, normal: g.normal, age, t: g.t } : null;
 }
 
 // Alla som var med någon gång (för väljaren "se med någons ögon").

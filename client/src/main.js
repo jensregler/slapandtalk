@@ -14,6 +14,7 @@ import { initTogether } from './together.js';
 import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed, aspectRatio } from './cameras.js';
 import * as photo from './photo.js';
 import { createAutoCrew, liveStickerTargets, AUTO_CHOICES, autoCamsOf, MAX_AUTO_CAMS } from '../../shared/autocam.mjs';
+import { groupFocus } from '../../shared/personcam.mjs';
 import { S, LOCALE } from './strings.js';
 import { Sounds } from './sound.js';
 import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView } from './chasecam.js';
@@ -35,6 +36,7 @@ import { Voice } from './voice.js';
 import { ArrayGhosts } from './arraydrag.js';
 import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
+import { initStackMenu } from './stackmenu.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -283,10 +285,16 @@ function stepDesign(dir) {
 function renderDesignHud() {
   const list = designs(), sel = state.selected;
   const i = sel ? list.findIndex((d) => d.id === sel.id) : -1;
+  // touch: the stack shows the next two stickers under the one on top
+  for (const [k, id] of [[1, 'design-btn-b1'], [2, 'design-btn-b2']]) {
+    const d = list.length > k ? list[(i + k + list.length) % list.length] : null;
+    $(id).hidden = !d; if (d) $(id).src = d.url;
+  }
   const hud = $('design-hud'), btn = $('design-btn');
   hud.hidden = !sel;
-  btn.hidden = !sel;
-  if (!sel) return;
+  btn.hidden = !sel && !isTouch; // touch: the stack is always there (empty: tap it → 📒 Stickers → ⬆ Upload)
+  btn.classList.toggle('empty', !sel);
+  if (!sel) { $('design-btn-img').removeAttribute('src'); $('design-btn-num').textContent = ''; return; }
   $('design-hud-img').src = sel.url;
   $('design-btn-img').src = sel.url;
   $('design-hud-num').textContent = `${i + 1}/${list.length}`;
@@ -462,6 +470,7 @@ async function onFilePicked(input) {
     state.mine = addMine(img);
     if (state.selected && state.selected.id === img.id) startSize(img); // the same picture again (maybe renamed): its start size
     await select(img);
+    stackMenu?.chosen(); stackMenu?.closeBook(); // touch: the new sticker is in your hand
     toast(isTouch ? S.uploadedTouch : S.uploadedDesktop);
   } catch (err) { toast(err && err.message ? err.message : S.uploadFailed); } finally {
     input.value = ''; // so picking the same file again fires 'change' again
@@ -789,6 +798,7 @@ function setMode(mode, { quiet = false } = {}) {
 }
 const toggleMode = () => setMode(state.mode === 'view' ? 'slap' : 'view');
 // var: setMode längre ner använder den innan raden här har körts.
+var stackMenu = null; // eslint-disable-line no-var -- touch only: the sticker stack menu + the held sticker's timer (stackmenu.js)
 var camShow = localStorage.getItem('klibb.camShow') !== '0'; // eslint-disable-line no-var
 setMode('slap', { quiet: true });
 $('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); };
@@ -1229,6 +1239,7 @@ if (!isTouch) {
     if (p && !p.drag && performance.now() - p.t < 400 && e.type === 'pointerup') {
       const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
       if (placingCam) placeCamAt(ndc);
+      else if (stackMenu && !camView && !state.adminToken) heldTap(ndc, e.clientX, e.clientY);
       else if (state.mode === 'view' && !camView) {
         // Tittläge: tryck på en klibba = vem gjorde den?
         const c = creditOf(pickStampAt(ndc)?.stamp);
@@ -1236,14 +1247,33 @@ if (!isTouch) {
       } else { hideCredit(); action(ndc); }
     }
   };
+  // Touch: no Slap/Look switch – the held sticker's timer decides (shared/heldtimer.mjs).
+  // Sharp = this tap slaps (and restarts the 10 s). Fading/faded = this tap only brings the
+  // sticker back (never a slap by accident); on a sticker it also shows who made it.
+  // Also used when the sticker is released from its holder (stackmenu.js).
+  var heldTap = (ndc, x, y) => { // eslint-disable-line no-var
+    if (stackMenu.isOpen()) { stackMenu.close(); return; }
+    if (sp.open || together.busy()) return;
+    if (stackMenu.tap() === 'wake') {
+      const c = creditOf(pickStampAt(ndc)?.stamp);
+      if (c) { showCredit(c, { x, y }); credit.id = c.id; } else hideCredit();
+    } else {
+      hideCredit();
+      if (state.selected && hitSurface(ndc)) stackMenu.placed();
+      action(ndc);
+    }
+  };
   canvas.addEventListener('pointerup', up);
   canvas.addEventListener('pointercancel', up);
-  $('design-btn').onclick = (e) => { e.preventDefault(); nextDesign(); };
-  $('panel-toggle').onclick = () => {
-    const hidden = $('panel').classList.toggle('hidden');
-    if (hidden) closeMore();
-    $('panel-toggle').setAttribute('aria-expanded', String(!hidden));
-  };
+  // The touch layout: joystick + sticker stack; the panel, ☰ Stickers and the 👤 ↩ 👁 buttons are
+  // gone (CSS) – everything they did is in the stack's menu (stackmenu.js).
+  $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false');
+  stackMenu = initStackMenu({
+    S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
+    peelLast: () => peelLast(), toggleView: () => toggleView(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
+    chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(),
+    release: (x, y) => { if (!camView && !placingCam) heldTap(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), x, y); },
+  });
 }
 
 // ---------- Rum: typ, nytt snabbrum, dela länk, till Staden ----------
@@ -1788,10 +1818,13 @@ function liveCrew() {
   const t0 = Math.floor(Date.now() / 3600000) * 3600000, key = `${t0}|${list.map((c) => `${c.id}:${c.auto}:${c.start || ''}`).join(',')}`;
   if (liveAuto.key !== key) {
     liveAuto.key = key; liveAuto.t0 = t0;
-    liveAuto.crew = createAutoCrew(list.map((c) => ({ key: c.id, path: c.auto, seed: c.id, start: c.start })), { provider: liveStickerTargets(() => [...stamps.meshes.values()].map((m) => m.userData.stamp).filter((s) => s && !s.pending), t0) });
+    liveAuto.crew = createAutoCrew(list.map((c) => ({ key: c.id, path: c.auto, seed: c.id, start: c.start })), { provider: liveStickerTargets(() => [...stamps.meshes.values()].map((m) => m.userData.stamp).filter((s) => s && !s.pending), t0), focus: livePeople });
   }
   return liveAuto.crew;
 }
+// The people in the room right now (me included), for the cameramen: they keep everyone in frame.
+const livePeople = groupFocus(() => [{ id: 'me', p: [camera.position.x, camera.position.y, camera.position.z] },
+  ...[...together.players.map.values()].map((pl) => ({ id: pl.id, p: [pl.pos.x, camera.position.y, pl.pos.z] }))]);
 function liveAutoPose(c) { const crew = liveCrew(), m = crew && crew.get(c.id); return m ? m.poseAt(Date.now() - liveAuto.t0) : null; }
 $('cam-show').checked = camShow;
 $('cam-show').onchange = (e) => { camShow = e.target.checked; localStorage.setItem('klibb.camShow', camShow ? '1' : '0'); cams.setVisible(state.mode !== 'view' && camShow); };
@@ -1817,15 +1850,18 @@ $('camview-exit').onclick = () => exitCamView();
 // ---------- Första eller tredje person (C, knappen i ⚙ More, 👤 på mobilen) ----------
 // Förstapersonsläget är precis som förut (ingen hand syns). I tredjepersonsvy står kameran bakom
 // och lite ovanför min gubbe, och gubben slappar mot väggen. Valet sparas på enheten.
+// var: setView() runs at start-up, before this line's neighbours below are reached.
+var selfShown = null; // eslint-disable-line no-var -- together.showSelf(): third person, or looking through a camera
 function setView(v, { quiet = false } = {}) {
   view = saveView(v);
   const t = view === 'third';
   document.body.classList.toggle('third-person', t);
   chase.eye = null; chase.dist = null; // börja om utan glidning
-  together.showSelf(t);
+  together.showSelf(t); selfShown = t;
   $('view-first').setAttribute('aria-pressed', String(!t)); $('view-third').setAttribute('aria-pressed', String(t));
   $('view-btn').setAttribute('aria-pressed', String(t));
   $('view-btn').title = t ? S.viewBtnToFirst : S.viewBtnToThird;
+  $('sm-view').setAttribute('aria-pressed', String(t)); $('sm-view').querySelector('.sm-lab').textContent = t ? S.smViewFirst : S.smView;
   if (!quiet) toast(t ? S.viewToastThird(isTouch) : S.viewToastFirst(isTouch), 1600);
   return view;
 }
@@ -1933,7 +1969,7 @@ voice.reset = () => { for (const id of [...voice.peers.keys()]) voice.drop(id); 
 voice.near = localStorage.getItem('klibb.voiceNear') !== '0';
 $('voice-near').checked = voice.near;
 $('voice-near').onchange = (e) => { voice.near = e.target.checked; localStorage.setItem('klibb.voiceNear', voice.near ? '1' : '0'); };
-function micBtns() { return [$('mic-btn'), $('mic-touch')]; }
+function micBtns() { return [$('mic-btn'), $('mic-touch'), $('sm-mic')]; }
 function renderMic(st = voice.state) {
   for (const b of micBtns()) {
     b.dataset.state = st; b.setAttribute('aria-pressed', String(st === 'on'));
@@ -1960,8 +1996,14 @@ function frame() {
   const tp = !cv && view === 'third';
   if (tp) updateChase(dt);
   const eyeCam = cv ? viewCam : tp ? tpCam : camera;
+  // Looking through a camera (a placed one or an auto cameraman): my own avatar stands where I
+  // stand and is filmed too (also in first person, where it is otherwise not built), unless that
+  // camera is right at it. Back in my own eyes the first-person view hides it again.
+  const wantSelf = view === 'third' || !!cv;
+  if (wantSelf !== selfShown) { selfShown = wantSelf; together.showSelf(wantSelf); }
+  const camAtMe = cv && Math.hypot(camera.position.x - viewCam.position.x, camera.position.z - viewCam.position.z) < 0.45;
   // gubbar precis vid kameran döljs, och min egen om kameran kommer för nära (t.ex. mot en vägg)
-  together.update(dt, eyeCam.position, { hideSelf: !tp || chase.dist < CHASE.hideBelow });
+  together.update(dt, eyeCam.position, { hideSelf: cv ? camAtMe : !tp || chase.dist < CHASE.hideBelow });
   cams.update(cv ? null : eyeCam.position);
   peelLayer.update();
   walkSounds();
@@ -2044,6 +2086,7 @@ window.klibb = {
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
+  held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu,
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }),

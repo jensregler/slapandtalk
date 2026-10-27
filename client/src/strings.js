@@ -82,7 +82,7 @@ export const EN = {
   slapMode: 'Slap mode', lookMode: 'Look mode',
   modeHud: (view, touch) => (view ? 'Look mode' : 'Slap mode') + (touch ? '' : ' · V'),
   modeBtnToSlap: 'Back to slap mode', modeBtnToLook: 'Look mode: hide the pointer and just look',
-  modeToastLook: (touch) => (touch ? 'Look mode: just look around. Tap 👁 to slap again.' : 'Look mode: just look around. V = slap again.'),
+  modeToastLook: (touch) => (touch ? 'Look mode: just look around.' : 'Look mode: just look around. V = slap again.'),
   modeToastSlap: (touch) => (touch ? 'Slap mode: tap where you want to slap.' : 'Slap mode: click to slap.'),
   modeSwitch: 'Mode',
   // ---------- 1st / 3rd person ----------
@@ -90,7 +90,7 @@ export const EN = {
   viewFirst: '1st person', viewThird: '3rd person',
   viewFirstTitle: 'See through your own eyes (C)', viewThirdTitle: 'See your avatar from behind (C)',
   viewBtnAria: '1st / 3rd person view', viewBtnToFirst: 'Back to 1st person', viewBtnToThird: '3rd person: see yourself from behind',
-  viewToastThird: (touch) => (touch ? '3rd person: you see yourself from behind. Tap 👤 to switch back.' : '3rd person: you see yourself from behind. C = 1st person.'),
+  viewToastThird: (touch) => (touch ? '3rd person: you see yourself from behind. Sticker stack → 👤 switches back.' : '3rd person: you see yourself from behind. C = 1st person.'),
   viewToastFirst: (touch) => (touch ? '1st person' : '1st person · C = 3rd person'),
 
   // ---------- Peel and history ----------
@@ -131,12 +131,18 @@ export const EN = {
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Visit the City opens the shared room (the plain address takes you to your most recent room). '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
-  helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look, tap = slap. The round button bottom right shows your design: tap it for the next one. '
-    + 'The eye 👁 turns look mode on (taps do nothing), tap again to slap. 👤 switches between 1st and 3rd person (see yourself from behind). ↩ peels your last sticker. '
+  helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look. The sticker stack bottom right: tap it for the menu (📒 Stickers, 🧍 Character, 🏠 Room, ↩ Undo, 👤 3rd person, 📷 Photo, 💬 Talk, 🎙 Mic), swipe it up/down for the next/previous sticker. '
+    + 'The sticker in your hand sits in its holder in the middle: tap it to slap it there, drag it out and let go where it should go, or tap a wall; size on the right edge, rotation on the left; 📒 🧍 🏠 stay at the bottom. 10 s after a slap it fades away and you just look around – tap the screen to get it back (that tap does not slap). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room, 🔗 Share link sends it to friends. '
     + '<b>Together:</b> everyone in the same room sees each other right away. 💬 = chat. '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
   panelToggle: '☰ Stickers',
+  // ---------- Touch: the sticker stack menu (stackmenu.js) ----------
+  stackBtnAria: 'Your stickers: tap for the menu, swipe up/down for the next/previous sticker',
+  smAria: 'Menu', smBook: 'Stickers', smAvatar: 'Character', smRoom: 'Room', smUndo: 'Undo', smView: '3rd person', smViewFirst: '1st person',
+  smPhoto: 'Photo', smTalk: 'Talk', smMic: 'Mic', smTalkAria: 'Talk and microphone',
+  smBookTitle: 'Your stickers', smBookHint: 'Tap one to hold it, then tap a wall to slap it.',
+  heldWake: 'Tap a wall to slap it.',
 
   // ---------- More panel ----------
   more: '⚙ More', moreTitle: 'Sticker settings, your slaps, avatar, room look, sound, recording',
@@ -251,6 +257,9 @@ export const EN = {
   autoLabel: (path, mm) => `🎥 Auto cameraman · ${EN.autoPaths[path] || path} · ${Math.round(mm)} mm`,
   viewCrew: (name, path, here) => `🎥 ${name} (${EN.autoPaths[path] || path})${here ? '' : ' (off now)'}`,
   crewLabel: (name, mm) => `🎥 ${name} · ${Math.round(mm)} mm`,
+  // One cameraman per participant (shared/personcam.mjs): that person is the subject all the time.
+  viewPerson: (name, here) => `🎥 Cameraman: ${name}${here ? '' : ' (not here now)'}`,
+  personLabel: (name, size, mm) => `🎥 Cameraman: ${name} · ${({ close: 'close-up', medium: 'medium', wide: 'wide' })[size] || size} · ${Math.round(mm)} mm`,
   viewAngle: (kind, name) => `${{ close: '😮 Close-up', medium: '🧍 Medium', rear: '🔙 Over the shoulder' }[kind] || kind}: ${name}`,
   shotLabel: (kind, name) => (kind === 'room' || !name ? '🎬 The room' : `🎬 ${{ close: 'Close-up', medium: 'Medium', rear: 'Over the shoulder' }[kind] || kind} · ${name}`),
   shotList: '🎬 Shot list',

@@ -239,8 +239,8 @@ const startServer = (port, extra) => startWith(port, { ADMIN_TOKEN: ADMIN, ...ex
     const ctxP = await browser.newContext({ ...devices['Pixel 7'] });
     const pp = await enter(ctxP, A.base + '/', 'Phone');
     await pp.waitForURL(/\?room=/, { timeout: 20000 }); await waitReady(pp);
-    const ph = await pp.evaluate(() => ({ mic: getComputedStyle(document.getElementById('mic-touch')).display !== 'none', lib: window.klibb.designs().length }));
-    check('phone: name dialog, library palette, 🎙 on the touch bar', ph.mic && ph.lib === 6, ph);
+    const ph = await pp.evaluate(() => ({ mic: !!document.querySelector('#stack-menu #sm-mic.mic'), lib: window.klibb.designs().length }));
+    check('phone: name dialog, library palette, 🎙 on the sticker stack menu’s Talk card', ph.mic && ph.lib === 6, ph);
     await pp.screenshot({ path: path.join(SHOTS, '65-demo-phone.png') });
     await Promise.all([ctxJ.close(), ctxM.close(), ctxP.close()]);
 

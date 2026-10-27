@@ -190,8 +190,38 @@
   <button id="view-btn" class="touch-only" type="button" data-t-aria="viewBtnAria" aria-pressed="false">👤</button>
   <button id="mode-btn" class="touch-only" type="button" data-t-aria="modeBtnAria" aria-pressed="false">👁</button>
   <button id="design-btn" class="touch-only" type="button" data-t-title="designBtn" data-t-aria="designBtn" hidden>
-    <img id="design-btn-img" alt="" /><span id="design-btn-num"></span>
+    <img id="design-btn-b2" class="stack-back b2" alt="" /><img id="design-btn-b1" class="stack-back b1" alt="" /><img id="design-btn-img" alt="" /><span id="design-btn-num"></span>
   </button>
+  <!-- Touch layout (client/src/stackmenu.js): only the joystick and the sticker stack at first. The held
+       sticker floats in its holder (shared/heldtimer.mjs: sharp until the first stamp, then 10 s, then
+       it fades; a tap brings it back), with rotation (left edge) and size (right edge) while it is up.
+       Tapping the stack fans out the menu; the sticker book is a sheet. -->
+  <div id="held" aria-hidden="true"><img id="held-img" alt="" /></div>
+  <div id="edge-rot" class="edge" role="slider" aria-orientation="vertical" data-t-aria="rotation" aria-valuemin="-180" aria-valuemax="180">
+    <span class="edge-val" id="edge-rot-val">0°</span><div class="edge-track"><div class="edge-fill"></div><div class="edge-thumb"></div></div><span class="edge-name">⟲</span>
+  </div>
+  <div id="edge-size" class="edge" role="slider" aria-orientation="vertical" data-t-aria="size">
+    <span class="edge-val" id="edge-size-val">30 cm</span><div class="edge-track"><div class="edge-fill"></div><div class="edge-thumb"></div></div><span class="edge-name">⤢</span>
+  </div>
+  <div id="stack-scrim" hidden></div>
+  <nav id="stack-menu" hidden data-t-aria="smAria">
+    <button id="sm-book" type="button" class="sm-item" data-ring="2" data-ang="105"><span class="sm-ico">📒</span><span class="sm-lab" data-t="smBook">Stickers</span></button>
+    <button id="sm-avatar" type="button" class="sm-item no-demo" data-ring="2" data-ang="135"><span class="sm-ico">🧍</span><span class="sm-lab" data-t="smAvatar">Character</span></button>
+    <button id="sm-room" type="button" class="sm-item" data-ring="2" data-ang="165"><span class="sm-ico">🏠</span><span class="sm-lab" data-t="smRoom">Room</span></button>
+    <button id="sm-undo" type="button" class="sm-item" data-ring="1" data-ang="100"><span class="sm-ico">↩</span><span class="sm-lab" data-t="smUndo">Undo</span></button>
+    <button id="sm-view" type="button" class="sm-item" data-ring="1" data-ang="135" aria-pressed="false"><span class="sm-ico">👤</span><span class="sm-lab" data-t="smView">3rd person</span></button>
+    <button id="sm-photo" type="button" class="sm-item" data-ring="1" data-ang="170"><span class="sm-ico">📷</span><span class="sm-lab" data-t="smPhoto">Photo</span></button>
+    <div id="sm-talk" class="sm-card" role="group" data-t-aria="smTalkAria">
+      <button id="sm-chat" type="button"><span class="sm-ico">💬</span> <span data-t="smTalk">Talk</span><span id="sm-unread"></span></button>
+      <button id="sm-mic" type="button" class="mic" data-state="off"><span class="sm-ico">🎙</span> <span data-t="smMic">Mic</span></button>
+    </div>
+  </nav>
+  <aside id="sticker-book" hidden data-t-aria="smBookTitle">
+    <div class="more-head"><h2 data-t="smBookTitle">Your stickers</h2><button id="book-close" type="button" class="icon-btn" data-t-aria="close">✕</button></div>
+    <p class="hint" data-t="smBookHint"></p>
+    <div id="book-upload"></div>
+    <div id="book-tray"></div>
+  </aside>
   <div id="admin-banner" hidden data-t="adminBanner"></div>
   <!-- Room look: picked when creating a quick room (or changed by its creator/admin). -->
   <aside id="style-panel" hidden aria-label="Room look">

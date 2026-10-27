@@ -140,7 +140,7 @@ const newRoom = (base) => fetch(`${base}/api/rooms`, { method: 'POST', headers: 
     const e1 = await P.evaluate(() => window.replay.state().eye);
     await P.evaluate(() => window.replay.seek(6000)); await sleep(300);
     const e2 = await P.evaluate(() => ({ ...window.replay.state().eye, label: document.getElementById('rp-viewlabel').textContent }));
-    check('the second cameraman’s view moves and zooms within 35–70 mm', e1.p.join() !== e2.p.join() && [e1, e2].every((e) => e.fov >= 19.4 && e.fov <= 37.9) && /Auto cameraman 2/.test(e2.label), { e1, e2 });
+    check('the second cameraman’s view moves and zooms within 22–70 mm (22 mm only when widening to fit the people in the room)', e1.p.join() !== e2.p.join() && [e1, e2].every((e) => e.fov >= 19.4 && e.fov <= 57.3) && /Auto cameraman 2/.test(e2.label), { e1, e2 });
     const rph = await photo(P, () => P.click('#rp-photo'), () => window.replay.lastPhoto());
     check('📷 in the replay (from Auto cameraman 2): downloaded and uploaded with source replay + the view', NAME_RE.test(rph.name) && rph.meta.width >= 1920 && rph.last.upload && rph.last.upload.photo.source === 'replay' && rph.last.upload.photo.view === cv[1] && rph.last.upload.photo.recId === REC, rph.last);
     await P.screenshot({ path: path.join(__dirname, '..', 'screenshots', '90-autocam-replay.png') });
@@ -152,7 +152,7 @@ const newRoom = (base) => fetch(`${base}/api/rooms`, { method: 'POST', headers: 
     check('⏺ Record video from Auto cameraman 1: rendered and uploaded', started && up && up.id && up.bytes > 10000 && up.view === cv[0], up);
     const shots = await (await fetch(`${S.base}/api/rooms/${R}/recordings/${REC}/shots`)).json();
     const crew = shots.autocam && shots.autocam.crew;
-    check('the shot list has one track per cameraman (autocam, v2) and the generic takes', shots.autocam.v === 2 && crew.length === 2 && crew.map((c) => c.view).join() === cv.join() && crew.every((c) => c.track.samples.length >= 5) && shots.autocam.takes.length === 3, crew && crew.map((c) => [c.view, c.track.samples.length]));
+    check('the shot list has one track per cameraman (autocam, v3) and the generic takes', shots.autocam.v === 3 && crew.length === 2 && crew.map((c) => c.view).join() === cv.join() && crew.every((c) => c.track.samples.length >= 5) && shots.autocam.takes.length === 3, crew && crew.map((c) => [c.view, c.track.samples.length]));
     const pose = await P.evaluate((id) => window.replay.crewPose(id, 3000), cams[1].id);
     const s3 = crew[1].track.samples.find((x) => x[0] === 3000);
     check('…and the replay’s take is exactly the shot list’s track', JSON.stringify(s3) === JSON.stringify([3000, ...pose.p, pose.yaw, pose.pitch, pose.mm]), { s3, pose });
