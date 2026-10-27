@@ -290,8 +290,9 @@ function renderDesignHud() {
     const d = list.length > k ? list[(i + k + list.length) % list.length] : null;
     $(id).hidden = !d; if (d) $(id).src = d.url;
   }
+  renderStrip(list, sel, i);
   const hud = $('design-hud'), btn = $('design-btn');
-  hud.hidden = !sel;
+  hud.hidden = true; // desktop: replaced by the sticker strip along the bottom (renderStrip)
   btn.hidden = !sel && !isTouch; // touch: the stack is always there (empty: tap it → 📒 Stickers → ⬆ Upload)
   btn.classList.toggle('empty', !sel);
   if (!sel) { $('design-btn-img').removeAttribute('src'); $('design-btn-num').textContent = ''; return; }
@@ -300,6 +301,38 @@ function renderDesignHud() {
   $('design-hud-num').textContent = `${i + 1}/${list.length}`;
   $('design-btn-num').textContent = list.length > 1 ? `${i + 1}/${list.length}` : '';
 }
+
+// Desktop: the sticker strip along the bottom edge – the same stickers R/F cycle through (my palette,
+// or the library in the demo), the current one highlighted and kept in view; click = pick it (like
+// R/F to it). Only clickable while the mouse is free (pointer lock sends clicks to the canvas), and a
+// click here never slaps or locks the pointer (the slap handler is on the canvas). Wheel = scroll.
+let stripKey = '';
+function renderStrip(list = designs(), sel = state.selected, i = sel ? list.findIndex((d) => d.id === sel.id) : -1) {
+  if (isTouch) return;
+  const strip = $('design-strip'), row = $('strip-row');
+  strip.hidden = !list.length;
+  const key = list.map((d) => d.id + d.url).join();
+  if (key !== stripKey) {
+    stripKey = key; row.innerHTML = '';
+    for (const d of list) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'strip-th'; b.dataset.id = d.id; b.setAttribute('role', 'option'); b.tabIndex = -1;
+      b.innerHTML = `<img src="${d.url}" alt="" loading="lazy" draggable="false">`;
+      b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const img = designs().find((x) => x.id === d.id); if (img) select(img); };
+      row.appendChild(b);
+    }
+  }
+  let cur = null;
+  for (const b of row.children) { const on = !!sel && b.dataset.id === sel.id; b.classList.toggle('sel', on); b.setAttribute('aria-selected', String(on)); if (on) cur = b; }
+  $('strip-num').textContent = list.length && i >= 0 ? `${i + 1}/${list.length}` : '';
+  if (cur) { // keep the current one in view (no scrollIntoView: never scrolls the page)
+    const l = cur.offsetLeft, r = l + cur.offsetWidth, pad = 24;
+    if (l - pad < row.scrollLeft) row.scrollLeft = Math.max(0, l - pad);
+    else if (r + pad > row.scrollLeft + row.clientWidth) row.scrollLeft = r + pad - row.clientWidth;
+  }
+}
+$('design-strip').addEventListener('mousedown', (e) => { e.stopPropagation(); });
+$('strip-row').addEventListener('wheel', (e) => { e.preventDefault(); e.stopPropagation(); $('strip-row').scrollLeft += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY); }, { passive: false });
 
 // Designs som säkert inte finns på servern och inte gick att återställa tas bort ur listan.
 function dropDesigns(ids) {
@@ -2087,6 +2120,7 @@ window.klibb = {
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu,
+  strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0, n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: $('strip-row').scrollLeft, rect: $('design-strip').getBoundingClientRect().toJSON() }),
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }),

@@ -191,8 +191,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // ---------- R växlar mellan mina designs ----------
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
     const designState = () => page.evaluate(() => ({ sel: window.klibb.state.selected && window.klibb.state.selected.id,
-      hud: document.getElementById('design-hud-img').getAttribute('src'), num: document.getElementById('design-hud-num').textContent,
-      hudVisible: !document.getElementById('design-hud').hidden, n: window.klibb.designs().length }));
+      hud: window.klibb.strip().sel || '', num: window.klibb.strip().num, // the sticker strip along the bottom (was the small design box)
+      hudVisible: window.klibb.strip().shown, n: window.klibb.designs().length }));
     const d0 = await designState();
     assert(d0.n === 3 && d0.hudVisible, `designrutan syns (${d0.num})`);
     const seen = [d0.sel];
@@ -211,8 +211,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const lastNum = (await designState()).num;
     assert(back[0] === seen[2] && back[1] === seen[1] && back[2] === seen[0] && lastNum === `${1 + (await page.evaluate((id) => window.klibb.designs().findIndex((x) => x.id === id), seen[0]))}/3`,
       'F går baklänges genom samma 3 designs (runt från den första till den sista) och rutan följer med');
-    const hudHint = await page.evaluate(() => document.querySelector('#design-hud [data-t="designHud"]').textContent);
-    assert(hudHint === 'R/F: next/prev design', `designrutan visar båda tangenterna ("${hudHint}")`);
+    const hudHint = await page.evaluate(() => document.getElementById('design-strip').title);
+    assert(/R\/F/.test(hudHint), `klibbremsan visar båda tangenterna ("${hudHint}")`);
     const previewOk = await page.evaluate(() => {
       const map = window.klibb.preview.mat.map; return !!map && map.image.src.includes(window.klibb.state.selected.id);
     });

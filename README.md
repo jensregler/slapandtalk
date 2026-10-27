@@ -104,8 +104,10 @@ inspelningar). Servern tvättar dem (`shared/artistlink.mjs`, samma regler i web
 port i länken, högst 200 tecken; namnet högst 60 tecken. En ogiltig länk sparas inte alls.
 
 **Byta design med R:** har du laddat upp flera klibbor växlar **R** till nästa (efter den sista
-börjar det om på den första). Rutan längst ner i mitten visar vilken design som är vald, till
-exempel *2/4*. Vill du sätta samma klibba många gånger trycker du bara inte på R.
+börjar det om på den första). **Klibbremsan** längst ner (dator) visar alla klibbor som R/F går
+igenom (din palett, eller biblioteket i demon) som en smal rad små bilder; den valda är markerad
+(med *2/4* bredvid) och remsan rullar med så att den syns. Klicka på en bild för att välja den
+(klickar aldrig fast en klibba), scrolla med hjulet över remsan. Mobilen har klibbhögen i stället. Vill du sätta samma klibba många gånger trycker du bara inte på R.
 Dina uppladdade designs sparas i webbläsaren och finns kvar när du laddar om sidan, så länge
 servern har kvar bilderna. Designs som har försvunnit från servern tas bort ur listan automatiskt.
 

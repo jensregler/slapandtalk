@@ -137,6 +137,7 @@ export const EN = {
     + '<b>Together:</b> everyone in the same room sees each other right away. 💬 = chat. '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
   panelToggle: '☰ Stickers',
+  stripAria: 'Your stickers', stripTitle: 'Your stickers – click one to pick it (R/F: next/previous, scroll to see more)',
   // ---------- Touch: the sticker stack menu (stackmenu.js) ----------
   stackBtnAria: 'Your stickers: tap for the menu, swipe up/down for the next/previous sticker',
   smAria: 'Menu', smBook: 'Stickers', smAvatar: 'Character', smRoom: 'Room', smUndo: 'Undo', smView: '3rd person', smViewFirst: '1st person',

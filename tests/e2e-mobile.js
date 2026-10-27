@@ -19,7 +19,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PHONE = { ...devices['iPhone 13'], viewport: { width: 390, height: 844 }, permissions: ['microphone'] };
 // what is on the screen (fixed UI), apart from toasts
 const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn', 'view-btn', 'mode-btn', 'mode-hud', 'room-hud', 'chat-btn', 'mic-touch',
-  'held', 'edge-rot', 'edge-size', 'stack-menu', 'sm-book', 'sm-avatar', 'sm-room', 'sm-talk', 'sticker-book', 'more-panel', 'design-hud'];
+  'held', 'edge-rot', 'edge-size', 'stack-menu', 'sm-book', 'sm-avatar', 'sm-room', 'sm-talk', 'sticker-book', 'more-panel', 'design-hud', 'design-strip'];
 
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });

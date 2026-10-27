@@ -627,3 +627,21 @@ body.touch.editing:not(.stack-open) #sm-book { right: calc(196px + env(safe-area
 body.touch.editing:not(.stack-open) #sm-avatar[hidden], body.demo.touch.editing #sm-avatar { display: none; }
 body.touch.editing #chat-btn, body.touch.editing #mic-touch { display: none !important; }
 body.touch.editing.book-open #stack-menu, body.touch.editing.more-open #stack-menu { display: none !important; }
+
+/* ---------- Desktop: the sticker strip along the bottom edge (main.js renderStrip) ---------- */
+#design-strip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 6px;
+  width: min(720px, max(260px, calc(100vw - 728px))); height: 46px; padding: 4px 8px; border-radius: 10px 10px 0 0;
+  background: rgba(16,16,16,.55); border: 1px solid rgba(255,255,255,.12); border-bottom: 0; backdrop-filter: blur(4px); }
+#design-strip[hidden] { display: none !important; }
+#strip-num { flex: none; font: 700 11px/1 system-ui, sans-serif; color: #ffd400; font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
+#strip-row { position: relative; flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.25) transparent;
+  scroll-behavior: auto; padding: 2px 1px; }
+#strip-row::-webkit-scrollbar { height: 3px; } #strip-row::-webkit-scrollbar-thumb { background: rgba(255,255,255,.25); border-radius: 2px; }
+.strip-th { flex: none; width: 36px; height: 36px; padding: 2px; border-radius: 6px; border: 1px solid transparent; cursor: pointer;
+  background: #2a2a2a repeating-conic-gradient(#333 0 25%, #282828 0 50%) 50%/8px 8px; opacity: .75; }
+.strip-th img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.strip-th:hover { opacity: 1; border-color: rgba(255,255,255,.5); }
+.strip-th.sel { opacity: 1; border-color: #ffd400; box-shadow: 0 0 0 1px #ffd400; }
+body.view-mode .strip-th.sel { border-style: dashed; }
+body:not(.touch) #mode-hud { bottom: 54px; } /* the small mode label sits just above the strip */
+body.touch #design-strip, body.camview #design-strip, body.replay #design-strip { display: none !important; }
