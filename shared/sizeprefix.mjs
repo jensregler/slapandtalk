@@ -2,7 +2,7 @@
 // size slider shows (Esc → Size), i.e. the sticker's longest side (= its height for square and
 // portrait images).
 //   "A_cat.png" → 15 cm, "B_cat.png" → 17.5 cm, "C_cat.png" → 20 cm … "Z_cat.png" → 77.5 cm
-//   size = 15 cm + (letter index × 2.5 cm), A = index 0. No prefix → 15 cm (same as A).
+//   size = 15 cm + (letter index × 2.5 cm), A = index 0. No prefix → 30 cm (the original default; same as G_).
 // Rule: ONE letter A–Z (either case) at the very start of the base name, then "_", then a
 // letter or digit. So "A_cat", "b_cat" are prefixed; "Apple", "A.png", "b-cat", "C cat",
 // "A - cat" (the "Artist - title" form) and "A__cat" are not.
@@ -10,7 +10,7 @@
 // tools/import-library.mjs. Plain ESM, no dependencies.
 export const PREFIX_BASE_CM = 15;
 export const PREFIX_STEP_CM = 2.5;
-export const DEFAULT_START_CM = 15; // no prefix (= A)
+export const DEFAULT_START_CM = 30; // no prefix: 30 cm, the original start size (= G_)
 const RE = /^([A-Za-z])_(?=[\p{L}\p{N}])/u;
 
 // "path/to/B_cat.final.png" → "B_cat.final"
@@ -28,7 +28,7 @@ export function parsePrefix(name) {
   const m = RE.exec(baseName(name));
   return m ? { letter: m[1].toUpperCase(), cm: letterCm(m[1]) } : null;
 }
-// The starting height (cm) for a file name: the prefix, else 10 cm.
+// The starting size (cm) for a file name: the prefix, else DEFAULT_START_CM (30 cm).
 export const startHeightCm = (name) => parsePrefix(name)?.cm ?? DEFAULT_START_CM;
 // The name without its size prefix, for anything that shows or reads the name ("B_Ulla - cat.png" → "Ulla - cat.png").
 export function stripPrefix(name) {
@@ -40,7 +40,7 @@ export function stripPrefix(name) {
 // Only the 26 letter heights count as a stored start height (anything else: unknown).
 export const isStartCm = (v) => typeof v === 'number' && Number.isFinite(v) && v >= PREFIX_BASE_CM && v <= PREFIX_BASE_CM + 25 * PREFIX_STEP_CM
   && Math.abs((v - PREFIX_BASE_CM) / PREFIX_STEP_CM - Math.round((v - PREFIX_BASE_CM) / PREFIX_STEP_CM)) < 1e-9;
-// A design's start size: its stored startCm, else from its original file name (library: source), else 15 cm.
+// A design's start size: its stored startCm, else from its original file name (library: source), else DEFAULT_START_CM (30 cm).
 export const designStartCm = (img) => (img && isStartCm(img.startCm) ? img.startCm : img && img.source ? startHeightCm(img.source) : DEFAULT_START_CM);
 
 // The held size (= the sticker's LONGEST side, like the size slider and stamp.size): the letter

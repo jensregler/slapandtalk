@@ -112,7 +112,7 @@ const state = {
   mine: readMine(),
   library: [], // the curated sticker library (GET /api/library); the palette in the demo
   favs: readFavs(), // favourite design ids ("staples")
-  size: 0.15, rotation: 0, jitter: false, // size = the held size (longest side, m); each design starts at its own size (startSize)
+  size: 0.3, rotation: 0, jitter: false, // size = the held size (longest side, m); each design starts at its own size (startSize)
   mode: 'slap', // 'slap' = Klibbläge (pekaren syns, klick stämplar), 'view' = Tittläge (bara titta)
   artist: localStorage.getItem('klibb.artist') || '',
   artistLink: cleanArtistLink(localStorage.getItem('klibb.artistLink') || ''),

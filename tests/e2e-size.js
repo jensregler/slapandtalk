@@ -1,5 +1,5 @@
 // E2E (short): the size prefix in the web app. Own server (port 8840, normal app, DEV_UNLOCK).
-// An upload named "B_…" starts at 17.5 cm, one without a prefix (or with a dash) at 15 cm; a wide "D_…"
+// An upload named "B_…" starts at 17.5 cm, one without a prefix (or with a dash) at 30 cm (the original default); a wide "D_…"
 // at 22.5 cm (the letter value is the slider's size, the longest side); R/F sets each design's own start
 // size; the wheel still scales freely afterwards; the free version never goes below 15 cm.
 const sharp = require('sharp');
@@ -38,7 +38,7 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     const b = await upload(files.b);
     check('an upload named B_cat.png starts at 17.5 cm', b.size === 17.5 && b.label === '17.5 cm', b);
     const plain = await upload(files.plain);
-    check('one without a prefix ("b-Apple.png": a dash is not a prefix) starts at 15 cm', plain.size === 15, plain);
+    check('one without a prefix ("b-Apple.png": a dash is not a prefix) starts at 30 cm (the original default)', plain.size === 30, plain);
     const wide = await upload(files.wide);
     check('a 2:1 design named D_… starts at 22.5 cm held size (the longest side, as the slider shows)', wide.size === 22.5 && wide.label === '22.5 cm', wide);
     await p.evaluate(() => { const k = window.klibb; k.moveTo(0, 0); k.look(0, 0); });
@@ -52,7 +52,7 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     await p.keyboard.press('KeyF'); await p.waitForTimeout(150); const f1 = await size();
     await p.keyboard.press('KeyF'); await p.waitForTimeout(150); const f2 = await size();
     await p.keyboard.press('KeyR'); await p.waitForTimeout(150); const r1 = await size();
-    const want = { [b.sel]: 17.5, [plain.sel]: 15, [wide.sel]: 22.5 };
+    const want = { [b.sel]: 17.5, [plain.sel]: 30, [wide.sel]: 22.5 };
     check('R/F: each design starts at its own size whenever it is picked', [f1, f2, r1].every((x) => want[x.sel] === x.size) && new Set([f1.sel, f2.sel]).size === 2, { f1, f2, r1 });
     let back = r1; for (let i = 0; i < 3 && back.sel !== wide.sel; i++) { await p.keyboard.press('KeyR'); await p.waitForTimeout(150); back = await size(); }
     check('…and back on the scaled one it is its start size again, not the scaled size', back.sel === wide.sel && back.size === 22.5, back);

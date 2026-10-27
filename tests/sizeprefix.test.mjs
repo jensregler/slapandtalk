@@ -23,11 +23,11 @@ await ok('parsing: one letter + "_" + a letter or digit, any case; "-", space an
     assert.equal(parsePrefix(name), null, String(name));
   assert.equal(baseName('x/y/B_cat.final.png'), 'B_cat.final');
 });
-await ok('default: no prefix = 15 cm (same as A)', () => {
-  assert.equal(DEFAULT_START_CM, 15); assert.equal(startHeightCm('cat.png'), 15); assert.equal(startHeightCm('b-cat.png'), 15); assert.equal(startHeightCm('A_cat.png'), 15); assert.equal(startHeightCm('B_cat.png'), 17.5);
-  assert.equal(designStartCm({}), 15); assert.equal(designStartCm({ startCm: 17.5 }), 17.5); assert.equal(designStartCm({ source: 'Z_x.png' }), 77.5);
-  assert.equal(designStartCm({ startCm: 18 }), 15, 'only the 26 letter sizes count'); assert.equal(designStartCm({ startCm: 7.5 }), 15, 'old scale values are not letter sizes'); assert.equal(designStartCm({ startCm: 400 }), 15);
-  assert.ok(isStartCm(15) && isStartCm(77.5) && !isStartCm(10) && !isStartCm(80) && !isStartCm(NaN) && !isStartCm('15'));
+await ok('default: no prefix = 30 cm (the original start size, = G_); A_ still 15', () => {
+  assert.equal(DEFAULT_START_CM, 30); assert.equal(startHeightCm('cat.png'), 30); assert.equal(startHeightCm('b-cat.png'), 30); assert.equal(startHeightCm('A_cat.png'), 15); assert.equal(startHeightCm('B_cat.png'), 17.5);
+  assert.equal(designStartCm({}), 30); assert.equal(designStartCm({ startCm: 17.5 }), 17.5); assert.equal(designStartCm({ source: 'Z_x.png' }), 77.5); assert.equal(designStartCm({ source: 'cat.png' }), 30);
+  assert.equal(designStartCm({ startCm: 18 }), 30, 'only the 26 letter sizes count'); assert.equal(designStartCm({ startCm: 7.5 }), 30, 'old scale values are not letter sizes'); assert.equal(designStartCm({ startCm: 400 }), 30);
+  assert.ok(isStartCm(15) && isStartCm(30) && isStartCm(77.5) && !isStartCm(10) && !isStartCm(80) && !isStartCm(NaN) && !isStartCm('15'));
 });
 await ok('the prefix is not part of the name', () => {
   assert.equal(stripPrefix('B_Ulla - cat.png'), 'Ulla - cat.png'); assert.equal(stripPrefix('dir/C_cat.png'), 'dir/cat.png');
@@ -41,7 +41,8 @@ await ok('held size = the letter value (the longest side, what the size slider s
   assert.equal(startSizeCm({ startCm: 77.5 }, { maxCm: 50 }), 50, 'max clamp');
   assert.equal(startSizeCm({ startCm: 15 }, { minCm: 20 }), 20, 'min clamp');
   assert.equal(startSizeCm({ startCm: 77.5 }, { minCm: 5, maxCm: Infinity }), 77.5, 'full version: no upper cap');
-  assert.equal(startSizeCm({ width: 333, height: 100 }), 15, 'no prefix: 15 cm');
+  assert.equal(startSizeCm({ width: 333, height: 100 }), 30, 'no prefix: 30 cm');
+  assert.equal(startSizeCm({}, { minCm: 15, maxCm: 100 }), 30, 'free limits allow the 30 cm default');
 });
 
 // ---------- API: uploads and the library ----------
@@ -63,9 +64,9 @@ try {
   await importFolder({ folder: src, out, csv: null, artist: '', replace: false, dry: false }, () => {});
   const man = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'));
   const by = Object.fromEntries(man.stickers.map((s) => [s.source, s]));
-  await ok('import: startCm in the manifest from the prefix (none, or a dash, = 15), prefix not in the artist name', () => {
+  await ok('import: startCm in the manifest from the prefix (none, or a dash, = 30), prefix not in the artist name', () => {
     assert.equal(by['B_Ulla - cat.png'].startCm, 17.5); assert.equal(by['B_Ulla - cat.png'].artist, 'Ulla');
-    assert.equal(by['Apple.png'].startCm, 15); assert.equal(by['z_wide.png'].startCm, 77.5); assert.equal(by['c-dash.png'].startCm, 15);
+    assert.equal(by['Apple.png'].startCm, 30); assert.equal(by['z_wide.png'].startCm, 77.5); assert.equal(by['c-dash.png'].startCm, 30);
     assert.equal(artistFor('C_Bo__dog.png').artist, 'Bo');
   });
   // An entry imported before this feature (no startCm): re-derived from its original name.
@@ -79,7 +80,7 @@ try {
     const lib = (await (await fetch(`${base}/api/library`)).json()).stickers;
     const lb = Object.fromEntries(lib.map((s) => [s.id, s]));
     await ok('GET /api/library: each sticker has its startCm (also an older entry, from its original name)', () => {
-      assert.equal(lb[by['B_Ulla - cat.png'].id].startCm, 17.5); assert.equal(lb[by['Apple.png'].id].startCm, 15); assert.equal(lb[by['z_wide.png'].id].startCm, 77.5);
+      assert.equal(lb[by['B_Ulla - cat.png'].id].startCm, 17.5); assert.equal(lb[by['Apple.png'].id].startCm, 30); assert.equal(lb[by['z_wide.png'].id].startCm, 77.5);
       assert.ok(!('source' in lb[by['Apple.png'].id]), 'the file name itself is not sent');
     });
     const up = async (buf, fields = {}, fileName = 'klibba.png') => {
@@ -93,9 +94,9 @@ try {
     const dashed = await up(await png('#aabbcc'), {}, 'E-file.png');
     const restored = await up(await png('#fedcba'), { startCm: '22.5' });
     const junk = await up(await png('#0f0f0f'), { startCm: '400' });
-    await ok('upload: the server derives startCm from the name the web app sends (or the file name), default 15', async () => {
-      assert.equal(d1.startCm, 22.5); assert.equal(plain.startCm, 15); assert.equal(byFile.startCm, 25); assert.equal(dashed.startCm, 15, 'a dash is no prefix');
-      assert.equal(restored.startCm, 22.5, 're-upload of a lost design keeps its start size'); assert.equal(junk.startCm, 15, 'only letter sizes are taken from the client');
+    await ok('upload: the server derives startCm from the name the web app sends (or the file name), default 30', async () => {
+      assert.equal(d1.startCm, 22.5); assert.equal(plain.startCm, 30); assert.equal(byFile.startCm, 25); assert.equal(dashed.startCm, 30, 'a dash is no prefix');
+      assert.equal(restored.startCm, 22.5, 're-upload of a lost design keeps its start size'); assert.equal(junk.startCm, 30, 'only letter sizes are taken from the client');
       const meta = JSON.parse(fs.readFileSync(path.join(tmp, 'data', 'images', `${d1.id}.json`), 'utf8'));
       assert.equal(meta.startCm, 22.5, 'stored on the image record');
     });

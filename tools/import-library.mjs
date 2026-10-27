@@ -14,7 +14,7 @@
 //   4. --artist "Name"   (else empty: the sticker shows no credit)
 // Start size: a letter + underscore at the start of the file name sets the sticker's starting size
 //   (the size slider's value, the longest side; shared/sizeprefix.mjs): "A_cat.png" = 15 cm,
-//   "B_cat.png" = 17.5 cm … "Z_cat.png" = 77.5 cm; none (also "b-cat", "C cat") = 15 cm.
+//   "B_cat.png" = 17.5 cm … "Z_cat.png" = 77.5 cm; none (also "b-cat", "C cat") = 30 cm.
 //   Stored as startCm in the manifest. The prefix is not part of the artist/title ("B_Ulla - cat.png" → Ulla).
 //   Every run also re-derives startCm for already-imported stickers from their original name (source).
 // --sizes    only re-derive startCm (start sizes) for the stickers already in the manifest (no folder needed)

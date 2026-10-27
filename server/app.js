@@ -141,7 +141,7 @@ app.post('/api/stickers', rateLimit(20), (req, res) => {
         .webp({ quality: 90, alphaQuality: 100 }).toBuffer({ resolveWithObject: true });
       // Samma bild två gånger blir samma design (id = innehållets hash).
       const id = contentId(out.data);
-      // Starting size from the original file name ("B_cat.png" = 17.5 cm, no prefix = 15 cm). The
+      // Starting size from the original file name ("B_cat.png" = 17.5 cm, no prefix = 30 cm). The
       // web app sends the name in `name` (its shrunk copy is always called klibba.png); a re-upload
       // of a lost design sends the startCm it already had.
       const Z = await sizeMod;

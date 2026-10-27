@@ -32,7 +32,7 @@ Gå med **W A S D**, titta med musen och **klicka** för att stämpla (*slap*). 
 (från 15 cm upp till 1 m i grundversionen; i fullversionen, `bigStickers`, från 5 cm och ingen övre gräns, inte ens
 rummet – reglaget går till 4 m, hjulet längre. Storleken gäller klibbans längsta sida. Klibbor som redan sitter
 uppe får behålla sin storlek). Varje design **börjar på sin egen storlek** när du väljer den (R/F, paletten,
-en ny uppladdning): bokstaven + `_` först i filnamnet, se *Startstorlek från filnamnet* nedan, annars 15 cm),
+en ny uppladdning): bokstaven + `_` först i filnamnet, se *Startstorlek från filnamnet* nedan, annars 30 cm),
 **Q/E** vrider klibban, **R** byter till nästa design, **F** till förra, **V** växlar mellan Slap mode och Look mode, **M**
 stänger av/slår på ljudet och **Esc** tar dig tillbaka till menyn.
 
@@ -703,9 +703,9 @@ exactly a slap, as before. **Desktop only**: on a phone a drag looks around (no 
 ### Startstorlek från filnamnet (A_, B_, … Z_)
 En bokstav och ett understreck först i bildens filnamn bestämmer klibbans **startstorlek**, alltså det värde
 storleksreglaget visar (Esc → Size, klibbans längsta sida): storlek = 15 cm + bokstavens nummer × 2,5 cm,
-alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan prefix: 15 cm (som A).
+alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan prefix: 30 cm (originalstorleken, som G_).
 - **Regel:** EN bokstav A–Z (stor eller liten) allra först i filnamnet, sedan `_`, sedan en bokstav eller
-  siffra: `A_katt.png`, `b_katt.png`. *Inte* prefix (får 15 cm): `b-katt.png`, `C katt.png`, `Apple.png`,
+  siffra: `A_katt.png`, `b_katt.png`. *Inte* prefix (får 30 cm): `b-katt.png`, `C katt.png`, `Apple.png`,
   `A.png`, `A - katt.png` (formen "Konstnär - titel"), `A__katt.png`, `AB_katt.png`. Koden:
   `shared/sizeprefix.mjs` (samma i webbappen, servern och `tools/import-library.mjs`).
 - **Längsta sidan, för alla format:** en liggande bild med `D_` får 22,5 cm på reglaget, precis som en
