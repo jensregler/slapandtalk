@@ -1418,6 +1418,15 @@ $('peels-on').onchange = async (e) => {
   } catch (err) { e.target.checked = !on; toast(err.message); }
   updatePeelUi();
 };
+// 🧻 Peels is always ON when the page loads (Jens, 28 Oct 2026), whatever the room was left at
+// (the setting lives on the server: room.peelsOn, PUT /api/rooms/:room/peels – not in localStorage).
+// Whoever may change the room (its key or admin; the box is only theirs) turns it back on at load;
+// they can still switch it off for the rest of the visit. Peel mechanics unchanged.
+async function peelsOnAtLoad(info) {
+  if (info?.peels || DEMO || !canEditStyle()) return;
+  try { await api.setPeels(ROOM, true, { key: roomKeys()[ROOM], admin: state.adminToken }); peelLayer.setOn(true); } catch { /* offline / no right: as it was */ }
+  updatePeelUi();
+}
 $('peels-clear').onclick = async () => {
   try { await api.clearPeels(ROOM, { key: roomKeys()[ROOM], admin: state.adminToken }); peelLayer.clear(); toast(S.peelsCleared, 1500); } catch (err) { toast(err.message); }
 };
@@ -1513,6 +1522,7 @@ async function loadRoom() {
     applyGroove(info?.groove);
     peelLayer.setOn(!!info?.peels);
     for (const p of peels || []) peelLayer.add(p, images[p.imageId]);
+    await peelsOnAtLoad(info);
     cams.set(cameras || []); renderCams();
     if (!sp.open) await showStyle(currentStyle);
     pruneHistory(list.map((s) => s.id));
