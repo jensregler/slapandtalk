@@ -789,6 +789,8 @@ alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan pref
   även gratis: **minst `NATURE.minCm` = 5 cm, högst `NATURE.maxHeightCm` = 400 cm HÖG** (längsta sidan alltså
   400 cm × längsta/höjd, för en bred bild mer). Webbappen (reglage, hjul, slap, mobilens reglage) och servern
   (`POST …/stamps`, klämmer) gör samma sak; serverns tekniska golv 2 cm och NaN-kontrollen gäller fortfarande.
+  **Inga peels:** nature-klibbor tappar inget baksidespapper alls (de blir för stora) – varken vid slap eller i
+  en rad; servern skapar inget (`POST …/stamps`, `…/stamps/array`) och webbappen visar ingen pappersanimation.
   Bara kurerade biblioteksklibbor – en egen uppladdning som heter `nature…` får vanliga gränser.
   Tester: `tests/nature.test.mjs`, `tests/e2e-size.js`.
 - **Var:** uppladdningar (webbappen skickar filnamnet, servern sparar `startCm` på bilden; samma bild igen

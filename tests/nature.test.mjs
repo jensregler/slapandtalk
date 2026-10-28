@@ -92,6 +92,23 @@ try {
     await ok('sane guards: NaN / below 2 cm / strings refused, also for nature', async () => {
       assert.equal(await slap(tree, 'big'), 'HTTP 400'); assert.equal(await slap(tree, 0.01), 'HTTP 400'); assert.equal(await slap(tree, null), 'HTTP 400');
     });
+    await ok('peels on: a nature sticker drops NO backing paper (single slap and a row); a normal one still does', async () => {
+      const post = (url, body, h = {}) => fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify(body) });
+      const { room: { id: R }, roomKey: RK } = await (await post('/api/rooms', {})).json();
+      const put = await fetch(`${base}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': RK }, body: JSON.stringify({ on: true }) });
+      assert.ok(put.ok, 'peels on');
+      const count = async () => (await store.peelState(R)).peels.length;
+      const one = (imageId, x) => post(`/api/rooms/${R}/stamps`, { imageId, position: [x, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', owner: 'device-nature' }).then((r) => r.json());
+      const nat = await one(tree, -2);
+      assert.ok(nat.stamp && !nat.peel, 'nature slap: stamp, no peel'); assert.equal(await count(), 0);
+      const row = await (await post(`/api/rooms/${R}/stamps/array`, { anchor: { id: nat.stamp.id, token: nat.peelToken }, to: [-0.5, 1.5, -5], nonce: 'natrow1' })).json();
+      assert.ok(Array.isArray(row.stamps) && row.stamps.length >= 3, JSON.stringify(row).slice(0, 200));
+      assert.ok(row.stamps.every((r) => !r.peel), 'no peel on any copy'); assert.equal(await count(), 0, 'no papers stored');
+      const norm = await one(plain, 2);
+      assert.ok(norm.peel, 'normal sticker: its paper'); assert.equal(await count(), 1);
+      const row2 = await (await post(`/api/rooms/${R}/stamps/array`, { anchor: { id: norm.stamp.id, token: norm.peelToken }, to: [3.2, 1.5, -5], nonce: 'plainrow1' })).json();
+      assert.equal(await count(), 1 + row2.stamps.length, 'a normal row: one paper per copy as before');
+    });
   } finally { server.close(); }
 } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 console.log(`\nnature: ${n} passed`);

@@ -61,6 +61,8 @@ app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
 const entOf = (req) => (entitle.check ? entitle.check(fromReq(req)) : Promise.resolve(entitle(fromReq(req))));
 const licenses = entitle.licenses || null;
 const libraryById = new Map(library.map((s) => [s.id, s])); // the curated library by id (nature flags etc.)
+// A nature sticker (shared/nature.mjs): curated library only (never a user's own upload, whatever its name).
+const isNatureImage = (N, image) => !!image && (N.isNature(libraryById.get(image.id)) || (image.library === true && image.nature === true));
 const wrapEarly = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // ---------- Lemon Squeezy webhook ----------
@@ -440,8 +442,8 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   // smaller than 15 cm. Free sizes outside 15 cm – 1 m are clamped (not refused), like before.
   // Nature stickers (shared/nature.mjs) have their own limits instead, for everyone: NATURE.minCm
   // (5 cm) up to NATURE.maxHeightCm (4 m) high; outside them clamped the same way.
-  const N = await natureMod, libEntry = libraryById.get(image.id);
-  if (N.isNature(libEntry) || (image.library === true && image.nature === true)) { // curated library only (never a user's own upload, whatever its name)
+  const N = await natureMod, libEntry = libraryById.get(image.id), nature = isNatureImage(N, image);
+  if (nature) {
     const lim = N.sizeLimitsCm({ ...image, ...(libEntry || {}), nature: true });
     b.size = Math.min(lim.maxCm / 100, Math.max(lim.minCm / 100, b.size));
   } else if ((b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK || b.size < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) && !(await entOf(req)).bigStickers) {
@@ -488,7 +490,8 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   const by = playerId(b.by);
   // Peels på: baksidespappret faller från den som slappade (fallet räknas ut av klienterna från seed).
   let peel = null;
-  if (peelSt.on || (await store.peelState(room)).on) {
+  // Nature stickers drop no backing paper at all (Jens, 28 Oct 2026: they get too large).
+  if (!nature && (peelSt.on || (await store.peelState(room)).on)) {
     const from = cleanFrom(b.peelFrom) || fallbackFrom(b.position, b.normal);
     const seed = nonce && /^[A-Za-z0-9_-]{1,40}$/.test(nonce) ? nonce : saved.id;
     const { side, ...plan } = P.peelPlan(seed, from, b.position);
@@ -566,7 +569,7 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
   const byOrder = new Map(saved.map((s, n) => [s.id, items[n].i])); // saved keeps items' order (minus evicted)
   const rows = [];
   let papers = 0;
-  const on = peelSt.on || (await store.peelState(room)).on;
+  const on = !isNatureImage(await natureMod, image) && (peelSt.on || (await store.peelState(room)).on); // nature stickers: no backing paper (Jens, 28 Oct 2026)
   const from = on ? (cleanFrom(b.peelFrom) || fallbackFrom(anchor.position, anchor.normal)) : null;
   for (const s of saved) {
     const i = byOrder.get(s.id), stamp = publicStamp(s);

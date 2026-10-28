@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { startSizeCm } from '../../shared/sizeprefix.mjs';
-import { sizeLimitsCm, NATURE } from '../../shared/nature.mjs';
+import { sizeLimitsCm, isNature, NATURE } from '../../shared/nature.mjs';
 import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl } from './roomstyle.js';
 import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
@@ -443,6 +443,8 @@ const SLIDER_FULL_CM = 400; // slider travel only, not a limit
 const versionLimits = () => (entitlements.full.bigStickers ? { minCm: FULL_MIN_CM, maxCm: Infinity } : { minCm: FREE_MIN_CM, maxCm: FREE_MAX_CM });
 const limitsFor = (img = state.selected) => (img && img.library === true ? sizeLimitsCm(img, versionLimits()) : versionLimits());
 const maxSizeCm = (img) => limitsFor(img).maxCm;
+// Nature stickers drop no backing paper (Jens, 28 Oct 2026: they get too large) – the server makes none either.
+const dropsPeel = (img) => !(img && img.library === true && isNature(img));
 const minSizeCm = (img) => limitsFor(img).minCm;
 const showSize = () => {
   const cm = Math.round(state.size * 200) / 2;
@@ -637,7 +639,7 @@ async function slapAt(ndc, info, onStart, auto = null) {
   delete temp.owner; delete temp.nonce; delete temp.by; delete temp.peelFrom;
   // Peels på: pappret börjar falla direkt (samma bana som servern räknar ut, seed = nonce).
   const tempPeel = 'tmp-' + nonce;
-  if (peelLayer.on) {
+  if (peelLayer.on && dropsPeel(design)) {
     const [pw, ph] = stampDims(design, slapSize);
     peelLayer.add({ id: tempPeel, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, { x: camera.position.x, z: camera.position.z, yaw: controls.yaw }, body.position) }, design, { animate: true, by: 'me' });
   }
@@ -776,7 +778,7 @@ function commitArray() {
     const tempId = 'tmp-' + nonce;
     pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, row: a.nonce });
     stamps.add({ ...a.temp, id: tempId, position, order: stamps.topOrder() + 1, createdAt: now, pending: true }, design).then(updateCount);
-    if (peelLayer.on && papers < PEELS_PER_ARRAY) {
+    if (peelLayer.on && dropsPeel(design) && papers < PEELS_PER_ARRAY) {
       papers++;
       const [pw, ph] = stampDims(design, a.size);
       peelLayer.add({ id: tempId, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, from, position) }, design, { animate: true, by: 'me' });
@@ -2288,5 +2290,5 @@ window.klibb = {
   },
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
-  nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
+  nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, dropsPeel, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };

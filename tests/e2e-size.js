@@ -67,10 +67,12 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
       k.setSize(350); out.s350 = r(k.state.size); k.setSize(900); out.s900 = r(k.state.size); k.setSize(3); out.s3 = r(k.state.size);
       k.setSize(380); await k.selectDesign(prev); out.back = r(k.state.size); out.backMax = document.getElementById('size').max;
       out.upload = k.limitsFor({ ...prev, library: false, nature: true, name: 'nature-x.png' }); // an upload is never nature
+      out.peel = [k.dropsPeel({ ...lib, nature: true, library: true }), k.dropsPeel(lib), k.dropsPeel({ ...prev, library: false, nature: true, name: 'nature-x.png' })];
       return out;
     });
     check('nature sticker (free version): 5 cm – 400 cm, slider 5–400; 900 → 400, 3 → 5', nat.lim.minCm === 5 && nat.lim.maxCm === 400 && nat.sliderMax === '400' && nat.sliderMin === '5' && nat.s350 === 350 && nat.s900 === 400 && nat.s3 === 5, nat);
     check('…back on a normal sticker the free limits again (380 cm → 100 cm, slider max 100); an upload named nature… keeps the normal limits', nat.back === 100 && nat.backMax === '100' && nat.upload.maxCm === 100 && nat.upload.minCm === 15, nat);
+    check('nature stickers drop no backing paper (client: no peel animation); others and uploads do', JSON.stringify(nat.peel) === '[false,true,true]', nat.peel);
     for (let i = 0; i < 20; i++) await p.mouse.wheel(0, 200);
     await p.waitForTimeout(200);
     const wheelLow = await size();
