@@ -11,6 +11,12 @@ export const RETURN_MS = 320; // sedan glider armen ner igen (det är den rörel
 export const SLAP_MS = SNAP_MS + HOLD_MS + RETURN_MS;
 export const PEEL_MS = 420;
 
+export const HOLD_IN_MS = 160; // the drag pose (sticker arrays) eases in over this long
+// The drag pose while a sticker row is pulled out (slap at A, hold, drag toward B): the arm stays
+// up, reaching for where the row ends, the hand pulled a little back from the wall.
+export const DRAG_POSE = { reach: 1, lift: 0, pull: 0.06 };
+export function holdAt(t) { return t >= 0 ? { w: easeOut(clamp01(t / HOLD_IN_MS)), ...DRAG_POSE } : null; }
+
 const easeOut = (x) => 1 - (1 - x) * (1 - x);
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
@@ -61,7 +67,22 @@ export class ArmGesture {
     this.g = null; // { kind, t0, target, normal, arm }
     this.count = 0; // för tester: hur många rörelser som startats
     this.freeze = null; // för tester/skärmdumpar: visa rörelsen som den ser ut så här många ms in
+    this.h = null; // the drag pose (sticker arrays): { target, normal, t0, age? } – held until release()
   }
+  // The drag pose: the arm reaches for target (world point) until release(). A slap still plays on
+  // top of it (the anchor's slap), then the arm stays up in the pose. age (ms): the replay's clock.
+  // out (replay): ms since the row was let go – the arm swings back down like after a slap.
+  hold(target, normal = null, age = null, out = null, now = performance.now()) {
+    if (!this.arms.length || !target) return false;
+    const tv = new THREE.Vector3().fromArray(target.toArray ? target.toArray() : target);
+    const nv = normal ? new THREE.Vector3().fromArray(normal.toArray ? normal.toArray() : normal).normalize() : null;
+    if (!this.h || (out == null && this.h.out0 != null)) this.h = { t0: now, arm: this.h ? this.h.arm : null };
+    this.h.target = tv; this.h.normal = nv; this.h.age = age; this.h.out = out;
+    return true;
+  }
+  // Let go (live): the arm swings back down over RETURN_MS, as after a slap.
+  release(now = performance.now()) { if (this.h && this.h.out == null && this.h.out0 == null) this.h.out0 = now; }
+  holding() { return !!this.h && this.h.out == null && this.h.out0 == null; }
   start(kind, target, normal = null, now = performance.now()) {
     if (!this.arms.length || !target) return false;
     this.g = { kind, t0: now, target: new THREE.Vector3().fromArray(target.toArray ? target.toArray() : target),
@@ -78,15 +99,26 @@ export class ArmGesture {
   }
   unpin() { if (this.pinned) { this.g = null; this.freeze = null; this.pinned = false; } }
   elapsed(now) { return this.freeze != null ? this.freeze : now - this.g.t0; }
-  active(now = performance.now()) { return !!(this.g && gestureAt(this.g.kind, this.elapsed(now))); }
+  active(now = performance.now()) { return !!(this.g && gestureAt(this.g.kind, this.elapsed(now))) || !!this.h; } // h: the drag pose (or its swing back)
   // Efter mixer.update(): lägg armen ovanpå. root = gubbens rot (för världsmatriserna).
   apply(root, now = performance.now()) {
-    const g = this.g; if (!g) return;
-    const s = gestureAt(g.kind, this.elapsed(now));
-    if (!s) { this.g = null; return; }
+    let g = this.g;
+    let s = g ? gestureAt(g.kind, this.elapsed(now)) : null;
+    if (g && !s) { this.g = null; g = null; }
+    let h = this.h;
+    const away = h ? (h.out != null ? h.out : h.out0 != null ? now - h.out0 : null) : null;
+    if (h && away != null && away >= RETURN_MS) { this.h = null; h = null; }
+    if (h) {
+      const hs = holdAt(h.age != null ? h.age : now - h.t0);
+      if (away != null) hs.w *= 1 - easeOut(clamp01(away / RETURN_MS));
+      // the slap on top while it is up; as it swings back, the drag pose takes over (never lower than the pose)
+      if (!s || s.w < hs.w) { if (g && !h.arm) h.arm = g.arm; g = { target: h.target, normal: h.normal, arm: h.arm }; s = hs; }
+    }
+    if (!g || !s) return;
     root.updateMatrixWorld(true);
     // Den arm vars axel är närmast målet slår (vänster eller höger).
     if (!g.arm) g.arm = this.arms.reduce((best, a) => (a.upper.getWorldPosition(_a).distanceTo(g.target) < best.upper.getWorldPosition(_b).distanceTo(g.target) ? a : best));
+    if (h && !h.arm) h.arm = g.arm; // the drag pose keeps the arm that slapped
     const { upper, lower, wrist } = g.arm;
     const S = upper.getWorldPosition(new THREE.Vector3());
     const E0 = lower.getWorldPosition(new THREE.Vector3()), R = wrist.getWorldPosition(new THREE.Vector3());

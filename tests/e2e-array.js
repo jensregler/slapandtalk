@@ -33,6 +33,9 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     const onServer = async () => (await (await fetch(`${S.base}/api/rooms/${R}/stamps`)).json()).stamps;
     await p.evaluate(() => { const k = window.klibb; k.moveTo(0, -3); k.look(0, 0); });
     await p.mouse.click(500, 325); await p.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
+    // Headless Chromium under pointer lock reports a press with movementX/Y = the cursor's position
+    // (the aim jumps, e.g. onto the ceiling): park the cursor at (0, 0) so presses don't turn the view.
+    await p.mouse.move(0, 0); await p.waitForTimeout(100); await p.evaluate(() => window.klibb.look(0, 0));
     await p.evaluate(() => window.klibb.peelSettled());
     const base = (await onServer()).length; // the locking click is not a slap
     const settle = () => p.waitForFunction(() => window.klibb.pendingSlaps() === 0 && window.klibb.arrayState().inFlight === 0, null, { timeout: 15000 });

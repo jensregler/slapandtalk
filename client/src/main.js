@@ -764,6 +764,8 @@ function commitArray() {
   // A quick, soft rattle along the row (A already made the real slap sound on the way down).
   for (let k = 0; k < Math.min(3, items.length); k++) setTimeout(() => sound.play('slap', null, { volume: 0.4 - k * 0.1 }), 45 * (k + 1));
   arrayOps.push(op);
+  // The recording keeps the row (ghosts + drag pose) until the copies are in (see recordHeld).
+  const bridge = (arrayRec = { msg: heldMsg({ row: d }) });
   const dropAll = () => { for (const t of op.temps) { dropPending(t.nonce); peelLayer.remove([t.tempId]); } };
   op.done = (async () => {
     try {
@@ -797,6 +799,7 @@ function commitArray() {
       updateCount(); renderHistory();
     } finally {
       settle();
+      if (bridge && arrayRec === bridge) arrayRec = null;
       const k = arrayOps.indexOf(op); if (k >= 0) arrayOps.splice(k, 1);
     }
   })();
@@ -2096,9 +2099,25 @@ renderMic();
 const HELD_SEND_MS = 125;
 const heldTx = { key: null, at: 0, img: null };
 const r3 = (n) => Math.round(n * 1000) / 1000;
+// Pulling out a sticker row (arrays): the same 'held' line carries the row instead – the anchor
+// (p, n, q, s = where A sits on the wall, w × h = one copy) and a = { to: the drag target B }, so the
+// replay recomputes the ghosts with shared/array.mjs (round corners too) all through the drag, and
+// the avatar's drag pose. After release the last row line stays until the server has the copies
+// (they are in the recording as stamp:add by then), so the replay goes ghosts → stickers with no gap.
+let arrayRec = null; // { msg } between release and the server's answer
+function heldMsg(x) {
+  if (!x) return null;
+  if (x.row) {
+    const d = x.row;
+    return { img: d.a.design.id, p: d.a.point.toArray().map(r3), n: d.a.normal.toArray().map(r3), q: d.a.q.toArray().map(r3), w: r3(d.w), h: r3(d.h), s: d.a.surface,
+      a: { to: d.to.toArray().map(r3) } };
+  }
+  if (x.msg) return x.msg;
+  return { img: state.selected.id, p: x.h.point.toArray().map(r3), n: x.h.normal.toArray().map(r3), q: x.q.toArray().map(r3), w: r3(x.w), h: r3(x.hh), s: x.h.surface };
+}
 function recordHeld(x) {
   if (!rec || together.net.status !== 'online') { heldTx.key = null; return; }
-  const msg = x ? { img: state.selected.id, p: x.h.point.toArray().map(r3), n: x.h.normal.toArray().map(r3), q: x.q.toArray().map(r3), w: r3(x.w), h: r3(x.hh), s: x.h.surface } : null;
+  const msg = heldMsg(x);
   const key = msg ? JSON.stringify(msg) : 'null';
   if (key === heldTx.key) return;
   const t = performance.now();
@@ -2139,7 +2158,11 @@ function frame() {
   let dragging = false;
   if (arrayDrag && controls.locked) { try { dragging = updateArray() > 0; } catch (err) { arrayFailed('drag', err); } }
   let heldNow = null; // what goes into a running recording as the sticker I hold (recordHeld)
-  if (dragging) preview.hide(); // dragging a row: the ghosts are the preview
+  // The drag pose on my own avatar while I pull a row out (3rd person, cameras, and the recording).
+  const rowEnd = dragging ? arrayDrag.items[arrayDrag.items.length - 1] : null;
+  together.selfHold(rowEnd ? rowEnd.position : null, rowEnd ? (rowEnd.normal || arrayDrag.a.normal.toArray()) : null);
+  if (dragging) { preview.hide(); heldNow = { row: arrayDrag }; } // dragging a row: the ghosts are the preview
+  else if (arrayRec) { preview.hide(); heldNow = { msg: arrayRec.msg }; } // released: until the server has the copies
   else if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
     const h = hitSurface(CENTER);
     if (h) {

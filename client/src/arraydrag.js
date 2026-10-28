@@ -57,4 +57,5 @@ export class ArrayGhosts {
   }
   hide() { for (let k = 0; k < this.shown; k++) this.pool[k].visible = false; this.shown = 0; }
   get count() { return this.shown; }
+  dispose() { for (const m of this.pool) { this.scene.remove(m); if (m.userData.key !== 'quad') m.geometry.dispose(); } this.pool = []; this.shown = 0; this.quad.dispose(); this.mat.dispose(); }
 }

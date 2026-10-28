@@ -310,11 +310,13 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     update(dt, eye = camera.position, { hideSelf = false } = {}) { sendMove(dt); players.update(dt, eye); updateSelf(dt, { hide: hideSelf }); },
     showSelf,
     // Min gubbe slappar/peelar (syns bara i tredjepersonsvy). De andra får veta via servern (by = net.id).
+    // The drag pose (sticker arrays) on my own avatar: point = where the row ends, null = let go.
+    selfHold: (point, normal) => { const a = self.avatar; if (!a) return false; if (point) return a.hold(point, normal); a.release(); return true; },
     selfGesture: (kind, point, normal) => !!(self.want && self.avatar && (kind === 'peel' ? self.avatar.peel(point, normal) : self.avatar.slap(point, normal))),
     freezeGestures(ms) { if (self.avatar) self.avatar.gesture.freeze = ms; for (const p of players.map.values()) if (p.avatar) p.avatar.gesture.freeze = ms; },
     handPos: () => { const a = self.avatar; if (!a) return null; const w = a.gesture.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray()); return w; },
     selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0, fabrics: self.avatar ? self.avatar.fabricInfo() : {},
-      gesturing: !!self.avatar?.gesture.active(), pos: self.avatar?.root.position.toArray() || null }),
+      gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null }),
     busy: () => av.open,
     fabricStats, previewFabrics: () => (av.avatar ? av.avatar.fabricInfo() : {}),
     chatOpen, openChat, closeChat, openAvatarPanel, closeAvatarPanel,

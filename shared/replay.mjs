@@ -142,7 +142,7 @@ export function poseAt(track, t) {
   return { p: [lerp(a.p[0], b.p[0]), lerp(a.p[1], b.p[1]), lerp(a.p[2], b.p[2])], y: a.y + wrapAngle(b.y - a.y) * k, pi: lerp(a.pi, b.pi) };
 }
 
-// The held sticker at time t: { img, image, p, n, q, w, h, s } or null. Between two updates of
+// The held sticker at time t: { img, image, p, n, q, w, h, s, a? } or null (a = { to }: pulling out a sticker row). Between two updates of
 // the same sticker on the same surface it glides (at most GLIDE_MS), like positions.
 export function heldAt(tl, id, t) {
   const pl = tl.players.get(id); const list = pl && pl.held; if (!list || !list.length) return null;
@@ -150,8 +150,16 @@ export function heldAt(tl, id, t) {
   const a = list[i].h; if (!a) return null;
   const image = tl.images[a.img] || null; if (!image) return null;
   const out = { img: a.img, image, p: a.p.slice(), n: a.n ? a.n.slice() : [0, 0, 1], q: a.q.slice(), w: a.w, h: a.h, s: a.s || '' };
+  // Pulling out a sticker row: a = { to } (the drag target); the anchor stays put, B glides.
+  const row = a.a && Array.isArray(a.a.to) && a.a.to.length === 3 ? a.a.to : null;
+  if (row) out.a = { to: row.slice() };
   const nx = list[i + 1], b = nx && nx.h;
-  if (b && b.img === a.img && (b.s || '') === out.s && b.w === a.w && b.h === a.h) {
+  const bRow = b && b.a && Array.isArray(b.a.to) && b.a.to.length === 3 ? b.a.to : null;
+  if (row && bRow && b.img === a.img && b.p.every((x, j) => x === a.p[j])) {
+    const span = Math.min(nx.t - list[i].t, GLIDE_MS), start = nx.t - span;
+    const k = span > 0 ? Math.min(1, Math.max(0, (t - start) / span)) : 1;
+    if (k > 0) for (let j = 0; j < 3; j++) out.a.to[j] = row[j] + (bRow[j] - row[j]) * k;
+  } else if (!row && !bRow && b && b.img === a.img && (b.s || '') === out.s && b.w === a.w && b.h === a.h) {
     const span = Math.min(nx.t - list[i].t, GLIDE_MS), start = nx.t - span;
     const k = span > 0 ? Math.min(1, Math.max(0, (t - start) / span)) : 1;
     if (k > 0) {
@@ -162,6 +170,17 @@ export function heldAt(tl, id, t) {
     }
   }
   return out;
+}
+
+// Just after a sticker row was let go (the held line after a row line is not a row): { h, out }
+// with out = ms since, while out < maxMs – the replay swings the avatar's arm back down.
+export function rowEndAt(tl, id, t, maxMs = 400) {
+  const pl = tl.players.get(id); const list = pl && pl.held; if (!list || !list.length) return null;
+  const i = lastAt(list, t); if (i < 1) return null;
+  const cur = list[i].h, prev = list[i - 1].h;
+  if ((cur && cur.a) || !prev || !prev.a) return null;
+  const out = t - list[i].t;
+  return out >= 0 && out < maxMs ? { h: prev, out } : null;
 }
 
 // The talk level (0…15) at time t: the last sample, if it is fresh (they come ~every 80 ms).

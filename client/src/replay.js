@@ -13,8 +13,11 @@ import { CameraLayer, poseCamera, renderFramed, aspectRatio } from './cameras.js
 import * as photo from './photo.js';
 import { FirstPersonControls } from './controls.js';
 import { S, LOCALE } from './strings.js';
-import { parseRecording, buildTimeline, snapshotAt, participants, gestureAt } from '../../shared/replay.mjs';
-import { SLAP_MS, PEEL_MS } from './slapanim.js';
+import { parseRecording, buildTimeline, snapshotAt, participants, gestureAt, rowEndAt } from '../../shared/replay.mjs';
+import { SLAP_MS, PEEL_MS, RETURN_MS } from './slapanim.js';
+import { ArrayGhosts } from './arraydrag.js';
+import { arrayPlan, faceFor } from '../../shared/array.mjs';
+import { boxFaces } from '../../shared/coverage.mjs';
 const GESTURE_MAX_MS = Math.max(SLAP_MS, PEEL_MS);
 const gestureLen = (kind) => (kind === 'peel' ? PEEL_MS : SLAP_MS);
 import { planShots, shotAt, shotPose, roomPose, speechSegments, openOf, TALK_LEVELS } from '../../shared/director.mjs';
@@ -125,6 +128,15 @@ function syncPlayers(list, dt, jumped) {
     // replay's clock: every view – the auto cameramen, the person cameramen, the director, the video – shows it.
     const g = gestureAt(rp.tl, p.id, rp.t, GESTURE_MAX_MS);
     if (g && gestureLen(g.kind) > g.age) a.avatar.gesture.pin(g.kind, g.p, g.normal, g.age, `${g.kind}@${g.t}`); else a.avatar.gesture.unpin();
+    // Pulling out a sticker row (held.a): the drag pose, the arm reaching for where the row ends now.
+    const row = p.held && p.held.a ? rowOf(p.id, p.held) : null;
+    const ended = row ? null : rowEndAt(rp.tl, p.id, rp.t, RETURN_MS); // just let go: the arm swings back down
+    const rh = row ? p.held : ended && ended.h;
+    if (rh) {
+      const items = row ? row.items : arrayPlan({ position: rh.p, quaternion: rh.q, surface: rh.s }, rh.w, rh.h, rh.a.to).items;
+      const end = items[items.length - 1];
+      a.avatar.hold(end ? end.position : rh.p, end && end.normal ? end.normal : rh.n, row ? row.age : 1e6, ended ? ended.out : null);
+    } else a.avatar.drop();
     a.avatar.update(dt, a.speed);
   }
   for (const [id, a] of avatars) if (!seen.has(id)) { scene.remove(a.avatar.root); a.avatar.dispose(); avatars.delete(id); }
@@ -134,19 +146,46 @@ function syncPlayers(list, dt, jumped) {
 // (recording event 'held', shared/replay.mjs heldAt). Every view and the finished video show it.
 const helds = new Map(); // id -> { prev: StampPreview, img }
 const v3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+// Pulling out a sticker row (held.a = { to }): the see-through ghosts of the copies, recomputed from
+// the anchor and the drag target with the same shared/array.mjs as live (round corners too), all
+// through the drag; the real stickers (+ their papers) come with the row's stamp:add at release.
+const ROW_FACES = boxFaces();
+const rows = new Map(); // id -> { key, items, since }
+function rowOf(id, h) {
+  const key = `${h.img}|${h.p}|${h.q}|${h.s}|${h.w}|${h.h}|${h.a.to}`;
+  let r = rows.get(id);
+  if (r && r.key === key) { r.age = Math.max(0, rp.t - r.since); return r; }
+  const fresh = !r || r.anchor !== `${h.p}|${h.s}`;
+  const items = arrayPlan({ position: h.p, quaternion: h.q, surface: h.s }, h.w, h.h, h.a.to).items.filter((x) => x.i > 0)
+    .map((x) => (x.surface ? { ...x, q: new THREE.Quaternion(...x.quaternion), n: v3(x.normal), face: faceFor(ROW_FACES, x.surface, x.position, x.normal) } : x));
+  r = { key, items, anchor: `${h.p}|${h.s}`, since: fresh ? rp.t : r.since, age: fresh ? 0 : Math.max(0, rp.t - r.since) };
+  rows.set(id, r);
+  return r;
+}
 function syncHeld(list) {
   const here = new Set(list.map((p) => p.id));
   for (const p of list) {
     const h = p.held; let e = helds.get(p.id);
-    if (!h) { if (e) e.prev.hide(); continue; }
-    if (!e) { e = { prev: new StampPreview(scene, stamps.faces), img: null }; helds.set(p.id, e); }
+    if (!h) { if (e) { e.prev.hide(); e.ghosts.hide(); } rows.delete(p.id); continue; }
+    if (!e) { e = { prev: new StampPreview(scene, stamps.faces), ghosts: new ArrayGhosts(scene, stamps.faces), img: null }; helds.set(p.id, e); }
     if (e.img !== h.img) {
-      const want = h.img; e.img = want; e.prev.setTexture(null);
-      stamps.texture(h.image).then((tex) => { if (e.img === want) e.prev.setTexture(tex); }).catch(() => {});
+      const want = h.img; e.img = want; e.prev.setTexture(null); e.ghosts.setTexture(null);
+      stamps.texture(h.image).then((tex) => { if (e.img === want) { e.prev.setTexture(tex); e.ghosts.setTexture(tex); } }).catch(() => {});
     }
-    e.prev.show(v3(h.p), v3(h.n), new THREE.Quaternion(h.q[0], h.q[1], h.q[2], h.q[3]), h.w, h.h, h.s);
+    const q = new THREE.Quaternion(h.q[0], h.q[1], h.q[2], h.q[3]);
+    if (h.a) { // the row: ghosts instead of the held preview (like live)
+      e.prev.hide();
+      const r = rowOf(p.id, h);
+      if (r.items.length) e.ghosts.show(r.items, q, v3(h.n), h.w, h.h, h.s, faceFor(ROW_FACES, h.s, h.p, h.n)); else e.ghosts.hide();
+      continue;
+    }
+    rows.delete(p.id); e.ghosts.hide();
+    e.prev.show(v3(h.p), v3(h.n), q, h.w, h.h, h.s);
   }
-  for (const [id, e] of helds) if (!here.has(id)) { e.prev.hide(); scene.remove(e.prev.mesh); e.prev.mesh.geometry.dispose(); e.prev.mat.dispose(); scene.remove(e.prev.shadow); e.prev.shadow.geometry.dispose(); e.prev.shadowMat.dispose(); helds.delete(id); }
+  for (const [id, e] of helds) if (!here.has(id)) {
+    e.prev.hide(); scene.remove(e.prev.mesh); e.prev.mesh.geometry.dispose(); e.prev.mat.dispose(); scene.remove(e.prev.shadow); e.prev.shadow.geometry.dispose(); e.prev.shadowMat.dispose();
+    e.ghosts.dispose(); helds.delete(id); rows.delete(id);
+  }
 }
 function syncChat(list, prevT, t) {
   const key = list.map((m) => m.id).join(',');
@@ -473,13 +512,13 @@ window.replay = {
     eye: { p: view.position.toArray().map((n) => +n.toFixed(3)), q: view.quaternion.toArray().map((n) => +n.toFixed(3)), fov: view.fov, aspect: +view.aspect.toFixed(3) },
     chat: [...document.querySelectorAll('#rp-chat li')].map((l) => l.textContent),
     shot: rp.shot, mouths: Object.fromEntries([...avatars.entries()].map(([id, a]) => [id, a.avatar.mouthInfo])),
-    held: Object.fromEntries([...helds.entries()].map(([id, e]) => [id, { img: e.img, visible: e.prev.mesh.visible, textured: !!e.prev.mat.map, shadow: e.prev.shadowState(), at: rp.snap?.players.find((x) => x.id === id)?.held?.p?.map((n) => +n.toFixed(3)) ?? null }])),
+    held: Object.fromEntries([...helds.entries()].map(([id, e]) => [id, { img: e.img, visible: e.prev.mesh.visible, textured: !!e.prev.mat.map, shadow: e.prev.shadowState(), ghosts: e.ghosts.count, ghostsTextured: !!e.ghosts.mat.map, row: rows.has(id) ? rows.get(id).items.map((x) => x.surface || null) : null, at: rp.snap?.players.find((x) => x.id === id)?.held?.p?.map((n) => +n.toFixed(3)) ?? null }])),
     speaking: [...avatars.entries()].filter(([, a]) => a.avatar.speaking).map(([id]) => id),
   }),
   plan: () => rp.plan, speakers: () => rp.speakers.slice(),
   autoPose: (path, t) => autoPose(path, t), crewPose: (id, t) => crewPose(id, t), crewIds: () => (rp.rc ? rp.rc.ids.slice() : []),
   personPose: (id, t) => personPose(id, t), personIds: () => (rp.pp ? rp.pp.list.map((x) => x.id) : []),
-  gesture: (id) => { const a = avatars.get(id); if (!a) return null; const g = a.avatar.gesture; return { active: g.active(), pinned: !!g.pinned, age: g.freeze, kind: g.g ? g.g.kind : null, hands: g.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray().map((n) => +n.toFixed(3))) }; },
+  gesture: (id) => { const a = avatars.get(id); if (!a) return null; const g = a.avatar.gesture; return { active: g.active(), pinned: !!g.pinned, age: g.freeze, kind: g.g ? g.g.kind : null, holding: g.holding(), hands: g.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray().map((n) => +n.toFixed(3))) }; },
   startVideo, stopVideo, photo: () => snapPhoto(), lastPhoto: () => rp.lastPhoto || null,
   // Finished video (tests): the composer's state, the recording canvas, the upload result.
   composer: () => rp.recorder, lastVideo: () => rp.lastVideo || null, upload: () => rp.upload || null, video: () => rp.video || null,

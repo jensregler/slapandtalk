@@ -15,7 +15,8 @@ const { createStore } = require('../server/store');
 const { createApp } = require('../server/app');
 const { attachRealtime, cleanHeld } = require('../server/realtime');
 const { createRecorder } = require('../server/recorder');
-const { parseRecording, buildTimeline, snapshotAt, heldAt } = await import('../shared/replay.mjs');
+const { parseRecording, buildTimeline, snapshotAt, heldAt, rowEndAt } = await import('../shared/replay.mjs');
+const { arrayPlan } = await import('../shared/array.mjs');
 
 let n = 0;
 const assert = (c, m, extra) => { if (!c) { console.error('FEL: ' + m, extra === undefined ? '' : JSON.stringify(extra)); process.exit(1); } n++; console.log('✔ ' + m); };
@@ -32,6 +33,32 @@ const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
     { img: 'abcdef0123456789', p: [0, 0, 0], n: [0, 0, 0], q: [0, 0, 0, 1], w: 1, h: 1 }, { img: 'abcdef0123456789', p: [0, 0, 0], n: [0, 0, 1], q: [0, 0, 0, 1], w: 'a', h: 1 }, 'x', 5])
     if (cleanHeld(bad, B) !== undefined) assert(false, 'cleanHeld: malformed is dropped', bad);
   assert(true, 'cleanHeld: malformed input is dropped (undefined)');
+  // Pulling out a sticker row: a = { to } (the drag target, may be past a wall's end)
+  const row = cleanHeld({ img: 'abcdef0123456789', p: [0, 2, -5], n: [0, 0, 1], q: [0, 0, 0, 1], w: 0.3, h: 0.3, s: 'vägg-norr', a: { to: [7.12345, 2, -5], x: 1 } }, B);
+  assert(row && row.a && row.a.to[0] === 7.123 && Object.keys(row.a).join() === 'to', 'cleanHeld: a row keeps a = { to } (rounded, past the wall’s end allowed, nothing else)', row);
+  assert(cleanHeld({ img: 'abcdef0123456789', p: [0, 2, -5], n: [0, 0, 1], q: [0, 0, 0, 1], w: 0.3, h: 0.3, a: { to: [999, 0, 0] } }, B).a.to[0] === 50, 'cleanHeld: to is bounded (±50 m)');
+  for (const bad of [{ to: [1, 2] }, { to: 'x' }, 5, { to: [NaN, 0, 0] }])
+    if (cleanHeld({ img: 'abcdef0123456789', p: [0, 2, -5], n: [0, 0, 1], q: [0, 0, 0, 1], w: 0.3, h: 0.3, a: bad }, B) !== undefined) assert(false, 'cleanHeld: a malformed row is dropped', bad);
+  assert(!('a' in ok), 'cleanHeld: an ordinary held sticker has no a (unchanged)');
+}
+
+// ---------- The replay: a sticker row being pulled out ----------
+{
+  const img = { id: 'abcdef0123456789', url: '/uploads/abcdef0123456789.webp', width: 10, height: 10 };
+  const A0 = { img: img.id, p: [0, 2, -5], n: [0, 0, 1], q: [0, 0, 0, 1], w: 0.3, h: 0.3, s: 'vägg-norr' };
+  const head = { format: 'slapandtalk-rec', v: 1, players: [{ id: 'aa', name: 'Jens', p: [0, 1.6, 0], y: 0, pi: 0 }], stamps: [], images: {} };
+  const lines = [head,
+    { t: 1000, e: 'held', id: 'aa', h: { ...A0, a: { to: [0.6, 2, -5] } }, image: img },
+    { t: 1100, e: 'held', id: 'aa', h: { ...A0, a: { to: [1.2, 2, -5] } } },
+    { t: 1200, e: 'held', id: 'aa', h: { ...A0, p: [0.3, 2, -5] } }, // let go: the plain held sticker again
+    { t: 2000, e: 'end', reason: 'stop' }];
+  const tl = buildTimeline(parseRecording(lines.map((l) => JSON.stringify(l)).join('\n')));
+  const h1 = heldAt(tl, 'aa', 1000), h15 = heldAt(tl, 'aa', 1050);
+  assert(h1.a && h1.a.to[0] === 0.6 && near(h15.a.to[0], 0.9) && h15.p[0] === 0, 'replay: the row (a.to) is in the snapshot, B glides between updates, the anchor stays put', h15);
+  const n1 = arrayPlan({ position: h1.p, quaternion: h1.q, surface: h1.s }, h1.w, h1.h, h1.a.to).count, n2 = arrayPlan({ position: h1.p, quaternion: h1.q, surface: h1.s }, h1.w, h1.h, heldAt(tl, 'aa', 1100).a.to).count;
+  assert(n1 === 3 && n2 === 5, 'replay: the shared array maths gives the growing row from the recorded anchor + B (3 → 5)', { n1, n2 });
+  assert(!heldAt(tl, 'aa', 1250).a && rowEndAt(tl, 'aa', 1250, 320)?.out === 50 && rowEndAt(tl, 'aa', 1600, 320) === null && rowEndAt(tl, 'aa', 1050, 320) === null,
+    'rowEndAt: just after letting go (for the arm’s swing back), not during the row, not later');
 }
 
 // ---------- The replay (pure) ----------
@@ -99,6 +126,9 @@ try {
   A.send({ t: 'held', h: { bogus: 1 } });
   A.send({ t: 'held', h: null });
   await sleep(100);
+  A.send({ t: 'held', h: { ...H(0), a: { to: [1.5, 2, -5] } } }); await sleep(150); // pulling out a row
+  A.send({ t: 'held', h: { ...H(0), a: 'nope' } }); await sleep(150); // malformed row: dropped
+  A.send({ t: 'held', h: null }); await sleep(100);
   const sl = await (await post(`/api/rooms/${R}/stamps`, { imageId: img.id, position: [0.65, 2, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', by: A.id })).json();
   await sleep(100);
   await post(`/api/rooms/${R}/recording/stop`, {}, { 'x-room-key': KEY });
@@ -112,6 +142,8 @@ try {
   assert(!held.some((l) => l.h && l.h.img !== img.id), 'an unknown design / malformed held is not recorded');
   const iNull = lines.findIndex((l) => l.e === 'held' && l.h === null), iAdd = lines.findIndex((l) => l.e === 'stamp:add');
   assert(iNull > 0 && iAdd > iNull && held.every((l) => l.id === A.id), 'let go (null) is logged; the held sticker came BEFORE the stamp:add');
+  const rows = held.filter((l) => l.h && l.h.a);
+  assert(rows.length === 1 && rows[0].h.a.to[0] === 1.5 && rows[0].h.p[0] === 0, 'a row (a = { to }) from a player is recorded like a held sticker; a malformed row is not', rows);
   assert(!B.msgs.some((m) => m.t === 'held' || (m.t === 'event' && m.e.type === 'held')), 'never relayed to the others live');
   const tl = buildTimeline(parseRecording(text));
   const tFirst = held[0].t, tAdd = lines[iAdd].t;

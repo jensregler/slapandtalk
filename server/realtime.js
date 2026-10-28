@@ -143,7 +143,7 @@ function cleanPos(p, bounds) {
   return [round(clampN(p[0], -bounds.x, bounds.x)), round(clampN(p[1], 0, bounds.y)), round(clampN(p[2], -bounds.z, bounds.z))];
 }
 // The sticker I am holding and aiming with (the see-through preview on the wall), for a running
-// session recording only: { img, p, n, q, w, h, s } or null (nothing held / not aiming at a wall).
+// session recording only: { img, p, n, q, w, h, s, a? } or null (nothing held / not aiming at a wall).
 // Returns undefined for anything malformed (dropped). Never passed on to the others live.
 const r4 = (n) => Math.round(n * 1e4) / 1e4;
 function unitVec(v, len) {
@@ -157,7 +157,17 @@ function cleanHeld(h, bounds) {
   const p = cleanPos(h.p, bounds), n = unitVec(h.n, 3), q = unitVec(h.q, 4);
   if (!p || !n || !q || !isNum(h.w) || !isNum(h.h)) return undefined;
   const s = typeof h.s === 'string' ? h.s.replace(/[\p{Cc}\p{Cf}]/gu, '').slice(0, 40) : '';
-  return { img: h.img, p, n, q, w: r4(clampN(h.w, 0.01, 4)), h: r4(clampN(h.h, 0.01, 4)), s };
+  // Pulling out a sticker row (arrays): a = { to } = the drag target B (it may lie past a wall's end:
+  // the ray meets the anchor's plane out there, so only kept within ±50 m, not clamped to the room). p/n/q/s are
+  // then the row's anchor and w × h one copy; the replay recomputes the row (shared/array.mjs).
+  let a = null;
+  if (h.a !== undefined && h.a !== null) {
+    const v = h.a && typeof h.a === 'object' ? h.a.to : null;
+    const to = Array.isArray(v) && v.length === 3 && v.every(isNum) ? v.map((x) => round(clampN(x, -50, 50))) : null;
+    if (!to) return undefined;
+    a = { to };
+  }
+  return { img: h.img, p, n, q, w: r4(clampN(h.w, 0.01, 4)), h: r4(clampN(h.h, 0.01, 4)), s, ...(a ? { a } : {}) };
 }
 
 // Enkel "hink" per anslutning: högst `rate` meddelanden per sekund i snitt, `burst` på en gång.

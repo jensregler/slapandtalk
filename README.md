@@ -740,6 +740,12 @@ exactly a slap, as before. **Desktop only**: on a phone a drag looks around (no 
   and copies straddling a seam fold like any sticker. The row ends where it would run straight into a
   corner of three faces. Each copy is saved with its own surface, normal and quaternion – recomputed by
   the server with the same code, never taken from the client – and drops its own backing paper.
+- **Recordings** (28 Oct 2026): the row is in the recording while it is pulled out – the `held` line
+  carries `a = { to }` (anchor + drag target, ~8/s; players only, cleaned, rate-limited, never relayed
+  live), and the replay recomputes and draws the ghosts with `shared/array.mjs` in every view and the
+  finished video, then the real stickers + papers at release. The avatar holds a drag pose (arm up,
+  reaching for the row's end) through the drag – live on my own avatar (3rd person / cameras) and in
+  replays – and swings back down when let go. Tests: `tests/e2e-arrayrec.js`, `tests/heldrec.test.mjs`.
 - **Server:** `POST /api/rooms/:room/stamps/array` `{ anchor: { id, token }, to, nonce, by, peelFrom }`.
   The anchor is your own just-slapped sticker (its peel key proves it). The server recomputes the row
   from the saved anchor, so the size limits that hit A (free 15 cm–1 m) hold for every copy, and adds

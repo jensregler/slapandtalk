@@ -252,6 +252,10 @@ export class Avatar {
   slap(point, normal = null) { this.waveUntil = 0; this.actions.Wave?.stop(); return this.gesture.start('slap', point, normal); }
   peel(point, normal = null) { this.waveUntil = 0; this.actions.Wave?.stop(); return this.gesture.start('peel', point, normal); }
   get gestures() { return this.gesture.count; }
+  // The drag pose while pulling out a sticker row (target = where the row ends now); release() ends it.
+  hold(point, normal = null, age = null, out = null) { this.waveUntil = 0; return this.gesture.hold(point, normal, age, out); }
+  release() { this.gesture.release(); }
+  drop() { this.gesture.h = null; } // no drag pose at all (the replay, seeking away from a row)
   unsay() { if (this.bubble) { this.root.remove(this.bubble); this.bubble.material.map.dispose(); this.bubble.material.dispose(); this.bubble = null; } }
   // speed = hur fort gubben går (m/s) → gå- eller stå-animation
   update(dt, speed = 0) {
