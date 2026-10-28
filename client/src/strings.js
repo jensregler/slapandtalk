@@ -292,7 +292,7 @@ export const EN = {
   fullActive: 'The full version is on in this browser. Thank you for supporting Slap and Talk.',
   fullThanksIntro: 'Your key is in the receipt e-mail from Lemon Squeezy. Paste it below to unlock the full version in this browser.',
   fullThanksDone: 'The full version is on in this browser. Your key is also in the receipt e-mail, for your other devices.',
-  fullFeaturesHtml: '<li><b>Fabrics</b> – your own images as patterns on your avatar</li><li><b>Sound design</b> – a synth and effects for your own slap, peel and step sounds</li><li><b>Big stickers</b> – larger than 1 m</li><li><b>Clean videos</b> – finished videos without the channel logo and link ticker</li><li>…and more as it comes</li>',
+  fullFeaturesHtml: '<li><b>Fabrics</b> – your own images as patterns on your avatar</li><li><b>Sound design</b> – a synth and effects for your own slap, peel and step sounds</li><li><b>Big stickers</b> – larger than 1 m</li><li><b>🌿 Nature mode</b> – the Nature wheel (80 nature stickers, 5 cm – 4 m) and a nature soundscape, on V</li><li><b>Clean videos</b> – finished videos without the channel logo and link ticker</li><li>…and more as it comes</li>',
   fullPrice: 'Pay what you want, from $1. One payment, no subscription.',
   fullBuy: 'Get the full version', fullBuyNote: 'Opens Lemon Squeezy (card, PayPal, Apple Pay, Google Pay).',
   fullHaveKey: 'I have a key', fullKeyPlaceholder: 'Paste your key', fullKeyOk: 'Unlock',

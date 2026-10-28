@@ -983,7 +983,9 @@ function syncNatureMode() {
   if (nb) { nb.setAttribute('aria-pressed', String(m === 'nature')); nb.classList.toggle('locked', !natureOpen()); nb.hidden = DEMO || !natureDesigns().length; }
 }
 function setNatureMode(on, { quiet = false } = {}) {
-  if (on && !natureOpen()) { fullUi?.open(); return false; } // free: the upgrade panel instead
+  // free: the upgrade panel instead – plus a toast that SAYS why, so V never looks dead (Jens, 28 Oct 2026:
+  // "Nature mode doesn't work" = the generic panel opened and nothing named Nature mode)
+  if (on && !natureOpen()) { fullUi?.open(); if (!quiet) toast(S.natureModeLocked, 2600); return false; }
   if (state.mode === 'view') setMode('slap', { quiet: true });
   if (on && activeWheel() !== 'nature') {
     const list = natureDesigns(), d = list.find((x) => x.id === lastNatureId) || list[0];

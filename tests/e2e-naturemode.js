@@ -40,6 +40,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const f1 = await info(F);
     check('free: V opens the full version panel instead; still Slap mode, no nature sticker, no nature sound', f1.paywall && f1.mode === 'slap' && !f1.nature && !f1.selNat && !f1.amb.playing && f1.hud === 'Slap mode · V', f1);
     await F.screenshot({ path: path.join(SHOTS, 'desktop-free-v-paywall.png') });
+    const fmsg = await F.evaluate(() => ({ toast: document.getElementById('toast').textContent, shown: document.getElementById('toast').classList.contains('show'), panel: document.getElementById('full-panel').innerText }));
+    check('free: V also says why (toast "Nature mode is part of the full version") and the panel lists 🌿 Nature mode', fmsg.shown && /Nature mode is part of the full version/.test(fmsg.toast) && /Nature mode/.test(fmsg.panel), fmsg);
     await F.evaluate(() => window.klibb.fullUi().close());
     await F.click('#mode-nature'); await sleep(300);
     const f2 = await info(F);
