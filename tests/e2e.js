@@ -1287,6 +1287,9 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     for (const id of created) {
       await fetch(`${BASE}/api/stickers/${id}`, { method: 'DELETE', headers: { 'x-admin-token': TOKEN } });
     }
+    // the whole library is on the wheel (28 Oct 2026): stickers slapped with library designs are not
+    // removed with the uploads above, so the test room is reset as admin too
+    await fetch(`${BASE}/api/rooms/${ROOM}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': TOKEN }, body: '{}' }).catch(() => {});
     const left = await (await fetch(`${BASE}/api/rooms/${ROOM}/stamps`)).json();
     console.log(left.stamps.length === 0 ? '✔ teststämplar borttagna' : 'FEL: stämplar kvar');
     await browser.close();
