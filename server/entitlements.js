@@ -21,7 +21,9 @@
 // cleanVideo: finished videos (and photos) without the 'slap and talk' channel bug and the link ticker.
 // multiCam: more than one auto cameraman (up to 6), each started with a click in the room, with an
 // optional path choice. Free = one automatic cameraman, no settings.
-const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam'];
+// natureStickers: the Nature wheel (the library's nature stickers, shared/nature.mjs); the server
+// refuses nature stamps without it (Jens, 28 Oct 2026).
+const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam', 'natureStickers'];
 const FREE_MAX_STICKER_M = 1;
 // The free version (the one being released): at most this many people IN a room at once, four
 // walls = one wall each (a session is ~30 min of slapping, then looking at it together). Rooms have

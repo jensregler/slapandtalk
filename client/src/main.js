@@ -175,14 +175,14 @@ let ctlShown = null, longPressed = false, pressTimer = 0; // touch: long-press s
 // All stickers (Jens, 28 Oct 2026: "all stickers should be loaded"): the whole library under my own
 // uploads – in the desktop panel and the phone's sticker book (📒), the same list as the wheel, so it
 // is not only reachable by turning the wheel / swiping the stack. Thumbnails load lazily (186+).
-let libTrayKey = '';
-function renderLibTray() {
-  const box = $('lib-box'), tray = $('libtray'); if (!box || !tray) return;
-  const mine = new Set(designs().map((d) => d.id));
-  const list = DEMO ? [] : state.library.filter((d) => !mine.has(d.id));
+// The nature stickers are not in it: they have their own list, 🌿 Nature (N), locked (greyed, a tap
+// opens the full version panel) in the free version – like the Nature wheel.
+const trayKeys = {};
+function fillLibTray(boxId, trayId, countId, list) {
+  const box = $(boxId), tray = $(trayId); if (!box || !tray) return;
   const key = list.map((d) => d.id).join();
-  if (key !== libTrayKey) {
-    libTrayKey = key; tray.innerHTML = '';
+  if (key !== trayKeys[trayId]) {
+    trayKeys[trayId] = key; tray.innerHTML = '';
     for (const img of list) {
       const t = document.createElement('div'); t.className = 'thumb lib'; t.dataset.id = img.id;
       const b = document.createElement('button'); b.type = 'button'; b.title = S.pickThis; b.className = 'pick';
@@ -190,10 +190,16 @@ function renderLibTray() {
       b.onclick = () => select(img);
       t.append(b); tray.appendChild(t);
     }
-    $('lib-count').textContent = list.length ? `(${list.length})` : '';
+    $(countId).textContent = list.length ? `(${list.length})` : '';
   }
   box.hidden = !list.length;
   for (const t of tray.children) t.classList.toggle('sel', t.dataset.id === state.selected?.id);
+}
+function renderLibTray() {
+  const mine = new Set(designs().map((d) => d.id));
+  fillLibTray('lib-box', 'libtray', 'lib-count', DEMO ? [] : state.library.filter((d) => !mine.has(d.id) && !isNat(d)));
+  fillLibTray('nature-box', 'naturetray', 'nature-count', natureDesigns());
+  $('nature-box')?.classList.toggle('locked', !natureOpen());
 }
 function renderTray() {
   renderLibTray();
@@ -274,15 +280,30 @@ function undoRemove() {
 $('undo-btn').onclick = (e) => { e.stopPropagation(); undoRemove(); };
 addEventListener('pagehide', commitRemove);
 // Mina designs i samma ordning som i menyn (nyaste först). R växlar mellan dem.
-function designs() { return DEMO ? state.library : state.mine.slice().reverse(); }
+function designs() { return DEMO ? state.library.filter((d) => !isNat(d)) : state.mine.slice().reverse(); }
+// Two wheels (Jens, 28 Oct 2026): the Nature wheel (left) = every nature sticker of the library
+// (shared/nature.mjs), a full-version feature (entitlements.full.natureStickers; the server refuses
+// nature stamps otherwise); the sticker wheel (right) = everything else, as before. The ACTIVE wheel
+// is the one the held sticker is from: clicking/tapping/turning a wheel (or picking from its list)
+// makes it active; R/F, the stack's swipes and the stack itself follow the active wheel.
+const isNat = (d) => !!d && d.library === true && isNature(d);
+const natureOpen = () => !DEMO && !!entitlements.full.natureStickers;
+let natKey = '', natCache = [];
+function natureDesigns() {
+  if (DEMO) return [];
+  if (natKey !== String(state.library.length)) { natKey = String(state.library.length); natCache = state.library.filter(isNat); }
+  return natCache;
+}
+const activeWheel = () => (isNat(state.selected) && natureOpen() ? 'nature' : 'stickers');
 // The sticker wheel / R/F / the phone's stack (Jens, 28 Oct 2026): the WHOLE library for everyone,
 // not only in the demo – my own uploads first (newest first, as in the palette), then the library in
 // manifest order (a library sticker I also have as an upload only once). The palette stays mine.
 let wheelKey = '', wheelCache = [];
-function wheelDesigns() {
-  if (DEMO) return state.library;
+function wheelDesigns() { return activeWheel() === 'nature' ? natureDesigns() : stickerDesigns(); }
+function stickerDesigns() {
+  if (DEMO) return designs();
   const mine = designs(), key = mine.map((d) => d.id).join() + '|' + state.library.length;
-  if (key !== wheelKey) { const have = new Set(mine.map((d) => d.id)); wheelKey = key; wheelCache = [...mine, ...state.library.filter((d) => !have.has(d.id))]; }
+  if (key !== wheelKey) { const have = new Set(mine.map((d) => d.id)); wheelKey = key; wheelCache = [...mine, ...state.library.filter((d) => !have.has(d.id) && !isNat(d))]; }
   return wheelCache;
 }
 // En annan flik ändrade listan: hämta den nya.
@@ -295,6 +316,7 @@ addEventListener('storage', (e) => {
 });
 
 async function select(img) {
+  if (isNat(img) && !natureOpen()) { fullUi?.open(); return; } // the Nature wheel is the full version's
   const changed = (img && img.id) !== (state.selected && state.selected.id);
   state.selected = img || null; renderTray(); renderDesignHud();
   if (changed) applySizeLimit(); // nature stickers have their own size limits (shared/nature.mjs)
@@ -353,7 +375,7 @@ function wheelUp() {
   document.body.classList.add('wheel-up');
   clearTimeout(wheelUpTimer);
   wheelUpTimer = setTimeout(function down() {
-    if (wheel.info().dragging) { wheelUpTimer = setTimeout(down, 400); return; }
+    if (wheel.info().dragging || natureWheel.info().dragging) { wheelUpTimer = setTimeout(down, 400); return; }
     document.body.classList.remove('wheel-up');
   }, WHEEL_UP_MS);
 }
@@ -361,13 +383,37 @@ const wheel = createWheel($('strip-row'), {
   pick: (img) => { select(img); if (isTouch) stackMenu?.chosen(); },
   onActivity: wheelUp,
 });
-function renderStrip(list = wheelDesigns(), sel = state.selected, i = sel ? list.findIndex((d) => d.id === sel.id) : -1) {
+// The Nature wheel (left of the sticker wheel): the same reel, the library's nature stickers only.
+const natureWheel = createWheel($('nature-row'), {
+  pick: (img) => { select(img); if (isTouch) stackMenu?.chosen(); },
+  onActivity: wheelUp,
+});
+// The wheel R/F and the stack's sideways swipe turn: the active one.
+const activeWheelApi = {
+  cur: () => (activeWheel() === 'nature' ? natureWheel : wheel),
+  beginDrag: (x) => activeWheelApi.cur().beginDrag(x), dragTo: (x) => activeWheelApi.cur().dragTo(x),
+  endDrag: () => activeWheelApi.cur().endDrag(), info: () => activeWheelApi.cur().info(), render: () => activeWheelApi.cur().render(),
+};
+function renderStrip() {
+  const sel = state.selected, list = stickerDesigns(), nat = natureDesigns(), onNat = activeWheel() === 'nature';
+  const i = sel && !onNat ? list.findIndex((d) => d.id === sel.id) : -1;
   $('design-strip').hidden = !list.length;
   wheel.setList(list);
-  wheel.setSelected(sel ? sel.id : null);
+  wheel.setSelected(sel && !onNat ? sel.id : null);
   $('strip-num').textContent = list.length && i >= 0 ? `${i + 1}/${list.length}` : '';
+  const open = natureOpen(), j = onNat ? nat.findIndex((d) => d.id === sel.id) : -1;
+  $('nature-strip').hidden = !nat.length;
+  $('nature-strip').classList.toggle('locked', !open);
+  natureWheel.setList(nat);
+  natureWheel.setSelected(onNat ? sel.id : null);
+  $('nature-num').textContent = !nat.length ? '' : !open ? S.natureLocked : `🌿 ${j >= 0 ? `${j + 1}/` : ''}${nat.length}`;
+  document.body.classList.toggle('two-wheels', !!nat.length);
+  $('design-strip').classList.toggle('active', !onNat); $('nature-strip').classList.toggle('active', onNat);
 }
 $('design-strip').addEventListener('mousedown', (e) => { e.stopPropagation(); });
+$('nature-strip').addEventListener('mousedown', (e) => { e.stopPropagation(); });
+// Locked (free version): greyed, nothing turns; a click/tap opens the full version panel.
+$('nature-strip').addEventListener('click', (e) => { if (natureOpen()) return; e.preventDefault(); e.stopPropagation(); fullUi?.open(); }, true);
 
 // Designs som säkert inte finns på servern och inte gick att återställa tas bort ur listan.
 function dropDesigns(ids) {
@@ -1392,7 +1438,7 @@ if (!isTouch) {
   stackMenu = initStackMenu({
     S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
     peelLast: () => peelLast(), toggleView: () => toggleView(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
-    chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(), wheel, wheelUp,
+    chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(), wheel: activeWheelApi, wheelUp, natureOpen: () => natureOpen(),
     release: (x, y) => { if (!camView && !placingCam) heldTap(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), x, y); },
   });
 }
@@ -1649,7 +1695,7 @@ const together = initTogether({
 });
 // Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
 const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); fullUi.ready(); });
-function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; applySizeLimit(); fullUi?.refreshEntry(); if (groove) updateGrooveUi(); if (autoSlap) autoSlap.render(); renderCams(); }
+function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; if (isNat(state.selected) && !natureOpen()) select(stickerDesigns()[0] || null); else { renderTray(); renderDesignHud(); } applySizeLimit(); fullUi?.refreshEntry(); if (groove) updateGrooveUi(); if (autoSlap) autoSlap.render(); renderCams(); }
 // Full version panel (fullversion.js): a quiet entry in ⚙ More → Help; a new key applies right away.
 var fullUi = initFullVersion({ // eslint-disable-line no-var
   $, onOpen: () => { closeMore(); controls.unlock?.(); },
@@ -2277,7 +2323,8 @@ window.klibb = {
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && getComputedStyle($('design-strip')).visibility !== 'hidden', n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON() }),
-  wheel: () => wheel.info(), wheelApi: wheel,
+  wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,
+  natureStrip: () => ({ shown: !$('nature-strip').hidden && $('nature-strip').getClientRects().length > 0, locked: $('nature-strip').classList.contains('locked'), n: $('nature-row').children.length, sel: $('nature-row').querySelector('.sel')?.dataset.id ?? null, num: $('nature-num').textContent, rect: $('nature-strip').getBoundingClientRect().toJSON() }),
   // the held sticker's drop shadow, and where it and the sticker are on screen (px), for the tests
   heldShadow: () => {
     const st = preview.shadowState(), cam = camView ? viewCam : view === 'third' ? tpCam : camera;

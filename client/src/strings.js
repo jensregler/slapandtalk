@@ -43,6 +43,7 @@ export const EN = {
   upload: '⬆ Upload sticker',
   uploadHint: 'PNG, JPG or WebP, max 5 MB. Transparency is kept.',
   trayEmpty: 'No sticker picked yet.',
+  natureTitle: 'Nature stickers (full version)', natureAria: 'Nature stickers', natureLocked: '🔒 Nature · Full version', natureListTitle: '🌿 Nature', natureLockNote: ' · 🔒 Full version',
   libTitle: 'All stickers', // the whole library, under my own uploads (desktop panel + the phone's sticker book)
   pickThis: 'Pick this sticker',
   favAdd: 'Favourite (kept when you clear)', favRemove: 'Unfavourite',

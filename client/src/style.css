@@ -639,15 +639,15 @@ body.touch.editing #chat-btn, body.touch.editing #mic-touch { display: none !imp
 body.touch.editing.book-open #stack-menu, body.touch.editing.more-open #stack-menu { display: none !important; }
 
 /* ---------- The sticker wheel (wheel.js, shared/wheel.mjs): desktop along the bottom edge ---------- */
-#design-strip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 4; --wheel-item: 100px;
+#design-strip, #nature-strip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 4; --wheel-item: 100px;
   width: min(820px, max(300px, calc(100vw - 680px))); height: calc(var(--wheel-item) * 2.3 + 46px); pointer-events: none; }
-#design-strip[hidden] { display: none !important; }
-#strip-num { position: absolute; left: 50%; bottom: calc(var(--wheel-item) * 2.3 + 28px); transform: translateX(-50%); z-index: 2000; pointer-events: none;
+#design-strip[hidden], #nature-strip[hidden] { display: none !important; }
+#strip-num, #nature-num { position: absolute; left: 50%; bottom: calc(var(--wheel-item) * 2.3 + 28px); transform: translateX(-50%); z-index: 2000; pointer-events: none;
   font: 700 11px/1 system-ui, sans-serif; color: #ffd400; font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 8px; background: rgba(0,0,0,.45); }
-#strip-num:empty { display: none; }
-#strip-row { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--wheel-item) * 2.3 + 26px); pointer-events: auto; touch-action: none;
+#strip-num:empty, #nature-num:empty { display: none; }
+#strip-row, #nature-row { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--wheel-item) * 2.3 + 26px); pointer-events: auto; touch-action: none;
   user-select: none; -webkit-user-select: none; cursor: grab; }
-#strip-row:active { cursor: grabbing; }
+#strip-row:active, #nature-row:active { cursor: grabbing; }
 /* each sticker: translate only + the drop shadow (light from above: straight below, a little down,
    tight) – so the shadow stays below however the sticker inside turns; .wh-turn turns + scales it;
    the img carries the saturation */
@@ -659,11 +659,32 @@ body.touch.editing.book-open #stack-menu, body.touch.editing.more-open #stack-me
 .strip-th.sel::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: -7px; height: 3px; border-radius: 2px; background: #ffd400; }
 body.view-mode .strip-th.sel::after { background: none; border-top: 2px dashed #ffd400; }
 body:not(.touch) #mode-hud { bottom: calc(100px * 2.3 + 52px); } /* the small mode label sits just above the wheel */
-body.camview #design-strip, body.replay #design-strip { display: none !important; }
+body.camview #design-strip, body.camview #nature-strip, body.replay #design-strip, body.replay #nature-strip { display: none !important; }
 /* touch: the same wheel in a band above the joystick and the stack, up while you turn it (body.wheel-up) */
-body.touch #design-strip { left: calc(6px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); width: auto; transform: none; z-index: 6;
+body.touch #design-strip, body.touch #nature-strip { left: calc(6px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); width: auto; transform: none; z-index: 6;
   bottom: calc(150px + env(safe-area-inset-bottom)); --wheel-item: 52px; height: calc(var(--wheel-item) * 2.3 + 16px); border-radius: 16px; overflow: hidden;
   background: radial-gradient(closest-side, rgba(0,0,0,.30), rgba(0,0,0,.12)); }
 body.touch .strip-th { bottom: 10px; }
-body.touch #strip-num { display: none; } /* the stack shows the sticker; the holder sits just above */
-body.touch:not(.wheel-up) #design-strip, body.touch.stack-open #design-strip, body.touch.book-open #design-strip, body.touch.more-open #design-strip { display: none !important; }
+body.touch #strip-num, body.touch #nature-num { display: none; } /* the stack shows the sticker; the holder sits just above */
+body.touch:not(.wheel-up) #design-strip, body.touch:not(.wheel-up) #nature-strip, body.touch.stack-open #design-strip, body.touch.stack-open #nature-strip, body.touch.book-open #design-strip, body.touch.book-open #nature-strip, body.touch.more-open #design-strip, body.touch.more-open #nature-strip { display: none !important; }
+/* Two wheels (Jens, 28 Oct 2026): the Nature wheel on the LEFT, the sticker wheel moves to the RIGHT.
+   The active one (the held sticker is from it) has a yellow line under its middle sticker, as before. */
+body.two-wheels:not(.touch) #design-strip, body.two-wheels:not(.touch) #nature-strip { transform: none; width: min(600px, max(260px, calc((100vw - 290px) / 2))); }
+body.two-wheels:not(.touch) #design-strip { left: auto; right: 10px; }
+body.two-wheels:not(.touch) #nature-strip { left: 262px; }
+#nature-num { color: #9fe28a; }
+#nature-strip.locked #nature-row { pointer-events: none; filter: grayscale(1); opacity: .5; }
+#nature-strip.locked { pointer-events: auto; cursor: pointer; }
+#nature-strip.locked #nature-num { color: #ddd; }
+body.touch.two-wheels #nature-strip { right: calc(50% + 3px); }
+body.touch.two-wheels #design-strip { left: calc(50% + 3px); }
+body.touch.two-wheels #nature-strip.locked #nature-num { display: block; left: 50%; bottom: auto; top: 6px; }
+/* the lists: 🌿 Nature locked = greyed, a tap opens the full version panel */
+#nature-box { margin-top: 6px; } #nature-box > summary { cursor: pointer; font-size: 12px; color: #9fe28a; padding: 2px 0; }
+#nature-box:not(.locked) .lock-note { display: none; }
+#naturetray { display: flex; flex-wrap: wrap; gap: 6px; padding: 5px 5px 0 0; max-height: 236px; overflow-y: auto; }
+#naturetray .pick { width: 54px; height: 54px; padding: 3px; border-radius: 8px; background: #333 repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 50%/12px 12px; }
+#naturetray .thumb.sel .pick { outline: 3px solid #ffd400; }
+#naturetray img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+#nature-box.locked #naturetray img { filter: grayscale(1); opacity: .5; }
+#book-tray #naturetray { gap: 10px; max-height: none; overflow: visible; } #book-tray #naturetray .pick { width: 64px; height: 64px; }

@@ -55,6 +55,7 @@
     </label>
     <div id="tray" aria-label="Your stickers" data-t-empty="trayEmpty"></div>
     <details id="lib-box" class="no-demo"><summary><span data-t="libTitle">All stickers</span> <span id="lib-count"></span></summary><div id="libtray" aria-label="All stickers"></div></details>
+    <details id="nature-box" class="no-demo"><summary><span data-t="natureListTitle">🌿 Nature</span> <span id="nature-count"></span><span class="lock-note" data-t="natureLockNote"> · 🔒 Full version</span></summary><div id="naturetray" aria-label="Nature"></div></details>
 
     <div id="mode-switch" class="seg" role="group" data-t-aria="modeSwitch">
       <button id="mode-slap" type="button" data-t="slapMode" aria-pressed="true">Slap mode</button>
@@ -187,6 +188,7 @@
     <img id="design-hud-img" alt="" /><span><b id="design-hud-num">1/1</b><br /><span data-t="designHud">R/F: next/prev design</span></span>
   </div>
   <!-- Desktop: the sticker strip along the bottom edge – the stickers R/F cycle through; click = pick. -->
+  <div id="nature-strip" hidden role="listbox" data-t-aria="natureAria" data-t-title="natureTitle"><span id="nature-num"></span><div id="nature-row"></div></div>
   <div id="design-strip" hidden role="listbox" data-t-aria="stripAria" data-t-title="stripTitle"><span id="strip-num"></span><div id="strip-row"></div></div>
   <div id="mode-hud" aria-live="polite"></div>
   <button id="peel-btn" class="touch-only" type="button" data-t-aria="peelBtnAria" data-t-title="peelBtnTitle">↩</button>

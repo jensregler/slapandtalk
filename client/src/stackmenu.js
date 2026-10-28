@@ -30,6 +30,7 @@ export function initStackMenu(o) {
   const upload = document.querySelector('#panel label.upload'); if (upload) $('book-upload').appendChild(upload);
   $('book-tray').appendChild($('tray'));
   const lib = $('lib-box'); if (lib) { $('book-tray').appendChild(lib); lib.open = true; } // all stickers, open in the book
+  const nat = $('nature-box'); if (nat) { $('book-tray').appendChild(nat); nat.open = true; } // 🌿 Nature (locked in the free version)
   const more = $('more-panel'); more.insertBefore($('room-box'), more.querySelector('.more-head').nextSibling);
   o.renderStack(); // the stack is there from the start, even empty
   $('design-btn').setAttribute('aria-label', o.S.stackBtnAria); $('design-btn').title = o.S.stackBtnAria;
@@ -95,6 +96,10 @@ export function initStackMenu(o) {
   // long press – star/× – is not a pick).
   $('tray').addEventListener('click', (e) => {
     if (!e.target.closest('.pick') || o.longPressed()) return;
+    setTimeout(() => { closeBook(); chosen(); }, 0);
+  }, true);
+  $('naturetray')?.addEventListener('click', (e) => { // a nature sticker (full version; free: the full version panel opens instead)
+    if (!e.target.closest('.pick') || !o.natureOpen?.()) return;
     setTimeout(() => { closeBook(); chosen(); }, 0);
   }, true);
   $('libtray')?.addEventListener('click', (e) => { // a library sticker: same as picking one of mine

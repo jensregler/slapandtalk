@@ -59,7 +59,8 @@ try {
   const lib = loadLibrary(out);
   await seedLibrary(store, lib, { log: { log() {}, error() {} } });
   const KEY = 'nature-test-key-123456';
-  const app = createApp(store, { quickTtlHours: 24, log: { error() {}, log() {} }, library: lib, entitle: makeEntitlements({ FULL_ACCESS_KEYS: KEY }) });
+  const NKEY = 'nature-only-key-123456';
+  const app = createApp(store, { quickTtlHours: 24, log: { error() {}, log() {} }, library: lib, entitle: makeEntitlements({ FULL_ACCESS_KEYS: `${KEY},${NKEY}:natureStickers` }) });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
@@ -76,21 +77,28 @@ try {
       const j = await r.json(); return r.ok ? j.stamp.size : `HTTP ${r.status}`;
     };
     const tree = by['nature-tree.png'].id, wide = by['nature-wide.png'].id, plain = by['plain.png'].id;
-    await ok('free version, nature (portrait): 3 m and 4 m kept, 9 m → 4 m, 6 cm kept, 3 cm → 5 cm', async () => {
-      assert.equal(await slap(tree, 3), 3); assert.equal(await slap(tree, 4), 4); assert.equal(await slap(tree, 9), 4);
-      assert.equal(await slap(tree, 0.06), 0.06); assert.equal(await slap(tree, 0.03), 0.05);
+    await ok('paywall: the free version may NOT slap a nature sticker (403, full: true) – nothing saved', async () => {
+      const r = await fetch(`${base}/api/rooms/nature/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: tree, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 1, surface: 'vägg-norr' }) });
+      const j = await r.json();
+      assert.equal(r.status, 403); assert.equal(j.full, true); assert.equal(j.feature, 'natureStickers');
+      const room = await (await fetch(`${base}/api/rooms/nature`)).json();
+      assert.ok(!JSON.stringify(room).includes(tree), 'no nature stamp saved');
+    });
+    await ok('full version, nature (portrait): 3 m and 4 m kept, 9 m → 4 m, 50 m → 4 m, 6 cm kept, 3 cm → 5 cm', async () => {
+      assert.equal(await slap(tree, 3, KEY), 3); assert.equal(await slap(tree, 4, KEY), 4); assert.equal(await slap(tree, 9, KEY), 4); assert.equal(await slap(tree, 50, KEY), 4);
+      assert.equal(await slap(tree, 0.06, KEY), 0.06); assert.equal(await slap(tree, 0.03, KEY), 0.05);
     });
     await ok('nature, wide 4:1: the cap is 4 m HIGH = 16 m longest side', async () => {
-      assert.equal(await slap(wide, 12), 12); assert.ok(near(await slap(wide, 30), 16));
+      assert.equal(await slap(wide, 12, KEY), 12); assert.ok(near(await slap(wide, 30, KEY), 16));
     });
-    await ok('full version: nature still capped at 4 m high', async () => { assert.equal(await slap(tree, 50, KEY), 4); });
+    await ok('a key with only natureStickers (no bigStickers): nature limits still 5 cm – 4 m high', async () => { assert.equal(await slap(tree, 3, NKEY), 3); assert.equal(await slap(tree, 0.03, NKEY), 0.05); });
     await ok('other stickers unchanged: free 15 cm – 1 m clamp, full 5 cm & no max, a user upload named "nature…" is NOT nature', async () => {
       assert.equal(await slap(plain, 3), 1); assert.equal(await slap(plain, 0.06), 0.15); assert.equal(await slap(plain, 0.5), 0.5);
       assert.equal(await slap(plain, 9, KEY), 9); assert.equal(await slap(plain, 0.06, KEY), 0.06);
       assert.equal(await slap(upload.id, 3), 1);
     });
     await ok('sane guards: NaN / below 2 cm / strings refused, also for nature', async () => {
-      assert.equal(await slap(tree, 'big'), 'HTTP 400'); assert.equal(await slap(tree, 0.01), 'HTTP 400'); assert.equal(await slap(tree, null), 'HTTP 400');
+      assert.equal(await slap(tree, 'big', KEY), 'HTTP 400'); assert.equal(await slap(tree, 0.01, KEY), 'HTTP 400'); assert.equal(await slap(tree, null, KEY), 'HTTP 400');
     });
     await ok('peels on: a nature sticker drops NO backing paper (single slap and a row); a normal one still does', async () => {
       const post = (url, body, h = {}) => fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify(body) });
@@ -98,10 +106,12 @@ try {
       const put = await fetch(`${base}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': RK }, body: JSON.stringify({ on: true }) });
       assert.ok(put.ok, 'peels on');
       const count = async () => (await store.peelState(R)).peels.length;
-      const one = (imageId, x) => post(`/api/rooms/${R}/stamps`, { imageId, position: [x, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', owner: 'device-nature' }).then((r) => r.json());
+      const one = (imageId, x) => post(`/api/rooms/${R}/stamps`, { imageId, position: [x, 1.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', owner: 'device-nature' }, { 'x-unlock': KEY }).then((r) => r.json());
       const nat = await one(tree, -2);
       assert.ok(nat.stamp && !nat.peel, 'nature slap: stamp, no peel'); assert.equal(await count(), 0);
-      const row = await (await post(`/api/rooms/${R}/stamps/array`, { anchor: { id: nat.stamp.id, token: nat.peelToken }, to: [-0.5, 1.5, -5], nonce: 'natrow1' })).json();
+      const freeRow = await post(`/api/rooms/${R}/stamps/array`, { anchor: { id: nat.stamp.id, token: nat.peelToken }, to: [-0.5, 1.5, -5], nonce: 'natrow0' });
+      assert.equal(freeRow.status, 403, 'a nature row without the full version: 403');
+      const row = await (await post(`/api/rooms/${R}/stamps/array`, { anchor: { id: nat.stamp.id, token: nat.peelToken }, to: [-0.5, 1.5, -5], nonce: 'natrow1' }, { 'x-unlock': KEY })).json();
       assert.ok(Array.isArray(row.stamps) && row.stamps.length >= 3, JSON.stringify(row).slice(0, 200));
       assert.ok(row.stamps.every((r) => !r.peel), 'no peel on any copy'); assert.equal(await count(), 0, 'no papers stored');
       const norm = await one(plain, 2);

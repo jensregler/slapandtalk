@@ -443,6 +443,8 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   // Nature stickers (shared/nature.mjs) have their own limits instead, for everyone: NATURE.minCm
   // (5 cm) up to NATURE.maxHeightCm (4 m) high; outside them clamped the same way.
   const N = await natureMod, libEntry = libraryById.get(image.id), nature = isNatureImage(N, image);
+  // Nature stickers are the full version's (natureStickers; the Nature wheel): refused otherwise.
+  if (nature && !isAdmin(req) && !(await entOf(req)).natureStickers) return res.status(403).json({ error: 'Nature stickers are part of the full version.', full: true, feature: 'natureStickers' });
   if (nature) {
     const lim = N.sizeLimitsCm({ ...image, ...(libEntry || {}), nature: true });
     b.size = Math.min(lim.maxCm / 100, Math.max(lim.minCm / 100, b.size));
@@ -543,6 +545,8 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
   if (!anchor.peelHash || !tokenMatches(a.token, anchor.peelHash)) return res.status(403).json({ error: 'You can only repeat your own latest stickers' });
   const image = await imageAvailable(anchor.imageId);
   if (!image) return res.status(410).json({ error: 'That design is no longer on the server.', gone: true });
+  // Nature stickers are the full version's (natureStickers): no row either.
+  if (isNatureImage(await natureMod, image) && !isAdmin(req) && !(await entOf(req)).natureStickers) return res.status(403).json({ error: 'Nature stickers are part of the full version.', full: true, feature: 'natureStickers' });
   const A = await arrayMod, P = await peelsMod;
   const [w, h] = P.stampDims(image, anchor.size);
   let items = A.arrayPlan(anchor, w, h, b.to).items.filter((x) => x.i > 0);
