@@ -50,7 +50,7 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
     await B.waitForFunction(() => window.klibb.players().length === 1 && window.klibb.players()[0].built, null, { timeout: 15000 });
     // A laddar upp en klibba (så den finns bland "dina klibbor" i tygväljaren)
     await A.setInputFiles('#file', stickerPng);
-    await A.waitForFunction(() => window.klibb.state.selected);
+    await A.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     made.add(await A.evaluate(() => window.klibb.state.selected.id));
 
     await A.evaluate(() => window.klibb.openAvatarPanel());

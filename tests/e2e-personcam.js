@@ -66,7 +66,7 @@ function project(eye, pt) {
 
     // ---------- A recording: A walks and slaps, B walks ----------
     await A.setInputFiles('#file', path.join(__dirname, 'demo-klibba.png'));
-    await A.waitForFunction(() => window.klibb.state.selected);
+    await A.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     const rec = await api('POST', '/recording/start');
     const walk = async (page, from, to, ms) => { const n = Math.ceil(ms / 100); for (let i = 0; i <= n; i++) { const k = i / n; await page.evaluate(([x, z]) => window.klibb.moveTo(x, z), [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k]); await sleep(100); } };
     await Promise.all([walk(A, [-2, 0], [0, -3.2], 2500), walk(B, [2, 2], [3, -1], 2500)]);

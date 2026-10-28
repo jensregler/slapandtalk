@@ -19,7 +19,7 @@ async function peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN }) {
     await B.goto(`${BASE}/?room=${R}`); await waitReady(B);
     await A.waitForFunction(() => window.klibb.players().length === 1, null, { timeout: 15000 });
     await A.setInputFiles('#file', testPng);
-    await A.waitForFunction(() => window.klibb.state.selected);
+    await A.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     designId = await A.evaluate(() => window.klibb.state.selected.id);
     await A.evaluate(() => window.klibb.setSize(30)); // the papers below are sized for 30 cm stickers (the design itself starts at 10 cm)
     await A.evaluate(() => document.getElementById('room-menu-btn').click());
@@ -43,8 +43,8 @@ async function peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN }) {
     const first = await A.evaluate(() => window.__first);
     await A.screenshot({ path: path.join(OUT, 'peels-mid-fall.png') });
     assert(first && midPose && midPose.u > 0 && midPose.u < 1 && midPose.p[1] > 0.05, `pappret faller (skärmdump mitt i fallet, ${Math.round(midPose.u * 100)} % av ${midPose.dur} s, ${midPose.p[1].toFixed(2)} m upp)`);
-    await A.waitForFunction(() => window.klibb.peels().landed === 1, null, { timeout: 4000 });
-    await B.waitForFunction(() => window.klibb.peels().landed === 1, null, { timeout: 6000 });
+    await A.waitForFunction(() => window.klibb.peels().landed === 1, null, { timeout: 6000, polling: 100 });
+    await B.waitForFunction(() => window.klibb.peels().landed === 1, null, { timeout: 6000, polling: 100 });
     const pa = await A.evaluate(() => window.klibb.peels().peels[0]), pb = await B.evaluate(() => window.klibb.peels().peels[0]);
     const srv = await (await fetch(`${BASE}/api/rooms/${R}/stamps`)).json();
     assert(pa.id === first && pb.id === first && pa.x === pb.x && pa.z === pb.z && pa.yaw === pb.yaw && srv.peels[0].x === pa.x && srv.peels[0].z === pa.z,

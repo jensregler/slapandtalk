@@ -50,6 +50,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // ---------- Dator ----------
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await ctx.newPage();
+    const noLib = (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"stickers":[]}' });
+    await page.route('**/api/library', noLib); // R/F below cycle MY uploads only (the whole library on the wheel for everyone: e2e-wheel)
     page.on('pageerror', (e) => console.log('sidfel:', e.message));
     await page.goto(`${BASE}/?room=${ROOM}`);
     await waitReady(page);
@@ -57,7 +59,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await openMore(page); await page.fill('#artist', 'Testaren'); await closeMore(page);
 
     await page.setInputFiles('#file', demoPng);
-    await page.waitForFunction(() => window.klibb.state.selected);
+    await page.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     const demoId = await page.evaluate(() => window.klibb.state.selected.id);
     await page.setInputFiles('#file', testPng);
     await page.waitForFunction((id) => window.klibb.state.selected && window.klibb.state.selected.id !== id, demoId);
@@ -213,6 +215,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       'F går baklänges genom samma 3 designs (runt från den första till den sista) och rutan följer med');
     const hudHint = await page.evaluate(() => document.getElementById('design-strip').title);
     assert(/R\/F/.test(hudHint), `klibbremsan visar båda tangenterna ("${hudHint}")`);
+    await page.unroute('**/api/library', noLib);
     const previewOk = await page.evaluate(() => {
       const map = window.klibb.preview.mat.map; return !!map && map.image.src.includes(window.klibb.state.selected.id);
     });
@@ -313,7 +316,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await m.goto(`${BASE}/?room=${ROOM}`); await waitReady(m);
     assert(await m.isVisible('#joystick'), 'mobil: styrspak syns');
     await m.setInputFiles('#file', testPng);
-    await m.waitForFunction(() => window.klibb.state.selected);
+    await m.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     created.add(await m.evaluate(() => window.klibb.state.selected.id));
     await m.screenshot({ path: path.join(SHOTS, '05-mobil-meny.png') });
     // The touch layout (stackmenu.js): the panel is gone; 🏠 Room in the sticker stack's menu has Room ▾
@@ -694,7 +697,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // ---------- Ljud: klibba, peel, andras ljud i rummet (tystare på avstånd), ljud av ----------
     await d.evaluate(() => { const k = window.klibb; k.moveTo(0, -3.5); k.look(0, 0); });
     await d.waitForTimeout(200); // lyssnaren följer kameran varje bildruta
-    const slog = () => d.evaluate(() => window.klibb.soundLog());
+    // peels are on at page load for the room's editor (28 Oct 2026): the papers' landing 'duff's are not what this checks
+    const slog = () => d.evaluate(() => window.klibb.soundLog().filter((e) => e.kind !== 'duff'));
     const ctxOk = await d.evaluate(() => !!window.klibb.sound.ctx && window.klibb.sound.ctx.state);
     const n0 = (await slog()).length;
     const mineStamp = await d.evaluate(() => window.klibb.stampAt(0, 0).then((x) => x && x.id));
@@ -707,15 +711,15 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       body: JSON.stringify({ imageId: four[1], position, normal, quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' }) }).then((r) => r.json());
     const n1 = (await slog()).length;
     const near = await post([0.5, 1.5, -5], [0, 0, 1]);
-    await d.waitForFunction((n) => window.klibb.soundLog().length > n, n1, { timeout: 4000 });
+    await d.waitForFunction((n) => window.klibb.soundLog().filter((e) => e.kind !== 'duff').length > n, n1, { timeout: 4000 });
     const far = await post([0, 1.5, 5], [0, 0, -1]);
-    await d.waitForFunction((n) => window.klibb.soundLog().length > n + 1, n1, { timeout: 4000 });
+    await d.waitForFunction((n) => window.klibb.soundLog().filter((e) => e.kind !== 'duff').length > n + 1, n1, { timeout: 4000 });
     const [rn, rf] = (await slog()).slice(n1);
     assert(rn.kind === 'slap' && rn.remote && rf.remote && rn.distance < 2 && rf.distance > 7 && rf.gain < rn.gain / 3,
       `andras klibbor hörs från där de sitter: nära ${rn.distance} m (styrka ${rn.gain}), långt bort ${rf.distance} m (styrka ${rf.gain})`);
     const n2 = (await slog()).length;
     await fetch(`${BASE}/api/rooms/${ROOM}/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ id: near.stamp.id, token: near.peelToken }, { id: far.stamp.id, token: far.peelToken }] }) });
-    await d.waitForFunction((n) => window.klibb.soundLog().length >= n + 2, n2, { timeout: 4000 });
+    await d.waitForFunction((n) => window.klibb.soundLog().filter((e) => e.kind !== 'duff').length >= n + 2, n2, { timeout: 4000 });
     const rp2 = (await slog()).slice(n2);
     const n3 = (await slog()).length;
     await d.evaluate(() => window.klibb.peelLast()); await d.waitForTimeout(800);
@@ -742,7 +746,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     pp.on('pageerror', (e) => console.log('sidfel (snabb peel):', e.message));
     const PROOM = 'e2e-peel-' + Date.now().toString(36);
     await pp.goto(`${BASE}/?room=${PROOM}`); await waitReady(pp);
-    await pp.setInputFiles('#file', testPng); await pp.waitForFunction(() => window.klibb.state.selected);
+    await pp.setInputFiles('#file', testPng); await pp.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     created.add(await pp.evaluate(() => window.klibb.state.selected.id));
     await pp.evaluate(async () => { const k = window.klibb; k.moveTo(0, 0); k.setSize(20);
       for (let i = 0; i < 50; i++) { k.look(-0.6 + (i % 10) * 0.13, -0.25 + Math.floor(i / 10) * 0.1); await k.stampAt(0, 0); } });
@@ -804,9 +808,9 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     for (const [n, pg] of [['skapare', RA], ['besökare', RV]]) pg.on('pageerror', (e) => console.log(`sidfel (${n}):`, e.message));
     await RA.goto(`${BASE}/?room=${RR}`); await waitReady(RA);
     await RV.goto(`${BASE}/?room=${RR}`); await waitReady(RV);
-    await RA.setInputFiles('#file', testPng); await RA.waitForFunction(() => window.klibb.state.selected);
+    await RA.setInputFiles('#file', testPng); await RA.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     created.add(await RA.evaluate(() => window.klibb.state.selected.id));
-    await RV.setInputFiles('#file', testPng); await RV.waitForFunction(() => window.klibb.state.selected);
+    await RV.setInputFiles('#file', testPng); await RV.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     await RA.evaluate(async () => { const k = window.klibb; k.moveTo(0, 0); for (let i = 0; i < 2; i++) { k.look(-0.3 + i * 0.3, 0); await k.stampAt(0, 0); } });
     await RV.evaluate(async () => { const k = window.klibb; k.moveTo(0, 0); k.look(0.5, 0.1); await k.stampAt(0, 0); });
     await RA.waitForFunction(() => window.klibb.stamps.count === 3, null, { timeout: 5000 });
@@ -843,7 +847,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const C = await cctx.newPage(), CM = await mvctx.newPage();
     for (const [n, pg] of [['konstnär', C], ['mobil', CM]]) pg.on('pageerror', (e) => console.log(`sidfel (${n}):`, e.message));
     await C.goto(`${BASE}/?room=${CR}`); await waitReady(C);
-    await C.setInputFiles('#file', testPng); await C.waitForFunction(() => window.klibb.state.selected);
+    await C.setInputFiles('#file', testPng); await C.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     created.add(await C.evaluate(() => window.klibb.state.selected.id));
     await openMore(C);
     await C.fill('#artist', 'Ulla K');
@@ -1013,7 +1017,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       ['19-rum-linoleum-kakel.png', { floor: 'linoleum', wall: 'kakel', wallColor: 'vit', ceiling: 'vit' }],
       ['20-rum-klinker-trapanel.png', { floor: 'klinker', wall: 'trapanel', ceiling: 'mork' }],
     ];
-    await sp.setInputFiles('#file', demoPng); await sp.waitForFunction(() => window.klibb.state.selected);
+    await sp.setInputFiles('#file', demoPng); await sp.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     await sp.setInputFiles('#file', testPng); await sp.waitForFunction(() => window.klibb.state.mine.length >= 2);
     for (const [file, style] of looks) {
 
@@ -1086,7 +1090,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const bp = await A.evaluate(() => window.klibb.players()[0]);
     assert(sawWalk && Math.abs(bp.pos[0] - 1) < 0.05 && Math.abs(bp.pos[2] + 1) < 0.05 && !bp.walking, `den andra rör sig (går när den rör sig, står still sen) och hamnar rätt (${bp.pos.map((v) => v.toFixed(2))})`);
     // Klibbor: A stämplar, B ser den direkt utan att ladda om. A peelar, den försvinner för B.
-    await A.setInputFiles('#file', demoPng); await A.waitForFunction(() => window.klibb.state.selected);
+    await A.setInputFiles('#file', demoPng); await A.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     created.add(await A.evaluate(() => window.klibb.state.selected.id));
     const nB = await B.evaluate(() => window.klibb.stamps.count);
     const sid = await A.evaluate(async () => { const k = window.klibb; k.moveTo(0, 1); k.look(0, 0.1); return (await k.stampAt(0, 0)).id; });

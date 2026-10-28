@@ -40,7 +40,7 @@ const magenta = ([r, g, b]) => r > 170 && b > 120 && g < 90;
     // Pick a sticker up: the upload puts it in the hand. Aiming = Slap mode with the pointer locked
     // (headless Chromium has no real pointer lock: the test flips the flag the lock would set).
     await A.setInputFiles('#file', png);
-    await A.waitForFunction(() => window.klibb.state.selected);
+    await A.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     await A.evaluate(() => { window.klibb.setSize(30); window.klibb.setMode?.('slap'); window.klibb.controls.locked = true; });
     await A.waitForFunction(() => window.klibb.preview.mesh.visible, null, { timeout: 8000 });
     const tPick = Date.now();

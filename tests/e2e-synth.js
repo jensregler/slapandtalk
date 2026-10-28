@@ -86,7 +86,7 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     assert(JSON.stringify(bSeesA.patches.slap) === JSON.stringify(saved.patches.slap) && bSeesA.fx.delay.sync === '1/8', "B (free) gets A's patches with A's look");
     // A slaps: B plays A's custom slap (same patch, from where it hit)
     await A.setInputFiles('#file', testPng);
-    await A.waitForFunction(() => window.klibb.state.selected);
+    await A.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     await A.evaluate(() => { const k = window.klibb; k.moveTo(0, 0); k.look(0, 0); });
     const n0 = await B.evaluate(() => window.klibb.soundLog().length);
     await A.evaluate(() => window.klibb.stampAt(0, 0));

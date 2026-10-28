@@ -25,7 +25,7 @@ const check = (name, ok, info = '') => { if (ok) { passed++; console.log('  ✓ 
     await A.goto(`${S.base}/?room=${R}`);
     await A.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
     await A.setInputFiles('#file', path.join(__dirname, 'demo-klibba.png'));
-    await A.waitForFunction(() => window.klibb.state.selected);
+    await A.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library);
     await A.evaluate(() => { window.klibb.setSize(30); window.klibb.setView('first', { quiet: true }); });
     await api('PUT', '/peels', { on: true });
     await A.waitForFunction(() => window.klibb.peels().on, null, { timeout: 5000 });
