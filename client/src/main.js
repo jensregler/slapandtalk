@@ -570,6 +570,9 @@ async function slapAt(ndc, info, onStart, auto = null) {
   // The room is full (FREE_MAX_PLAYERS): watchers can't slap (the server refuses it too) until someone leaves.
   if (together.net.status === 'full') { if (!auto) toast(S.fullNoSlap, 1800); return null; }
   if (!state.selected) { if (!auto) toast(S.pickFirst); return null; }
+  // A panel is open (room look, My avatar): no slap from anywhere (click, key, touch, auto-slap, test
+  // hooks). Before the library was always on the wheel, nothing was held then and this never came up.
+  if (sp.open || together.busy()) return null;
   const h = hitSurface(ndc); if (!h) return null;
   if (auto && auto.check && !auto.check(h)) return null;
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
