@@ -58,29 +58,49 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     check('…and back on the one that was scaled it is still the scaled size', back.sel === wide.sel && back.size === scaled.size, back);
     const low = await p.evaluate(() => { const k = window.klibb; k.setSize(5); return { size: Math.round(k.state.size * 1000) / 10, min: document.getElementById('size').min, minCm: k.minSizeCm }; });
     check('free version: the size never goes below 15 cm (setSize, slider min)', low.size === 15 && low.min === '15' && low.minCm === 15, low);
-    // Nature stickers (curated library, name starts with "nature"; shared/nature.mjs): 5 cm – 4 m high, also free
-    const nat = await p.evaluate(async () => {
-      const k = window.klibb, lib = k.library()[0], r = (x) => Math.round(x * 1000) / 10;
-      const prev = k.state.selected;
+    // Nature stickers (curated library, name starts with "nature"; shared/nature.mjs): 5 cm – 4 m high, no paper.
+    // Since 28 Oct 2026 they are the full version (Nature wheel): the free version cannot hold one (checked
+    // here), the 5 cm – 4 m limits are checked in the full version below.
+    const natFree = await p.evaluate(async () => {
+      const k = window.klibb, lib = k.library().find((d) => !d.nature), prev = k.state.selected;
       await k.selectDesign({ ...lib, id: 'feedfacecafe0001', nature: true, library: true, width: 100, height: 100 });
-      const out = { lim: k.limitsFor(), sliderMax: document.getElementById('size').max, sliderMin: document.getElementById('size').min };
-      k.setSize(350); out.s350 = r(k.state.size); k.setSize(900); out.s900 = r(k.state.size); k.setSize(3); out.s3 = r(k.state.size);
-      k.setSize(380); await k.selectDesign(prev); out.back = r(k.state.size); out.backMax = document.getElementById('size').max;
+      const out = { sel: k.state.selected && k.state.selected.id, prev: prev && prev.id, paywall: k.fullUi().isOpen(), natLim: k.limitsFor({ ...lib, nature: true, library: true }) };
+      k.fullUi().close();
       out.upload = k.limitsFor({ ...prev, library: false, nature: true, name: 'nature-x.png' }); // an upload is never nature
       out.peel = [k.dropsPeel({ ...lib, nature: true, library: true }), k.dropsPeel(lib), k.dropsPeel({ ...prev, library: false, nature: true, name: 'nature-x.png' })];
       return out;
     });
-    check('nature sticker (free version): 5 cm – 400 cm, slider 5–400; 900 → 400, 3 → 5', nat.lim.minCm === 5 && nat.lim.maxCm === 400 && nat.sliderMax === '400' && nat.sliderMin === '5' && nat.s350 === 350 && nat.s900 === 400 && nat.s3 === 5, nat);
-    check('…back on a normal sticker the free limits again (380 cm → 100 cm, slider max 100); an upload named nature… keeps the normal limits', nat.back === 100 && nat.backMax === '100' && nat.upload.maxCm === 100 && nat.upload.minCm === 15, nat);
-    check('nature stickers drop no backing paper (client: no peel animation); others and uploads do', JSON.stringify(nat.peel) === '[false,true,true]', nat.peel);
+    check('free version: a nature sticker cannot be held (the full version panel opens instead)', natFree.sel === natFree.prev && natFree.paywall, natFree);
+    check('…its rule is still 5 cm – 400 cm; an upload named nature… keeps the normal free limits (15–100 cm)', natFree.natLim.minCm === 5 && natFree.natLim.maxCm === 400 && natFree.upload.maxCm === 100 && natFree.upload.minCm === 15, natFree);
+    check('nature stickers drop no backing paper (client: no peel animation); others and uploads do', JSON.stringify(natFree.peel) === '[false,true,true]', natFree.peel);
+    await p.mouse.click(700, 330); await p.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
     for (let i = 0; i < 20; i++) await p.mouse.wheel(0, 200);
     await p.waitForTimeout(200);
     const wheelLow = await size();
     check('free version: the wheel stops at 15 cm', wheelLow.size === 15, wheelLow);
     const server = await (await fetch(`${S.base}/api/stickers?ids=${b.sel}`)).json();
     check('the server still stores startCm 17.5 on the B_ image (kept, unused by the app)', server.images[b.sel] && server.images[b.sel].startCm === 17.5, server.images[b.sel]);
-    check('no page errors', !errors.length, errors);
     await ctx.close();
+    // Full version: the nature sticker's own limits, 5 cm – 4 m high (no 15 cm floor, no free 100 cm cap)
+    const fctx = await browser.newContext({ viewport: { width: 1000, height: 650 } });
+    await fctx.addInitScript(() => localStorage.setItem('klibb.devUnlock', '1'));
+    const fp = await fctx.newPage(); fp.on('pageerror', (e) => errors.push(e.message));
+    await fp.goto(`${S.base}/?room=${made.room.id}`);
+    await fp.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.natureOpen(), null, { timeout: 30000 });
+    const nat = await fp.evaluate(async () => {
+      const k = window.klibb, lib = k.library().find((d) => !d.nature), r = (x) => Math.round(x * 1000) / 10;
+      const realNat = k.natureDesigns()[0];
+      await k.selectDesign({ ...lib, id: 'feedfacecafe0001', nature: true, library: true, width: 100, height: 100 });
+      const out = { lim: k.limitsFor(), sliderMax: document.getElementById('size').max, sliderMin: document.getElementById('size').min, act: k.activeWheel() };
+      k.setSize(350); out.s350 = r(k.state.size); k.setSize(900); out.s900 = r(k.state.size); k.setSize(3); out.s3 = r(k.state.size);
+      k.setSize(380); await k.selectDesign(lib); out.back = r(k.state.size); out.backLim = k.limitsFor();
+      out.real = realNat && k.limitsFor(realNat);
+      return out;
+    });
+    check('nature sticker (full version): 5 cm – 400 cm, slider 5–400; 900 → 400, 3 → 5 (also a real imported one)', nat.lim.minCm === 5 && nat.lim.maxCm === 400 && nat.sliderMax === '400' && nat.sliderMin === '5' && nat.s350 === 350 && nat.s900 === 400 && nat.s3 === 5 && nat.real && nat.real.maxCm === 400 && nat.real.minCm === 5, nat);
+    check('…back on a normal sticker the normal full limits again (380 cm kept, no 400 cm nature cap)', nat.back === 380 && nat.backLim.maxCm > 400, nat);
+    await fctx.close();
+    check('no page errors', !errors.length, errors);
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }
   finally { await browser.close(); S.child.kill(); fs.rmSync(tmp, { recursive: true, force: true }); }
   console.log(`\nSize e2e: ${pass} passed, ${fail} failed`);

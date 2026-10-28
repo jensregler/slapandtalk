@@ -84,8 +84,8 @@ const newRoom = (base) => fetch(`${base}/api/rooms`, { method: 'POST', headers: 
       const placing = await p.evaluate(() => window.klibb.placingCam() && !window.klibb.moreOpen());
       await p.evaluate((y) => { const c = window.klibb.controls; c.yaw = y; c.pitch = -0.55; c.apply(); }, yaw);
       const n0 = await p.evaluate(() => window.klibb.cameras().filter((c) => c.auto).length);
-      await p.mouse.click(880, 300); await sleep(250); // the first click enters the room (pointer lock)
-      if (await p.evaluate(() => window.klibb.placingCam())) { await p.evaluate((y) => { const c = window.klibb.controls; c.yaw = y; c.pitch = -0.55; c.apply(); }, yaw); await p.mouse.click(880, 300); }
+      await p.mouse.click(880, 170); await sleep(250); // (top right: clear of the wheels, which sit at the bottom since the Nature wheel) the first click enters the room (pointer lock)
+      if (await p.evaluate(() => window.klibb.placingCam())) { await p.evaluate((y) => { const c = window.klibb.controls; c.yaw = y; c.pitch = -0.55; c.apply(); }, yaw); await p.mouse.click(880, 170); }
       await p.waitForFunction((n) => window.klibb.cameras().filter((c) => c.auto).length > n, n0, { timeout: 10000 });
       await p.evaluate(() => window.klibb.controls.unlock()); await sleep(150);
       return placing;
