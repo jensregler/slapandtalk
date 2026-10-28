@@ -37,10 +37,13 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const st = () => P.evaluate(() => ({ ...window.klibb.strip(), selected: window.klibb.state.selected.id, ids: window.klibb.designs().map((d) => d.id), count: window.klibb.stamps.count, locked: window.klibb.controls.locked }));
     const s0 = await st();
     check(`the strip runs along the bottom with all ${s0.ids.length} stickers, the current one highlighted (${s0.num})`,
-      s0.shown && s0.n === 5 && s0.sel === s0.selected && s0.rect.bottom >= 799 && s0.rect.height <= 50, s0);
+      s0.shown && s0.n === 5 && s0.sel === s0.selected && s0.rect.bottom >= 799 && s0.rect.height <= 180, s0); // the sticker wheel (e2e-wheel) is taller than the old 46 px strip
     check('it stays clear of the crosshair (lower part of the screen) and the old design box is gone', s0.rect.top > 800 / 2 + 100 && await P.isHidden('#design-hud'), s0.rect);
     const target = s0.ids[2];
-    await P.click(`#strip-row .strip-th[data-id="${target}"]`); await P.waitForTimeout(400);
+    { // the wheel: the stickers overlap (the one nearer the middle on top) – click the target where it shows: its outer side
+      const L = P.locator(`#strip-row .strip-th[data-id="${target}"]`), bb = await L.boundingBox(), d = await L.evaluate((b) => Number(b.dataset.d));
+      await L.click({ position: { x: bb.width * (d < 0 ? 0.2 : 0.8), y: bb.height * 0.5 } }); }
+    await P.waitForTimeout(700);
     const s1 = await st();
     check('clicking a thumbnail picks that sticker (highlight follows, 3/5) – no slap, no pointer lock', s1.selected === target && s1.sel === target && s1.num === '3/5' && s1.count === s0.count && !s1.locked, s1);
     await P.keyboard.press('r'); await P.waitForTimeout(200);
@@ -58,15 +61,16 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await M.evaluate(() => document.activeElement && document.activeElement.blur());
     const lib = await M.evaluate(() => ({ ...window.klibb.strip(), n2: window.klibb.designs().length }));
     await M.keyboard.press('f'); await M.waitForTimeout(250); // from the first, F goes round to the last
-    const fin = await M.evaluate(() => { const s = window.klibb.strip(), row = document.getElementById('strip-row'), cur = row.querySelector('.sel');
-      return { ...s, inView: cur.offsetLeft >= row.scrollLeft && cur.offsetLeft + cur.offsetWidth <= row.scrollLeft + row.clientWidth, sel2: window.klibb.state.selected.id }; });
-    check(`demo: the strip is the library (${lib.n} = R/F's ${lib.n2}); F to the last one scrolls the strip to keep it in view`, lib.n === lib.n2 && fin.scroll > 0 && fin.inView && fin.sel === fin.sel2, { lib: lib.n, fin });
+    await M.waitForFunction(() => { const w = window.klibb.wheel(); return Math.abs(w.pos - w.target) < 0.01; }, null, { timeout: 8000 }).catch(() => {});
+    const fin = await M.evaluate(() => { const s = window.klibb.strip(), w = window.klibb.wheel(), mid = w.items.find((x) => Math.abs(x.d) < 0.01);
+      return { ...s, inView: !!mid && mid.id === s.sel, sel2: window.klibb.state.selected.id }; });
+    check(`demo: the strip is the library (${lib.n} = R/F's ${lib.n2}); F to the last one turns the wheel to it (in the middle)`, lib.n === lib.n2 && fin.inView && fin.sel === fin.sel2, { lib: lib.n, fin });
     await M.keyboard.press('f'); await M.keyboard.press('f'); await M.waitForTimeout(250);
     await M.mouse.move(640, 300); await M.waitForTimeout(300); await M.screenshot({ path: SHOT });
     const fin2 = await M.evaluate(() => window.klibb.strip().scroll);
     await M.hover('#strip-row'); await M.mouse.wheel(0, -600); await M.waitForTimeout(250);
     const wheel = await M.evaluate(() => window.klibb.strip().scroll);
-    check('the mouse wheel over the strip scrolls it', wheel < fin2, { before: fin2, after: wheel });
+    check('the mouse wheel over the strip turns it', wheel < fin2, { before: fin2, after: wheel });
     await dctx.close();
 
     // phones: no strip
@@ -74,7 +78,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const T = await pctx.newPage(); T.on('pageerror', (e) => errors.push(e.message));
     await T.goto(`${S.base}/?room=${made.room.id}`); await T.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
     await T.setInputFiles('#file', files[0]); await T.waitForFunction(() => window.klibb.designs().length === 1, null, { timeout: 20000 });
-    check('phone: no strip (the sticker stack instead)', await T.isHidden('#design-strip') && await T.isVisible('#design-btn'));
+    check('phone: no strip (the sticker stack instead; the wheel only comes up while you swipe it – e2e-wheel)', await T.isHidden('#design-strip') && await T.isVisible('#design-btn'));
     await pctx.close();
     check('no page errors', errors.length === 0, errors);
   } catch (e) { failed++; console.log('  ✗ crashed: ' + (e.stack || e)); }

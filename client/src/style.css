@@ -564,7 +564,10 @@ body.touch #held::before { content: ''; position: absolute; inset: -14px; border
   background: radial-gradient(closest-side, rgba(255,255,255,.12), transparent); pointer-events: none; }
 body.touch #held.dragging::before { opacity: .35; }
 body.touch #held img { width: 100%; height: 100%; object-fit: contain; display: block; transform: rotate(var(--held-rot, 0deg));
-  filter: drop-shadow(0 8px 10px rgba(0,0,0,.45)); animation: held-hover 2.6s ease-in-out infinite; }
+  animation: held-hover 2.6s ease-in-out infinite; }
+/* its drop shadow (light from above: straight below, a little down, tight) sits on the unturned
+   wrapper, so it stays below the sticker however it is turned and scales with it */
+body.touch #held-sh { display: block; width: 100%; height: 100%; filter: drop-shadow(0 4px 3px rgba(0,0,0,.4)) drop-shadow(0 1px 1px rgba(0,0,0,.25)); }
 body.touch #held:not(.up) img { animation: none; }
 @keyframes held-hover { 0%, 100% { translate: 0 0; } 50% { translate: 0 -7px; } }
 /* The editing sliders on the edges: rotation left (above the joystick), size right (above the stack) */
@@ -628,20 +631,30 @@ body.touch.editing:not(.stack-open) #sm-avatar[hidden], body.demo.touch.editing 
 body.touch.editing #chat-btn, body.touch.editing #mic-touch { display: none !important; }
 body.touch.editing.book-open #stack-menu, body.touch.editing.more-open #stack-menu { display: none !important; }
 
-/* ---------- Desktop: the sticker strip along the bottom edge (main.js renderStrip) ---------- */
-#design-strip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 6px;
-  width: min(720px, max(260px, calc(100vw - 728px))); height: 46px; padding: 4px 8px; border-radius: 10px 10px 0 0;
-  background: rgba(16,16,16,.55); border: 1px solid rgba(255,255,255,.12); border-bottom: 0; backdrop-filter: blur(4px); }
+/* ---------- The sticker wheel (wheel.js, shared/wheel.mjs): desktop along the bottom edge ---------- */
+#design-strip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 4; --wheel-item: 100px;
+  width: min(820px, max(300px, calc(100vw - 680px))); height: calc(var(--wheel-item) * 1.15 + 46px); pointer-events: none; }
 #design-strip[hidden] { display: none !important; }
-#strip-num { flex: none; font: 700 11px/1 system-ui, sans-serif; color: #ffd400; font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
-#strip-row { position: relative; flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.25) transparent;
-  scroll-behavior: auto; padding: 2px 1px; }
-#strip-row::-webkit-scrollbar { height: 3px; } #strip-row::-webkit-scrollbar-thumb { background: rgba(255,255,255,.25); border-radius: 2px; }
-.strip-th { flex: none; width: 36px; height: 36px; padding: 2px; border-radius: 6px; border: 1px solid transparent; cursor: pointer;
-  background: #2a2a2a repeating-conic-gradient(#333 0 25%, #282828 0 50%) 50%/8px 8px; opacity: .75; }
-.strip-th img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
-.strip-th:hover { opacity: 1; border-color: rgba(255,255,255,.5); }
-.strip-th.sel { opacity: 1; border-color: #ffd400; box-shadow: 0 0 0 1px #ffd400; }
-body.view-mode .strip-th.sel { border-style: dashed; }
-body:not(.touch) #mode-hud { bottom: 54px; } /* the small mode label sits just above the strip */
-body.touch #design-strip, body.camview #design-strip, body.replay #design-strip { display: none !important; }
+#strip-num { position: absolute; left: 50%; bottom: calc(var(--wheel-item) * 1.15 + 28px); transform: translateX(-50%); z-index: 2000; pointer-events: none;
+  font: 700 11px/1 system-ui, sans-serif; color: #ffd400; font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 8px; background: rgba(0,0,0,.45); }
+#strip-num:empty { display: none; }
+#strip-row { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--wheel-item) * 1.15 + 26px); pointer-events: auto; touch-action: none;
+  user-select: none; -webkit-user-select: none; cursor: grab; }
+#strip-row:active { cursor: grabbing; }
+/* each sticker: translate only + the drop shadow (light from above: straight below, a little down,
+   tight) – so the shadow stays below however the sticker inside turns; .wh-turn turns + scales it;
+   the img carries the saturation */
+.strip-th { position: absolute; left: 50%; bottom: 22px; width: var(--wheel-item); height: calc(var(--wheel-item) * 1.15); margin-left: calc(var(--wheel-item) / -2);
+  padding: 0; border: 0; background: none; cursor: pointer; will-change: transform;
+  filter: drop-shadow(0 3px 2px rgba(0,0,0,.38)) drop-shadow(0 1px 1px rgba(0,0,0,.22)); }
+.strip-th .wh-turn { display: block; width: 100%; height: 100%; transform-origin: 50% 90%; }
+.strip-th img { width: 100%; height: 100%; object-fit: contain; object-position: 50% 100%; display: block; pointer-events: none; }
+.strip-th.sel::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: -7px; height: 3px; border-radius: 2px; background: #ffd400; }
+body.view-mode .strip-th.sel::after { background: none; border-top: 2px dashed #ffd400; }
+body:not(.touch) #mode-hud { bottom: calc(100px * 1.15 + 52px); } /* the small mode label sits just above the wheel */
+body.camview #design-strip, body.replay #design-strip { display: none !important; }
+/* touch: the same wheel in a band above the joystick and the stack, up while you turn it (body.wheel-up) */
+body.touch #design-strip { left: calc(64px + env(safe-area-inset-left)); right: calc(64px + env(safe-area-inset-right)); width: auto; transform: none;
+  bottom: calc(150px + env(safe-area-inset-bottom)); --wheel-item: 68px; height: calc(var(--wheel-item) * 1.15 + 40px); border-radius: 16px; overflow: hidden;
+  background: radial-gradient(closest-side, rgba(0,0,0,.30), rgba(0,0,0,.12)); }
+body.touch:not(.wheel-up) #design-strip, body.touch.stack-open #design-strip, body.touch.book-open #design-strip, body.touch.more-open #design-strip { display: none !important; }

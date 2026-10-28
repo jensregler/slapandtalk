@@ -2,7 +2,8 @@
 // else until you ask for it. (The desktop layout does not use any of this.)
 //
 // - The stack (#design-btn): your stickers, the one in your hand on top. Tap = the menu fans out
-//   up/left of it (two arcs + a Talk card); swipe up/down on it = next/previous sticker.
+//   up/left of it (two arcs + a Talk card); swipe up/down on it = next/previous sticker; swipe it
+//   sideways = turn the sticker wheel (a band above the stack, up while you turn it; wheel.js).
 // - The menu: 📒 Stickers (the sticker book: your palette + ⬆ Upload), 🧍 Character, 🏠 Room (the
 //   room's info and Room ▾ on top of ⚙ More: recording, sound, cameras …), ↩ Undo, 👤 3rd person,
 //   📷 Photo, and the Talk card (💬 chat, 🎙 microphone). A tap outside closes it.
@@ -58,20 +59,31 @@ export function initStackMenu(o) {
   item('sm-chat', () => { if (!o.chatOpen()) $('chat-btn').click(); });
   $('stack-scrim').addEventListener('pointerdown', (e) => { e.preventDefault(); closeMenu(); });
 
-  // ---- The stack: tap = menu, swipe up/down = next/previous sticker ----
+  // ---- The stack: tap = menu, swipe up/down = next/previous sticker, swipe sideways = turn the
+  //      sticker wheel (main.js / wheel.js: the band comes up above the stack and follows the finger) ----
   let swipe = null, swiped = false;
   const stack = $('design-btn');
-  stack.addEventListener('pointerdown', (e) => { swipe = { y: e.clientY, x: e.clientX }; swiped = false; });
+  stack.addEventListener('pointerdown', (e) => { swipe = { y: e.clientY, x: e.clientX, wheel: false }; swiped = false; });
+  stack.addEventListener('pointermove', (e) => {
+    if (!swipe || !o.wheel) return;
+    const dy = e.clientY - swipe.y, dx = e.clientX - swipe.x;
+    if (!swipe.wheel && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      swipe.wheel = true; if (open) closeMenu();
+      o.wheelUp?.(); o.wheel.beginDrag(swipe.x);
+    }
+    if (swipe.wheel) o.wheel.dragTo(e.clientX);
+  });
   stack.addEventListener('pointerup', (e) => {
     if (!swipe) return;
-    const dy = e.clientY - swipe.y, dx = e.clientX - swipe.x; swipe = null;
+    const dy = e.clientY - swipe.y, dx = e.clientX - swipe.x, wasWheel = swipe.wheel; swipe = null;
+    if (wasWheel) { swiped = true; o.wheel.endDrag(); chosen(); return; }
     if (Math.abs(dy) > 28 && Math.abs(dy) > Math.abs(dx)) {
       swiped = true;
       if (open) closeMenu();
       if (dy < 0 ? o.nextDesign() : o.prevDesign()) chosen();
     }
   });
-  stack.addEventListener('pointercancel', () => { swipe = null; });
+  stack.addEventListener('pointercancel', () => { if (swipe?.wheel) o.wheel.endDrag(); swipe = null; });
   stack.onclick = (e) => { e.preventDefault(); if (swiped) { swiped = false; return; } setOpen(!open); };
 
   // ---- The sticker book (a sheet): the palette + ⬆ Upload ----

@@ -6,6 +6,7 @@ import { startSizeCm } from '../../shared/sizeprefix.mjs';
 import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl } from './roomstyle.js';
 import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
+import { createWheel } from './wheel.js';
 import { api } from './api.js';
 import { foldStamp } from './fold.js';
 import { readHistory, addHistory, removeHistory, roomHistory, trimHistory, deviceId, HISTORY_KEY, PER_ROOM } from './history.js';
@@ -302,37 +303,35 @@ function renderDesignHud() {
   $('design-btn-num').textContent = list.length > 1 ? `${i + 1}/${list.length}` : '';
 }
 
-// Desktop: the sticker strip along the bottom edge – the same stickers R/F cycle through (my palette,
-// or the library in the demo), the current one highlighted and kept in view; click = pick it (like
-// R/F to it). Only clickable while the mouse is free (pointer lock sends clicks to the canvas), and a
-// click here never slaps or locks the pointer (the slap handler is on the canvas). Wheel = scroll.
-let stripKey = '';
+// The sticker wheel (client/src/wheel.js, shared/wheel.mjs; Jens 28 Oct 2026): the same stickers
+// R/F cycle through (my palette, or the library in the demo) on a round reel that never ends, the
+// held one in the middle (full colour, upright, on top), the others fading to grey, turning and
+// tucking in behind outwards. Desktop: along the bottom edge – R/F, the mouse wheel / trackpad, drag
+// or click turn it (only while the mouse is free: pointer lock sends clicks to the canvas; a click
+// here never slaps or locks the pointer). Touch: a band above the joystick and the stack, up while
+// you swipe it (the stack sideways, or the band itself) and a moment after (stackmenu.js).
+const WHEEL_UP_MS = 2600;
+let wheelUpTimer = 0;
+function wheelUp() {
+  if (!isTouch) return;
+  document.body.classList.add('wheel-up');
+  clearTimeout(wheelUpTimer);
+  wheelUpTimer = setTimeout(function down() {
+    if (wheel.info().dragging) { wheelUpTimer = setTimeout(down, 400); return; }
+    document.body.classList.remove('wheel-up');
+  }, WHEEL_UP_MS);
+}
+const wheel = createWheel($('strip-row'), {
+  pick: (img) => { select(img); if (isTouch) stackMenu?.chosen(); },
+  onActivity: wheelUp,
+});
 function renderStrip(list = designs(), sel = state.selected, i = sel ? list.findIndex((d) => d.id === sel.id) : -1) {
-  if (isTouch) return;
-  const strip = $('design-strip'), row = $('strip-row');
-  strip.hidden = !list.length;
-  const key = list.map((d) => d.id + d.url).join();
-  if (key !== stripKey) {
-    stripKey = key; row.innerHTML = '';
-    for (const d of list) {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'strip-th'; b.dataset.id = d.id; b.setAttribute('role', 'option'); b.tabIndex = -1;
-      b.innerHTML = `<img src="${d.url}" alt="" loading="lazy" draggable="false">`;
-      b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const img = designs().find((x) => x.id === d.id); if (img) select(img); };
-      row.appendChild(b);
-    }
-  }
-  let cur = null;
-  for (const b of row.children) { const on = !!sel && b.dataset.id === sel.id; b.classList.toggle('sel', on); b.setAttribute('aria-selected', String(on)); if (on) cur = b; }
+  $('design-strip').hidden = !list.length;
+  wheel.setList(list);
+  wheel.setSelected(sel ? sel.id : null);
   $('strip-num').textContent = list.length && i >= 0 ? `${i + 1}/${list.length}` : '';
-  if (cur) { // keep the current one in view (no scrollIntoView: never scrolls the page)
-    const l = cur.offsetLeft, r = l + cur.offsetWidth, pad = 24;
-    if (l - pad < row.scrollLeft) row.scrollLeft = Math.max(0, l - pad);
-    else if (r + pad > row.scrollLeft + row.clientWidth) row.scrollLeft = r + pad - row.clientWidth;
-  }
 }
 $('design-strip').addEventListener('mousedown', (e) => { e.stopPropagation(); });
-$('strip-row').addEventListener('wheel', (e) => { e.preventDefault(); e.stopPropagation(); $('strip-row').scrollLeft += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY); }, { passive: false });
 
 // Designs som säkert inte finns på servern och inte gick att återställa tas bort ur listan.
 function dropDesigns(ids) {
@@ -1345,7 +1344,7 @@ if (!isTouch) {
   stackMenu = initStackMenu({
     S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
     peelLast: () => peelLast(), toggleView: () => toggleView(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
-    chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(),
+    chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(), wheel, wheelUp,
     release: (x, y) => { if (!camView && !placingCam) heldTap(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), x, y); },
   });
 }
@@ -2195,7 +2194,18 @@ window.klibb = {
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
-  strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0, n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: $('strip-row').scrollLeft, rect: $('design-strip').getBoundingClientRect().toJSON() }),
+  strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && getComputedStyle($('design-strip')).visibility !== 'hidden', n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON() }),
+  wheel: () => wheel.info(), wheelApi: wheel,
+  // the held sticker's drop shadow, and where it and the sticker are on screen (px), for the tests
+  heldShadow: () => {
+    const st = preview.shadowState(), cam = camView ? viewCam : view === 'third' ? tpCam : camera;
+    const px = (m) => {
+      m.updateMatrixWorld(); const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3()).project(cam), r = [Infinity, Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < 8; i++) { const v = new THREE.Vector3(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).project(cam); const x = (v.x + 1) / 2 * innerWidth, y = (1 - v.y) / 2 * innerHeight; r[0] = Math.min(r[0], x); r[1] = Math.min(r[1], y); r[2] = Math.max(r[2], x); r[3] = Math.max(r[3], y); }
+      return { c: [(c.x + 1) / 2 * innerWidth, (1 - c.y) / 2 * innerHeight], box: r, world: b.getSize(new THREE.Vector3()).toArray() };
+    };
+    return { ...st, view, screen: st.visible ? { sticker: px(preview.mesh), shadow: px(preview.shadow) } : null };
+  },
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,

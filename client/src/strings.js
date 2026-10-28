@@ -131,15 +131,15 @@ export const EN = {
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Visit the City opens the shared room (the plain address takes you to your most recent room). '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
-  helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look. The sticker stack bottom right: tap it for the menu (📒 Stickers, 🧍 Character, 🏠 Room, ↩ Undo, 👤 3rd person, 📷 Photo, 💬 Talk, 🎙 Mic), swipe it up/down for the next/previous sticker. '
+  helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look. The sticker stack bottom right: tap it for the menu (📒 Stickers, 🧍 Character, 🏠 Room, ↩ Undo, 👤 3rd person, 📷 Photo, 💬 Talk, 🎙 Mic), swipe it up/down for the next/previous sticker, or sideways to turn the sticker wheel. '
     + 'The sticker in your hand sits in its holder in the middle: tap it to slap it there, drag it out and let go where it should go, or tap a wall; size on the right edge, rotation on the left; 📒 🧍 🏠 stay at the bottom. 10 s after a slap it fades away and you just look around – tap the screen to get it back (that tap does not slap). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room, 🔗 Share link sends it to friends. '
     + '<b>Together:</b> everyone in the same room sees each other right away. 💬 = chat. '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
   panelToggle: '☰ Stickers',
-  stripAria: 'Your stickers', stripTitle: 'Your stickers – click one to pick it (R/F: next/previous, scroll to see more)',
+  stripAria: 'Your stickers', stripTitle: 'Your sticker wheel – click one to pick it (R/F: next/previous; scroll or drag to turn it – it goes round)',
   // ---------- Touch: the sticker stack menu (stackmenu.js) ----------
-  stackBtnAria: 'Your stickers: tap for the menu, swipe up/down for the next/previous sticker',
+  stackBtnAria: 'Your stickers: tap for the menu, swipe up/down for the next/previous sticker, swipe sideways to turn the sticker wheel',
   smAria: 'Menu', smBook: 'Stickers', smAvatar: 'Character', smRoom: 'Room', smUndo: 'Undo', smView: '3rd person', smViewFirst: '1st person',
   smPhoto: 'Photo', smTalk: 'Talk', smMic: 'Mic', smTalkAria: 'Talk and microphone',
   smBookTitle: 'Your stickers', smBookHint: 'Tap one to hold it, then tap a wall to slap it.',

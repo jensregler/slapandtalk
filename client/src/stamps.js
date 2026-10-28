@@ -486,6 +486,37 @@ export const HELD_OPACITY = 1;
 // Förhandsvisningen av klibban man håller i, som följer siktet (1:a och 3:e person).
 // Den viks på samma sätt som den riktiga klibban, så man ser hur den hamnar i hörn.
 // Formen på utskurna PNG:er behålls med alphaTest; opacity påverkar inte formen.
+// The held sticker's drop shadow (Jens, 28 Oct 2026): light from above, so on a wall the shadow
+// falls straight down a little below it, tight and soft, and the sticker seems to float just off
+// the wall; on a floor/ceiling it lies straight under it (a soft rim). It is the sticker's own
+// silhouette, blurred (a padded, blurred alpha copy of its texture), on the same fold/rotation/size
+// as the preview, so it follows every turn and scale. Only the held sticker (live: 1st and 3rd
+// person; replay/recordings/video: every person's held one) – never the placed stickers.
+export const HELD_SHADOW = { opacity: 0.4, pad: 0.07, blur: 0.03, offset: 0.035, offsetMin: 0.006, offsetMax: 0.035 };
+const shadowTex = new WeakMap(); // texture -> { tex, kx, ky }
+function shadowFor(tex) {
+  if (!tex || !tex.image) return null;
+  if (shadowTex.has(tex)) return shadowTex.get(tex);
+  const img = tex.image, iw = img.naturalWidth || img.videoWidth || img.width, ih = img.naturalHeight || img.videoHeight || img.height;
+  if (!(iw > 0 && ih > 0) || typeof document === 'undefined') return null;
+  const k = Math.min(1, 256 / Math.max(iw, ih)), w = Math.max(2, Math.round(iw * k)), h = Math.max(2, Math.round(ih * k));
+  const m = Math.max(w, h), pad = Math.ceil(HELD_SHADOW.pad * m), blur = Math.max(1, HELD_SHADOW.blur * m);
+  const sil = document.createElement('canvas'); sil.width = w; sil.height = h;
+  const sc = sil.getContext('2d'); sc.drawImage(img, 0, 0, w, h); sc.globalCompositeOperation = 'source-in'; sc.fillStyle = '#000'; sc.fillRect(0, 0, w, h);
+  const c = document.createElement('canvas'); c.width = w + 2 * pad; c.height = h + 2 * pad;
+  const ctx = c.getContext('2d');
+  if ('filter' in ctx) { ctx.filter = `blur(${blur.toFixed(1)}px)`; ctx.drawImage(sil, pad, pad); ctx.filter = 'none'; }
+  else { // no canvas filter (older Safari): average a ring of copies
+    const N = 12; ctx.globalAlpha = 1 / (N + 1); ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(sil, pad, pad);
+    for (let i = 0; i < N; i++) { const a = (i / N) * Math.PI * 2; ctx.drawImage(sil, pad + Math.cos(a) * blur * 0.8, pad + Math.sin(a) * blur * 0.8); }
+  }
+  const t = new THREE.CanvasTexture(c); t.flipY = tex.flipY;
+  const out = { tex: t, kx: c.width / w, ky: c.height / h };
+  shadowTex.set(tex, out);
+  return out;
+}
+const DOWN = new THREE.Vector3(0, -1, 0);
+
 export class StampPreview {
   constructor(scene, faces = null) {
     this.faces = faces;
@@ -499,24 +530,72 @@ export class StampPreview {
     this.mesh.frustumCulled = false;
     this.key = '';
     scene.add(this.mesh);
+    // the drop shadow (HELD_SHADOW): drawn just before the sticker, a hair closer to the wall
+    this.shadowMat = new THREE.MeshBasicMaterial({
+      color: 0x000000, transparent: true, opacity: HELD_SHADOW.opacity, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6,
+    });
+    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.shadowMat);
+    this.shadow.renderOrder = 1e6 - 1;
+    this.shadow.visible = false;
+    this.shadow.frustumCulled = false;
+    this.shadowInfo = null;
+    this.skey = '';
+    scene.add(this.shadow);
   }
-  setTexture(tex) { this.mat.map = tex; this.mat.needsUpdate = true; }
+  setTexture(tex) {
+    this.mat.map = tex; this.mat.needsUpdate = true;
+    this.shadowInfo = shadowFor(tex);
+    this.shadowMat.map = this.shadowInfo ? this.shadowInfo.tex : null; this.shadowMat.needsUpdate = true; this.skey = '';
+  }
+  // Where the shadow goes: world "down" laid onto the surface (walls: straight down; floor/ceiling:
+  // nothing – it lies right under), as long as the sticker is big: a tight few cm at most.
+  shadowShift(normal, w, h) {
+    const n = normal.clone().normalize(), d = DOWN.clone().addScaledVector(n, -DOWN.dot(n));
+    const len = HELD_SHADOW.offset * Math.max(w, h);
+    return d.multiplyScalar(Math.min(HELD_SHADOW.offsetMax, Math.max(HELD_SHADOW.offsetMin, len)));
+  }
   show(point, normal, quaternion, w, h, surface) {
     this.mesh.visible = !!this.mat.map;
+    const si = this.shadowInfo; this.shadow.visible = this.mesh.visible && !!si;
+    const shift = this.shadowShift(normal, w, h);
     if (!this.faces) {
       if (this.key !== 'plane') { this.mesh.geometry.dispose(); this.mesh.geometry = new THREE.PlaneGeometry(1, 1); this.key = 'plane'; }
       this.mesh.position.copy(point).addScaledVector(normal, 0.003);
       this.mesh.quaternion.copy(quaternion);
       this.mesh.scale.set(w, h, 1);
+      if (si) {
+        this.shadow.position.copy(point).addScaledVector(normal, 0.0012).add(shift);
+        this.shadow.quaternion.copy(quaternion);
+        this.shadow.scale.set(w * si.kx, h * si.ky, 1);
+      }
       return;
     }
     // Bygg bara om geometrin när något har ändrats.
     const key = [...point.toArray(), ...quaternion.toArray(), w, h, surface].map((v) => (typeof v === 'number' ? v.toFixed(4) : v)).join();
-    if (key === this.key) return;
-    this.key = key;
-    const pieces = foldStamp(this.faces, { center: point, quaternion, w, h, surface });
-    this.mesh.geometry.dispose();
-    this.mesh.geometry = foldGeometry(pieces, 0.0015);
+    if (key !== this.key) {
+      this.key = key;
+      const pieces = foldStamp(this.faces, { center: point, quaternion, w, h, surface });
+      this.mesh.geometry.dispose();
+      this.mesh.geometry = foldGeometry(pieces, 0.0015);
+    }
+    if (si) {
+      const skey = key + '|' + si.kx.toFixed(4) + si.ky.toFixed(4);
+      if (skey !== this.skey) {
+        this.skey = skey;
+        // the padded shadow rectangle, folded over the same faces as the sticker (UVs 0–1 = the padded texture)
+        const sp = foldStamp(this.faces, { center: point.clone().add(shift), quaternion, w: w * si.kx, h: h * si.ky, surface });
+        this.shadow.geometry.dispose();
+        this.shadow.geometry = foldGeometry(sp, 0.0007);
+      }
+    }
   }
-  hide() { this.mesh.visible = false; }
+  hide() { this.mesh.visible = false; this.shadow.visible = false; }
+  // for the tests
+  shadowState() {
+    const c = (m) => { if (!this.faces) return m.position.clone(); m.geometry.computeBoundingBox(); return m.geometry.boundingBox.getCenter(new THREE.Vector3()); };
+    const on = this.shadow.visible && this.mesh.visible;
+    return { visible: on, hasMap: !!this.shadowMat.map, opacity: this.shadowMat.opacity, kx: this.shadowInfo?.kx ?? 0, ky: this.shadowInfo?.ky ?? 0,
+      below: on ? c(this.mesh).y - c(this.shadow).y : null }; // > 0 on a wall: the shadow is lower than the sticker
+  }
 }

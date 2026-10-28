@@ -146,7 +146,7 @@ function syncHeld(list) {
     }
     e.prev.show(v3(h.p), v3(h.n), new THREE.Quaternion(h.q[0], h.q[1], h.q[2], h.q[3]), h.w, h.h, h.s);
   }
-  for (const [id, e] of helds) if (!here.has(id)) { e.prev.hide(); scene.remove(e.prev.mesh); e.prev.mesh.geometry.dispose(); e.prev.mat.dispose(); helds.delete(id); }
+  for (const [id, e] of helds) if (!here.has(id)) { e.prev.hide(); scene.remove(e.prev.mesh); e.prev.mesh.geometry.dispose(); e.prev.mat.dispose(); scene.remove(e.prev.shadow); e.prev.shadow.geometry.dispose(); e.prev.shadowMat.dispose(); helds.delete(id); }
 }
 function syncChat(list, prevT, t) {
   const key = list.map((m) => m.id).join(',');
@@ -473,7 +473,7 @@ window.replay = {
     eye: { p: view.position.toArray().map((n) => +n.toFixed(3)), q: view.quaternion.toArray().map((n) => +n.toFixed(3)), fov: view.fov, aspect: +view.aspect.toFixed(3) },
     chat: [...document.querySelectorAll('#rp-chat li')].map((l) => l.textContent),
     shot: rp.shot, mouths: Object.fromEntries([...avatars.entries()].map(([id, a]) => [id, a.avatar.mouthInfo])),
-    held: Object.fromEntries([...helds.entries()].map(([id, e]) => [id, { img: e.img, visible: e.prev.mesh.visible, textured: !!e.prev.mat.map, at: rp.snap?.players.find((x) => x.id === id)?.held?.p?.map((n) => +n.toFixed(3)) ?? null }])),
+    held: Object.fromEntries([...helds.entries()].map(([id, e]) => [id, { img: e.img, visible: e.prev.mesh.visible, textured: !!e.prev.mat.map, shadow: e.prev.shadowState(), at: rp.snap?.players.find((x) => x.id === id)?.held?.p?.map((n) => +n.toFixed(3)) ?? null }])),
     speaking: [...avatars.entries()].filter(([, a]) => a.avatar.speaking).map(([id]) => id),
   }),
   plan: () => rp.plan, speakers: () => rp.speakers.slice(),

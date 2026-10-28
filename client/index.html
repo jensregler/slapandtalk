@@ -186,7 +186,7 @@
     <img id="design-hud-img" alt="" /><span><b id="design-hud-num">1/1</b><br /><span data-t="designHud">R/F: next/prev design</span></span>
   </div>
   <!-- Desktop: the sticker strip along the bottom edge – the stickers R/F cycle through; click = pick. -->
-  <div id="design-strip" class="desktop-only" hidden role="listbox" data-t-aria="stripAria" data-t-title="stripTitle"><span id="strip-num"></span><div id="strip-row"></div></div>
+  <div id="design-strip" hidden role="listbox" data-t-aria="stripAria" data-t-title="stripTitle"><span id="strip-num"></span><div id="strip-row"></div></div>
   <div id="mode-hud" aria-live="polite"></div>
   <button id="peel-btn" class="touch-only" type="button" data-t-aria="peelBtnAria" data-t-title="peelBtnTitle">↩</button>
   <button id="view-btn" class="touch-only" type="button" data-t-aria="viewBtnAria" aria-pressed="false">👤</button>
@@ -198,7 +198,7 @@
        sticker floats in its holder (shared/heldtimer.mjs: sharp until the first stamp, then 10 s, then
        it fades; a tap brings it back), with rotation (left edge) and size (right edge) while it is up.
        Tapping the stack fans out the menu; the sticker book is a sheet. -->
-  <div id="held" aria-hidden="true"><img id="held-img" alt="" /></div>
+  <div id="held" aria-hidden="true"><span id="held-sh"><img id="held-img" alt="" /></span></div>
   <div id="edge-rot" class="edge" role="slider" aria-orientation="vertical" data-t-aria="rotation" aria-valuemin="-180" aria-valuemax="180">
     <span class="edge-val" id="edge-rot-val">0°</span><div class="edge-track"><div class="edge-fill"></div><div class="edge-thumb"></div></div><span class="edge-name">⟲</span>
   </div>

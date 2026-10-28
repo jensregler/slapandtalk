@@ -104,10 +104,19 @@ inspelningar). Servern tvättar dem (`shared/artistlink.mjs`, samma regler i web
 port i länken, högst 200 tecken; namnet högst 60 tecken. En ogiltig länk sparas inte alls.
 
 **Byta design med R:** har du laddat upp flera klibbor växlar **R** till nästa (efter den sista
-börjar det om på den första). **Klibbremsan** längst ner (dator) visar alla klibbor som R/F går
-igenom (din palett, eller biblioteket i demon) som en smal rad små bilder; den valda är markerad
-(med *2/4* bredvid) och remsan rullar med så att den syns. Klicka på en bild för att välja den
-(klickar aldrig fast en klibba), scrolla med hjulet över remsan. Mobilen har klibbhögen i stället. Vill du sätta samma klibba många gånger trycker du bara inte på R.
+börjar det om på den första). **Klibbhjulet** längst ner (dator; `client/src/wheel.js`, matten i
+`shared/wheel.mjs`) visar klibborna som R/F går igenom (din palett, eller biblioteket i demon) som ett
+runt hjul utan slut: efter den sista kommer den första igen, åt båda hållen. Den du håller sitter i
+mitten med full mättnad, rak och överst (med *2/4* ovanför); utåt tappar de 30 % mättnad per steg
+(70 %, 40 %, nästan grått längst ut), lutar mer och mer (medurs till höger, moturs till vänster) och
+hamnar bakom varandra. Varje klibba har en liten tät skugga rakt nedanför. R/F, mushjulet/styrplattan
+över hjulet, dra i det eller klicka på en klibba vrider det (klickar aldrig fast en klibba). Mobilen:
+svep klibbhögen åt sidan (eller hjulet självt) så kommer hjulet upp ovanför högen och följer fingret;
+det går undan en stund efter. Svep upp/ner på högen = nästa/förra som förut.
+**Skugga på klibban du håller:** ljus uppifrån, så en tät mjuk skugga rakt under (på en vägg en bit
+nedanför, på golv/tak rakt under) – klibban ser ut att sväva. Den följer vridning och storlek och syns
+i 1:a person, 3:e person/kameror och i inspelningar/videor (`StampPreview`, `HELD_SHADOW` i
+`client/src/stamps.js`); på mobilen under klibban i hållaren. Uppsatta klibbor har ingen skugga. Vill du sätta samma klibba många gånger trycker du bara inte på R.
 Dina uppladdade designs sparas i webbläsaren och finns kvar när du laddar om sidan, så länge
 servern har kvar bilderna. Designs som har försvunnit från servern tas bort ur listan automatiskt.
 
