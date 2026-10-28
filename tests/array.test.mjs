@@ -42,36 +42,8 @@ const wall = { position: [0, 2, -5], quaternion: [0, 0, 0, 1], surface: 'vägg-n
   assert(near(r.step, 0.3) && r.count === 5, 'rotation: a sticker turned 90° steps by its (now horizontal) height along a horizontal drag');
   const big = arrayPlan(wall, 0.4, 0.6, [1, 2, -5]);
   assert(near(big.step, 0.4) && big.count === 3, 'size: a bigger sticker gets a bigger step (0.4 m → 3 in 1 m)');
-  // Round corners: the row folds over the seam like tape (unfolded spacing, folded orientation).
-  const qa = (q, v) => { const [x, y, z, w0] = q, [a, b, c] = v; const ix = w0 * a + y * c - z * b, iy = w0 * b + z * a - x * c, iz = w0 * c + x * b - y * a, iw = -x * a - y * b - z * c;
-    return [ix * w0 + iw * -x + iy * -z - iz * -y, iy * w0 + iw * -y + iz * -x - ix * -z, iz * w0 + iw * -z + ix * -y - iy * -x]; };
-  const vnear = (a, b, e = 1e-5) => a.every((x, j) => near(x, b[j], e));
   const edge = arrayPlan({ ...wall, position: [4.5, 2, -5] }, 0.3, 0.3, [9, 2, -5]);
-  const east = edge.items.filter((x) => x.surface === 'vägg-öster');
-  assert(edge.count === 16 && edge.items.length === 16 && edge.items.filter((x) => !x.surface).length === 2 && east.length === 14,
-    'wall → wall corner: the row does not stop at the corner, it folds onto the east wall (2 on the north wall, 14 round the corner)', edge.items);
-  assert(near(east[0].position[0], 5) && near(east[0].position[2], -4.9) && near(east[1].position[2] - east[0].position[2], 0.3) && east.every((x) => near(x.position[1], 2)),
-    'corner: same spacing measured along the surface (0.2 m to the corner + 0.1 m round it), same height');
-  assert(vnear(east[0].normal, [-1, 0, 0]) && vnear(qa(east[0].quaternion, [0, 0, 1]), [-1, 0, 0]) && vnear(qa(east[0].quaternion, [1, 0, 0]), [0, 0, 1]) && vnear(qa(east[0].quaternion, [0, 1, 0]), [0, 1, 0]),
-    'corner: a copy on the east wall faces into the room and is the anchor folded 90° about the seam (width axis along the row, still upright)');
-  const down = arrayPlan({ ...wall, position: [0, 1, -5] }, 0.3, 0.3, [0, 0, -3.5]);
-  const fl = down.items.filter((x) => x.surface === 'golv');
-  assert(down.count === 9 && down.items.length === 9 && fl.length === 5 && down.items.slice(0, 4).every((x) => !x.surface),
-    'wall → floor: B on the floor is unfolded (1 m down the wall + 1.5 m out on the floor = 2.5 m → 9), 4 on the wall, 5 on the floor', down.items);
-  assert(fl.every((x) => x.position[1] === 0 && near(x.position[0], 0)) && near(fl[0].position[2], -4.8) && near(fl[1].position[2] - fl[0].position[2], 0.3)
-    && vnear(qa(fl[0].quaternion, [0, 0, 1]), [0, 1, 0]) && vnear(qa(fl[0].quaternion, [0, 1, 0]), [0, 0, -1]),
-    'floor: copies lie on the floor, same spacing along the surface, top edge toward the wall (folded down over the seam)');
-  const up = arrayPlan({ ...wall, position: [0, 3, -5] }, 0.3, 0.3, [0, 6, -5]);
-  assert(up.items.some((x) => x.surface === 'tak') && up.items.filter((x) => x.surface === 'tak').every((x) => x.position[1] === 4 && vnear(x.normal, [0, -1, 0])),
-    'wall → ceiling: an upward drag past the top folds onto the ceiling', up.items);
-  const corner = arrayPlan({ ...wall, position: [4, 3, -5] }, 0.3, 0.3, [6, 5, -5]);
-  assert(corner.items.length < corner.count && corner.items.every((x) => !x.surface), 'straight into a corner where three faces meet: the row ends there', corner.items);
-  const far = arrayPlan({ ...wall, position: [3, 2, -5] }, 0.25, 0.25, [5, 2, 4.5]);
-  assert(far.items.length === far.count && far.items[far.items.length - 1].surface === 'vägg-öster' && far.items.every((x) => x.position[2] <= 5 && x.position[0] <= 5),
-    'round the corner and along the whole next wall: everything stays inside the room');
-  const plan2 = arrayPlan({ ...wall, position: [4.5, 2, -5] }, 0.25, 0.25, [5, 2, -3]);
-  assert(plan2.items.length === plan2.count && plan2.count === 11 && plan2.items[10].surface === 'vägg-öster' && near(plan2.items[10].position[2], -3),
-    'B on the next wall (the drag ray hit it): unfolded – 0.5 m + 2 m = 2.5 m → 11 stickers, the last one at B', plan2.items);
+  assert(edge.count === 16 && edge.items.length === 2 && edge.items.every((x) => x.position[0] <= 5), 'copies whose centre falls off the face are not placed (no wrapping)', edge.items);
   const tiny = arrayPlan(wall, 0.2, 0.3, [0.15, 2.1, -5]);
   assert(tiny.count === 1 && tiny.items.length === 1, 'a drag shorter than one step = just the anchor (a plain click)');
   const off = arrayPlan(wall, 0.2, 0.3, [1, 2, 3]);
@@ -185,26 +157,6 @@ try {
     'a row of 10 stickers: 10 papers (the anchor’s + one per copy), saved on the floor and broadcast with each stamp:add', { n: tr.stamps.length, peels: tr.stamps.filter((x) => x.peel).length, floor: floorAfter.length - floorBefore, bc: peelAdds.length });
   const fr = await post(`/api/rooms/${R}/stamps`, { imageId: img.id, position: [0, 1, 4.9], normal: [0, 0, -1], quaternion: [0, 1, 0, 0], size: 0.3, surface: 'vägg-söder', by: w.id });
   assert(fr.status === 200, 'peels on: a slap ~8.5 m away is accepted too (no reach limit)', fr);
-
-  // Round the corner (t367u): the server recomputes the folded row itself and saves each copy on its own face.
-  events.length = 0;
-  const cA = await slap([4.4, 3.5, -5], { by: w.id, nonce: 'crn1', owner: 'device-ffff' });
-  const cr = await (await array({ anchor: { id: cA.stamp.id, token: cA.peelToken }, to: [5, 3.5, -4], by: w.id, nonce: 'crn1' })).json();
-  const roomC = await store.getRoom(R);
-  const saved = cr.stamps.map((x) => roomC.stamps.find((s) => s.id === x.stamp.id));
-  const onEast = saved.filter((s) => s && s.surface === 'vägg-öster');
-  assert(cr.stamps.length === 5 && saved.slice(0, 2).every((s) => s.surface === 'vägg-norr' && s.normal[2] === 1) && onEast.length === 3
-    && onEast.every((s) => s.position[0] === 5 && s.normal[0] === -1 && Math.abs(Math.abs(s.quaternion[1]) - Math.SQRT1_2) < 1e-5) && Math.abs(onEast[1].position[2] - onEast[0].position[2] - 0.3) < 1e-6,
-    'server: a row dragged round the corner is saved with 2 copies on the north wall and 3 on the east wall (own surface, normal, folded quaternion, same spacing)', saved);
-  const cEv = events.filter((x) => x.e.type === 'stamp:add' && x.e.batch && x.e.batch.g === cA.stamp.id);
-  assert(cEv.length === 5 && cEv.filter((x) => x.e.stamp.surface === 'vägg-öster').length === 3 && cr.stamps.every((x) => x.peel) && cEv.every((x) => x.e.peel),
-    'server: the folded copies are broadcast with their own surface, and each one drops its own backing paper');
-  const fA = await slap([0, 0.45, -5], { by: w.id, nonce: 'flr1', owner: 'device-ffff' });
-  const fRow = await (await array({ anchor: { id: fA.stamp.id, token: fA.peelToken }, to: [0, 0, -4.1], by: w.id, nonce: 'flr1' })).json();
-  const roomF = await store.getRoom(R);
-  const fSaved = (fRow.stamps || []).map((x) => roomF.stamps.find((s) => s.id === x.stamp.id));
-  assert(fSaved.some((s) => s.surface === 'golv') && fSaved.filter((s) => s.surface === 'golv').every((s) => s.position[1] === 0 && s.normal[1] === 1),
-    'server: a row dragged down the wall continues onto the floor (floor copies lie on the floor)', fRow);
 } finally {
   off(); for (const s of sockets) s.terminate(); await recorder.close(); rt.close(); server.close(); fs.rmSync(dir, { recursive: true, force: true });
 }

@@ -1,5 +1,5 @@
 // Sticker arrays: the see-through ghosts of the copies while you hold the button and drag
-// (slap at A, look toward B). The math (spacing, count, the fold round seams onto the next face) is
+// (slap at A, look toward B). The math (spacing, count, which copies fit on the face) is
 // shared/array.mjs, the same as the server's. A ghost that sits fully inside its face is a plain
 // quad (cheap, so 200 of them can follow the crosshair every frame); one near an edge is folded
 // like the real sticker (fold.js).
@@ -29,13 +29,10 @@ export class ArrayGhosts {
     }
     return this.pool[k];
   }
-  // items: [{ position: [x, y, z], q?, n?, surface?, face? }]; quaternion/normal: THREE; w × h
-  // metres; face: shared face (or null). A copy folded over a seam onto another face brings its own
-  // q (THREE.Quaternion), n (THREE.Vector3), surface and face.
-  show(items, quaternion0, normal0, w, h, surface0, face0) {
+  // items: [{ position: [x, y, z] }]; quaternion/normal: THREE; w × h metres; face: shared face (or null).
+  show(items, quaternion, normal, w, h, surface, face) {
     const r = Math.hypot(w, h) / 2;
     items.forEach((it, k) => {
-      const quaternion = it.q || quaternion0, normal = it.n || normal0, surface = it.surface || surface0, face = it.surface ? it.face : face0;
       const m = this.mesh(k);
       if (!this.faces || insideFace(face, it.position, r)) {
         if (m.userData.key !== 'quad') { m.geometry.dispose(); m.geometry = this.quad; m.userData.key = 'quad'; }

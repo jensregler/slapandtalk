@@ -10,17 +10,9 @@
 //     step = min(w / |du|, h / |dv|)
 // so straight along the width the step is w, straight along the height it is h, and on a diagonal
 // the copies touch along one edge, offset like a staircase (Jens's sketch). Count = floor(|AB| / step) + 1
-// (the anchor included), at most ARRAY_MAX.
-//
-// Round corners (Jens, 28 Oct 2026): the row does not stop at the edge of the anchor's face. Like a
-// strip of tape it folds over the seam onto the next face (wall → wall at a corner, wall → floor or
-// ceiling, and on), keeps going the same way, and the spacing is measured along the surface (the
-// unfolded distance). A copy on the next face is the anchor turned over the seam (a 90° fold about
-// the edge), so it lies on that face exactly as a sticker folded over that edge would; copies that
-// straddle a seam fold like any sticker. B can be on the next face: it is unfolded into the anchor's
-// plane first. The row ends where it would run into a corner where three faces meet (or after
-// MAX_FOLDS seams). Each item on another face than the anchor's carries its own quaternion, normal
-// and surface; the server recomputes exactly the same (this file).
+// (the anchor included), at most ARRAY_MAX. A copy whose centre falls outside the anchor's face is
+// not placed (no wrapping round corners); one whose centre is on the face but overhangs an edge
+// folds like any other sticker.
 import { boxFaces } from './coverage.mjs';
 
 export const ARRAY_MAX = 200; // stickers per drag, the anchor included
@@ -49,32 +41,6 @@ export function faceFor(faces, surface, position, normal) {
   return best;
 }
 
-const MAX_FOLDS = 4;
-const ON_FACE = 0.05; // m: how close to a face B counts as on it
-const qMul = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
-  a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
-const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const inward = (f) => { const n = [0, 0, 0]; n[f.k] = f.s; return n; };
-// The face B lies on (within ON_FACE of its plane and inside it), or null.
-function faceAt(faces, p) {
-  let best = null, bd = ON_FACE;
-  for (const f of faces) {
-    const d = Math.abs(p[f.k] - f.v); if (d >= bd) continue;
-    let inside = true; for (let j = 0; j < 3; j++) if (j !== f.k && (p[j] < f.lo[j] - ON_FACE || p[j] > f.hi[j] + ON_FACE)) inside = false;
-    if (inside) { best = f; bd = d; }
-  }
-  return best;
-}
-// B on a face next to the anchor's (sharing an edge): unfold it into the anchor's plane, as if the
-// next face were swung out flat about the seam. Anywhere else: B as it is (only its part along the face counts).
-export function unfoldTo(faces, F, to) {
-  const G = faceAt(faces, to);
-  if (!G || G === F || G.k === F.k) return to.slice();
-  const out = to.slice(), dist = Math.abs(to[F.k] - F.v);
-  out[F.k] = F.v; out[G.k] = G.v - G.s * dist; // past G's plane, outward
-  return out;
-}
-
 // The plan for one drag. anchor = { position, quaternion, surface }, w × h = the sticker's size in
 // metres (stampDims), to = B (any point; only its part along the face counts).
 // Returns { step, dir, count, items: [{ i, position }] } with i = 0 the anchor itself; items are
@@ -86,8 +52,7 @@ export function arrayPlan(anchor, w, h, to, { faces = boxFaces(), max = ARRAY_MA
   const n = qApply(q, [0, 0, 1]);
   const F = faceFor(faces, String(anchor.surface || ''), A, n);
   if (!F) return none;
-  const T = unfoldTo(faces, F, to);
-  const d = [T[0] - A[0], T[1] - A[1], T[2] - A[2]]; d[F.k] = 0; // along the face only
+  const d = [to[0] - A[0], to[1] - A[1], to[2] - A[2]]; d[F.k] = 0; // along the face only
   const len = Math.hypot(d[0], d[1], d[2]);
   const one = { step: 0, dir: [0, 0, 0], count: 1, items: [{ i: 0, position: A.slice() }] };
   if (len < 1e-6) return one;
@@ -96,37 +61,14 @@ export function arrayPlan(anchor, w, h, to, { faces = boxFaces(), max = ARRAY_MA
   const step = arrayStep(dot(dir, u), dot(dir, v), w, h);
   if (!(step > 1e-6)) return one;
   const count = Math.min(Math.max(1, max | 0), Math.floor(len / step + 1e-9) + 1);
-  // The path: straight on the anchor's face to its edge, then folded over the seam onto the next face, …
-  const segs = [];
-  let P = A.slice(), dc = dir.slice(), face = F, qq = q.slice(), from = 0;
-  for (let fold = 0; fold <= MAX_FOLDS; fold++) {
-    let t = Infinity, jx = -1, tie = false;
-    for (let j = 0; j < 3; j++) {
-      if (j === face.k || Math.abs(dc[j]) < 1e-9) continue;
-      const tj = Math.max(0, ((dc[j] > 0 ? face.hi[j] : face.lo[j]) - P[j]) / dc[j]);
-      if (tj < t - 1e-9) { t = tj; jx = j; tie = false; } else if (Math.abs(tj - t) <= 1e-9) tie = true;
-    }
-    segs.push({ face, P, dir: dc, q: qq, from, to: from + t, first: fold === 0 });
-    if (!Number.isFinite(t) || tie || fold === MAX_FOLDS) break; // straight into a corner of three faces: the row ends there
-    const bound = dc[jx] > 0 ? face.hi[jx] : face.lo[jx];
-    const next = faces.find((f) => f.k === jx && Math.abs(f.v - bound) < 1e-9);
-    if (!next) break;
-    const n0 = inward(face), n1 = inward(next), ax = cross(n0, n1), sn = Math.SQRT1_2;
-    const P2 = P.map((x, j) => x + dc[j] * t); P2[jx] = next.v;
-    const d2 = dc.slice(); d2[face.k] = face.s * Math.abs(dc[jx]); d2[jx] = 0;
-    qq = qMul([ax[0] * sn, ax[1] * sn, ax[2] * sn, sn], qq);
-    from += t; P = P2; dc = d2; face = next;
-  }
   const items = [];
-  const end = segs[segs.length - 1].to;
+  const eps = 1e-6;
   for (let i = 0; i < count; i++) {
-    const dist = step * i;
-    if (dist > end + 1e-6) break; // ran into a corner of three faces: the rest is not placed
-    const sg = segs.find((x) => dist <= x.to + 1e-9) || segs[segs.length - 1];
-    const o = dist - sg.from;
-    const p = sg.P.map((a, j) => (j === sg.face.k ? (sg.first ? a : sg.face.v) : r6(a + sg.dir[j] * o)));
-    if (sg.first) items.push({ i, position: p });
-    else items.push({ i, position: p, quaternion: sg.q.map(r6), normal: inward(sg.face), surface: sg.face.name });
+    const p = A.map((a, j) => (j === F.k ? a : r6(a + dir[j] * step * i)));
+    let inside = true;
+    for (let j = 0; j < 3; j++) if (j !== F.k && (p[j] < F.lo[j] - eps || p[j] > F.hi[j] + eps)) inside = false;
+    if (!inside) break; // the face is a rectangle: once off it, the rest of the row is off it too
+    items.push({ i, position: p });
   }
   return { step, dir, count, items };
 }
