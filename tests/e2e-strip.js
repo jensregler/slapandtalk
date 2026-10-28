@@ -62,7 +62,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await M.evaluate(() => document.activeElement && document.activeElement.blur());
     const lib = await M.evaluate(() => ({ ...window.klibb.strip(), n2: window.klibb.designs().length }));
     await M.keyboard.press('f'); await M.waitForTimeout(250); // from the first, F goes round to the last
-    await M.waitForFunction(() => { const w = window.klibb.wheel(); return Math.abs(w.pos - w.target) < 0.01; }, null, { timeout: 8000 }).catch(() => {});
+    await M.waitForFunction(() => { const w = window.klibb.wheel(); return Math.abs(w.pos - w.target) < 0.002; }, null, { timeout: 8000 }).catch(() => {}); // settled (the check below wants |d| < 0.01: waiting for < 0.01 raced it)
     const fin = await M.evaluate(() => { const s = window.klibb.strip(), w = window.klibb.wheel(), mid = w.items.find((x) => Math.abs(x.d) < 0.01);
       return { ...s, inView: !!mid && mid.id === s.sel, sel2: window.klibb.state.selected.id }; });
     check(`demo: the strip is the library (${lib.n} = R/F's ${lib.n2}); F to the last one turns the wheel to it (in the middle)`, lib.n === lib.n2 && fin.inView && fin.sel === fin.sel2, { lib: lib.n, fin });
