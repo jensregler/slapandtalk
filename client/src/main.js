@@ -250,6 +250,16 @@ $('undo-btn').onclick = (e) => { e.stopPropagation(); undoRemove(); };
 addEventListener('pagehide', commitRemove);
 // Mina designs i samma ordning som i menyn (nyaste först). R växlar mellan dem.
 function designs() { return DEMO ? state.library : state.mine.slice().reverse(); }
+// The sticker wheel / R/F / the phone's stack (Jens, 28 Oct 2026): the WHOLE library for everyone,
+// not only in the demo – my own uploads first (newest first, as in the palette), then the library in
+// manifest order (a library sticker I also have as an upload only once). The palette stays mine.
+let wheelKey = '', wheelCache = [];
+function wheelDesigns() {
+  if (DEMO) return state.library;
+  const mine = designs(), key = mine.map((d) => d.id).join() + '|' + state.library.length;
+  if (key !== wheelKey) { const have = new Set(mine.map((d) => d.id)); wheelKey = key; wheelCache = [...mine, ...state.library.filter((d) => !have.has(d.id))]; }
+  return wheelCache;
+}
 // En annan flik ändrade listan: hämta den nya.
 addEventListener('storage', (e) => {
   if (e.key === FAV_KEY) { state.favs = readFavs(); renderTray(); return; }
@@ -274,7 +284,7 @@ async function select(img) {
 function nextDesign() { return stepDesign(1); }
 function prevDesign() { return stepDesign(-1); }
 function stepDesign(dir) {
-  const list = designs();
+  const list = wheelDesigns();
   if (!list.length) { if (!DEMO) toast(S.uploadFirst); return null; }
   const i = list.findIndex((d) => d.id === state.selected?.id);
   const next = list[i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length];
@@ -284,7 +294,7 @@ function stepDesign(dir) {
 }
 
 function renderDesignHud() {
-  const list = designs(), sel = state.selected;
+  const list = wheelDesigns(), sel = state.selected;
   const i = sel ? list.findIndex((d) => d.id === sel.id) : -1;
   // touch: the stack shows the next two stickers under the one on top
   for (const [k, id] of [[1, 'design-btn-b1'], [2, 'design-btn-b2']]) {
@@ -325,7 +335,7 @@ const wheel = createWheel($('strip-row'), {
   pick: (img) => { select(img); if (isTouch) stackMenu?.chosen(); },
   onActivity: wheelUp,
 });
-function renderStrip(list = designs(), sel = state.selected, i = sel ? list.findIndex((d) => d.id === sel.id) : -1) {
+function renderStrip(list = wheelDesigns(), sel = state.selected, i = sel ? list.findIndex((d) => d.id === sel.id) : -1) {
   $('design-strip').hidden = !list.length;
   wheel.setList(list);
   wheel.setSelected(sel ? sel.id : null);
@@ -2137,7 +2147,10 @@ if (!DEMO && state.mine.length) select(last(state.mine));
 const LIB_SEL = 'klibb.libSel';
 const libraryReady = fetch('/api/library').then((r) => r.json()).then(({ stickers }) => {
   state.library = Array.isArray(stickers) ? stickers : [];
-  if (!DEMO) return;
+  if (!DEMO) { // the library is on the wheel for everyone; nothing of my own yet → hold the first library sticker
+    if (!state.selected && state.library.length) select(wheelDesigns()[0]); else renderDesignHud();
+    return;
+  }
   const keep = localStorage.getItem(LIB_SEL);
   renderTray(); select(state.library.find((d) => d.id === keep) || state.library[0]);
 }).catch(() => {});
@@ -2208,5 +2221,5 @@ window.klibb = {
   },
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
-  nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
+  nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };

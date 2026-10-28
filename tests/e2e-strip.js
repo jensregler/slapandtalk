@@ -28,6 +28,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     for (const [i, c] of colors.entries()) { const f = path.join(tmp, `s${i}.png`); await sharp({ create: { width: 120, height: 120, channels: 4, background: c } }).png().toFile(f); files.push(f); }
     const made = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await ctx.route('**/api/library', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"stickers":[]}' })); // my own uploads only here (the library on the wheel for everyone: e2e-wheel)
     const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push(e.message));
     await P.goto(`${S.base}/?room=${made.room.id}`);
     await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
@@ -37,7 +38,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const st = () => P.evaluate(() => ({ ...window.klibb.strip(), selected: window.klibb.state.selected.id, ids: window.klibb.designs().map((d) => d.id), count: window.klibb.stamps.count, locked: window.klibb.controls.locked }));
     const s0 = await st();
     check(`the strip runs along the bottom with all ${s0.ids.length} stickers, the current one highlighted (${s0.num})`,
-      s0.shown && s0.n === 5 && s0.sel === s0.selected && s0.rect.bottom >= 799 && s0.rect.height <= 180, s0); // the sticker wheel (e2e-wheel) is taller than the old 46 px strip
+      s0.shown && s0.n === 5 && s0.sel === s0.selected && s0.rect.bottom >= 799 && s0.rect.height <= 290, s0); // the sticker wheel (e2e-wheel; 2× centre) is taller than the old 46 px strip
     check('it stays clear of the crosshair (lower part of the screen) and the old design box is gone', s0.rect.top > 800 / 2 + 100 && await P.isHidden('#design-hud'), s0.rect);
     const target = s0.ids[2];
     { // the wheel: the stickers overlap (the one nearer the middle on top) – click the target where it shows: its outer side

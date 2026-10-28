@@ -13,6 +13,9 @@ export const WHEEL = {
   scaleMin: 0.72,   // … down to this
   dropPx: 2.2,      // the reel curves down a little outwards (px · d²) …
   dropMax: 26,      // … at most this
+  centerScale: 2,   // the middle (held) sticker is twice its neighbours' scale (Jens, 28 Oct 2026) …
+  centerPush: 0.45, // … and its neighbours move out by this × item × (centerScale − 1) so it does not swallow them
+  sideMax: 4,       // at most this many each side are shown (≈ 9 at a time; the rest come in as it turns)
 };
 
 // i mod n, always 0 … n-1
@@ -43,23 +46,27 @@ export const rotationAt = (d) => Math.sign(d) * Math.min(Math.abs(d) * WHEEL.rot
 // Stacking: the middle on top, each step out further behind.
 export const zAt = (d) => 1000 - Math.round(Math.abs(d) * 100);
 
-export const scaleAt = (d) => Math.max(WHEEL.scaleMin, 1 - WHEEL.scaleStep * Math.abs(d));
+// Scale at distance d: the middle WHEEL.centerScale (2×), easing down to the neighbours' 0.93 at
+// |d| = 1 (smooth while it turns), then 0.86, 0.79 … ≥ scaleMin.
+export const baseScaleAt = (d) => Math.max(WHEEL.scaleMin, 1 - WHEEL.scaleStep * Math.abs(d));
+export const scaleAt = (d) => baseScaleAt(d) * (1 + (WHEEL.centerScale - 1) * Math.max(0, 1 - Math.abs(d)));
 
 // How far out (in stickers) there is room for, given the half-width of the wheel in px, the gap
 // from the middle to its neighbour (`first`) and between the others (`gap`, smaller: they overlap).
-export function reach(halfPx, first, gap) {
+export function reach(halfPx, first, gap, max = WHEEL.sideMax) {
   if (!(halfPx > 0)) return 0;
-  return Math.max(0, halfPx <= first ? 0 : 1 + Math.floor((halfPx - first) / gap));
+  return Math.min(max, Math.max(0, halfPx <= first ? 0 : 1 + Math.floor((halfPx - first) / gap)));
 }
 
 // Everything one sticker needs at distance d: x/y offset from the middle (px), rotation (deg),
 // saturation (0–1), scale, z-index and opacity (it fades in/out at the ends of the window, and on a
 // short list where the wheel's two ends meet behind it).
-export function itemAt(d, { n, first = 70, gap = 46, reachN = Infinity } = {}) {
+export function itemAt(d, { n, first = 70, gap = 46, reachN = Infinity, item = first / 0.82 } = {}) {
   const a = Math.abs(d), s = Math.sign(d);
-  const x = s * (Math.min(a, 1) * first + Math.max(a - 1, 0) * gap);
+  const push = WHEEL.centerPush * item * (WHEEL.centerScale - 1);
+  const x = s * (Math.min(a, 1) * (first + push) + Math.max(a - 1, 0) * gap);
   const y = Math.min(WHEEL.dropMax, WHEEL.dropPx * a * a);
   const edge = Math.min(reachN, n > 0 ? n / 2 : Infinity);
-  const op = Math.max(0, Math.min(1, edge + 0.5 - a));
+  const op = Math.max(0, Math.min(1, edge + 1 - a)); // the outermost shown ones (d = reach) still full; they fade out on the way past
   return { d, x, y, rot: rotationAt(d), sat: saturationAt(d), scale: scaleAt(d), z: zAt(d), op };
 }

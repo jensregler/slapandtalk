@@ -113,6 +113,11 @@ hamnar bakom varandra. Varje klibba har en liten tät skugga rakt nedanför. R/F
 över hjulet, dra i det eller klicka på en klibba vrider det (klickar aldrig fast en klibba). Mobilen:
 svep klibbhögen åt sidan (eller hjulet självt) så kommer hjulet upp ovanför högen och följer fingret;
 det går undan en stund efter. Svep upp/ner på högen = nästa/förra som förut.
+**Hela biblioteket på hjulet (28 okt 2026):** hjulet, R/F och mobilens hög innehåller för alla (inte bara i
+demon) dina egna uppladdningar först och sedan hela biblioteket (`/api/library`, manifestordning). Har du inga
+egna håller du bibliotekets första. Hjulet visar bara ~9 åt gången (mitten + högst 4 per sida,
+`WHEEL.sideMax`), resten kommer fram när du vrider, och en bild laddas först när den syns. Mitten är **dubbelt
+så stor** (`WHEEL.centerScale` = 2), grannarna som förut. Paletten/klibbboken visar fortfarande bara dina egna.
 **Skugga på klibban du håller:** ljus uppifrån, så en tät mjuk skugga rakt under (på en vägg en bit
 nedanför, på golv/tak rakt under) – klibban ser ut att sväva. Den följer vridning och storlek och syns
 i 1:a person, 3:e person/kameror och i inspelningar/videor (`StampPreview`, `HELD_SHADOW` i

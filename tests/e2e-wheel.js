@@ -21,9 +21,9 @@ const near = (a, b, e) => Math.abs(a - b) <= e;
 
 // every drawn wheel item: distance, saturation (img filter), rotation (.wh-turn), z-index, opacity
 const styles = (page) => page.evaluate(() => [...document.querySelectorAll('#strip-row .strip-th')].filter((b) => b.style.display !== 'none').map((b) => {
-  const img = b.querySelector('img'), turn = b.querySelector('.wh-turn'), f = getComputedStyle(img).filter, m = new DOMMatrix(getComputedStyle(turn).transform);
-  const sat = /saturate\(([\d.]+)\)/.exec(f); return { id: b.dataset.id, d: Number(b.dataset.d), sat: sat ? Number(sat[1]) : null, rot: Math.atan2(m.b, m.a) * 180 / Math.PI,
-    z: Number(getComputedStyle(b).zIndex), op: Number(getComputedStyle(b).opacity), shadow: getComputedStyle(b).filter, sel: b.classList.contains('sel'), rect: b.getBoundingClientRect().toJSON() };
+  const img = b.querySelector('img'), turn = b.querySelector('.wh-turn'), f = getComputedStyle(img).filter, m = new DOMMatrix(getComputedStyle(turn).transform), sc = Math.hypot(m.a, m.b);
+  const sat = /saturate\(([\d.]+)\)/.exec(f); return { id: b.dataset.id, d: Number(b.dataset.d), scale: sc, sat: sat ? Number(sat[1]) : null, rot: Math.atan2(m.b, m.a) * 180 / Math.PI,
+    z: Number(getComputedStyle(b).zIndex), op: Number(getComputedStyle(b).opacity), shadow: getComputedStyle(b).filter, sel: b.classList.contains('sel'), rect: turn.getBoundingClientRect().toJSON() };
 }));
 // mean luminance of a screen box in a PNG buffer
 async function lum(buf, [x0, y0, x1, y1]) {
@@ -54,6 +54,7 @@ async function lum(buf, [x0, y0, x1, y1]) {
     }
     const made = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await ctx.route('**/api/library', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"stickers":[]}' })); // these checks: my own 6 only (the full library: below)
     const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push(e.message));
     await P.goto(`${S.base}/?room=${made.room.id}`);
     await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
@@ -82,13 +83,15 @@ async function lum(buf, [x0, y0, x1, y1]) {
     const mid = st.find((x) => Math.abs(x.d) < 0.01);
     check('the middle one is the held sticker: 100 % saturation, upright, on top', mid && mid.sel && mid.id === w0.sel && near(mid.sat, 1, 0.01) && near(mid.rot, 0, 0.5) && st.every((x) => x === mid || x.z < mid.z), { mid, st });
     const at = (d) => st.filter((x) => near(Math.abs(x.d), d, 0.01));
+    check('the middle sticker is twice the size (scale 2), the neighbours as before (0.93, then 0.86)', near(mid.scale, 2, 0.01) && at(1).every((x) => near(x.scale, 0.93, 0.01)) && at(2).every((x) => near(x.scale, 0.86, 0.01)), st.map((x) => [x.d, +x.scale.toFixed(3)]));
+    check('…and it still lies on top of them, inside the wheel (not cut off at the bottom)', mid.z > Math.max(...st.filter((x) => x !== mid).map((x) => x.z)) && mid.rect.bottom <= 800 && mid.rect.top >= w0.rect.top - 2, { mid: mid.rect, wheel: w0.rect });
     check('neighbours 70 % saturation (−30 %), the next 40 % (−60 %), further out nearly grey', at(1).length === 2 && at(1).every((x) => near(x.sat, 0.7, 0.01)) && at(2).every((x) => near(x.sat, 0.4, 0.01)) && st.filter((x) => Math.abs(x.d) >= 2.9).every((x) => x.sat <= 0.11), st.map((x) => [x.d, x.sat]));
     check('rotation: right of the middle clockwise (+), left counter-clockwise (−), more further out', st.every((x) => Math.abs(x.d) < 0.01 || Math.sign(x.rot) === Math.sign(x.d))
       && at(2).every((x) => Math.abs(x.rot) > Math.abs(at(1)[0].rot)), st.map((x) => [x.d, Math.round(x.rot)]));
     check('z-order falls outwards (they tuck in behind each other) and they overlap', st.every((a) => st.every((b) => Math.abs(a.d) >= Math.abs(b.d) - 0.01 || a.z > b.z))
       && at(1).some((x) => (x.d > 0 ? x.rect.left < mid.rect.right : x.rect.right > mid.rect.left)), st.map((x) => [x.d, x.z]));
     check('wheel stickers have a drop shadow straight below (on the unturned item)', st.every((x) => /drop-shadow/.test(x.shadow) && /0px 3px/.test(x.shadow)), st[0] && st[0].shadow);
-    await P.mouse.move(640, 300); await P.screenshot({ path: path.join(SHOTS, 'desktop-wheel.png') });
+    await P.mouse.move(640, 300); await P.screenshot({ path: path.join(SHOTS, 'desktop-wheel.png') }); await P.screenshot({ path: path.join(SHOTS, 'center2x-desktop.png') });
 
     // R ×6 = round once, the wheel turning one step right each time (no spin back at the wrap)
     const seq = [], tg = [];
@@ -117,7 +120,7 @@ async function lum(buf, [x0, y0, x1, y1]) {
     const clicked = await P.evaluate(() => ({ sel: window.klibb.state.selected.id, count: window.klibb.stamps.count, locked: window.klibb.controls.locked, w: window.klibb.wheel() }));
     check('clicking the sticker right of the middle picks it and turns it to the middle (no slap, no pointer lock)', clicked.sel === right.id && clicked.count === count0 && !clicked.locked && Number.isInteger(clicked.w.target), { right: right.id, clicked });
     // drag it with the mouse: two stickers' worth to the left → two on
-    const g = await P.evaluate(() => parseFloat(getComputedStyle(document.getElementById('strip-row')).getPropertyValue('--wheel-item')) * 0.5);
+    const g = await P.evaluate(() => parseFloat(getComputedStyle(document.getElementById('strip-row')).getPropertyValue('--wheel-item')) * 0.4) // = wheel.js gap;
     const d0 = await cur();
     await P.mouse.move(640, 740); await P.mouse.down(); for (let k = 1; k <= 8; k++) { await P.mouse.move(640 - (k * 2 * g) / 8, 740); await sleep(30); } await sleep(250); await P.mouse.up(); await sleep(700);
     const d1 = await cur();
@@ -157,7 +160,7 @@ async function lum(buf, [x0, y0, x1, y1]) {
 
     // ---- other aspect ratios spawn 30 cm high too (fresh sessions) ----
     for (const [label, f, want] of [['tall 1:2', files[2], 30], ['square', files[1], 30]]) {
-      const c2x = await browser.newContext({ viewport: { width: 1000, height: 700 } }); const Q = await c2x.newPage(); Q.on('pageerror', (e) => errors.push(e.message));
+      const c2x = await browser.newContext({ viewport: { width: 1000, height: 700 } }); await c2x.route('**/api/library', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"stickers":[]}' })); const Q = await c2x.newPage(); Q.on('pageerror', (e) => errors.push(e.message));
       await Q.goto(`${S.base}/?room=${made.room.id}`); await Q.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
       await Q.setInputFiles('#file', f); await Q.waitForFunction(() => window.klibb.designs().length === 1, null, { timeout: 20000 }); await sleep(300);
       const r = await Q.evaluate(() => { const k = window.klibb, s = k.state.selected; const a = s.width / s.height; return { size: Math.round(k.state.size * 1000) / 10, hCm: Math.round((a >= 1 ? k.state.size / a : k.state.size) * 1000) / 10 }; });
@@ -186,8 +189,40 @@ async function lum(buf, [x0, y0, x1, y1]) {
     await M.mouse.move(640, 300); await sleep(300); await M.screenshot({ path: path.join(SHOTS, 'desktop-wheel-demo.png') });
     await dctx.close();
 
+    // ---- the full library on the wheel for a fresh non-demo user (Jens, 28 Oct 2026) ----
+    const libList = (await (await fetch(`${S.base}/api/library`)).json()).stickers;
+    const lctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const L = await lctx.newPage(); L.on('pageerror', (e) => errors.push(e.message));
+    const fresh = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
+    await L.goto(`${S.base}/?room=${fresh.room.id}`); await L.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.state.selected, null, { timeout: 30000 });
+    await L.waitForFunction(() => { const w = window.klibb.wheel(); return Math.abs(w.pos - w.target) < 0.002; }, null, { timeout: 8000 }).catch(() => {});
+    const lw = await L.evaluate(() => ({ strip: window.klibb.strip(), n: window.klibb.wheelDesigns().length, mine: window.klibb.state.mine.length, sel: window.klibb.state.selected, wheel: window.klibb.wheel(), loaded: [...document.querySelectorAll('#strip-row img')].filter((i) => i.getAttribute('src')).length }));
+    check(`fresh non-demo user: the wheel holds the whole library (${lw.strip.n} ≥ ${libList.length} = /api/library), holding the first one`, libList.length >= 186 && lw.strip.n === libList.length && lw.n === libList.length && lw.mine === 0 && lw.sel.library === true && lw.sel.id === libList[0].id, { n: lw.strip.n, lib: libList.length });
+    const vis = lw.wheel.items.filter((x) => x.op > 0.5);
+    check(`…but shows only about 8–9 at a time (${vis.length} visible, ${lw.loaded} images loaded of ${lw.strip.n})`, vis.length >= 7 && vis.length <= 9 && lw.loaded <= 11, { vis: vis.length, loaded: lw.loaded });
+    st = await styles(L);
+    const outer = st.filter((x) => x.op > 0.5).reduce((a, b) => (Math.abs(b.d) > Math.abs(a.d) ? b : a));
+    check('…the outermost shown ones nearly grey, the middle full colour', outer.sat <= 0.11 && st.some((x) => Math.abs(x.d) < 0.01 && near(x.sat, 1, 0.01)), st.map((x) => [x.d, x.sat]));
+    await L.keyboard.press('f'); await sleep(700);
+    const wrapL = await L.evaluate(() => ({ sel: window.klibb.state.selected.id, w: window.klibb.wheel() }));
+    for (let i = 0; i < 3; i++) await L.keyboard.press('r');
+    await sleep(700);
+    const wrapR = await L.evaluate(() => ({ sel: window.klibb.state.selected.id, w: window.klibb.wheel() }));
+    check(`…wraps over the full list: F from the first = the last (#${libList.length}), R on = the 2nd, 3rd (one step at a time)`, wrapL.sel === libList.at(-1).id && wrapR.sel === libList[2].id && near(wrapR.w.target - wrapL.w.target, 3, 1e-6), { l: wrapL.sel, r: wrapR.sel });
+    // place a library sticker as a normal (non-demo) user
+    const lib2 = wrapR.sel;
+    await L.evaluate(() => { const k = window.klibb; k.setView('first', { quiet: true }); k.moveTo(0, -2.6); k.look(0, 0.12); k.setMode?.('slap'); k.controls.locked = true; });
+    const placed = await L.evaluate(() => window.klibb.stampAt(0, 0).then((s) => s && { id: s.id, imageId: s.imageId, artist: s.artist }));
+    await sleep(500);
+    const onSrv = (await (await fetch(`${S.base}/api/rooms/${fresh.room.id}/stamps`)).json()).stamps;
+    check('placing a library sticker as a non-demo user works (on the server, with the library artist)', placed && placed.imageId === lib2 && onSrv.some((x) => x.id === placed.id && x.imageId === lib2), { placed, n: onSrv.length });
+    await L.evaluate(() => { window.klibb.controls.locked = false; });
+    await L.screenshot({ path: path.join(SHOTS, 'wheel-library.png') });
+    await lctx.close();
+
     // ---- phone: a sideways swipe on the stack turns the wheel ----
     const pctx = await browser.newContext({ ...devices['iPhone 13'] });
+    await pctx.route('**/api/library', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"stickers":[]}' }));
     const T = await pctx.newPage(); T.on('pageerror', (e) => errors.push(e.message));
     await T.goto(`${S.base}/?room=${made.room.id}`); await T.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
     for (let i = 0; i < files.length; i++) { await T.setInputFiles('#file', files[i]); await T.waitForFunction((n) => window.klibb.designs().length === n, i + 1, { timeout: 20000 }); }
@@ -198,11 +233,12 @@ async function lum(buf, [x0, y0, x1, y1]) {
     check('phone: no wheel at first (only the joystick and the stack)', !(await T.evaluate(() => window.klibb.strip().shown)) && await T.isVisible('#design-btn'));
     const cdp = await pctx.newCDPSession(T);
     const tcur = () => T.evaluate(() => window.klibb.designs().findIndex((d) => d.id === window.klibb.state.selected.id));
-    const tg2 = await T.evaluate(() => parseFloat(getComputedStyle(document.getElementById('strip-row')).getPropertyValue('--wheel-item')) * 0.5);
-    const swipe = async (x, y, dx, { hold = 0, shot = '' } = {}) => {
+    const tg2 = await T.evaluate(() => parseFloat(getComputedStyle(document.getElementById('strip-row')).getPropertyValue('--wheel-item')) * 0.4) // = wheel.js gap;
+    const swipe = async (x, y, dx, { hold = 0, shot = '', midShot = '' } = {}) => {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
       for (let i = 1; i <= 10; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / 10, y: y + i * 0.3 }] }); await sleep(25); }
       if (hold) await sleep(hold);
+      if (midShot) await T.screenshot({ path: midShot });
       const mid = await T.evaluate(() => ({ shown: window.klibb.strip().shown, rect: window.klibb.strip().rect, dragging: window.klibb.wheel().dragging }));
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(700);
       if (shot) await T.screenshot({ path: shot }); // let go: the wheel still up, settled on the new one
@@ -211,11 +247,12 @@ async function lum(buf, [x0, y0, x1, y1]) {
     const sb = await T.locator('#design-btn').boundingBox();
     const sx = sb.x + sb.width / 2, sy = sb.y + sb.height / 2;
     const p0 = await tcur(), sel0p = await T.evaluate(() => window.klibb.state.selected.id);
-    const m1 = await swipe(sx, sy, -2 * tg2, { hold: 200 });
+    const m1 = await swipe(sx, sy, -2 * tg2, { hold: 400, midShot: path.join(SHOTS, 'center2x-mobile.png') });
     const p1 = await tcur();
     const h1 = await T.evaluate(() => window.klibb.held());
     check('phone: swiping the stack sideways (left, two stickers\' worth) brings the wheel up and turns it two on', m1.shown && m1.dragging && p1 === (p0 + 2) % 6, { m1, p0, p1 });
-    check('phone: the wheel sits above the joystick and the stack, clear of them', m1.rect.bottom < sb.y + 2 && m1.rect.left >= 60, { rect: m1.rect, stack: sb });
+    const joy = await T.locator('#joystick').boundingBox();
+    check('phone: the wheel sits above the joystick and the stack, clear of them', m1.rect.bottom < sb.y + 2 && m1.rect.bottom < joy.y + 2 && m1.rect.left >= 0, { rect: m1.rect, stack: sb, joy });
     check('phone: the new sticker is in your hand, sharp (held timer: holding), the size kept', h1.state === 'holding' && h1.heldOpacity === 1 && (await tsize()) === 60, h1);
     // on the band itself while it is up: swipe right = back, and round past the first
     const band = await T.evaluate(() => window.klibb.strip().rect);

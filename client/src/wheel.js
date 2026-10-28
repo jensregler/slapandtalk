@@ -6,7 +6,7 @@
 // Each sticker is a <button class="strip-th" data-id> (translate only, and the drop shadow – light
 // from above, so the shadow stays straight below however the sticker turns) holding a <span>
 // (rotate + scale) holding the <img> (saturation). Only the stickers in reach are drawn.
-import { wrapDist, indexAt, targetFor, itemAt, reach, mod } from '../../shared/wheel.mjs';
+import { wrapDist, indexAt, targetFor, itemAt, reach, mod, WHEEL } from '../../shared/wheel.mjs';
 
 export function createWheel(row, o) {
   // o: { pick(img), touch, onActivity() }
@@ -14,7 +14,7 @@ export function createWheel(row, o) {
   let drag = null, wheelIdle = 0, selId = null, suppressClick = false;
   const dims = () => {
     const cs = getComputedStyle(row), item = parseFloat(cs.getPropertyValue('--wheel-item')) || 88;
-    return { item, first: item * 0.82, gap: item * 0.5, half: row.clientWidth / 2 };
+    return { item, first: item * 0.82, gap: item * 0.4, half: row.clientWidth / 2 };
   };
 
   function setList(next) {
@@ -25,7 +25,7 @@ export function createWheel(row, o) {
     for (const d of next) {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'strip-th'; b.dataset.id = d.id; b.setAttribute('role', 'option'); b.tabIndex = -1;
-      b.innerHTML = `<span class="wh-turn"><img src="${d.url}" alt="" loading="lazy" draggable="false"></span>`;
+      b.innerHTML = `<span class="wh-turn"><img data-src="${d.url}" alt="" decoding="async" draggable="false"></span>`;
       b.onclick = (e) => {
         e.preventDefault(); e.stopPropagation();
         if (suppressClick) { suppressClick = false; return; }
@@ -64,12 +64,14 @@ export function createWheel(row, o) {
   function render() {
     const n = list.length; if (!n) return;
     const { item, first, gap, half } = dims();
-    const r = reach(half - item * 0.35, first, gap);
+    const r = reach(half - item * 0.35 - WHEEL.centerPush * item * (WHEEL.centerScale - 1), first, gap);
     for (let i = 0; i < btns.length; i++) {
       const b = btns[i], d = wrapDist(i, pos, n);
-      if (Math.abs(d) > r + 0.5) { if (b.style.display !== 'none') b.style.display = 'none'; continue; }
-      const it = itemAt(d, { n, first, gap, reachN: r });
+      if (Math.abs(d) > r + 1) { if (b.style.display !== 'none') b.style.display = 'none'; continue; }
+      const it = itemAt(d, { n, first, gap, reachN: r, item });
       b.style.display = '';
+      const im = b.firstElementChild.firstElementChild;
+      if (!im.getAttribute('src')) im.src = im.dataset.src; // load an image only once it comes into view (186+ on the wheel)
       b.style.transform = `translate(${it.x.toFixed(1)}px, ${it.y.toFixed(1)}px)`;
       b.style.zIndex = String(it.z); b.style.opacity = it.op.toFixed(3);
       b.style.pointerEvents = it.op > 0.5 ? '' : 'none';

@@ -1,6 +1,6 @@
 // Unit tests: the sticker wheel's maths (shared/wheel.mjs) – wrap-around, saturation, rotation, z-order.
 import assert from 'node:assert/strict';
-import { wrapDist, indexAt, targetFor, saturationAt, rotationAt, zAt, itemAt, reach, mod } from '../shared/wheel.mjs';
+import { wrapDist, indexAt, targetFor, saturationAt, rotationAt, zAt, itemAt, reach, mod, scaleAt, WHEEL } from '../shared/wheel.mjs';
 
 let passed = 0, failed = 0;
 const ok = (name, fn) => { try { fn(); passed++; console.log('  ✓ ' + name); } catch (e) { failed++; console.log('  ✗ ' + name + '  — ' + e.message); } };
@@ -37,11 +37,21 @@ ok('z-order: the middle on top, each step out further behind (they tuck in behin
 });
 ok('itemAt: positions symmetric, overlapping (gap < item), fading only at the ends of the window', () => {
   const a = itemAt(2, { n: 20, first: 72, gap: 44, reachN: 4 }), b = itemAt(-2, { n: 20, first: 72, gap: 44, reachN: 4 });
-  assert.equal(a.x, -b.x); assert.equal(a.x, 72 + 44); assert.equal(a.op, 1); assert.ok(a.y > 0);
-  assert.equal(itemAt(5, { n: 20, reachN: 4 }).op, 0); assert.ok(near(itemAt(4.25, { n: 20, reachN: 4 }).op, 0.25));
+  assert.equal(a.x, -b.x); assert.ok(near(a.x, 72 + WHEEL.centerPush * (72 / 0.82) * (WHEEL.centerScale - 1) + 44, 1e-9)); assert.equal(a.op, 1); assert.ok(a.y > 0);
+  assert.equal(itemAt(5, { n: 20, reachN: 4 }).op, 0); assert.equal(itemAt(4, { n: 20, reachN: 4 }).op, 1); assert.ok(near(itemAt(4.75, { n: 20, reachN: 4 }).op, 0.25));
   assert.equal(itemAt(0, { n: 1 }).op, 1, 'one sticker: just the one');
 });
-ok('reach: how many fit each side', () => { assert.equal(reach(300, 72, 44), 6); assert.equal(reach(50, 72, 44), 0); assert.equal(reach(0, 72, 44), 0); });
+ok('reach: how many fit each side – at most WHEEL.sideMax (4: ~9 shown of any length)', () => { assert.equal(reach(300, 72, 44), 4); assert.equal(reach(300, 72, 44, 9), 6); assert.equal(reach(50, 72, 44), 0); assert.equal(reach(0, 72, 44), 0); });
+
+ok('centre twice the size: scale 2 in the middle, neighbours 0.93 / 0.86 as before, smooth between', () => {
+  assert.equal(WHEEL.centerScale, 2); assert.equal(scaleAt(0), 2); assert.ok(near(scaleAt(1), 0.93)); assert.ok(near(scaleAt(-2), 0.86));
+  assert.ok(scaleAt(0.5) < 2 && scaleAt(0.5) > 0.93);
+});
+ok('a full library (190): only ~9 drawn, the outermost shown nearly grey', () => {
+  const n = 190, r = reach(400, 82, 40), shown = [];
+  for (let i = 0; i < n; i++) { const it = itemAt(wrapDist(i, 0, n), { n, first: 82, gap: 40, reachN: r }); if (it.op > 0.5) shown.push(it); }
+  assert.equal(shown.length, 9); assert.ok(Math.max(...shown.map((x) => Math.abs(x.d))) === 4); assert.ok(shown.filter((x) => Math.abs(x.d) === 4).every((x) => x.sat === 0));
+});
 
 console.log(`\nSticker wheel unit tests: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
