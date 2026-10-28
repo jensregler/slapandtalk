@@ -598,7 +598,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.reload(); await waitReady(d);
     assert((await hist()).n === 0, 'historik för stämplar som inte finns längre rensas bort');
 
-    // ---------- Klibbläge / Tittläge (V) ----------
+    // ---------- Klibbläge / Tittläge (G; V = Slap ⇄ Nature mode since 28 Oct 2026: e2e-naturemode.js) ----------
     const modeInfo = () => d.evaluate(() => ({ mode: window.klibb.state.mode, hud: document.getElementById('mode-hud').textContent,
       preview: window.klibb.preview.mesh.visible, count: window.klibb.stamps.count, size: window.klibb.state.size,
       rot: window.klibb.state.rotation, sel: window.klibb.state.selected && window.klibb.state.selected.id, locked: window.klibb.controls.locked }));
@@ -607,9 +607,9 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.waitForTimeout(300);
     const m0 = await modeInfo();
     assert(m0.locked && m0.mode === 'slap' && m0.hud === 'Slap mode · V' && m0.preview, 'Klibbläge från början: pekaren syns');
-    await d.keyboard.press('v'); await d.waitForTimeout(200);
+    await d.keyboard.press('g'); await d.waitForTimeout(200);
     const m1 = await modeInfo();
-    assert(m1.mode === 'view' && m1.hud === 'Look mode · V' && !m1.preview, 'V slår på Tittläge och döljer pekaren');
+    assert(m1.mode === 'view' && m1.hud === 'Look mode · G' && !m1.preview, 'G slår på Tittläge och döljer pekaren');
     await d.mouse.click(900, 400); await d.waitForTimeout(400);
     await d.mouse.wheel(0, 300); await d.keyboard.press('q'); await d.keyboard.press('e'); await d.keyboard.press('q');
     await d.waitForTimeout(200);
@@ -622,12 +622,12 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.waitForFunction(() => !document.getElementById('toast').classList.contains('show'), null, { timeout: 5000 });
     await d.waitForTimeout(300);
     await d.screenshot({ path: path.join(SHOTS, '13-tittlage-dator.png') });
-    await d.keyboard.press('v'); await d.waitForTimeout(200);
+    await d.keyboard.press('g'); await d.waitForTimeout(200);
     await d.mouse.click(900, 400);
     await d.waitForFunction((n) => window.klibb.stamps.count === n + 1, m3.count, { timeout: 5000 });
     await d.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 5000 }); // servern har bekräftat
     const m4 = await modeInfo();
-    assert(m4.mode === 'slap' && m4.preview && m4.count === m3.count + 1, 'V igen: Klibbläge, pekaren syns och klick stämplar igen');
+    assert(m4.mode === 'slap' && m4.preview && m4.count === m3.count + 1, 'G igen: Klibbläge, pekaren syns och klick stämplar igen');
     // ---------- Klibban syns direkt, även när servern (lagringen) är långsam ----------
     const SLOW = 1500;
     const slowStamps = async (route) => { if (route.request().method() === 'POST') await new Promise((r) => setTimeout(r, SLOW)); return route.continue(); };
@@ -865,7 +865,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     assert(cs[0].artist === 'Ulla K' && cs[0].artistLink === 'https://www.instagram.com/ulla.k' && cs[1].artist === '' && !cs[1].artistLink,
       'klibban sparas med konstnärens namn och länk (och utan, när fälten är tomma)');
     await C.mouse.click(900, 400); await C.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
-    await C.keyboard.press('v');
+    await C.keyboard.press('g');
     await C.waitForFunction(() => window.klibb.state.mode === 'view');
     // A click in Look mode, aimed by the dot. (Headless Chromium sends a big fake mousemove with a real
     // mouse click under pointer lock, which turns the camera: so the click is dispatched on the canvas.)
@@ -917,9 +917,9 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await clickAt(0); const crWall = (await clickAt(0, 1.4)).shown;
     assert(!anon && !crWall, 'clicking a sticker without a name or link, or empty wall/ceiling, hides the credit');
     await clickAt(0);
-    await C.keyboard.press('v'); await C.waitForTimeout(300);
+    await C.keyboard.press('g'); await C.waitForTimeout(300);
     const inSlap = await C.evaluate(() => window.klibb.credit().shown);
-    await C.keyboard.press('v'); await C.waitForTimeout(200);
+    await C.keyboard.press('g'); await C.waitForTimeout(200);
     await clickAt(0);
     const crBefore = await C.evaluate(() => window.klibb.credit().shown);
     await C.keyboard.press('Escape'); await C.waitForTimeout(400);

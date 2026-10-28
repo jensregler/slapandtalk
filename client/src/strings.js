@@ -81,10 +81,12 @@ export const EN = {
   linkOpen: 'Open', linkCancel: 'Cancel',
 
   // ---------- Modes ----------
-  slapMode: 'Slap mode', lookMode: 'Look mode',
-  modeHud: (view, touch) => (view ? 'Look mode' : 'Slap mode') + (touch ? '' : ' · V'),
+  slapMode: 'Slap mode', lookMode: 'Look mode', natureMode: '🌿 Nature',
+  // m = 'slap' | 'nature' | 'look'. V = Slap ⇄ Nature, G = Look mode (the demo, no nature: V = Look mode).
+  modeHud: (m, touch, demo) => ({ slap: 'Slap mode', nature: '🌿 Nature mode', look: 'Look mode' }[m] || 'Slap mode') + (touch ? '' : m === 'look' && !demo ? ' · G' : ' · V'),
   modeBtnToSlap: 'Back to slap mode', modeBtnToLook: 'Look mode: hide the pointer and just look',
-  modeToastLook: (touch) => (touch ? 'Look mode: just look around.' : 'Look mode: just look around. V = slap again.'),
+  modeToastLook: (touch, demo) => (touch ? 'Look mode: just look around.' : `Look mode: just look around. ${demo ? 'V' : 'G'} = slap again.`),
+  modeToastNature: (touch) => (touch ? 'Nature mode: nature stickers and the sound of nature.' : 'Nature mode: nature stickers and the sound of nature. V = slap mode.'),
   modeToastSlap: (touch) => (touch ? 'Slap mode: tap where you want to slap.' : 'Slap mode: click to slap.'),
   modeSwitch: 'Mode',
   // ---------- 1st / 3rd person ----------
@@ -122,14 +124,15 @@ export const EN = {
   peelFailed: 'Could not peel right now, try again.',
   peelBtnAria: 'Peel my last sticker', peelBtnTitle: 'Peel (undo) my last sticker',
   modeBtnAria: 'Look mode on/off',
+  natureModeLocked: 'Nature mode is part of the full version',
 
   // ---------- Desktop / touch help ----------
   enter: 'Enter the room',
   resumeHint: 'Click to enter',
-  quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V look mode · C 3rd person · T chat',
+  quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C 3rd person · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
-    + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = look mode on/off '
-    + '(hides the pointer, clicks do nothing; V again = slap mode), C = 1st/3rd person (see your avatar from behind), P = 📷 photo of what you see, Esc = menu (Esc again = back into the room). '
+    + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = Slap mode / 🌿 Nature mode (nature stickers + the sound of nature; full version), G = look mode on/off '
+    + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), P = 📷 photo of what you see, Esc = menu (Esc again = back into the room). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Visit the City opens the shared room (the plain address takes you to your most recent room). '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',

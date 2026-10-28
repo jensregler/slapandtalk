@@ -45,13 +45,13 @@ async function bakeE2E({ browser, BASE, assert, waitReady, TOKEN }) {
     assert(calls < 30 + 15, `few draw calls with 34 stickers (${calls})`);
     // Artist credit (Look mode) finds the baked sticker under the dot
     await P.mouse.click(600, 250); await P.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
-    await P.keyboard.press('v'); await P.waitForFunction(() => window.klibb.state.mode === 'view');
+    await P.keyboard.press('g'); await P.waitForFunction(() => window.klibb.state.mode === 'view');
     await P.evaluate(() => window.klibb.look(0, 0)); await P.waitForTimeout(200);
     // Look mode: the credit shows on click (dispatched on the canvas, aimed by the dot)
     await P.evaluate(() => { const c = document.getElementById('scene'); for (const t of ['mousedown', 'mouseup', 'click']) c.dispatchEvent(new MouseEvent(t, { bubbles: true, button: 0 })); });
     await P.waitForFunction(() => window.klibb.credit().shown, null, { timeout: 3000 });
     assert((await P.evaluate(() => window.klibb.credit().name)) === 'Blå', 'Look mode: the artist credit still works on a painted-in sticker (the top one)');
-    await P.keyboard.press('v'); await P.evaluate(() => window.klibb.controls.unlock());
+    await P.keyboard.press('g'); await P.evaluate(() => window.klibb.controls.unlock());
     // My own sticker stays live (peelable) even when 31 newer ones come after it
     const mine = await P.evaluate(async (g) => { const k = window.klibb; k.state.selected = g; k.look(0.5, 0); await new Promise((r) => setTimeout(r, 100)); const s = await k.stampAt(0, 0); return s && s.id; }, green);
     for (let i = 0; i < 31; i++) await post(green, -4 + (i % 20) * 0.4, wall.y - 1 - Math.floor(i / 20) * 0.3, 0.2);

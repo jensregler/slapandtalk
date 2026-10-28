@@ -20,7 +20,7 @@ README:n (och koden) är fortfarande på svenska; knapparnas namn står här som
 
 **Första vyn är enkel:** i menyn syns bara det viktigaste: rummets namn och typ, **Room ▾**
 (*＋ New quick room*, *🔗 Share link*, *🏙 Visit the City*), vilka som är här,
-**⬆ Upload sticker**, dina designs, **Slap mode / Look mode**, **Enter the room** och **⚙ More**.
+**⬆ Upload sticker**, dina designs, **Slap mode / 🌿 Nature / Look mode**, **Enter the room** och **⚙ More**.
 Allt annat ligger under **⚙ More**: storlek, rotation, slumpvridning och artistnamn, *My slaps in
 this room* (historiken och peel), vilka som är här och **🧍 My avatar**, rummets utseende
 (*🎨 Change room look*), ljud, **🎬 Recording** med kamerorna, och hjälpen. På mobilen öppnas
@@ -33,7 +33,7 @@ Gå med **W A S D**, titta med musen och **klicka** för att stämpla (*slap*). 
 rummet – reglaget går till 4 m, hjulet längre. Storleken gäller klibbans längsta sida. Klibbor som redan sitter
 uppe får behålla sin storlek). Den första klibban du håller **börjar 30 cm hög** (oavsett format; en bred blir
 bredare än 30 cm), sedan behåller den storleken du har när du byter klibba (R/F, hjulet, paletten, en ny uppladdning)),
-**Q/E** vrider klibban, **R** byter till nästa design, **F** till förra, **V** växlar mellan Slap mode och Look mode, **M**
+**Q/E** vrider klibban, **R** byter till nästa design, **F** till förra, **V** växlar mellan Slap mode och 🌿 Nature mode, **G** slår på/av Look mode, **M**
 stänger av/slår på ljudet och **Esc** tar dig tillbaka till menyn.
 
 **Ljud:** varje gång du stämplar hörs ett kort, smackigt *slap*, och när du peelar ett mjukare
@@ -70,12 +70,22 @@ anropen till servern slås ihop: högst ett anrop åt gången, med allt som hunn
 tiden. Svarar servern att en klibba inte gick att peela (för gammal) eller blir det fel på nätet,
 kommer den tillbaka på väggen.
 
-**Slap mode och Look mode (V):** du börjar i *Slap mode*: den genomskinliga pekaren visar var
-klibban hamnar och ett klick stämplar. Tryck **V** (eller knappen *Look mode*) när du vill kliva
+**Slap mode och 🌿 Nature mode (V; Jens 28 okt 2026):** du börjar i *Slap mode*. **V** växlar till
+*Nature mode*: du håller en nature-klibba (den du hade senast, annars den första på Nature-hjulet),
+Nature-hjulet blir aktivt och naturljudet spelas i en slinga (vind, löv, fåglar då och då;
+`client/src/ambience.js`). **V** igen = tillbaka till klibban du hade på klibbhjulet, ljudet tonar ut.
+Att välja ur Nature-hjulet/🌿-listan ger också Nature mode, att välja ur klibbhjulet Slap mode. Ljud av
+(**M**) tystar även naturljudet. Nature hör till fullversionen: i gratisversionen öppnar V (och
+panelens 🌿-knapp) fullversionspanelen och du stannar i Slap mode. Demot har inga nature-klibbor: där
+är V kvar som Look mode. *Naturljudet fanns inte sedan tidigare* (inget i koden, assets eller git-
+historiken), så det är nytt och procedurellt som alla andra ljud här (ingen fil, ingen licens). En
+riktig inspelning kan ersätta det utan kod: lägg `client/public/audio/nature-ambience.mp3` (eller .ogg).
+
+**Look mode (G, förr V):** tryck **G** (eller knappen *Look mode*) när du vill kliva
 tillbaka och beundra väggen: pekaren och siktet försvinner (kvar är bara en liten prick), klick
 stämplar inte och scroll/Q/E gör ingenting. Gå och titta som vanligt. **R** byter fortfarande
-design i Look mode, men du stannar kvar där tills du trycker **V** igen. Längst ner i bild står
-vilket läge du är i. V fungerar inte medan du skriver i ett textfält, och Ctrl+V (klistra in)
+design i Look mode, men du stannar kvar där tills du trycker **G** (eller V) igen. Längst ner i bild står
+vilket läge du är i. V/G fungerar inte medan du skriver i ett textfält, och Ctrl+V (klistra in)
 växlar inte läge.
 
 **Första eller tredje person (C):** tryck **C** (eller *3rd person* under ⚙ More, eller 👤 på
@@ -160,7 +170,7 @@ inga 👤/↩/👁-knappar. Styrspaken = gå, **dra med fingret** = titta.
   en nyvald klibba är skarp tills du satt den första gången; efter varje klibba syns den
   `HELD_VISIBLE_MS` = 10 s och tonar sedan bort på `HELD_FADE_MS` = 1 s. Bortonad = bara titta
   (tryck på en klibba visar vem som gjorde den). **Ett tryck på skärmen tar tillbaka den** (nya
-  10 s) – det trycket klibbar aldrig. Varje ny klibba startar om de 10 s. Datorn har kvar V / Look mode.
+  10 s) – det trycket klibbar aldrig. Varje ny klibba startar om de 10 s. Datorn har kvar Look mode (G).
 - 💬- och 🎙-bubblorna uppe till höger syns bara när de behövs (olästa meddelanden, mikrofonen på).
 Koden: `client/src/stackmenu.js` (+ CSS under *Touch layout* i `style.css`). Datorlayouten är oförändrad.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.
@@ -177,7 +187,7 @@ inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) finns en 
 - **Chatt:** på datorn trycker du **T** eller **Enter**, skriver och trycker **Enter** för att
   skicka (**Esc** stänger). På mobilen trycker du på **💬**. Meddelandet syns i chatten med namn och
   tid, och en stund som en pratbubbla ovanför din gubbe. Medan du skriver går det inte att gå
-  eller stämpla med tangenterna (WASD, V, R, Z, Q och E skrivs bara in i texten).
+  eller stämpla med tangenterna (WASD, V, G, R, Z, Q och E skrivs bara in i texten).
   De senaste 50 meddelandena finns kvar så länge någon är i rummet; de sparas aldrig på disk.
   Max 300 tecken per meddelande och en spärr mot spam (ungefär ett meddelande varannan sekund).
   Inget filter: det är fritt fram.
@@ -705,7 +715,7 @@ den valda stickern vid hårkorset, steg för steg i en **sekvens**.
   t.ex. volym), mushjulet över en ruta = första parametern (volym). Skylten nere till vänster
   ("Auto-slap 2.7/s", "· paused") syns medan den är på.
 - **Tangenter:** **H** på/av; **,** långsammare / **.** snabbare (Free rate: en kvarts oktav per tryck;
-  On the beat: sekvensen ett steg kortare/längre). Kollat mot V, M, C, L, Q, E, R, F, Z, B, T, P och [ ].
+  On the beat: sekvensen ett steg kortare/längre). Kollat mot V, G, M, C, L, Q, E, R, F, Z, B, T, P och [ ].
   **Esc** stänger av den.
 - **Sekvensen:** längd **1–32** (vilket heltal som helst, standard 8; utanför klämms den). Längre = nya
   steg med standardvärden; kortare = de dolda stegen sparas (alla 32 finns alltid) och kommer tillbaka.

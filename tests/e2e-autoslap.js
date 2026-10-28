@@ -116,10 +116,10 @@ const KEY = 'autoslap-e2e-full-key';
     check(`on the beat, 4 steps per bar: ~${(bs * 4 / 1.5).toFixed(1)} in ${bs.toFixed(1)} s (fired ${bf}; step ${log} ms)`, Math.abs(log - 375) < 1 && bf >= bs * 4 / 1.5 * 0.6 && bf <= bs * 4 / 1.5 + 2, bf);
 
     // Look mode pauses
-    await p.keyboard.press('KeyV');
+    await p.keyboard.press('KeyG');
     const l0 = (await info()).fired; await sweep(1000); const lk = await info();
     check('Look mode: paused (still on, nothing fires)', lk.on && lk.paused && lk.fired === l0 && /paused/.test(lk.chip), lk);
-    await p.keyboard.press('KeyV');
+    await p.keyboard.press('KeyG');
     // the chat pauses (our own unlock: it stays on)
     await p.keyboard.press('KeyT'); await p.waitForTimeout(300);
     const c0f = (await info()).fired; await p.waitForTimeout(800); const ch = await info();
