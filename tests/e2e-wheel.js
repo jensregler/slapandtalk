@@ -190,7 +190,8 @@ async function lum(buf, [x0, y0, x1, y1]) {
     await dctx.close();
 
     // ---- the full library on the wheel for a fresh non-demo user (Jens, 28 Oct 2026) ----
-    const libList = (await (await fetch(`${S.base}/api/library`)).json()).stickers;
+    const allLib = (await (await fetch(`${S.base}/api/library`)).json()).stickers;
+    const libList = allLib.filter((d) => !d.nature); // the sticker wheel: everything but the nature stickers (their own wheel: e2e-naturewheel.js)
     const lctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const L = await lctx.newPage(); L.on('pageerror', (e) => errors.push(e.message));
     const fresh = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
@@ -205,8 +206,8 @@ async function lum(buf, [x0, y0, x1, y1]) {
     const libIds = libList.map((d) => d.id);
     const pageLib = await L.evaluate(() => ({ wheel: [...document.querySelectorAll('#strip-row [data-id]')].map((b) => b.dataset.id), tray: [...document.querySelectorAll('#libtray .thumb')].map((t) => t.dataset.id), count: document.getElementById('lib-count').textContent, boxHidden: document.getElementById('lib-box').hidden }));
     check(`…every library sticker is on the wheel (${pageLib.wheel.length}) and in "All stickers" (${pageLib.tray.length} = ${libIds.length})`, JSON.stringify(pageLib.wheel) === JSON.stringify(libIds) && JSON.stringify(pageLib.tray) === JSON.stringify(libIds) && pageLib.count === `(${libIds.length})` && !pageLib.boxHidden, { w: pageLib.wheel.length, t: pageLib.tray.length, count: pageLib.count });
-    const served = await Promise.all(libList.map((d) => fetch(`${S.base}${d.url}`).then((r) => r.ok && /image\/webp/.test(r.headers.get('content-type') || '')).catch(() => false)));
-    check(`…and every one of the ${libList.length} library images is served (/uploads/<id>.webp)`, served.every(Boolean), { bad: libList.filter((d, i) => !served[i]).map((d) => d.id) });
+    const served = await Promise.all(allLib.map((d) => fetch(`${S.base}${d.url}`).then((r) => r.ok && /image\/webp/.test(r.headers.get('content-type') || '')).catch(() => false)));
+    check(`…and every one of the ${allLib.length} library images (nature too) is served (/uploads/<id>.webp)`, served.every(Boolean), { bad: allLib.filter((d, i) => !served[i]).map((d) => d.id) });
     const far = libList[100];
     await L.evaluate((id) => document.querySelector(`#libtray .thumb[data-id="${id}"] .pick`).click(), far.id); await sleep(400);
     await L.waitForFunction(() => { const w = window.klibb.wheel(); return Math.abs(w.pos - w.target) < 0.002; }, null, { timeout: 8000 }).catch(() => {});

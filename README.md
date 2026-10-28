@@ -113,6 +113,16 @@ hamnar bakom varandra. Varje klibba har en liten tät skugga rakt nedanför. R/F
 över hjulet, dra i det eller klicka på en klibba vrider det (klickar aldrig fast en klibba). Mobilen:
 svep klibbhögen åt sidan (eller hjulet självt) så kommer hjulet upp ovanför högen och följer fingret;
 det går undan en stund efter. Svep upp/ner på högen = nästa/förra som förut.
+**Två hjul: Nature + klibbor (28 okt 2026):** till VÄNSTER sitter **Nature-hjulet** (bibliotekets 80
+nature-klibbor ur Dropbox `/Ulla/nature`, samma utseende och beteende: färgtrappa, ~9 synliga, mitten 2×,
+förladdning, skugga), till HÖGER klibbhjulet med allt annat (inga nature-klibbor där, inte heller i All
+stickers – de har en egen lista **🌿 Nature (80)**). **Aktivt hjul** = det den hållna klibban kommer från:
+klick/tryck/vridning på ett hjul (eller ett val ur dess lista) gör det aktivt; R/F, högens svep och högen
+följer det aktiva. Mobilen: två band sida vid sida (Nature till vänster). **Betalvägg:** Nature-hjulet hör
+till fullversionen (`entitlements.full.natureStickers`, ny flagga i `FEATURES`). I gratisversionen är det
+gråtonat och låst (🔒 Nature · Full version); ett klick (eller ett val i 🌿-listan) öppnar fullversionspanelen
+och inget hålls. Servern svarar 403 `{ full: true, feature: 'natureStickers' }` på nature-stämplar och -rader
+utan flaggan (admin undantagen). Test: `tests/e2e-naturewheel.js`.
 **Hela biblioteket på hjulet (28 okt 2026):** hjulet, R/F och mobilens hög innehåller för alla (inte bara i
 demon) dina egna uppladdningar först och sedan hela biblioteket (`/api/library`, manifestordning). Har du inga
 egna håller du bibliotekets första. Hjulet visar bara ~9 åt gången (mitten + högst 4 per sida,
@@ -784,7 +794,7 @@ alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan pref
 - **Gränser:** gratisversionen 15 cm – 1 m (både i webbappen – reglaget, hjulet, startstorleken – och på
   servern vid slap, där för små/stora gratisklibbor klämms till 15 cm / 1 m). Fullversionen (`bigStickers`):
   5 cm och uppåt, ingen övre gräns. Klibbor som redan sitter uppe behåller sin storlek.
-- **Nature-klibbor (28 okt 2026, `shared/nature.mjs`):** biblioteksklibbor vars namn börjar på `nature` (alla
+- **Nature-klibbor (28 okt 2026, `shared/nature.mjs`; fullversionen, se Två hjul):** biblioteksklibbor vars namn börjar på `nature` (alla
   skiftlägen; importen ger varje fil i en mapp som heter `nature` det prefixet och `nature: true`) får för alla,
   även gratis: **minst `NATURE.minCm` = 5 cm, högst `NATURE.maxHeightCm` = 400 cm HÖG** (längsta sidan alltså
   400 cm × längsta/höjd, för en bred bild mer). Webbappen (reglage, hjul, slap, mobilens reglage) och servern
