@@ -536,19 +536,25 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
   let items = A.arrayPlan(anchor, w, h, b.to).items.filter((x) => x.i > 0);
   if (!items.length) return res.status(400).json({ error: 'Nothing to repeat', empty: true });
   const peelSt = await store.peelState(room);
-  if (peelSt.on && peelSt.peels.length && P.onFloor(String(anchor.surface || ''), anchor.normal)) {
+  // A row can fold over seams onto the next face (shared/array.mjs): such copies carry their own
+  // quaternion, normal and surface (computed here, never taken from the client).
+  const at = (x) => ({ ...anchor, position: x.position, ...(x.surface ? { surface: x.surface, normal: x.normal, quaternion: x.quaternion } : {}) });
+  if (peelSt.on && peelSt.peels.length) {
     const keep = [];
-    for (const x of items) if ((await floorOverlap(P, image, { ...anchor, position: x.position }, peelSt.peels)) <= P.PEEL.refuseOverlap) keep.push(x);
+    for (const x of items) {
+      const c = at(x);
+      if (!P.onFloor(String(c.surface || ''), c.normal) || (await floorOverlap(P, image, c, peelSt.peels)) <= P.PEEL.refuseOverlap) keep.push(x);
+    }
     items = keep;
     if (!items.length) return res.status(409).json({ error: 'Nope.', nope: true });
   }
   if (!arrayBudget(req.ip, items.length)) return res.status(429).json({ error: 'Easy now – wait a minute.' });
   const evicted = [];
-  const copy = ({ position }) => ({
-    imageId: anchor.imageId, position, normal: anchor.normal, quaternion: anchor.quaternion, size: anchor.size,
-    rotation: isNum(anchor.rotation) ? anchor.rotation : 0, surface: anchor.surface,
+  const copy = (x) => { const c = at(x); return {
+    imageId: anchor.imageId, position: c.position, normal: c.normal, quaternion: c.quaternion, size: anchor.size,
+    rotation: isNum(anchor.rotation) ? anchor.rotation : 0, surface: c.surface,
     ...(anchor.artist !== undefined ? { artist: anchor.artist } : {}), ...(anchor.artistLink ? { artistLink: anchor.artistLink } : {}),
-  });
+  }; };
   const saved = await store.addStamps(room, anchor.id, anchor.peelHash, items.map(copy), { onEvict: (ids) => evicted.push(...ids), onLeave: (ids) => hidden.left(room, ids) });
   if (!saved) return res.status(404).json({ error: 'That sticker is gone', gone: true });
   for (const id of evicted) broadcast(room, { type: 'stamp:remove', id });

@@ -677,7 +677,8 @@ function dropPending(nonce) {
 
 // ---------- Sticker arrays: slap at A, keep the button held, look toward B ----------
 // While held, see-through ghosts repeat the sticker from A toward the crosshair, edge to edge on A's
-// face (spacing: shared/array.mjs; never round a corner). Release = all copies at once (optimistic,
+// face (spacing: shared/array.mjs). The row folds over seams onto the next face like tape (wall →
+// wall, wall → floor/ceiling), spacing measured along the surface; B may be on that next face. Release = all copies at once (optimistic,
 // like a slap; the server recomputes the row from the saved anchor: POST …/stamps/array). Esc,
 // right-click, leaving pointer lock or Look mode = cancel the copies (A stays). A plain click is
 // exactly a slap. The row is ONE peel step: A's history entry gets extra = the copies' ids.
@@ -706,15 +707,24 @@ function startArray(a) {
   ghosts.setTexture(null);
   stamps.texture(a.design).then((t) => { if (arrayDrag && arrayDrag.a === a) ghosts.setTexture(t); }).catch(() => {});
 }
-// Every frame while dragging: B = where the crosshair's ray meets A's plane. Returns the ghost count.
+// Every frame while dragging: B = where the crosshair hits a face next to A's (the row folds onto
+// it; shared/array.mjs unfolds B), otherwise where the ray meets A's plane. Returns the ghost count.
 function updateArray() {
   const d = arrayDrag;
   if (arrayFaults.update) throw new Error('test: array update unavailable');
-  aimRay(CENTER);
-  if (raycaster.ray.intersectPlane(arrayPlane, arrayHit)) d.to = arrayHit.clone(); // looking away from the plane: keep the last B
-  d.items = d.to ? arrayPlan({ position: d.a.point.toArray(), quaternion: d.a.q.toArray(), surface: d.a.surface }, d.w, d.h, d.to.toArray()).items.filter((x) => x.i > 0) : [];
+  const h = hitSurface(CENTER);
+  const hf = h && faceFor(ARRAY_FACES, h.surface, h.point.toArray(), h.normal.toArray());
+  if (hf && d.face && hf !== d.face && hf.k !== d.face.k) d.to = h.point.clone();
+  else if (raycaster.ray.intersectPlane(arrayPlane, arrayHit)) d.to = arrayHit.clone(); // looking away from the plane: keep the last B
+  d.items = d.to ? arrayItems(d, d.to.toArray()) : [];
   if (d.items.length) ghosts.show(d.items, d.a.q, d.a.normal, d.w, d.h, d.a.surface, d.face); else ghosts.hide();
   return d.items.length;
+}
+// The row's copies (anchor excluded); a copy folded onto another face gets its THREE orientation and face too.
+function arrayItems(d, to) {
+  return arrayPlan({ position: d.a.point.toArray(), quaternion: d.a.q.toArray(), surface: d.a.surface }, d.w, d.h, to).items
+    .filter((x) => x.i > 0)
+    .map((x) => (x.surface ? { ...x, q: new THREE.Quaternion(...x.quaternion), n: new THREE.Vector3(...x.normal), face: faceFor(ARRAY_FACES, x.surface, x.position, x.normal) } : x));
 }
 function cancelArray() { if (!arrayDrag) return; arrayDrag = null; ghosts.hide(); }
 // Others' rows: one slap sound per row (the copies arrive as separate stamp:add events).
@@ -737,12 +747,13 @@ function commitArray() {
   let settle; const settled = new Promise((r) => { settle = r; });
   const now = new Date().toISOString();
   let papers = 0;
-  for (const { i, position } of items) {
+  for (const { i, position, quaternion, normal, surface } of items) {
     const nonce = `${a.nonce}x${i}`;
     myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
     const tempId = 'tmp-' + nonce;
     pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, row: a.nonce });
-    stamps.add({ ...a.temp, id: tempId, position, order: stamps.topOrder() + 1, createdAt: now, pending: true }, design).then(updateCount);
+    const folded = surface ? { quaternion, normal, surface } : {}; // folded over a seam onto the next face
+    stamps.add({ ...a.temp, id: tempId, position, ...folded, order: stamps.topOrder() + 1, createdAt: now, pending: true }, design).then(updateCount);
     if (peelLayer.on && papers < PEELS_PER_ARRAY) {
       papers++;
       const [pw, ph] = stampDims(design, a.size);
@@ -2198,7 +2209,8 @@ window.klibb = {
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
   arrayFaults, arraysOff: () => arraysOff, lockBroken: () => lockBroken,
-  arrayState: () => ({ dragging: !!arrayDrag, ghosts: ghosts.count, inFlight: arrayOps.length, items: arrayDrag ? arrayDrag.items.length : 0 }), arrayPlan,
+  arrayState: () => ({ dragging: !!arrayDrag, ghosts: ghosts.count, inFlight: arrayOps.length, items: arrayDrag ? arrayDrag.items.length : 0,
+    surfaces: arrayDrag ? arrayDrag.items.map((x) => x.surface || arrayDrag.a.surface) : [], to: arrayDrag && arrayDrag.to ? arrayDrag.to.toArray() : null, at: arrayDrag ? [arrayDrag.a.point.toArray(), arrayDrag.a.surface, arrayDrag.a.q.toArray()] : null, ghostMeshes: ghosts.pool.filter((m) => m.visible).length }), arrayPlan,
   pendingSlaps: () => pendingSlaps.size, // klibbor som syns men inte är bekräftade av servern än
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
   net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,

@@ -1,4 +1,5 @@
-// E2E (lean): sticker arrays in the web app. Own server (port 8851, normal app).
+// E2E (lean): sticker arrays in the web app. Own server (port 8851, normal app). Also: rows that fold
+// round a wall→wall corner and down onto the floor (ARRAY_SHOTS=dir saves array-corner/array-floor shots).
 // Hold the button after a slap and turn: ghosts repeat the sticker toward the crosshair; release =
 // N stickers in the room (1 + the ghosts); Z peels the whole row as one step; Esc while dragging
 // cancels the copies (the first sticker stays).
@@ -36,13 +37,20 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     const base = (await onServer()).length; // the locking click is not a slap
     const settle = () => p.waitForFunction(() => window.klibb.pendingSlaps() === 0 && window.klibb.arrayState().inFlight === 0, null, { timeout: 15000 });
 
-    // 1) Drag: slap, hold, turn, release.
+    // 1) Drag: slap, hold, turn, release. (Aim again first: right after the pointer-lock click the
+    // camera can still be settling, and a slap on the ceiling would now fold its row onto the wall.)
+    await p.waitForTimeout(400);
+    await p.evaluate(() => { const k = window.klibb; k.moveTo(0, -3); k.look(0, 0); });
+    await p.waitForTimeout(100);
     await p.mouse.down();
     await p.waitForTimeout(150);
     await p.evaluate(() => window.klibb.look(-0.45, 0));
+    await p.waitForTimeout(300); await p.evaluate(() => window.klibb.look(-0.45, 0)); // the camera can still be settling after the lock click
+    await p.waitForTimeout(100);
     await p.waitForFunction(() => window.klibb.arrayState().ghosts > 0, null, { timeout: 5000 }).catch(() => {});
     const during = await p.evaluate(() => window.klibb.arrayState());
     if (process.env.ARRAY_SHOT) await p.screenshot({ path: process.env.ARRAY_SHOT });
+    if (process.env.ARRAY_DEBUG) console.log(JSON.stringify(during));
     check('holding and turning shows ghost copies toward the crosshair', during.dragging && during.ghosts >= 3, during);
     await p.mouse.up();
     await settle();
@@ -92,6 +100,36 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     const floor1 = (await (await fetch(`${S.base}/api/rooms/${R}/stamps`)).json()).peels?.length ?? 0;
     check(`peels on: a row of ${1 + ten.ghosts} stickers drops ${1 + ten.ghosts} papers (one per sticker), live and on the server`, ten.ghosts >= 9 && c1 - c0 === 1 + ten.ghosts && floor1 - floor0 === 1 + ten.ghosts,
       { ghosts: ten.ghosts, live: c1 - c0, server: floor1 - floor0 });
+    // 5) Round the corner (t367u): the row folds over the seam onto the next wall / the floor.
+    const drag = async (from, to, shot = null, look = from) => {
+      await p.evaluate(([y, pi]) => window.klibb.look(y, pi), from);
+      await p.mouse.down(); await p.waitForTimeout(150);
+      await p.evaluate(([y, pi]) => window.klibb.look(y, pi), to);
+      await p.waitForFunction(() => { const st = window.klibb.arrayState(); return new Set(st.surfaces).size > 1; }, null, { timeout: 5000 }).catch(() => {});
+      const st = await p.evaluate(() => window.klibb.arrayState());
+      if (shot) await p.screenshot({ path: shot + '-ghosts.png' });
+      await p.mouse.up(); await settle();
+      if (shot) { await p.evaluate(([y, pi]) => window.klibb.look(y, pi), look); await p.waitForTimeout(300); await p.screenshot({ path: shot + '.png' }); }
+      return st;
+    };
+    await p.evaluate(() => window.klibb.moveTo(3.6, -3.6));
+    const n0 = (await onServer()).length;
+    const pc = await p.evaluate(() => window.klibb.peels().count);
+    const cst = await drag([0, 0], [-1.25, 0], process.env.ARRAY_SHOTS && process.env.ARRAY_SHOTS + '/array-corner', [-0.75, -0.1]);
+    const cAll = await onServer(), cRow = cAll.slice(n0);
+    check('corner: while dragging round the corner the ghosts continue onto the east wall', cst.surfaces.includes('vägg-norr') && cst.surfaces.includes('vägg-öster') && cst.ghostMeshes === cst.ghosts, cst);
+    check('corner: release saves the copies on both walls (east-wall ones facing into the room)', cRow.length === 1 + cst.ghosts && cRow.some((s) => s.surface === 'vägg-öster')
+      && cRow.filter((s) => s.surface === 'vägg-öster').every((s) => Math.abs(s.position[0] - 5) < 1e-6 && s.normal[0] === -1), cRow.map((s) => [s.surface, s.position]));
+    const eastZ = cRow.filter((s) => s.surface === 'vägg-öster').map((s) => s.position[2]).sort((a, b) => a - b);
+    check('corner: same spacing round the corner (15 cm along the surface)', eastZ.slice(1).every((z, k) => Math.abs(z - eastZ[k] - 0.15) < 0.002), eastZ);
+    await p.waitForFunction((n) => window.klibb.peels().count >= n, pc + cRow.length, { timeout: 8000 }).catch(() => {});
+    check('corner: every sticker of the folded row drops its own backing paper', (await p.evaluate(() => window.klibb.peels().count)) - pc === cRow.length);
+    await p.evaluate(() => window.klibb.moveTo(-2, -4));
+    const n1 = (await onServer()).length;
+    const fst = await drag([0, 0], [0, -1.2], process.env.ARRAY_SHOTS && process.env.ARRAY_SHOTS + '/array-floor', [0, -0.6]);
+    const fRow = (await onServer()).slice(n1);
+    check('wall → floor: dragging down onto the floor folds the row onto it (ghosts and saved copies)', fst.surfaces.includes('golv') && fRow.some((s) => s.surface === 'golv')
+      && fRow.filter((s) => s.surface === 'golv').every((s) => s.position[1] === 0 && s.normal[1] === 1), { fst, row: fRow.map((s) => [s.surface, s.position]) });
     check('no page errors', !errors.length, errors);
     await ctx.close();
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }

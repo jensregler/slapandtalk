@@ -731,9 +731,15 @@ exactly a slap, as before. **Desktop only**: on a phone a drag looks around (no 
   rotation, never turned to the drag direction. With d = the direction A→B on A's face in the sticker's
   own axes (du, dv): `step = min(w/|du|, h/|dv|)`, so straight across the step is the width, straight up
   the height, and on a diagonal the copies touch along one edge, like a staircase. Count =
-  `floor(|AB| / step) + 1` (A included), at most **200**. B is where the crosshair's ray meets A's wall
-  plane, so you can look past the wall's end. Copies whose centre falls off A's face aren't placed
-  (no wrapping round corners); one whose centre is on the face but overhangs folds like any sticker.
+  `floor(|AB| / step) + 1` (A included), at most **200**. B is where the crosshair hits a face next to
+  A's (wall ↔ wall at a corner, wall ↔ floor/ceiling), otherwise where the ray meets A's plane.
+- **Round corners** (28 Oct 2026): the row folds over a seam onto the next face like tape and keeps
+  going the same way – wall → wall, wall → floor, wall → ceiling, and on. Spacing is measured along the
+  surface (the unfolded distance); B on the next face is unfolded into A's plane first. A copy on the
+  next face is A turned 90° about the seam (oriented exactly like a sticker folded over that edge),
+  and copies straddling a seam fold like any sticker. The row ends where it would run straight into a
+  corner of three faces. Each copy is saved with its own surface, normal and quaternion – recomputed by
+  the server with the same code, never taken from the client – and drops its own backing paper.
 - **Server:** `POST /api/rooms/:room/stamps/array` `{ anchor: { id, token }, to, nonce, by, peelFrom }`.
   The anchor is your own just-slapped sticker (its peel key proves it). The server recomputes the row
   from the saved anchor, so the size limits that hit A (free 15 cm–1 m) hold for every copy, and adds
