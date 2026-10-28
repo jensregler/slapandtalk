@@ -44,7 +44,7 @@ async function bakeE2E({ browser, BASE, assert, waitReady, TOKEN }) {
     const calls = await P.evaluate(() => window.klibb.renderer.info.render.calls);
     assert(calls < 30 + 15, `few draw calls with 34 stickers (${calls})`);
     // Artist credit (Look mode) finds the baked sticker under the dot
-    await P.mouse.click(600, 250); await P.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
+    await P.mouse.click(600, 120); await P.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 }); // (above the wheels)
     await P.keyboard.press('g'); await P.waitForFunction(() => window.klibb.state.mode === 'view');
     await P.evaluate(() => window.klibb.look(0, 0)); await P.waitForTimeout(200);
     // Look mode: the credit shows on click (dispatched on the canvas, aimed by the dot)
