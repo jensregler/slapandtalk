@@ -566,10 +566,12 @@ body.touch #held { display: block; position: fixed; left: 50%; top: 50%; z-index
   width: var(--held-px, 90px); height: var(--held-px, 90px); transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))); opacity: 0; }
 body.touch #held.up { pointer-events: auto; }
 body.touch #held.dragging img { animation: none; scale: 1.06; }
-/* the holder (picture 4): a soft ring the sticker hovers in */
-body.touch #held::before { content: ''; position: absolute; inset: -14px; border-radius: 50%; border: 2px dashed rgba(255,255,255,.55);
-  background: radial-gradient(closest-side, rgba(255,255,255,.12), transparent); pointer-events: none; }
-body.touch #held.dragging::before { opacity: .35; }
+/* (no ring around the held sticker any more – Jens, 28 Oct 2026: the sticker itself is visible) */
+/* a finger aiming on the room (main.js): the sticker is on the wall under the finger, the holder steps aside */
+body.touch.aiming #held { opacity: 0 !important; pointer-events: none !important; }
+/* stamping on touch: no text selection, callouts or overscroll from presses (form fields still select) */
+body.touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+body.touch input, body.touch textarea, body.touch [contenteditable] { -webkit-user-select: text; user-select: text; }
 body.touch #held img { width: 100%; height: 100%; object-fit: contain; display: block; transform: rotate(var(--held-rot, 0deg));
   animation: held-hover 2.6s ease-in-out infinite; }
 /* its drop shadow (light from above: straight below, a little down, tight) sits on the unturned

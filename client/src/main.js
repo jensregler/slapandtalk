@@ -321,6 +321,7 @@ addEventListener('storage', (e) => {
 
 // var: select() can run before these lines (the first selection at start).
 var lastNatureId = null, lastStickerId = null; // eslint-disable-line no-var
+var touchAim = null; // eslint-disable-line no-var -- touch: the finger aiming the held sticker { id, x, y } (see the touch input)
 async function select(img) {
   if (isNat(img) && !natureOpen()) { fullUi?.open(); return; } // the Nature wheel is the full version's
   const changed = (img && img.id) !== (state.selected && state.selected.id);
@@ -1440,22 +1441,52 @@ if (!isTouch) {
     if (e.code === 'KeyF' && !e.repeat && !e.ctrlKey && !e.metaKey) prevDesign(); // F = förra designen (spegel av R)
   });
 } else {
-  // Mobil: dra = titta, kort tryck = stämpla.
+  // Touch (Jens, 28 Oct 2026): with a sticker in hand (sharp), ONE finger on the room AIMS it: the
+  // sticker shows on the wall where the finger points (the ray from the touch point, like a stamp
+  // held in front of you; the holder in the middle steps aside meanwhile) and follows the finger;
+  // letting go stamps it THERE – a tap or a press of any length, with or without dragging. The room
+  // does not turn while aiming. Looking around: TWO fingers dragging (anytime), or one finger when
+  // nothing is in hand (faded / not chosen yet – as before). A second finger cancels the aim (no
+  // stamp). Walking: the joystick (its own element, works alongside an aiming finger).
   const touches = new Map();
+  const ndcOf = (x, y) => new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
+  const canAim = () => !!(stackMenu && state.selected && state.mode === 'slap' && !camView && !placingCam && !state.adminToken
+    && !stackMenu.isOpen() && !stackMenu.bookOpen() && !sp.open && !together.busy() && stackMenu.held.canSlap(performance.now()));
+  const endAim = () => { touchAim = null; document.body.classList.remove('aiming'); preview.hide(); };
   canvas.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); // no text selection / callout / emulated mouse from a press on the room
     canvas.setPointerCapture(e.pointerId);
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), drag: false });
+    if (touches.size === 1 && canAim()) {
+      touchAim = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      document.body.classList.add('aiming'); hideCredit();
+    } else if (touches.size >= 2) {
+      if (touchAim) endAim(); // two fingers = looking around, never a stamp
+      for (const t of touches.values()) t.drag = true;
+    }
   });
   canvas.addEventListener('pointermove', (e) => {
     const p = touches.get(e.pointerId); if (!p) return;
+    if (touchAim && touchAim.id === e.pointerId) {
+      touchAim.x = e.clientX; touchAim.y = e.clientY; p.x = e.clientX; p.y = e.clientY;
+      stackMenu.held.keepAlive(performance.now()); // aiming = working with it: it does not fade meanwhile
+      return;
+    }
     if (Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 10) p.drag = true;
-    if (p.drag) controls.look((e.clientX - p.x) * 0.006, (e.clientY - p.y) * 0.006);
+    // two fingers: each finger's move counts half (= the midpoint's move)
+    const k = touches.size >= 2 ? 0.006 / touches.size : 0.006;
+    if (p.drag) controls.look((e.clientX - p.x) * k, (e.clientY - p.y) * k);
     p.x = e.clientX; p.y = e.clientY;
   });
   const up = (e) => {
     const p = touches.get(e.pointerId); touches.delete(e.pointerId);
+    if (touchAim && touchAim.id === e.pointerId) {
+      endAim();
+      if (e.type === 'pointerup' && stackMenu) heldTap(ndcOf(e.clientX, e.clientY), e.clientX, e.clientY); // stamp where the finger is
+      return;
+    }
     if (p && !p.drag && performance.now() - p.t < 400 && e.type === 'pointerup') {
-      const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+      const ndc = ndcOf(e.clientX, e.clientY);
       if (placingCam) placeCamAt(ndc);
       else if (stackMenu && !camView && !state.adminToken) heldTap(ndc, e.clientX, e.clientY);
       else if (state.mode === 'view' && !camView) {
@@ -2292,6 +2323,16 @@ function frame() {
       preview.show(h.point, h.normal, q, w, hh, h.surface);
       heldNow = { h, q, w, hh };
     } else preview.hide();
+  } else if (isTouch && touchAim && state.selected && !camView) {
+    // Touch, a finger aiming: the sticker on the wall where the finger points (the touch's ray).
+    const h = hitSurface(new THREE.Vector2((touchAim.x / innerWidth) * 2 - 1, -(touchAim.y / innerHeight) * 2 + 1));
+    touchAim.hit = h ? h.point.toArray() : null; // (tests: where the preview is)
+    if (h) {
+      const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100));
+      const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
+      preview.show(h.point, h.normal, q, w, hh, h.surface);
+      heldNow = { h, q, w, hh };
+    } else preview.hide();
   } else if (isTouch && stackMenu && rec && !camView && state.selected && !state.adminToken && !stackMenu.isOpen() && !stackMenu.bookOpen()
     && stackMenu.held.opacity(performance.now()) > 0) {
     // Touch: no preview on the wall live (the sticker sits in its holder), but while it is held
@@ -2372,6 +2413,7 @@ window.klibb = {
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
+  touchAim: () => (touchAim ? { ...touchAim } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
   held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && getComputedStyle($('design-strip')).visibility !== 'hidden', n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON() }),
   wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,

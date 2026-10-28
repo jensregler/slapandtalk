@@ -153,19 +153,23 @@ servern har kvar bilderna. Designs som har försvunnit från servern tas bort ur
 
 **På mobilen (touch):** när du kommer in syns bara **styrspaken** nere till vänster och din
 **klibbhög** nere till höger (dina klibbor, den du håller överst). Ingen panel, ingen ☰ Stickers,
-inga 👤/↩/👁-knappar. Styrspaken = gå, **dra med fingret** = titta.
+inga 👤/↩/👁-knappar. Styrspaken = gå, **dra med två fingrar** = titta (ett finger när du inte håller någon klibba).
 - **Tryck på högen** → menyn fäller ut sig uppåt/åt vänster: **📒 Stickers** (klibbboken: dina
   klibbor + ⬆ Upload sticker; stjärna/× med långt tryck som förut), **🧍 Character** (Min gubbe),
   **🏠 Room** (rummets namn och Room ▾ – nytt snabbrum, dela länk, Staden … – överst i ⚙ More, med
   inspelning för rummets skapare, ljud, kameror, hjälp), **↩ Undo** (menyn står kvar, så du kan
   ångra flera), **👤 3rd person**, **📷 Photo**, och kortet **💬 Talk / 🎙 Mic**. Tryck utanför =
   stäng. **Svep upp/ner på högen** = nästa/förra klibba direkt i handen.
-- **Redigeringsvyn (Jens bild 4):** klibban i handen svävar skarp i sin **hållare mitt på skärmen**.
+- **Redigeringsvyn (Jens bild 4):** klibban i handen svävar skarp mitt på skärmen (ingen streckad ring runt den sedan 28 okt 2026).
   Gröna reglage på kanterna: **rotation till vänster**, **storlek till höger** (dra upp/ner). De tre
   menyknapparna **📒 🧍 🏠** lyser längst ner mellan styrspaken och högen; allt annat är dolt
   (💬/🎙 ligger på menyns Talk-kort).
-- **Klibba:** **släpp den ur hållaren** – tryck på den (den sätts mitt på skärmen) eller dra ut den
-  och släpp där den ska sitta – eller tryck på en vägg (golv, tak) där den ska sitta, som förut.
+- **Klibba (28 okt 2026):** med en klibba i handen **siktar ett finger på rummet**: klibban visas på
+  väggen där fingret pekar (strålen från fingrets punkt, som en stämpel du håller framför dig) och
+  följer fingret; rummet vrider sig inte. **Släpp = klibban sitter där fingret är** – ett tryck, ett
+  långt tryck eller efter att du dragit. En klibba som redan sitter under fingret följer inte med.
+  Ett andra finger avbryter (då tittar du, ingen klibba). Du kan fortfarande släppa den ur hållaren
+  (tryck på den = mitt på skärmen, eller dra ut den och släpp). Inget markeras, scrollar eller zoomar.
 - **Ingen Slap mode / Look mode på mobilen** – en timer i stället (`shared/heldtimer.mjs`):
   en nyvald klibba är skarp tills du satt den första gången; efter varje klibba syns den
   `HELD_VISIBLE_MS` = 10 s och tonar sedan bort på `HELD_FADE_MS` = 1 s. Bortonad = bara titta

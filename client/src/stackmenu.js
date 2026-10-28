@@ -7,11 +7,13 @@
 // - The menu: 📒 Stickers (the sticker book: your palette + ⬆ Upload), 🧍 Character, 🏠 Room (the
 //   room's info and Room ▾ on top of ⚙ More: recording, sound, cameras …), ↩ Undo, 👤 3rd person,
 //   📷 Photo, and the Talk card (💬 chat, 🎙 microphone). A tap outside closes it.
-// - The editing view (Jens's picture 4): the held sticker sits in its holder in the middle of the
+// - The editing view (Jens's picture 4): the held sticker sits in its holder (no ring) in the middle of the
 //   screen, sharp; the green sliders on the edges: rotation on the left, size on the right; the three
 //   menu buttons (📒 Stickers, 🧍 Character, 🏠 Room) stay lit at the bottom; everything else is
 //   hidden (💬/🎙 are on the menu's Talk card). Release it from the holder: tap it (it slaps where
-//   it is, the middle of the screen) or drag it out and let go where it should go; or tap a wall.
+//   it is, the middle of the screen) or drag it out and let go where it should go; or put a finger on
+//   the room: it aims the sticker there (the preview follows the finger) and letting go stamps it
+//   there (main.js, the touch input).
 // - There is no Slap/Look switch on touch: the timer (shared/heldtimer.mjs) decides.
 import { createHeldTimer, HELD_VISIBLE_MS, HELD_FADE_MS } from '../../shared/heldtimer.mjs';
 
