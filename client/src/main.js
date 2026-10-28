@@ -114,7 +114,7 @@ const state = {
   mine: readMine(),
   library: [], // the curated sticker library (GET /api/library); the palette in the demo
   favs: readFavs(), // favourite design ids ("staples")
-  size: 0.3, rotation: 0, jitter: false, // size = the held size (longest side, m); each design starts at its own size (startSize)
+  size: 0.3, rotation: 0, jitter: false, // size = the held size (longest side, m); the first sticker starts 30 cm high (startSize), then it stays what you make it
   mode: 'slap', // 'slap' = Klibbläge (pekaren syns, klick stämplar), 'view' = Tittläge (bara titta)
   artist: localStorage.getItem('klibb.artist') || '',
   artistLink: cleanArtistLink(localStorage.getItem('klibb.artistLink') || ''),
@@ -417,7 +417,7 @@ function applySizeLimit() {
   if (state.size * 100 < minSizeCm()) state.size = minSizeCm() / 100;
   showSize();
 }
-$('size').oninput = (e) => { state.size = Number(e.target.value) / 100; showSize(); };
+$('size').oninput = (e) => { sizeStarted = true; state.size = Number(e.target.value) / 100; showSize(); };
 $('rot').oninput = (e) => { state.rotation = Number(e.target.value); $('rot-val').textContent = `${e.target.value}°`; };
 applySizeLimit();
 $('jitter').onchange = (e) => { state.jitter = e.target.checked; };
@@ -447,10 +447,20 @@ function setSize(cm) {
   }
   state.size = cm / 100; showSize();
 }
-// Each design starts at its own size (file-name letter prefix, shared/sizeprefix.mjs: A_ = 15 cm …
-// Z_ = 77.5 cm, no prefix = 15 cm; the value the size slider shows) whenever you switch to it: R/F,
-// the palette, a new upload. Scaling after that is free, as before, until you switch design again.
-function startSize(img) { setSize(startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() })); }
+// The start size (Jens, 28 Oct 2026 – replaces the per-design start sizes): the first sticker you
+// hold in a session spawns 30 cm HIGH (whatever its shape: a wide one is wider than 30 cm, the held
+// size being its longest side), within the free/full limits. Switching to another sticker after that
+// (the wheel, R/F, a swipe, the book, an upload) keeps the size you had – as before the per-design
+// sizes; scaling up/down is free as always. (A design's startCm / X_ file-name prefix is still stored
+// and served, but no longer sets the size.)
+const START_HEIGHT_CM = 30;
+let sizeStarted = false;
+const sideForHeightCm = (img, hCm) => { const a = (img && img.width > 0 && img.height > 0) ? img.width / img.height : 1; return a >= 1 ? hCm * a : hCm; };
+function startSize(img) {
+  if (sizeStarted || !img) return;
+  sizeStarted = true;
+  setSize(sideForHeightCm(img, START_HEIGHT_CM));
+}
 function setRot(deg) { deg = ((deg + 540) % 360) - 180; $('rot').value = deg; $('rot').oninput({ target: $('rot') }); }
 
 // Bilden krymps i webbläsaren om den är stor, så uppladdningen går fort även på mobilen.
@@ -501,7 +511,6 @@ async function onFilePicked(input) {
     const img = await api.uploadSticker(blob, state.artist, { name: file.name }); // the name carries the size prefix
     try { await saveBlob(img.id, blob); } catch { /* local copy is a nice-to-have (private mode Safari) */ }
     state.mine = addMine(img);
-    if (state.selected && state.selected.id === img.id) startSize(img); // the same picture again (maybe renamed): its start size
     await select(img);
     stackMenu?.chosen(); stackMenu?.closeBook(); // touch: the new sticker is in your hand
     toast(isTouch ? S.uploadedTouch : S.uploadedDesktop);
@@ -2189,5 +2198,5 @@ window.klibb = {
   strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0, n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: $('strip-row').scrollLeft, rect: $('design-strip').getBoundingClientRect().toJSON() }),
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
-  nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }),
+  nextDesign, prevDesign, designs, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };

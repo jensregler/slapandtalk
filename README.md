@@ -31,8 +31,8 @@ du går in i rummet.
 Gå med **W A S D**, titta med musen och **klicka** för att stämpla (*slap*). Scrollhjulet ändrar storlek
 (från 15 cm upp till 1 m i grundversionen; i fullversionen, `bigStickers`, från 5 cm och ingen övre gräns, inte ens
 rummet – reglaget går till 4 m, hjulet längre. Storleken gäller klibbans längsta sida. Klibbor som redan sitter
-uppe får behålla sin storlek). Varje design **börjar på sin egen storlek** när du väljer den (R/F, paletten,
-en ny uppladdning): bokstaven + `_` först i filnamnet, se *Startstorlek från filnamnet* nedan, annars 30 cm),
+uppe får behålla sin storlek). Den första klibban du håller **börjar 30 cm hög** (oavsett format; en bred blir
+bredare än 30 cm), sedan behåller den storleken du har när du byter klibba (R/F, hjulet, paletten, en ny uppladdning)),
 **Q/E** vrider klibban, **R** byter till nästa design, **F** till förra, **V** växlar mellan Slap mode och Look mode, **M**
 stänger av/slår på ljudet och **Esc** tar dig tillbaka till menyn.
 
@@ -745,7 +745,7 @@ exactly a slap, as before. **Desktop only**: on a phone a drag looks around (no 
 - **Room limit:** `…/stamps/array` answers 409 `{ full }` like `…/stamps` (tests/roomlimit.test.js).
 - **Demo:** works the same (not a paid control). Tests: `tests/array.test.mjs`, `tests/e2e-array.js`.
 
-### Startstorlek från filnamnet (A_, B_, … Z_)
+### Startstorlek från filnamnet (A_, B_, … Z_) – används inte längre av appen (se längst ner)
 En bokstav och ett understreck först i bildens filnamn bestämmer klibbans **startstorlek**, alltså det värde
 storleksreglaget visar (Esc → Size, klibbans längsta sida): storlek = 15 cm + bokstavens nummer × 2,5 cm,
 alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan prefix: 30 cm (originalstorleken, som G_).
@@ -765,6 +765,14 @@ alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan pref
 - **R/F och skalning:** varje gång du byter design (R/F, paletten, ny uppladdning) börjar den på sin egen
   storlek. Sedan skalar du fritt som förut (hjulet, reglaget) inom gränserna tills du byter design igen;
   byter du tillbaka börjar den om på sin startstorlek (den skalade storleken sparas inte per design).
+
+> **Ändrat 28 okt 2026 (Jens): prefixet sätter inte längre storleken i webbappen.** Den första klibban i en
+> session börjar **30 cm hög** (höjden, oavsett format: en 2:1-bild får 60 cm längsta sida, en stående 30 cm),
+> inom gränserna. Byter du klibba efter det (hjulet, R/F, svep, klibbboken, en ny uppladdning) behåller den
+> storleken du hade, som före startstorlekarna; skala upp/ner fritt som vanligt (dator och mobilens reglage).
+> `startCm` och prefixreglerna ovan finns kvar (sparas på bilder och i `library/manifest.json`, `/api/library`
+> skickar den) men används inte av appen. Serverns storlekskontroll vid slap är oförändrad (längsta sidan, 15 cm – 1 m
+> i gratisversionen). Tester: `tests/e2e-size.js`, `tests/e2e-wheel.js`.
 
 ## Demo profile (the free version, DEMO_PROFILE=1)
 

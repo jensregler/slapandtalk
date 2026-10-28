@@ -28,6 +28,7 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     await p.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
     await p.setInputFiles('#file', file);
     await p.waitForFunction(() => window.klibb.designs().length === 1 && window.klibb.state.selected, null, { timeout: 20000 });
+    await p.evaluate(() => window.klibb.setSize(15)); // the A_ prefix no longer sets the start size (30 cm high spawn since 28 Oct 2026): 15 cm by hand
     const onServer = async () => (await (await fetch(`${S.base}/api/rooms/${R}/stamps`)).json()).stamps;
     await p.evaluate(() => { const k = window.klibb; k.moveTo(0, -3); k.look(0, 0); });
     await p.mouse.click(500, 325); await p.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });

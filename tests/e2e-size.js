@@ -1,7 +1,8 @@
 // E2E (short): the size prefix in the web app. Own server (port 8840, normal app, DEV_UNLOCK).
-// An upload named "B_…" starts at 17.5 cm, one without a prefix (or with a dash) at 30 cm (the original default); a wide "D_…"
-// at 22.5 cm (the letter value is the slider's size, the longest side); R/F sets each design's own start
-// size; the wheel still scales freely afterwards; the free version never goes below 15 cm.
+// Since 28 Oct 2026 (Jens): the size prefix no longer sets the size. The first sticker of a session
+// spawns 30 cm HIGH ("B_cat.png", square: 30 cm), later uploads and R/F keep the size you have, the
+// wheel scales freely and R/F keep that scaled size; the free version never goes below 15 cm; the
+// server still stores startCm (unused by the app). More: e2e-wheel (wide/tall spawns, wheel switching).
 const sharp = require('sharp');
 const fs = require('fs');
 const os = require('os');
@@ -36,11 +37,11 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
       return size();
     };
     const b = await upload(files.b);
-    check('an upload named B_cat.png starts at 17.5 cm', b.size === 17.5 && b.label === '17.5 cm', b);
+    check('the first upload (B_cat.png, square) spawns 30 cm high – the B_ prefix no longer sets it', b.size === 30 && b.label === '30 cm', b);
     const plain = await upload(files.plain);
-    check('one without a prefix ("b-Apple.png": a dash is not a prefix) starts at 30 cm (the original default)', plain.size === 30, plain);
+    check('the next upload keeps the size (30 cm)', plain.size === 30, plain);
     const wide = await upload(files.wide);
-    check('a 2:1 design named D_… starts at 22.5 cm held size (the longest side, as the slider shows)', wide.size === 22.5 && wide.label === '22.5 cm', wide);
+    check('a 2:1 design named D_… keeps the size too (not 22.5 cm from its prefix)', wide.size === 30 && wide.label === '30 cm', wide);
     await p.evaluate(() => { const k = window.klibb; k.moveTo(0, 0); k.look(0, 0); });
     await p.mouse.click(700, 330); await p.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
     for (let i = 0; i < 5; i++) await p.mouse.wheel(0, -200);
@@ -52,10 +53,9 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     await p.keyboard.press('KeyF'); await p.waitForTimeout(150); const f1 = await size();
     await p.keyboard.press('KeyF'); await p.waitForTimeout(150); const f2 = await size();
     await p.keyboard.press('KeyR'); await p.waitForTimeout(150); const r1 = await size();
-    const want = { [b.sel]: 17.5, [plain.sel]: 30, [wide.sel]: 22.5 };
-    check('R/F: each design starts at its own size whenever it is picked', [f1, f2, r1].every((x) => want[x.sel] === x.size) && new Set([f1.sel, f2.sel]).size === 2, { f1, f2, r1 });
+    check('R/F: switching keeps the scaled size (no per-design reset)', [f1, f2, r1].every((x) => x.size === scaled.size) && new Set([f1.sel, f2.sel]).size === 2, { f1, f2, r1, scaled });
     let back = r1; for (let i = 0; i < 3 && back.sel !== wide.sel; i++) { await p.keyboard.press('KeyR'); await p.waitForTimeout(150); back = await size(); }
-    check('…and back on the scaled one it is its start size again, not the scaled size', back.sel === wide.sel && back.size === 22.5, back);
+    check('…and back on the one that was scaled it is still the scaled size', back.sel === wide.sel && back.size === scaled.size, back);
     const low = await p.evaluate(() => { const k = window.klibb; k.setSize(5); return { size: Math.round(k.state.size * 1000) / 10, min: document.getElementById('size').min, minCm: k.minSizeCm }; });
     check('free version: the size never goes below 15 cm (setSize, slider min)', low.size === 15 && low.min === '15' && low.minCm === 15, low);
     for (let i = 0; i < 20; i++) await p.mouse.wheel(0, 200);
@@ -63,7 +63,7 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     const wheelLow = await size();
     check('free version: the wheel stops at 15 cm', wheelLow.size === 15, wheelLow);
     const server = await (await fetch(`${S.base}/api/stickers?ids=${b.sel}`)).json();
-    check('the server stored startCm 17.5 on the B_ image', server.images[b.sel] && server.images[b.sel].startCm === 17.5, server.images[b.sel]);
+    check('the server still stores startCm 17.5 on the B_ image (kept, unused by the app)', server.images[b.sel] && server.images[b.sel].startCm === 17.5, server.images[b.sel]);
     check('no page errors', !errors.length, errors);
     await ctx.close();
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }
