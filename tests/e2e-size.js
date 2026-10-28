@@ -58,6 +58,19 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     check('…and back on the one that was scaled it is still the scaled size', back.sel === wide.sel && back.size === scaled.size, back);
     const low = await p.evaluate(() => { const k = window.klibb; k.setSize(5); return { size: Math.round(k.state.size * 1000) / 10, min: document.getElementById('size').min, minCm: k.minSizeCm }; });
     check('free version: the size never goes below 15 cm (setSize, slider min)', low.size === 15 && low.min === '15' && low.minCm === 15, low);
+    // Nature stickers (curated library, name starts with "nature"; shared/nature.mjs): 5 cm – 4 m high, also free
+    const nat = await p.evaluate(async () => {
+      const k = window.klibb, lib = k.library()[0], r = (x) => Math.round(x * 1000) / 10;
+      const prev = k.state.selected;
+      await k.selectDesign({ ...lib, id: 'feedfacecafe0001', nature: true, library: true, width: 100, height: 100 });
+      const out = { lim: k.limitsFor(), sliderMax: document.getElementById('size').max, sliderMin: document.getElementById('size').min };
+      k.setSize(350); out.s350 = r(k.state.size); k.setSize(900); out.s900 = r(k.state.size); k.setSize(3); out.s3 = r(k.state.size);
+      k.setSize(380); await k.selectDesign(prev); out.back = r(k.state.size); out.backMax = document.getElementById('size').max;
+      out.upload = k.limitsFor({ ...prev, library: false, nature: true, name: 'nature-x.png' }); // an upload is never nature
+      return out;
+    });
+    check('nature sticker (free version): 5 cm – 400 cm, slider 5–400; 900 → 400, 3 → 5', nat.lim.minCm === 5 && nat.lim.maxCm === 400 && nat.sliderMax === '400' && nat.sliderMin === '5' && nat.s350 === 350 && nat.s900 === 400 && nat.s3 === 5, nat);
+    check('…back on a normal sticker the free limits again (380 cm → 100 cm, slider max 100); an upload named nature… keeps the normal limits', nat.back === 100 && nat.backMax === '100' && nat.upload.maxCm === 100 && nat.upload.minCm === 15, nat);
     for (let i = 0; i < 20; i++) await p.mouse.wheel(0, 200);
     await p.waitForTimeout(200);
     const wheelLow = await size();

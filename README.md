@@ -117,7 +117,13 @@ det går undan en stund efter. Svep upp/ner på högen = nästa/förra som föru
 demon) dina egna uppladdningar först och sedan hela biblioteket (`/api/library`, manifestordning). Har du inga
 egna håller du bibliotekets första. Hjulet visar bara ~9 åt gången (mitten + högst 4 per sida,
 `WHEEL.sideMax`), resten kommer fram när du vrider, och en bild laddas först när den syns. Mitten är **dubbelt
-så stor** (`WHEEL.centerScale` = 2), grannarna som förut. Paletten/klibbboken visar fortfarande bara dina egna.
+så stor** (`WHEEL.centerScale` = 2), grannarna som förut. Bilderna 8 klibbor bortom de synliga åt varje håll
+hämtas i förväg, så ett snabbt svep inte visar tomma platser.
+**Alla klibbor i panelen och klibbboken (28 okt 2026):** under dina egna (`#tray`) ligger **All stickers (N)**
+(`#lib-box`/`#libtray`): hela biblioteket i samma ordning som på hjulet (utom det du själv har laddat upp),
+lata miniatyrer; ett tryck håller den. På mobilen ligger listan öppen i 📒 Stickers. Förut nådde man
+biblioteket bara genom att vrida hjulet / svepa högen, och boken visade bara de egna – därför såg det ut som
+att bara några få klibbor fanns.
 **Skugga på klibban du håller:** ljus uppifrån, så en tät mjuk skugga rakt under (på en vägg en bit
 nedanför, på golv/tak rakt under) – klibban ser ut att sväva. Den följer vridning och storlek och syns
 i 1:a person, 3:e person/kameror och i inspelningar/videor (`StampPreview`, `HELD_SHADOW` i
@@ -778,6 +784,13 @@ alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan pref
 - **Gränser:** gratisversionen 15 cm – 1 m (både i webbappen – reglaget, hjulet, startstorleken – och på
   servern vid slap, där för små/stora gratisklibbor klämms till 15 cm / 1 m). Fullversionen (`bigStickers`):
   5 cm och uppåt, ingen övre gräns. Klibbor som redan sitter uppe behåller sin storlek.
+- **Nature-klibbor (28 okt 2026, `shared/nature.mjs`):** biblioteksklibbor vars namn börjar på `nature` (alla
+  skiftlägen; importen ger varje fil i en mapp som heter `nature` det prefixet och `nature: true`) får för alla,
+  även gratis: **minst `NATURE.minCm` = 5 cm, högst `NATURE.maxHeightCm` = 400 cm HÖG** (längsta sidan alltså
+  400 cm × längsta/höjd, för en bred bild mer). Webbappen (reglage, hjul, slap, mobilens reglage) och servern
+  (`POST …/stamps`, klämmer) gör samma sak; serverns tekniska golv 2 cm och NaN-kontrollen gäller fortfarande.
+  Bara kurerade biblioteksklibbor – en egen uppladdning som heter `nature…` får vanliga gränser.
+  Tester: `tests/nature.test.mjs`, `tests/e2e-size.js`.
 - **Var:** uppladdningar (webbappen skickar filnamnet, servern sparar `startCm` på bilden; samma bild igen
   med ett annat prefix får den nya storleken), biblioteket (`startCm` i `library/manifest.json`; varje import
   räknar om den även för redan importerade ur originalnamnet `source`, och `--sizes` gör bara det).
@@ -820,14 +833,17 @@ What changes (shared/demo.json holds the numbers):
 **Sticker library import** (runs locally, then commit `library/`):
 
 ```
-node tools/import-library.mjs <folder> [--csv artists.csv] [--artist "Name"] [--replace] [--dry-run]
+node tools/import-library.mjs <folder> [--csv artists.csv] [--artist "Name"] [--nature] [--replace] [--dry-run]
 node tools/import-library.mjs --sizes   # only re-derive start heights (A_ … Z_) for what is already imported
 ```
 
 Images: png, jpg, jpeg, webp, gif, avif, tiff. Artist per image, first match wins: the CSV
 (`file,artist[,link]`, file relative to the folder), else the subfolder name (`<folder>/Ulla K/star.png`),
 else the file name (`Ulla K - star.png` or `ulla_k__star.png`), else `--artist`. Each image is
-re-encoded like uploads (WebP, max 1024 px) and gets a content-hash id; duplicates are skipped.
+re-encoded like uploads (WebP, max 1024 px) and gets a content-hash id; duplicates are skipped. Images in a
+folder named `nature` (or with `--nature`) become nature stickers (`nature: true`, name prefixed `nature-`;
+5 cm – 4 m high, see above; `nature` is never taken as the artist). The run also lists images without
+transparency and very small (< 256 px) or very large (> 4000 px) originals.
 `--replace` starts from an empty library (otherwise new ones are added). The server seeds `library/`
 into storage at start-up. `node tools/make-placeholder-library.mjs` rebuilds the 6 placeholders.
 

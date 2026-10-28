@@ -27,6 +27,8 @@ const MAX_PX = 1024;
 // guard: the size must be a finite number ≥ 2 cm (checked on slap).
 // The starting size from a file-name letter prefix ("B_cat.png" = 17.5 cm): shared/sizeprefix.mjs.
 const sizeMod = import('../shared/sizeprefix.mjs');
+// Nature stickers (name starts with "nature"): 5 cm up to 4 m HIGH in every version (shared/nature.mjs).
+const natureMod = import('../shared/nature.mjs');
 const { makeEntitlements, fromReq, FREE_MAX_STICKER_M, FREE_MIN_STICKER_M, KEY_RE } = require('./entitlements');
 const { verifySignature } = require('./licenses');
 // Paid full version (Lemon Squeezy, see server/licenses.js and README "Full version: Lemon Squeezy").
@@ -58,6 +60,7 @@ app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
 // Full-version flags for a request; asks Lemon Squeezy first when the key is a paid key we haven't seen.
 const entOf = (req) => (entitle.check ? entitle.check(fromReq(req)) : Promise.resolve(entitle(fromReq(req))));
 const licenses = entitle.licenses || null;
+const libraryById = new Map(library.map((s) => [s.id, s])); // the curated library by id (nature flags etc.)
 const wrapEarly = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // ---------- Lemon Squeezy webhook ----------
@@ -435,7 +438,13 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
   // Same gate as fabrics: only the full version (bigStickers) may slap stickers bigger than 1 m or
   // smaller than 15 cm. Free sizes outside 15 cm – 1 m are clamped (not refused), like before.
-  if ((b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK || b.size < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) && !(await entOf(req)).bigStickers) {
+  // Nature stickers (shared/nature.mjs) have their own limits instead, for everyone: NATURE.minCm
+  // (5 cm) up to NATURE.maxHeightCm (4 m) high; outside them clamped the same way.
+  const N = await natureMod, libEntry = libraryById.get(image.id);
+  if (N.isNature(libEntry) || (image.library === true && image.nature === true)) { // curated library only (never a user's own upload, whatever its name)
+    const lim = N.sizeLimitsCm({ ...image, ...(libEntry || {}), nature: true });
+    b.size = Math.min(lim.maxCm / 100, Math.max(lim.minCm / 100, b.size));
+  } else if ((b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK || b.size < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) && !(await entOf(req)).bigStickers) {
     b.size = Math.min(FREE_MAX_STICKER_M, Math.max(FREE_MIN_STICKER_M, b.size));
   }
   // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).

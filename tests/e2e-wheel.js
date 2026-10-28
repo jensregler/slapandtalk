@@ -199,7 +199,21 @@ async function lum(buf, [x0, y0, x1, y1]) {
     const lw = await L.evaluate(() => ({ strip: window.klibb.strip(), n: window.klibb.wheelDesigns().length, mine: window.klibb.state.mine.length, sel: window.klibb.state.selected, wheel: window.klibb.wheel(), loaded: [...document.querySelectorAll('#strip-row img')].filter((i) => i.getAttribute('src')).length }));
     check(`fresh non-demo user: the wheel holds the whole library (${lw.strip.n} ≥ ${libList.length} = /api/library), holding the first one`, libList.length >= 186 && lw.strip.n === libList.length && lw.n === libList.length && lw.mine === 0 && lw.sel.library === true && lw.sel.id === libList[0].id, { n: lw.strip.n, lib: libList.length });
     const vis = lw.wheel.items.filter((x) => x.op > 0.5);
-    check(`…but shows only about 8–9 at a time (${vis.length} visible, ${lw.loaded} images loaded of ${lw.strip.n})`, vis.length >= 7 && vis.length <= 9 && lw.loaded <= 11, { vis: vis.length, loaded: lw.loaded });
+    check(`…but shows only about 8–9 at a time (${vis.length} visible, ${lw.loaded} images loaded of ${lw.strip.n})`, vis.length >= 7 && vis.length <= 9 && lw.loaded >= vis.length && lw.loaded <= 9 + 2 * 8 + 2 && lw.loaded < lw.strip.n / 4, { vis: vis.length, loaded: lw.loaded });
+    // All stickers reach the page (Jens, 28 Oct 2026: "only a few show up"): every /api/library id is
+    // on the wheel AND in the panel's / book's "All stickers" list, and every image is served.
+    const libIds = libList.map((d) => d.id);
+    const pageLib = await L.evaluate(() => ({ wheel: [...document.querySelectorAll('#strip-row [data-id]')].map((b) => b.dataset.id), tray: [...document.querySelectorAll('#libtray .thumb')].map((t) => t.dataset.id), count: document.getElementById('lib-count').textContent, boxHidden: document.getElementById('lib-box').hidden }));
+    check(`…every library sticker is on the wheel (${pageLib.wheel.length}) and in "All stickers" (${pageLib.tray.length} = ${libIds.length})`, JSON.stringify(pageLib.wheel) === JSON.stringify(libIds) && JSON.stringify(pageLib.tray) === JSON.stringify(libIds) && pageLib.count === `(${libIds.length})` && !pageLib.boxHidden, { w: pageLib.wheel.length, t: pageLib.tray.length, count: pageLib.count });
+    const served = await Promise.all(libList.map((d) => fetch(`${S.base}${d.url}`).then((r) => r.ok && /image\/webp/.test(r.headers.get('content-type') || '')).catch(() => false)));
+    check(`…and every one of the ${libList.length} library images is served (/uploads/<id>.webp)`, served.every(Boolean), { bad: libList.filter((d, i) => !served[i]).map((d) => d.id) });
+    const far = libList[100];
+    await L.evaluate((id) => document.querySelector(`#libtray .thumb[data-id="${id}"] .pick`).click(), far.id); await sleep(400);
+    await L.waitForFunction(() => { const w = window.klibb.wheel(); return Math.abs(w.pos - w.target) < 0.002; }, null, { timeout: 8000 }).catch(() => {});
+    const farSel = await L.evaluate(() => ({ sel: window.klibb.state.selected.id, idx: window.klibb.wheel().index, ids: window.klibb.wheelDesigns().map((d) => d.id) }));
+    check('…picking #101 in "All stickers" holds it and turns the wheel to it', farSel.sel === far.id && farSel.ids[farSel.idx] === far.id, farSel);
+    for (let i = 0; i < 100; i++) await L.keyboard.press('f'); // back to the first (the checks below start there)
+    await sleep(800);
     st = await styles(L);
     const outer = st.filter((x) => x.op > 0.5).reduce((a, b) => (Math.abs(b.d) > Math.abs(a.d) ? b : a));
     check('…the outermost shown ones nearly grey, the middle full colour', outer.sat <= 0.11 && st.some((x) => Math.abs(x.d) < 0.01 && near(x.sat, 1, 0.01)), st.map((x) => [x.d, x.sat]));

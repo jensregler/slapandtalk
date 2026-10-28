@@ -30,6 +30,13 @@ button.danger { background: #b3261e; border-color: #b3261e; }
 #tray { display: flex; flex-wrap: wrap; gap: 6px; }
 #tray:empty::before { content: attr(data-empty); font-size: 12px; color: #777; }
 #tray { padding: 5px 5px 0 0; }
+/* All stickers (the whole library, as on the wheel): under my uploads, lazy-loaded thumbnails */
+#lib-box { margin-top: 6px; } #lib-box > summary { cursor: pointer; font-size: 12px; color: #bbb; padding: 2px 0; }
+#libtray { display: flex; flex-wrap: wrap; gap: 6px; padding: 5px 5px 0 0; max-height: 236px; overflow-y: auto; }
+#libtray .pick { width: 54px; height: 54px; padding: 3px; border-radius: 8px; background: #333 repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 50%/12px 12px; }
+#libtray .thumb.sel .pick { outline: 3px solid #ffd400; }
+#libtray img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+#book-tray #libtray { gap: 10px; max-height: none; overflow: visible; } #book-tray #libtray .pick { width: 64px; height: 64px; }
 #tray .thumb { position: relative; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 #tray .pick { width: 54px; height: 54px; padding: 3px; border-radius: 8px; background: #333 repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 50%/12px 12px; }
 #tray .thumb.sel .pick { outline: 3px solid #ffd400; }

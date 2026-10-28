@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { startSizeCm } from '../../shared/sizeprefix.mjs';
+import { sizeLimitsCm, NATURE } from '../../shared/nature.mjs';
 import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl } from './roomstyle.js';
 import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
@@ -171,7 +172,31 @@ function updateCount() { $('stamp-count').textContent = stamps.count; $('stamp-w
 // long-pressed (touch) a star (favourite) top-left and a small red × top-right (remove it from
 // MY list only; stickers already on walls stay). Favourites keep their yellow star showing.
 let ctlShown = null, longPressed = false, pressTimer = 0; // touch: long-press state
+// All stickers (Jens, 28 Oct 2026: "all stickers should be loaded"): the whole library under my own
+// uploads – in the desktop panel and the phone's sticker book (📒), the same list as the wheel, so it
+// is not only reachable by turning the wheel / swiping the stack. Thumbnails load lazily (186+).
+let libTrayKey = '';
+function renderLibTray() {
+  const box = $('lib-box'), tray = $('libtray'); if (!box || !tray) return;
+  const mine = new Set(designs().map((d) => d.id));
+  const list = DEMO ? [] : state.library.filter((d) => !mine.has(d.id));
+  const key = list.map((d) => d.id).join();
+  if (key !== libTrayKey) {
+    libTrayKey = key; tray.innerHTML = '';
+    for (const img of list) {
+      const t = document.createElement('div'); t.className = 'thumb lib'; t.dataset.id = img.id;
+      const b = document.createElement('button'); b.type = 'button'; b.title = S.pickThis; b.className = 'pick';
+      b.innerHTML = `<img loading="lazy" decoding="async" src="${img.url}" alt="">`;
+      b.onclick = () => select(img);
+      t.append(b); tray.appendChild(t);
+    }
+    $('lib-count').textContent = list.length ? `(${list.length})` : '';
+  }
+  box.hidden = !list.length;
+  for (const t of tray.children) t.classList.toggle('sel', t.dataset.id === state.selected?.id);
+}
 function renderTray() {
+  renderLibTray();
   const tray = $('tray'); tray.innerHTML = '';
   for (const img of designs()) {
     const fav = state.favs.has(img.id);
@@ -272,6 +297,7 @@ addEventListener('storage', (e) => {
 async function select(img) {
   const changed = (img && img.id) !== (state.selected && state.selected.id);
   state.selected = img || null; renderTray(); renderDesignHud();
+  if (changed) applySizeLimit(); // nature stickers have their own size limits (shared/nature.mjs)
   if (img && changed) startSize(img);
   if (!img) { preview.setTexture(null); return; }
   try {
@@ -412,8 +438,12 @@ const FREE_MAX_CM = 100;
 const FREE_MIN_CM = 15; // free version: at least 15 cm (= A_); the full version goes down to 5 cm
 const FULL_MIN_CM = 5;
 const SLIDER_FULL_CM = 400; // slider travel only, not a limit
-const maxSizeCm = () => (entitlements.full.bigStickers ? Infinity : FREE_MAX_CM);
-const minSizeCm = () => (entitlements.full.bigStickers ? FULL_MIN_CM : FREE_MIN_CM);
+// Nature stickers (curated library, name starts with "nature"; shared/nature.mjs): NATURE.minCm (5 cm)
+// up to NATURE.maxHeightCm (4 m) HIGH in every version; every other design the version's limits.
+const versionLimits = () => (entitlements.full.bigStickers ? { minCm: FULL_MIN_CM, maxCm: Infinity } : { minCm: FREE_MIN_CM, maxCm: FREE_MAX_CM });
+const limitsFor = (img = state.selected) => (img && img.library === true ? sizeLimitsCm(img, versionLimits()) : versionLimits());
+const maxSizeCm = (img) => limitsFor(img).maxCm;
+const minSizeCm = (img) => limitsFor(img).minCm;
 const showSize = () => {
   const cm = Math.round(state.size * 200) / 2;
   $('size').value = String(Math.min(cm, Number($('size').max)));
@@ -2183,6 +2213,7 @@ if (!DEMO && state.mine.length) select(last(state.mine));
 const LIB_SEL = 'klibb.libSel';
 const libraryReady = fetch('/api/library').then((r) => r.json()).then(({ stickers }) => {
   state.library = Array.isArray(stickers) ? stickers : [];
+  renderLibTray();
   if (!DEMO) { // the library is on the wheel for everyone; nothing of my own yet → hold the first library sticker
     if (!state.selected && state.library.length) select(wheelDesigns()[0]); else renderDesignHud();
     return;
@@ -2257,5 +2288,5 @@ window.klibb = {
   },
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
-  nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
+  nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };

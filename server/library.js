@@ -24,11 +24,13 @@ function loadLibrary(dir = LIB_DIR) {
     artist: String(s.artist || '').slice(0, 60), ...(s.link ? { link: String(s.link).slice(0, 200) } : {}), ...(s.title ? { title: String(s.title).slice(0, 80) } : {}),
     // The starting size (shared/sizeprefix.mjs): startCm from the import, else derived from source.
     ...(typeof s.startCm === 'number' ? { startCm: s.startCm } : {}), ...(s.source ? { source: String(s.source).slice(0, 200) } : {}),
+    // nature: from the import (a "nature" folder / a name starting with "nature"), or the original name (shared/nature.mjs)
+    ...(s.nature === true || /^nature/i.test(String(s.source || '').split(/[\\/]/).pop()) ? { nature: true } : {}),
   }));
 }
 
 // Public form (GET /api/library): what the palette needs.
-const publicSticker = (s) => ({ id: s.id, url: `/uploads/${s.id}.webp`, width: s.width, height: s.height, artist: s.artist, ...(s.link ? { artistLink: s.link } : {}), library: true });
+const publicSticker = (s) => ({ id: s.id, url: `/uploads/${s.id}.webp`, width: s.width, height: s.height, artist: s.artist, ...(s.link ? { artistLink: s.link } : {}), ...(s.nature ? { nature: true } : {}), library: true });
 
 async function seedLibrary(store, list, { log = console } = {}) {
   let added = 0, bad = 0;
@@ -39,7 +41,7 @@ async function seedLibrary(store, list, { log = console } = {}) {
       const buf = fs.readFileSync(s.file);
       if (contentId(buf) !== s.id) { bad++; log.error(`[library] ${path.basename(s.file)}: content does not match id ${s.id}, skipped`); continue; }
       await store.putImageFile(s.id, buf);
-      await store.addImage({ id: s.id, url: `/uploads/${s.id}.webp`, width: s.width, height: s.height, artist: s.artist, ...(s.link ? { artistLink: s.link } : {}), library: true, createdAt: (meta && meta.createdAt) || new Date().toISOString() });
+      await store.addImage({ id: s.id, url: `/uploads/${s.id}.webp`, width: s.width, height: s.height, artist: s.artist, ...(s.link ? { artistLink: s.link } : {}), ...(s.nature ? { nature: true } : {}), library: true, createdAt: (meta && meta.createdAt) || new Date().toISOString() });
       added++;
     } catch (e) { bad++; log.error(`[library] ${s.id}: ${e.message}`); }
   }

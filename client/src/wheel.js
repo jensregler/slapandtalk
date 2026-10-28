@@ -8,6 +8,8 @@
 // (rotate + scale) holding the <img> (saturation). Only the stickers in reach are drawn.
 import { wrapDist, indexAt, targetFor, itemAt, reach, mod, WHEEL } from '../../shared/wheel.mjs';
 
+const PRELOAD = 8; // stickers beyond the drawn ones (each side) whose images are fetched ahead
+
 export function createWheel(row, o) {
   // o: { pick(img), touch, onActivity() }
   let list = [], key = '', btns = [], pos = 0, target = 0, placed = false, raf = 0, last = 0;
@@ -67,11 +69,13 @@ export function createWheel(row, o) {
     const r = reach(half - item * 0.35 - WHEEL.centerPush * item * (WHEEL.centerScale - 1), first, gap);
     for (let i = 0; i < btns.length; i++) {
       const b = btns[i], d = wrapDist(i, pos, n);
+      const im = b.firstElementChild.firstElementChild;
+      // load an image once it comes near the view (186+ on the wheel): PRELOAD stickers ahead on both
+      // sides, so a quick turn / swipe never shows empty slots while they download
+      if (Math.abs(d) <= r + 1 + PRELOAD && !im.getAttribute('src')) im.src = im.dataset.src;
       if (Math.abs(d) > r + 1) { if (b.style.display !== 'none') b.style.display = 'none'; continue; }
       const it = itemAt(d, { n, first, gap, reachN: r, item });
       b.style.display = '';
-      const im = b.firstElementChild.firstElementChild;
-      if (!im.getAttribute('src')) im.src = im.dataset.src; // load an image only once it comes into view (186+ on the wheel)
       b.style.transform = `translate(${it.x.toFixed(1)}px, ${it.y.toFixed(1)}px)`;
       b.style.zIndex = String(it.z); b.style.opacity = it.op.toFixed(3);
       b.style.pointerEvents = it.op > 0.5 ? '' : 'none';

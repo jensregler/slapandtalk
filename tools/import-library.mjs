@@ -17,6 +17,10 @@
 //   "B_cat.png" = 17.5 cm … "Z_cat.png" = 77.5 cm; none (also "b-cat", "C cat") = 30 cm.
 //   Stored as startCm in the manifest. The prefix is not part of the artist/title ("B_Ulla - cat.png" → Ulla).
 //   Every run also re-derives startCm for already-imported stickers from their original name (source).
+// Nature (shared/nature.mjs): every image in a folder called "nature" (the folder given, or a
+//   subfolder of it, any case) – or with --nature, every image imported – is a nature sticker:
+//   nature: true in the manifest and its source name starts with "nature" (prefixed "nature-" if it
+//   does not already), so it may be scaled from 5 cm up to 4 m high. "nature" is never an artist name.
 // --sizes    only re-derive startCm (start sizes) for the stickers already in the manifest (no folder needed)
 // --replace  start from an empty library (otherwise new images are added, existing ids updated)
 // --dry-run  report only, write nothing
@@ -27,13 +31,14 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { startHeightCm, stripPrefix } from '../shared/sizeprefix.mjs';
+import { isNatureName, NATURE } from '../shared/nature.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_PX = 1024;
 const EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.tif', '.tiff']);
 
 export function parseArgs(argv) {
-  const o = { folder: null, csv: null, artist: '', replace: false, dry: false, sizes: false, out: path.join(ROOT, 'library') };
+  const o = { folder: null, csv: null, artist: '', replace: false, dry: false, sizes: false, nature: false, out: path.join(ROOT, 'library') };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--csv') o.csv = argv[++i];
@@ -41,6 +46,7 @@ export function parseArgs(argv) {
     else if (a === '--replace') o.replace = true;
     else if (a === '--dry-run') o.dry = true;
     else if (a === '--sizes') o.sizes = true;
+    else if (a === '--nature') o.nature = true;
     else if (a === '--out') o.out = argv[++i];
     else if (!o.folder) o.folder = a;
   }
@@ -74,7 +80,7 @@ export function artistFor(rel, { csv = new Map(), fallback = '' } = {}) {
   const hit = csv.get(rel.toLowerCase()) || csv.get(path.basename(rel).toLowerCase()) || csv.get(stripPrefix(path.basename(rel)).toLowerCase());
   rel = stripPrefix(rel); // the size letter is not part of the name
   if (hit && (hit.artist || hit.link)) return { artist: tidy(hit.artist), link: hit.link || '' };
-  const parts = rel.split('/');
+  const parts = rel.split('/').filter((x, i, a) => i === a.length - 1 || x.toLowerCase() !== NATURE.prefix); // a "nature" folder is not an artist
   if (parts.length > 1) return { artist: tidy(parts[parts.length - 2]), link: '' };
   const base = path.basename(rel, path.extname(rel));
   const m = /^(.+?)\s+-\s+.+$/.exec(base) || /^(.+?)__.+$/.exec(base);
@@ -91,10 +97,12 @@ function walk(dir, base = dir, out = []) {
 }
 // Same treatment as POST /api/stickers in server/app.js.
 export async function encode(buf) {
+  const meta = await sharp(buf, { limitInputPixels: 60e6, animated: false }).stats().then((st) => ({ opaque: st.isOpaque })).catch(() => ({ opaque: null }));
+  const src = await sharp(buf, { limitInputPixels: 60e6, animated: false }).metadata().catch(() => ({}));
   const out = await sharp(buf, { limitInputPixels: 60e6, animated: false }).rotate()
     .resize(MAX_PX, MAX_PX, { fit: 'inside', withoutEnlargement: true })
     .webp({ quality: 90, alphaQuality: 100 }).toBuffer({ resolveWithObject: true });
-  return { data: out.data, width: out.info.width, height: out.info.height, id: crypto.createHash('sha256').update(out.data).digest('hex').slice(0, 16) };
+  return { opaque: meta.opaque, srcW: src.width | 0, srcH: src.height | 0, data: out.data, width: out.info.width, height: out.info.height, id: crypto.createHash('sha256').update(out.data).digest('hex').slice(0, 16) };
 }
 
 // Only re-derive startCm for what is already in the manifest (--sizes).
@@ -116,7 +124,7 @@ export async function importFolder(o, log = console.log) {
   let man = { stickers: [] };
   if (!o.replace && fs.existsSync(manPath)) man = JSON.parse(fs.readFileSync(manPath, 'utf8'));
   const byId = new Map(man.stickers.map((s) => [s.id, s]));
-  const report = { added: 0, updated: 0, duplicates: 0, skipped: [], failed: [], noArtist: [] };
+  const report = { added: 0, updated: 0, duplicates: 0, skipped: [], failed: [], noArtist: [], nature: [], opaque: [], small: [], large: [] };
   const seen = new Set();
   for (const rel of walk(o.folder)) {
     if (!EXT.has(path.extname(rel).toLowerCase())) { report.skipped.push(rel); continue; }
@@ -126,7 +134,13 @@ export async function importFolder(o, log = console.log) {
     seen.add(enc.id);
     const { artist, link } = artistFor(rel, { csv, fallback: o.artist });
     if (!artist) report.noArtist.push(rel);
-    const entry = { id: enc.id, file: `${enc.id}.webp`, width: enc.width, height: enc.height, artist, ...(link ? { link } : {}), source: path.basename(rel), startCm: startHeightCm(rel) };
+    const nature = o.nature || [path.basename(o.folder), ...rel.split('/').slice(0, -1)].some((x) => x.toLowerCase() === NATURE.prefix);
+    const name = path.basename(rel), source = nature && !isNatureName(name) ? `${NATURE.prefix}-${name}` : name;
+    if (nature) report.nature.push(rel);
+    if (enc.opaque) report.opaque.push(rel); // no transparency: it slaps as a rectangle
+    if (Math.max(enc.srcW, enc.srcH) && Math.max(enc.srcW, enc.srcH) < 256) report.small.push(`${rel} (${enc.srcW}×${enc.srcH})`);
+    if (Math.max(enc.srcW, enc.srcH) > 4000) report.large.push(`${rel} (${enc.srcW}×${enc.srcH})`);
+    const entry = { id: enc.id, file: `${enc.id}.webp`, width: enc.width, height: enc.height, artist, ...(link ? { link } : {}), source, startCm: startHeightCm(name), ...(nature ? { nature: true } : {}) };
     if (byId.has(enc.id)) report.updated++; else report.added++;
     byId.set(enc.id, entry);
     if (!o.dry) { fs.mkdirSync(imgDir, { recursive: true }); fs.writeFileSync(path.join(imgDir, entry.file), enc.data); }
@@ -141,6 +155,10 @@ export async function importFolder(o, log = console.log) {
   if (report.skipped.length) log(`skipped (not an image): ${report.skipped.join(', ')}`);
   if (report.failed.length) log(`could not read: ${report.failed.join('; ')}`);
   if (report.noArtist.length) log(`no artist name: ${report.noArtist.join(', ')}`);
+  if (report.nature.length) log(`nature stickers (5 cm – 4 m high): ${report.nature.length}`);
+  if (report.opaque.length) log(`no transparency (slap as rectangles): ${report.opaque.join(', ')}`);
+  if (report.small.length) log(`small originals (< 256 px): ${report.small.join(', ')}`);
+  if (report.large.length) log(`large originals (> 4000 px, scaled to 1024): ${report.large.join(', ')}`);
   return { ...report, total: stickers.length };
 }
 
