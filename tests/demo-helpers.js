@@ -28,7 +28,7 @@ function toneWav(seconds = 6, rate = 48000) {
 async function startServer(port, extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-demo-e2e-'));
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(port), DATA_DIR: dir, STORAGE: 'local', ADMIN_TOKEN: 'demo-e2e-admin',
-    DEMO_PROFILE: '1', DEV_UNLOCK: '1', FULL_ACCESS_KEYS: 'demo-e2e-key', ...extra };
+    DEMO_PROFILE: '1', DEV_UNLOCK: '1', FULL_ACCESS_KEYS: 'demo-e2e-key', ...(process.env.OPEN_ACCESS != null ? { OPEN_ACCESS: process.env.OPEN_ACCESS } : {}), ...extra };
   const child = spawn(process.execPath, [path.join(ROOT, 'server/index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { out += d; });
   const base = `http://localhost:${port}`;
@@ -51,4 +51,9 @@ async function enter(ctx, url, name) {
 }
 
 
-module.exports = { toneWav, startServer, enter, sleep };
+// OPEN ACCESS (shared/openaccess.mjs) on that server? Then everyone has the full version and the
+// free/paywall checks are skipped; run with OPEN_ACCESS=0 to test the paywall.
+async function openAccess(base) { try { return (await (await fetch(base + '/api/entitlements')).json()).open === true; } catch { return false; } }
+const SKIP_FREE = '  – free-version/paywall checks skipped: OPEN ACCESS is on (run with OPEN_ACCESS=0 to test them)';
+
+module.exports = { toneWav, startServer, enter, sleep, openAccess, SKIP_FREE };

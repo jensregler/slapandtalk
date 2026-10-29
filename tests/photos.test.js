@@ -1,6 +1,8 @@
 // 📷 Photos (server/photos.js): upload → list → serve (/p/<id>, /p/<id>/file), size/type/rate
 // limits, unguessable ids, retention, admin delete, and a demo room's photos outliving the room.
 // Run: node tests/photos.test.js
+// Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
+process.env.OPEN_ACCESS ??= '0';
 const assert = require('assert/strict');
 const fs = require('fs');
 const os = require('os');

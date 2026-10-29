@@ -551,6 +551,12 @@ standard 80 MB, högst 2 samtidigt, 4 per minut och 20 per timme per IP).
 
 ## Fullversionen (entitlements)
 
+> **OPEN ACCESS är PÅ just nu (29 okt 2026, medan Jens testar):** alla får allt, utan nyckel, och
+> rutan "Full version", dess knapp i ⚙ More, 🔒 och "part of the full version" syns inte.
+> Brytaren är EN rad: `shared/openaccess.mjs` → `export const OPEN_ACCESS = true;` (sätt `false`
+> för att få tillbaka betalväggen), eller bara på servern: env `OPEN_ACCESS=0` på Render.
+> Betalväggskoden nedan är orörd. Testa betalväggen med `OPEN_ACCESS=0 node tests/…`.
+
 Grundversionen är ett lugnt, komplett klistermärkesrum: vanliga färger på gubben, egna (unika)
 standardljud och en diskret rumsakustik. Fullversionen lägger till de djupa menyerna ovanpå:
 **tyger** på gubben (`fabrics`), **Sound settings** med synth och effekter (`soundDesign`) och

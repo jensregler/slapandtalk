@@ -2,6 +2,8 @@
 // for the full version, the hand limit of 120/min for everyone else), bursts sharing one peel key
 // (join) = one undo step, a wrong/stale join gets its own key, recordings get the slaps.
 // Run: node tests/autoslap.test.js (in npm test)
+// Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
+process.env.OPEN_ACCESS ??= '0';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

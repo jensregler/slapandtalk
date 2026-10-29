@@ -1,6 +1,8 @@
 // Tester av rummen, städjobbet, lagrings-adaptrarna och att samma bild bara sparas en gång.
 // Körs utan webbläsare och utan riktig server-disk: allt i en tillfällig mapp och en låtsas-S3.
 // Körs med: node tests/rooms.test.js (ingår i npm test)
+// Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
+process.env.OPEN_ACCESS ??= '0';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

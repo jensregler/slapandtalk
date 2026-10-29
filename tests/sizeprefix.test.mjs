@@ -1,5 +1,7 @@
 // Size prefix: a letter + underscore at the start of the file name sets the starting size (shared/sizeprefix.mjs),
 // for uploads (server image record), the curated library (tools/import-library.mjs → /api/library).
+// Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
+process.env.OPEN_ACCESS ??= '0';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';

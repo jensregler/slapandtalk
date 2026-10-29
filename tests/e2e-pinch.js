@@ -8,7 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const { startServer, sleep } = require('./demo-helpers');
+const { startServer, sleep, openAccess } = require('./demo-helpers');
 
 const PORT = Number(process.env.PINCH_E2E_PORT || 8873);
 const SHOTS = process.env.PINCH_SHOTS || '/workspace/pinch-shots';
@@ -21,13 +21,15 @@ const W = 390, H = 844, CX = W / 2, CY = H / 2;
   const S = await startServer(PORT, { DEMO_PROFILE: '0', ADMIN_TOKEN: 'pinch-e2e-admin' });
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const errors = [];
+  const OPEN = await openAccess(S.base); // OPEN ACCESS: the 'free' phone has the full limits (5 cm – no max)
+  if (OPEN) console.log('  – OPEN ACCESS is on: the free phone gets the full limits (run with OPEN_ACCESS=0 for the free 15–100 cm)');
   const phone = async (full) => {
     const made = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
     const ctx = await browser.newContext({ viewport: { width: W, height: H }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     await ctx.addInitScript(([r, k, f]) => { localStorage.setItem('klibb.roomKeys', JSON.stringify({ [r]: k })); if (f) localStorage.setItem('klibb.devUnlock', '1'); }, [made.room.id, made.roomKey, full]);
     const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push(e.message));
     await P.goto(`${S.base}/?room=${made.room.id}`);
-    await P.waitForFunction((f) => window.klibb && window.klibb.ready && window.klibb.state.selected && document.body.classList.contains('touch') && window.klibb.natureOpen() === f, full, { timeout: 30000 });
+    await P.waitForFunction((f) => window.klibb && window.klibb.ready && window.klibb.state.selected && document.body.classList.contains('touch') && window.klibb.natureOpen() === f, full || OPEN, { timeout: 30000 });
     await P.evaluate(() => { const k = window.klibb; k.moveTo(0, 1); k.look(0, 0); k.setSize(30); k.stackMenu().chosen(); });
     await sleep(500);
     const cdp = await ctx.newCDPSession(P);
@@ -62,9 +64,9 @@ const W = 390, H = 844, CX = W / 2, CY = H / 2;
     const f3 = await F.pinch(80, 30);
     check(`free: pinch in → smaller (60 → ${f3.cm} cm, ×0.375 = 22.5)`, f3.cm === 22.5, f3);
     const f4 = await F.pinch(80, 10);
-    check(`free: pinch in hard → clamped at the free 15 cm floor (${f4.cm})`, f4.cm === 15, f4);
+    check(OPEN ? `open access: pinch in hard → the full 5 cm floor (${f4.cm})` : `free: pinch in hard → clamped at the free 15 cm floor (${f4.cm})`, f4.cm === (OPEN ? 5 : 15), f4);
     const f5 = await F.pinch(15, 170);
-    check(`free: pinch out hard → clamped at the free 100 cm cap (${f5.cm})`, f5.cm === 100, f5);
+    check(OPEN ? `open access: pinch out hard → ×11 from 5 cm (${f5.cm} cm), no max (limits ${f5.lim.minCm} cm – ${f5.lim.maxCm})` : `free: pinch out hard → clamped at the free 100 cm cap (${f5.cm})`, OPEN ? f5.cm > 50 && f5.cm < 60 && f5.lim.maxCm === Infinity : f5.cm === 100, f5);
     await F.P.evaluate(() => window.klibb.setSize(30));
     const f6 = await F.pinch(70, 70, 0, 35);
     check(`free: twist 35° clockwise (same distance) → rotation +35° (${f6.rot}°), the size unchanged (${f6.cm}), the held sticker turned (${f6.heldRot})`, f6.rot === 35 && f6.cm === 30 && f6.heldRot === '35deg', f6);

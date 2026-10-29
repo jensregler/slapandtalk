@@ -2,6 +2,8 @@
 // room), retention + cleanup, range requests, watch page, the Recordings list, email-the-link
 // (mock provider), the S3 streaming bits, and the pure layout/ticker maths.
 // Runs without a browser: node tests/video.test.js (part of npm test).
+// Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
+process.env.OPEN_ACCESS ??= '0';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

@@ -8,7 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const { startServer, sleep } = require('./demo-helpers');
+const { startServer, sleep, openAccess, SKIP_FREE } = require('./demo-helpers');
 
 const PORT = Number(process.env.NATUREWHEEL_E2E_PORT || 8865);
 const SHOTS = process.env.NATURE_SHOTS || '/workspace/nature-shots';
@@ -27,34 +27,37 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const ready = (p, full) => p.waitForFunction((f) => window.klibb && window.klibb.ready && window.klibb.state.selected && window.klibb.natureOpen() === f, full, { timeout: 30000 });
     const settle = (p, w) => p.waitForFunction((w) => { const x = window.klibb[w](); return Math.abs(x.pos - x.target) < 0.002; }, w, { timeout: 8000 }).catch(() => {});
 
-    // ---- free version, desktop ----
-    const fctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    const F = await fctx.newPage(); F.on('pageerror', (e) => errors.push(e.message));
-    await F.goto(S.base + '/'); await ready(F, false);
-    const f0 = await F.evaluate(() => ({ ns: window.klibb.natureStrip(), ss: window.klibb.strip(), sticker: window.klibb.stickerDesigns().map((d) => d.id), natural: window.klibb.natureDesigns().map((d) => d.id), act: window.klibb.activeWheel(), sel: window.klibb.state.selected,
-      tray: [...document.querySelectorAll('#libtray .thumb')].map((t) => t.dataset.id), ntray: [...document.querySelectorAll('#naturetray .thumb')].length, nbox: document.getElementById('nature-box').className }));
-    check('two wheels: Nature on the LEFT of the sticker wheel, both shown', f0.ns.shown && f0.ss.shown && f0.ns.rect.right <= f0.ss.rect.left + 1, { n: f0.ns.rect, s: f0.ss.rect });
-    check(`separate: the sticker wheel has the ${rest.length} others (no nature), the Nature wheel the ${nat.length} nature stickers`, JSON.stringify(f0.sticker) === JSON.stringify(rest.map((d) => d.id)) && JSON.stringify(f0.natural) === JSON.stringify(nat.map((d) => d.id)) && f0.ss.n === rest.length && f0.ns.n === nat.length);
-    check('"All stickers" has no nature stickers; "🌿 Nature" lists them (locked)', f0.tray.length === rest.length && !f0.tray.some((id) => nat.some((d) => d.id === id)) && f0.ntray === nat.length && /locked/.test(f0.nbox), { t: f0.tray.length, n: f0.ntray });
-    check('free: the Nature wheel is locked (greyed, "🔒 Nature · Full version"), the sticker wheel active, a normal sticker held', f0.ns.locked && /Full version/.test(f0.ns.num) && f0.act === 'stickers' && !f0.sel.nature);
-    const grey = await F.evaluate(() => getComputedStyle(document.getElementById('nature-row')).filter);
-    check('…greyed out (grayscale)', /grayscale\(1\)/.test(grey), grey);
-    await F.screenshot({ path: path.join(SHOTS, 'e2e-desktop-free.png') });
-    await F.mouse.click(f0.ns.rect.x + f0.ns.rect.width / 2, f0.ns.rect.y + f0.ns.rect.height - 60); await sleep(400);
-    const f1 = await F.evaluate(() => ({ paywall: window.klibb.fullUi().isOpen(), sel: window.klibb.state.selected, act: window.klibb.activeWheel() }));
-    check('free: a click on the Nature wheel opens the full version panel, nothing nature is held', f1.paywall && !f1.sel.nature && f1.act === 'stickers', f1);
-    await F.evaluate(() => window.klibb.fullUi().close());
-    await F.evaluate((id) => document.querySelector(`#naturetray .thumb[data-id="${id}"] .pick`).click(), nat[3].id); await sleep(300);
-    const f2 = await F.evaluate(() => ({ paywall: window.klibb.fullUi().isOpen(), nat: !!window.klibb.state.selected.nature }));
-    check('free: picking from the 🌿 Nature list also opens the panel instead', f2.paywall && !f2.nat, f2);
-    await F.evaluate(() => window.klibb.fullUi().close());
-    for (let i = 0; i < 4; i++) await F.keyboard.press('r');
-    await sleep(500);
-    check('free: R/F stay on the sticker wheel (never a nature sticker)', await F.evaluate(() => !window.klibb.state.selected.nature && window.klibb.activeWheel() === 'stickers'));
-    const srv = await fetch(`${S.base}/api/rooms/stad/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: nat[0].id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 1, surface: 'vägg-norr' }) });
-    check('server: a nature stamp without the full version → 403 (full: true)', srv.status === 403 && (await srv.json()).full === true, srv.status);
-    await fctx.close();
+    const OPEN = await openAccess(S.base);
+    if (OPEN) console.log(SKIP_FREE); else {
+      // ---- free version, desktop ----
+      const fctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+      const F = await fctx.newPage(); F.on('pageerror', (e) => errors.push(e.message));
+      await F.goto(S.base + '/'); await ready(F, false);
+      const f0 = await F.evaluate(() => ({ ns: window.klibb.natureStrip(), ss: window.klibb.strip(), sticker: window.klibb.stickerDesigns().map((d) => d.id), natural: window.klibb.natureDesigns().map((d) => d.id), act: window.klibb.activeWheel(), sel: window.klibb.state.selected,
+        tray: [...document.querySelectorAll('#libtray .thumb')].map((t) => t.dataset.id), ntray: [...document.querySelectorAll('#naturetray .thumb')].length, nbox: document.getElementById('nature-box').className }));
+      check('two wheels: Nature on the LEFT of the sticker wheel, both shown', f0.ns.shown && f0.ss.shown && f0.ns.rect.right <= f0.ss.rect.left + 1, { n: f0.ns.rect, s: f0.ss.rect });
+      check(`separate: the sticker wheel has the ${rest.length} others (no nature), the Nature wheel the ${nat.length} nature stickers`, JSON.stringify(f0.sticker) === JSON.stringify(rest.map((d) => d.id)) && JSON.stringify(f0.natural) === JSON.stringify(nat.map((d) => d.id)) && f0.ss.n === rest.length && f0.ns.n === nat.length);
+      check('"All stickers" has no nature stickers; "🌿 Nature" lists them (locked)', f0.tray.length === rest.length && !f0.tray.some((id) => nat.some((d) => d.id === id)) && f0.ntray === nat.length && /locked/.test(f0.nbox), { t: f0.tray.length, n: f0.ntray });
+      check('free: the Nature wheel is locked (greyed, "🔒 Nature · Full version"), the sticker wheel active, a normal sticker held', f0.ns.locked && /Full version/.test(f0.ns.num) && f0.act === 'stickers' && !f0.sel.nature);
+      const grey = await F.evaluate(() => getComputedStyle(document.getElementById('nature-row')).filter);
+      check('…greyed out (grayscale)', /grayscale\(1\)/.test(grey), grey);
+      await F.screenshot({ path: path.join(SHOTS, 'e2e-desktop-free.png') });
+      await F.mouse.click(f0.ns.rect.x + f0.ns.rect.width / 2, f0.ns.rect.y + f0.ns.rect.height - 60); await sleep(400);
+      const f1 = await F.evaluate(() => ({ paywall: window.klibb.fullUi().isOpen(), sel: window.klibb.state.selected, act: window.klibb.activeWheel() }));
+      check('free: a click on the Nature wheel opens the full version panel, nothing nature is held', f1.paywall && !f1.sel.nature && f1.act === 'stickers', f1);
+      await F.evaluate(() => window.klibb.fullUi().close());
+      await F.evaluate((id) => document.querySelector(`#naturetray .thumb[data-id="${id}"] .pick`).click(), nat[3].id); await sleep(300);
+      const f2 = await F.evaluate(() => ({ paywall: window.klibb.fullUi().isOpen(), nat: !!window.klibb.state.selected.nature }));
+      check('free: picking from the 🌿 Nature list also opens the panel instead', f2.paywall && !f2.nat, f2);
+      await F.evaluate(() => window.klibb.fullUi().close());
+      for (let i = 0; i < 4; i++) await F.keyboard.press('r');
+      await sleep(500);
+      check('free: R/F stay on the sticker wheel (never a nature sticker)', await F.evaluate(() => !window.klibb.state.selected.nature && window.klibb.activeWheel() === 'stickers'));
+      const srv = await fetch(`${S.base}/api/rooms/stad/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: nat[0].id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 1, surface: 'vägg-norr' }) });
+      check('server: a nature stamp without the full version → 403 (full: true)', srv.status === 403 && (await srv.json()).full === true, srv.status);
+      await fctx.close();
 
+    }
     // ---- full version (dev unlock), desktop ----
     const uctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
     await uctx.addInitScript(() => localStorage.setItem('klibb.devUnlock', '1'));
@@ -96,7 +99,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await uctx.close();
 
     // ---- phone: two bands side by side, Nature left; swipe follows the active wheel ----
-    for (const full of [false, true]) {
+    for (const full of OPEN ? [true] : [false, true]) {
       const mctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
       if (full) await mctx.addInitScript(() => localStorage.setItem('klibb.devUnlock', '1'));
       const M = await mctx.newPage(); M.on('pageerror', (e) => errors.push(e.message));

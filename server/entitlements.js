@@ -35,6 +35,10 @@ const FREE_MAX_PLAYERS = 4;
 const maxPlayersFor = (env = process.env) => { const n = Math.floor(Number(env.MAX_PLAYERS_PER_ROOM)); return n > 0 ? Math.min(n, FREE_MAX_PLAYERS) : FREE_MAX_PLAYERS; };
 const FREE_MIN_STICKER_M = 0.15; // free version: at least 15 cm (= the A_ size); the full version keeps the 5 cm minimum
 const KEY_RE = /^[A-Za-z0-9_.~-]{12,128}$/;
+// OPEN ACCESS (shared/openaccess.mjs): while on, EVERYONE gets every feature below, keys or not,
+// even in the demo profile. Env OPEN_ACCESS=0 turns it off on this server (unset = the constant).
+const { OPEN_ACCESS, openAccessFrom } = require('../shared/openaccess.mjs');
+const openAccessOn = (env = process.env) => openAccessFrom(env.OPEN_ACCESS ?? process.env.OPEN_ACCESS, OPEN_ACCESS);
 
 const none = () => Object.fromEntries(FEATURES.map((f) => [f, false]));
 const all = () => Object.fromEntries(FEATURES.map((f) => [f, true]));
@@ -59,7 +63,9 @@ function makeEntitlements(env = process.env, { licenses = null } = {}) {
   const keys = parseKeys(env.FULL_ACCESS_KEYS);
   const demo = env.DEMO_PROFILE === '1' || String(env.DEMO_PROFILE).toLowerCase() === 'true';
   const devAllowed = env.DEV_UNLOCK === '1' && !demo;
+  const open = openAccessOn(env);
   const resolve = ({ key, dev } = {}) => {
+    if (open) return all(); // OPEN ACCESS: no paywall anywhere (shared/openaccess.mjs)
     if (demo) return none();
     if (typeof key === 'string' && keys.has(key)) { const out = none(); for (const f of keys.get(key)) out[f] = true; return out; }
     if (licenses && typeof key === 'string' && licenses.peek(key)) return all(); // paid: the whole full version
@@ -76,6 +82,7 @@ function makeEntitlements(env = process.env, { licenses = null } = {}) {
   resolve.licenses = licenses;
   resolve.devAllowed = devAllowed;
   resolve.demo = demo;
+  resolve.open = open;
   return resolve;
 }
 // Credentials from an HTTP request (headers set by client/src/entitlements.js).
@@ -83,4 +90,4 @@ const fromReq = (req) => ({ key: req.get('x-unlock') || undefined, dev: req.get(
 // … and from a WebSocket hello: { unlock: { key, dev } }.
 const fromHello = (m) => { const u = m && typeof m.unlock === 'object' && m.unlock ? m.unlock : {}; return { key: typeof u.key === 'string' ? u.key : undefined, dev: u.dev === true }; };
 
-module.exports = { FEATURES, FREE_MAX_PLAYERS, maxPlayersFor, FREE_MAX_STICKER_M, FREE_MIN_STICKER_M, KEY_RE, makeEntitlements, fromReq, fromHello, none, all };
+module.exports = { openAccessOn, FEATURES, FREE_MAX_PLAYERS, maxPlayersFor, FREE_MAX_STICKER_M, FREE_MIN_STICKER_M, KEY_RE, makeEntitlements, fromReq, fromHello, none, all };

@@ -415,6 +415,7 @@ function renderStrip() {
   const open = natureOpen(), j = onNat ? nat.findIndex((d) => d.id === sel.id) : -1;
   $('nature-strip').hidden = !nat.length;
   $('nature-strip').classList.toggle('locked', !open);
+  $('nature-strip').title = open ? S.natureAria : S.natureTitle; // no "(full version)" once it's open
   natureWheel.setList(nat);
   natureWheel.setSelected(onNat ? sel.id : null);
   $('nature-num').textContent = !nat.length ? '' : !open ? S.natureLocked : `🌿 ${j >= 0 ? `${j + 1}/` : ''}${nat.length}`;

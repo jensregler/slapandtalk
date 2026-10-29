@@ -1,6 +1,8 @@
 // Synth + effects (shared/synth.mjs) and the full-version gating of custom sounds:
 // schema clamping, deterministic per-player variation, duff scaling, room acoustics, and the
 // server dropping custom patches from free players while broadcasting them for soundDesign ones.
+// Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
+process.env.OPEN_ACCESS ??= '0';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';

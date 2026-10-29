@@ -11,7 +11,7 @@ const { LocalAdapter } = require('../server/storage/local');
 const { createStore } = require('../server/store');
 const { createApp, payConfig } = require('../server/app');
 const { attachRealtime } = require('../server/realtime');
-const { makeEntitlements } = require('../server/entitlements');
+const { makeEntitlements, openAccessOn } = require('../server/entitlements');
 const { createLicenses, verifySignature, hashKey } = require('../server/licenses');
 
 const assert = (c, m) => { if (!c) throw new Error('FEL: ' + m); console.log('✔ ' + m); };
@@ -67,7 +67,10 @@ console.error = (...a) => { logged.push(a.join(' ')); origErr(...a); };
 const SECRET = 'whsec-test-123456';
 const sign = (raw, secret = SECRET) => crypto.createHmac('sha256', secret).update(raw).digest('hex');
 const ENV = { LS_STORE_ID: String(STORE), LS_PRODUCT_ID: String(PRODUCT), LS_WEBHOOK_SECRET: SECRET, FULL_ACCESS_KEYS: `${MANUAL},marika-sound-only1:soundDesign`,
-  LS_CHECKOUT_URL: 'https://slapandtalk.lemonsqueezy.com/buy/abc-123' };
+  LS_CHECKOUT_URL: 'https://slapandtalk.lemonsqueezy.com/buy/abc-123',
+  // These tests are about the PAYWALL, so they always run with OPEN ACCESS off (shared/openaccess.mjs),
+  // whatever the switch says; openAccessTests() below checks the open mode.
+  OPEN_ACCESS: '0' };
 
 async function serverTests() {
   // ---------- Signature ----------
@@ -320,11 +323,55 @@ async function browserTests({ adapter, ls }) {
   }
 }
 
+// ---------- OPEN ACCESS (shared/openaccess.mjs): everyone gets everything, no Full version UI ----------
+async function openAccessTests({ adapter, ls }) {
+  const { OPEN_ACCESS, openAccessFrom } = await import('../shared/openaccess.mjs');
+  assert(typeof OPEN_ACCESS === 'boolean' && openAccessFrom(undefined, true) && !openAccessFrom(undefined, false) && !openAccessFrom('0') && !openAccessFrom('false', true)
+    && !openAccessFrom('off', true) && openAccessFrom('1', false) && openAccessFrom('', true), `open access switch: shared/openaccess.mjs OPEN_ACCESS = ${OPEN_ACCESS}; env OPEN_ACCESS=0/false/off turns it off, 1 on, unset = the constant`);
+  assert(openAccessOn({ OPEN_ACCESS: '0' }) === false && openAccessOn({ OPEN_ACCESS: '1' }) === true, 'openAccessOn(env) follows env.OPEN_ACCESS');
+  const open = makeEntitlements({ ...ENV, OPEN_ACCESS: '1' });
+  assert(open.open && same(open({}), ALL) && same(open({ key: K.unknown }), ALL) && same(open({ key: 'marika-sound-only1' }), ALL),
+    'open: no key, an unknown key and a sound-only key all get EVERY feature');
+  assert(same(makeEntitlements({ ...ENV, OPEN_ACCESS: '1', DEMO_PROFILE: '1' })({}), ALL), 'open: even the demo profile gets every feature');
+  assert(!makeEntitlements(ENV).open && same(makeEntitlements(ENV)({}), NONE), 'OPEN_ACCESS=0: free = nothing again (the paywall is intact)');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-pay-open-'));
+  const env = { ...ENV, OPEN_ACCESS: '1' };
+  const entitle = makeEntitlements(env, { licenses: createLicenses({ adapter, env, fetch: ls.fetch, log: quietLog }) });
+  const server = createApp(createStore(new LocalAdapter(dir)), { entitle, pay: payConfig(env), log: quietLog }).listen(0);
+  const rt = attachRealtime(server, { maxPlayers: 5, heartbeatMs: 1000, entitle });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const j = await (await fetch(`${base}/api/entitlements`)).json();
+    assert(j.open === true && same(j.full, ALL) && !j.buy, 'open: GET /api/entitlements (no key) = { open: true, full: every feature, no buy link }');
+    const fab = await fetch(`${base}/api/fabrics`, { method: 'POST', body: new FormData() });
+    assert(fab.status === 400, 'open: the fabrics gate lets a keyless browser through (400 = no file, not 403)');
+    const DIST = path.join(__dirname, '..', 'dist', 'index.html');
+    if (!fs.existsSync(DIST)) { origLog('– open access browser part skipped: run npm run build first'); return; }
+    const { chromium } = require('playwright');
+    const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+    try {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      const p = await ctx.newPage(); p.on('pageerror', (e) => origLog('sidfel (pay open):', e.message));
+      await p.goto(`${base}/?thanks=1`);
+      await p.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 20000 });
+      await p.evaluate(() => window.klibb.entitlementsReady && window.klibb.entitlementsReady());
+      await p.waitForTimeout(200);
+      await p.evaluate(() => window.klibb.openMore());
+      const r = await p.evaluate(() => { window.klibb.fullUi().open(); return { full: window.klibb.entitlements().full, open: window.klibb.entitlements().open,
+        entry: !document.getElementById('full-entry').hidden, panel: !document.getElementById('full-panel').hidden, sound: !document.getElementById('sound-design-btn').hidden }; });
+      assert(r.open && same(r.full, ALL) && !r.entry && !r.panel && r.sound, 'open (browser, no key): every feature on, no ★ Full version entry, the panel never opens (not even /?thanks=1 or fullUi.open()), Sound settings shown');
+      await ctx.close();
+    } finally { await browser.close(); }
+  } finally { rt.close(); server.close(); }
+}
+
 (async () => {
   configTests();
   const ctx = await serverTests();
   await httpTests(ctx);
   await browserTests(ctx);
+  await openAccessTests(ctx);
   const leaks = logged.filter((l) => Object.values(K).concat([MANUAL]).some((k) => l.toLowerCase().includes(k)));
   assert(leaks.length === 0 && logged.length > 0, `no key ever appears in a log line (${logged.length} lines checked)`);
   console.log('pay tests: all ok');

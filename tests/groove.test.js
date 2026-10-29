@@ -2,6 +2,8 @@
 // permission (full version soundDesign + the room's creator, or admin; not in the demo), broadcast
 // over the WebSocket, saved with the room, recorded (header + room:groove), and the welcome's clock.
 // Run: node tests/groove.test.js (in npm test)
+// Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
+process.env.OPEN_ACCESS ??= '0';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

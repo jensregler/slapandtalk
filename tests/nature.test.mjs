@@ -2,6 +2,8 @@
 // (shared/nature.mjs) scale from 5 cm up to 4 m HIGH in every version; every other sticker keeps the
 // normal limits (free 15 cm – 1 m, full 5 cm – no limit). The import tool flags a "nature" folder,
 // /api/library carries the flag, and the server clamps POST …/stamps. Run: node tests/nature.test.mjs
+// Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
+process.env.OPEN_ACCESS ??= '0';
 import { createRequire } from 'module';
 import fs from 'fs';
 import os from 'os';

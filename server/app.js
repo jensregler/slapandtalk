@@ -191,7 +191,9 @@ const fabricSize = (w, h) => Math.min(FAB.maxPx, Math.max(FAB.minPx, 2 ** Math.c
 app.get('/api/entitlements', wrapEarly(async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const full = await entOf(req);
-  res.json({ full, devAllowed: !!entitle.devAllowed, ...(pay.show ? { buy: { url: pay.checkoutUrl } } : {}), paid: !!licenses });
+  // open: OPEN ACCESS (shared/openaccess.mjs) – the browser then shows no Full version panel/entry/locks.
+  const open = !!entitle.open;
+  res.json({ full, open, devAllowed: !!entitle.devAllowed, ...(pay.show && !open ? { buy: { url: pay.checkoutUrl } } : {}), paid: !!licenses });
 }));
 // "I have a key": check a pasted key (manual FULL_ACCESS_KEYS or a Lemon Squeezy license key).
 // The browser stores it only when ok. Never logged. 10 tries per IP and minute.

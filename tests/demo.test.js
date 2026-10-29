@@ -2,6 +2,8 @@
 // entitlements even with keys, invite-only rooms (single-use links, max 4 members = FREE_MAX_PLAYERS), slots, the
 // one-hour expiry (room + recordings deleted, videos/ untouched), the library and its importer.
 // Run: node tests/demo.test.js (part of npm test)
+// Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
+process.env.OPEN_ACCESS ??= '0';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

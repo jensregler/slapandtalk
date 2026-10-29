@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const { startServer, sleep } = require('./demo-helpers');
+const { startServer, sleep, openAccess, SKIP_FREE } = require('./demo-helpers');
 
 const PORT = Number(process.env.NATUREMODE_E2E_PORT || 8867);
 const SHOTS = process.env.NATURE_MODE_SHOTS || '/workspace/nature-mode-shots';
@@ -28,32 +28,35 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     btn: { slap: document.getElementById('mode-slap').getAttribute('aria-pressed'), nature: document.getElementById('mode-nature').getAttribute('aria-pressed'), look: document.getElementById('mode-look').getAttribute('aria-pressed'), natHidden: document.getElementById('mode-nature').hidden, natLocked: document.getElementById('mode-nature').classList.contains('locked') } }; });
   const key = async (p, k, ms = 400) => { await p.keyboard.press(k); await sleep(ms); };
   try {
-    // ---- free version, desktop ----
-    const fctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    const F = await fctx.newPage(); F.on('pageerror', (e) => errors.push(e.message));
-    await F.goto(S.base + '/'); await ready(F, false);
-    await F.mouse.click(900, 200); await sleep(300); await F.evaluate(() => window.klibb.controls.unlock?.()); // a user gesture (audio allowed), back out
-    const f0 = await info(F);
-    check('free: starts in Slap mode ("Slap mode · V"), the panel shows Slap | 🌿 Nature (locked) | Look', f0.mode === 'slap' && !f0.nature && f0.hud === 'Slap mode · V' && f0.btn.slap === 'true' && !f0.btn.natHidden && f0.btn.natLocked && f0.btn.look === 'false', f0);
-    await F.screenshot({ path: path.join(SHOTS, 'desktop-free-slap.png') });
-    await key(F, 'KeyV');
-    const f1 = await info(F);
-    check('free: V opens the full version panel instead; still Slap mode, no nature sticker, no nature sound', f1.paywall && f1.mode === 'slap' && !f1.nature && !f1.selNat && !f1.amb.playing && f1.hud === 'Slap mode · V', f1);
-    await F.screenshot({ path: path.join(SHOTS, 'desktop-free-v-paywall.png') });
-    const fmsg = await F.evaluate(() => ({ toast: document.getElementById('toast').textContent, shown: document.getElementById('toast').classList.contains('show'), panel: document.getElementById('full-panel').innerText }));
-    check('free: V also says why (toast "Nature mode is part of the full version") and the panel lists 🌿 Nature mode', fmsg.shown && /Nature mode is part of the full version/.test(fmsg.toast) && /Nature mode/.test(fmsg.panel), fmsg);
-    await F.evaluate(() => window.klibb.fullUi().close());
-    await F.click('#mode-nature'); await sleep(300);
-    const f2 = await info(F);
-    check('free: the panel\'s 🌿 Nature mode button also opens the panel', f2.paywall && !f2.nature && !f2.amb.playing, f2);
-    await F.evaluate(() => window.klibb.fullUi().close());
-    await key(F, 'KeyG');
-    const f3 = await info(F);
-    check('free: G = Look mode ("Look mode · G"; Look mode used to be V)', f3.mode === 'view' && f3.hud === 'Look mode · G' && f3.btn.look === 'true', f3);
-    await key(F, 'KeyG');
-    check('free: G again = Slap mode', (await info(F)).mode === 'slap');
-    await fctx.close();
+    const OPEN = await openAccess(S.base);
+    if (OPEN) console.log(SKIP_FREE); else {
+      // ---- free version, desktop ----
+      const fctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+      const F = await fctx.newPage(); F.on('pageerror', (e) => errors.push(e.message));
+      await F.goto(S.base + '/'); await ready(F, false);
+      await F.mouse.click(900, 200); await sleep(300); await F.evaluate(() => window.klibb.controls.unlock?.()); // a user gesture (audio allowed), back out
+      const f0 = await info(F);
+      check('free: starts in Slap mode ("Slap mode · V"), the panel shows Slap | 🌿 Nature (locked) | Look', f0.mode === 'slap' && !f0.nature && f0.hud === 'Slap mode · V' && f0.btn.slap === 'true' && !f0.btn.natHidden && f0.btn.natLocked && f0.btn.look === 'false', f0);
+      await F.screenshot({ path: path.join(SHOTS, 'desktop-free-slap.png') });
+      await key(F, 'KeyV');
+      const f1 = await info(F);
+      check('free: V opens the full version panel instead; still Slap mode, no nature sticker, no nature sound', f1.paywall && f1.mode === 'slap' && !f1.nature && !f1.selNat && !f1.amb.playing && f1.hud === 'Slap mode · V', f1);
+      await F.screenshot({ path: path.join(SHOTS, 'desktop-free-v-paywall.png') });
+      const fmsg = await F.evaluate(() => ({ toast: document.getElementById('toast').textContent, shown: document.getElementById('toast').classList.contains('show'), panel: document.getElementById('full-panel').innerText }));
+      check('free: V also says why (toast "Nature mode is part of the full version") and the panel lists 🌿 Nature mode', fmsg.shown && /Nature mode is part of the full version/.test(fmsg.toast) && /Nature mode/.test(fmsg.panel), fmsg);
+      await F.evaluate(() => window.klibb.fullUi().close());
+      await F.click('#mode-nature'); await sleep(300);
+      const f2 = await info(F);
+      check('free: the panel\'s 🌿 Nature mode button also opens the panel', f2.paywall && !f2.nature && !f2.amb.playing, f2);
+      await F.evaluate(() => window.klibb.fullUi().close());
+      await key(F, 'KeyG');
+      const f3 = await info(F);
+      check('free: G = Look mode ("Look mode · G"; Look mode used to be V)', f3.mode === 'view' && f3.hud === 'Look mode · G' && f3.btn.look === 'true', f3);
+      await key(F, 'KeyG');
+      check('free: G again = Slap mode', (await info(F)).mode === 'slap');
+      await fctx.close();
 
+    }
     // ---- full version (dev unlock), desktop ----
     const uctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
     await uctx.addInitScript(() => localStorage.setItem('klibb.devUnlock', '1'));
@@ -112,7 +115,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await uctx.close();
 
     // ---- phone ----
-    for (const full of [false, true]) {
+    for (const full of OPEN ? [true] : [false, true]) {
       const mctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
       if (full) await mctx.addInitScript(() => localStorage.setItem('klibb.devUnlock', '1'));
       const M = await mctx.newPage(); M.on('pageerror', (e) => errors.push(e.message));

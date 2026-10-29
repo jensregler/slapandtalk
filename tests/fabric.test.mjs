@@ -1,6 +1,8 @@
 // Tyger (fabrics) på gubbarna, utan webbläsare: värdena (klämning, skräp), att servern och
 // webbläsaren har samma regler, uppladdningen (typ, storlek, hash) och att tygerna skickas
 // till de andra i rummet. Körs med: node tests/fabric.test.mjs (ingår i npm test)
+// Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
+process.env.OPEN_ACCESS ??= '0';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';

@@ -3,7 +3,8 @@
 // entitlements.buy (or this browser already has the full version). No popups, no teasers on
 // locked features, nothing in the demo profile's flow. The only time the panel opens by itself is
 // /?thanks=1, the page Lemon Squeezy sends a buyer back to.
-import { entitlements, isFull, hasStoredKey, tryKey, forgetKey } from './entitlements.js';
+// OPEN ACCESS (shared/openaccess.mjs): the panel never opens and the ⚙ More entry is hidden.
+import { entitlements, isFull, hasStoredKey, tryKey, forgetKey, isOpenAccess } from './entitlements.js';
 import { S } from './strings.js';
 
 export function initFullVersion({ $, onChange = () => {}, onOpen = () => {} }) {
@@ -20,8 +21,8 @@ export function initFullVersion({ $, onChange = () => {}, onOpen = () => {} }) {
     $('full-forget').hidden = !(full && hasStoredKey());
     $('full-key-box').hidden = full;
   }
-  function refreshEntry() { entry.hidden = !(entitlements.buy || isFull()); if (!panel.hidden) render(); }
-  function open({ thanks: t = false } = {}) { thanks = t; render(); panel.hidden = false; onOpen(); }
+  function refreshEntry() { entry.hidden = isOpenAccess() || !(entitlements.buy || isFull()); if (isOpenAccess()) close(); else if (!panel.hidden) render(); }
+  function open({ thanks: t = false } = {}) { if (isOpenAccess()) return; thanks = t; render(); panel.hidden = false; onOpen(); }
   function close() { panel.hidden = true; thanks = false; $('full-msg').textContent = ''; }
 
   entry.onclick = () => open();

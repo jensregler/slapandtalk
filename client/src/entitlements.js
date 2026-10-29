@@ -1,11 +1,14 @@
 // Full version flags in the browser (mirror of server/entitlements.js).
 // entitlements.full.<feature> is false until the server says otherwise, so the default
 // page is the calm, plain room. The server re-checks everything it receives.
+// OPEN ACCESS (shared/openaccess.mjs): while on, every flag is true and there is no Full version UI.
+// The server has the last word (/api/entitlements { open }; env OPEN_ACCESS=0 there turns it off).
+import { OPEN_ACCESS } from '../../shared/openaccess.mjs';
 export const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam', 'natureStickers'];
 const KEY = 'klibb.unlock', DEV = 'klibb.devUnlock';
 // buy = { url } only when the server wants the quiet "Full version" entry (LS_CHECKOUT_URL set,
 // and not the demo profile unless SHOW_BUY=1). Never shown as a popup or teaser.
-export const entitlements = { full: Object.fromEntries(FEATURES.map((f) => [f, false])), devAllowed: false, buy: null };
+export const entitlements = { full: Object.fromEntries(FEATURES.map((f) => [f, OPEN_ACCESS])), devAllowed: false, buy: null, open: OPEN_ACCESS };
 
 const get = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const set = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* privat läge */ } };
@@ -20,6 +23,7 @@ export function unlockHeaders() {
 export const has = (feature) => !!entitlements.full[feature];
 export const isFull = () => FEATURES.some((f) => entitlements.full[f]);
 export const hasStoredKey = () => !!get(KEY);
+export const isOpenAccess = () => !!entitlements.open;
 
 // /?unlock=<key> (or /#unlock=<key>, which never reaches any server log) stores the key once and
 // removes it from the address bar; ?unlock=off forgets it. Works for manual keys and for the
@@ -41,9 +45,10 @@ export async function loadEntitlements() {
   try {
     const res = await fetch('/api/entitlements', { headers: unlockHeaders() });
     const j = await res.json();
-    for (const f of FEATURES) entitlements.full[f] = !!(j.full && j.full[f]);
+    entitlements.open = typeof j.open === 'boolean' ? j.open : OPEN_ACCESS;
+    for (const f of FEATURES) entitlements.full[f] = entitlements.open || !!(j.full && j.full[f]);
     entitlements.devAllowed = !!j.devAllowed;
-    entitlements.buy = j.buy && typeof j.buy.url === 'string' && /^https:\/\//.test(j.buy.url) ? { url: j.buy.url } : null;
+    entitlements.buy = !entitlements.open && j.buy && typeof j.buy.url === 'string' && /^https:\/\//.test(j.buy.url) ? { url: j.buy.url } : null;
   } catch { /* offline: stay free */ }
   return entitlements;
 }

@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { chromium } = require('playwright');
-const { startServer } = require('./demo-helpers');
+const { startServer, openAccess } = require('./demo-helpers');
 
 let pass = 0, fail = 0;
 const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + name); } else { fail++; console.log('  ✗ ' + name + (extra !== undefined ? ' — ' + JSON.stringify(extra) : '')); } };
@@ -18,6 +18,8 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-size-e2e-'));
   console.log(`Size prefix (${S.base})`);
+  const OPEN = await openAccess(S.base); // OPEN ACCESS: the 'free' browser has the full version (5 cm – no max, nature allowed)
+  if (OPEN) console.log('  – OPEN ACCESS is on: free-version checks expect the full limits (run with OPEN_ACCESS=0 for the free ones)');
   try {
     const files = { b: path.join(tmp, 'B_cat.png'), plain: path.join(tmp, 'b-Apple.png'), wide: path.join(tmp, 'D_wide.png') };
     await sharp({ create: { width: 64, height: 64, channels: 4, background: '#ff0000' } }).png().toFile(files.b);
@@ -57,7 +59,8 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     let back = r1; for (let i = 0; i < 3 && back.sel !== wide.sel; i++) { await p.keyboard.press('KeyR'); await p.waitForTimeout(150); back = await size(); }
     check('…and back on the one that was scaled it is still the scaled size', back.sel === wide.sel && back.size === scaled.size, back);
     const low = await p.evaluate(() => { const k = window.klibb; k.setSize(5); return { size: Math.round(k.state.size * 1000) / 10, min: document.getElementById('size').min, minCm: k.minSizeCm }; });
-    check('free version: the size never goes below 15 cm (setSize, slider min)', low.size === 15 && low.min === '15' && low.minCm === 15, low);
+    if (OPEN) check('open access: the size goes down to 5 cm (setSize, slider min)', low.size === 5 && low.min === '5' && low.minCm === 5, low);
+    else check('free version: the size never goes below 15 cm (setSize, slider min)', low.size === 15 && low.min === '15' && low.minCm === 15, low);
     // Nature stickers (curated library, name starts with "nature"; shared/nature.mjs): 5 cm – 4 m high, no paper.
     // Since 28 Oct 2026 they are the full version (Nature wheel): the free version cannot hold one (checked
     // here), the 5 cm – 4 m limits are checked in the full version below.
@@ -70,14 +73,20 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
       out.peel = [k.dropsPeel({ ...lib, nature: true, library: true }), k.dropsPeel(lib), k.dropsPeel({ ...prev, library: false, nature: true, name: 'nature-x.png' })];
       return out;
     });
+    if (OPEN) {
+      check('open access: a nature sticker is held (no full version panel)', natFree.sel === 'feedfacecafe0001' && !natFree.paywall, natFree);
+      check('…its rule is still 5 cm – 400 cm; an upload named nature… gets the normal (full) limits (5 cm – no max)', natFree.natLim.minCm === 5 && natFree.natLim.maxCm === 400 && natFree.upload.maxCm === Infinity && natFree.upload.minCm === 5, natFree);
+      await p.evaluate((id) => window.klibb.selectDesign(window.klibb.designs().find((d) => d.id === id)), natFree.prev); // back to the upload
+    } else {
     check('free version: a nature sticker cannot be held (the full version panel opens instead)', natFree.sel === natFree.prev && natFree.paywall, natFree);
     check('…its rule is still 5 cm – 400 cm; an upload named nature… keeps the normal free limits (15–100 cm)', natFree.natLim.minCm === 5 && natFree.natLim.maxCm === 400 && natFree.upload.maxCm === 100 && natFree.upload.minCm === 15, natFree);
+    }
     check('nature stickers drop no backing paper (client: no peel animation); others and uploads do', JSON.stringify(natFree.peel) === '[false,true,true]', natFree.peel);
     await p.mouse.click(700, 330); await p.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
     for (let i = 0; i < 20; i++) await p.mouse.wheel(0, 200);
     await p.waitForTimeout(200);
     const wheelLow = await size();
-    check('free version: the wheel stops at 15 cm', wheelLow.size === 15, wheelLow);
+    check(OPEN ? 'open access: the wheel goes down to 5 cm' : 'free version: the wheel stops at 15 cm', wheelLow.size === (OPEN ? 5 : 15), wheelLow);
     const server = await (await fetch(`${S.base}/api/stickers?ids=${b.sel}`)).json();
     check('the server still stores startCm 17.5 on the B_ image (kept, unused by the app)', server.images[b.sel] && server.images[b.sel].startCm === 17.5, server.images[b.sel]);
     await ctx.close();
