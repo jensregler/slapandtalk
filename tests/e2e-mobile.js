@@ -1,7 +1,7 @@
 // E2E: the touch (phone) layout – iPhone-sized viewport (390×844, touch). Own servers (port 8877
 // normal app, 8879 demo; MOBILE_E2E_PORT). First load = only the joystick and the sticker stack; the
 // stack's menu and every option in it; the sticker book; the editing sliders (rotation left, size
-// right); the held sticker's timer (sharp until the first stamp, 10 s, 1 s fade, a tap brings it back
+// right); the held sticker's timer (sharp until the first stamp, then 2 s untouched, 1 s fade, a tap brings it back
 // and never slaps, each stamp restarts it); slapping = tap a wall; the demo still works; desktop
 // unchanged. Screenshots: MOBILE_SHOTS (default /workspace/mobile-ui-shots).
 const fs = require('fs');
@@ -107,36 +107,48 @@ const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn'
     await P.touchscreen.tap(...wall);
     await P.waitForFunction((n) => window.klibb.stamps.count === n + 1, c1, { timeout: 6000 }).catch(() => {});
     const h4 = await held();
-    check('slapping on touch = tap a wall with the sticker in hand; the first stamp starts the 10 s timer', (await count()) === c1 + 1 && h4.state === 'timed' && h4.age < 1500, h4);
+    check('slapping on touch = tap a wall with the sticker in hand; the first stamp starts the 2 s timer', (await count()) === c1 + 1 && h4.state === 'timed' && h4.age < 1500, h4);
+    // Timing sampled in the page (robust under load): an interaction (size control) restarts the 2 s, then hands off.
+    const tl = await P.evaluate(() => new Promise((res) => {
+      window.klibb.setSize(30);
+      const out = []; const t0 = performance.now();
+      const tick = () => { const h = window.klibb.held(); out.push([h.age, h.heldOpacity, h.canSlap]);
+        if (h.age >= 3250 || performance.now() - t0 > 8000) res(out); else setTimeout(tick, 40); };
+      tick();
+    }));
+    const early = tl.filter(([a]) => a < 1900), midS = tl.filter(([a]) => a > 2150 && a < 2850);
+    const h5 = { heldOpacity: early.length && early.every(([, o]) => o === 1) ? 1 : 0, n: early.length };
+    const h6 = midS.find(([, o]) => o > 0.05 && o < 0.95) || midS[0] || [0, 0, true];
     await P.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 6000 });
-    await quiet(); await P.screenshot({ path: path.join(SHOTS, '05-held-visible.png') });
-    await P.waitForFunction(() => window.klibb.held().age >= 9000, null, { timeout: 15000 });
-    const h5 = await held();
-    await P.waitForFunction(() => window.klibb.held().age >= 10450, null, { timeout: 5000 });
-    const h6 = await held();
-    await P.waitForFunction(() => window.klibb.held().age >= 11150, null, { timeout: 5000 }); await P.waitForTimeout(100);
+    await P.waitForTimeout(100);
     const h7 = await held(), s7 = await shown();
-    check('after the stamp: sharp for 10 s, then fades over 1 s, then gone (no held sticker)',
-      h5.heldOpacity === 1 && h6.heldOpacity > 0.05 && h6.heldOpacity < 0.95 && !h6.canSlap && h7.heldOpacity === 0 && !h7.heldShown && s7.join() === 'joystick,design-btn',
-      { h5: h5.heldOpacity, h6: [h6.age, h6.heldOpacity], h7, s7 });
+    check('after the stamp: sharp for 2 s (untouched), then fades over 1 s, then gone (no held sticker)',
+      h5.heldOpacity === 1 && h6[1] > 0.05 && h6[1] < 0.95 && !h6[2] && h7.heldOpacity === 0 && !h7.heldShown && s7.join() === 'joystick,design-btn',
+      { h5, h6, h7, s7 });
     await P.screenshot({ path: path.join(SHOTS, '06-held-faded.png') });
     // faded = look mode: a tap only wakes it
     const c2 = await count();
     await P.touchscreen.tap(...wall); await P.waitForTimeout(900);
     const h8 = await held();
-    check('faded: a tap on the wall does NOT slap, it brings the held sticker back with a fresh 10 s', (await count()) === c2 && h8.heldOpacity === 1 && h8.canSlap && h8.age < 1500, { c2, h8 });
+    check('faded: a tap on the wall does NOT slap, it brings the held sticker back with a fresh 2 s', (await count()) === c2 && h8.heldOpacity === 1 && h8.canSlap && h8.age < 1500, { c2, h8 });
+    await quiet(); await P.screenshot({ path: path.join(SHOTS, '05-held-visible.png') }); // woken again: sharp
+    await P.evaluate(() => window.klibb.stackMenu().chosen()); await P.waitForTimeout(200); // (2 s may have run out during the screenshot: back in hand)
     await P.touchscreen.tap(wall[0] - 60, wall[1] + 40);
     await P.waitForFunction((n) => window.klibb.stamps.count === n + 1, c2, { timeout: 6000 }).catch(() => {});
     check('…and the next tap slaps again', (await count()) === c2 + 1);
     await P.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 6000 });
-    await P.waitForTimeout(4000);
+    await P.evaluate(() => window.klibb.stackMenu().chosen()); await P.waitForTimeout(100);
+    await P.touchscreen.tap(wall[0] - 30, wall[1] - 30); // first stamp after choosing starts the 2 s
+    await P.waitForFunction((n) => window.klibb.stamps.count === n + 2, c2, { timeout: 6000 }).catch(() => {});
+    await P.waitForFunction(() => window.klibb.held().age >= 900, null, { timeout: 5000 });
     const before = await held();
     await P.touchscreen.tap(wall[0] + 60, wall[1] + 20);
-    await P.waitForFunction((n) => window.klibb.stamps.count === n + 2, c2, { timeout: 6000 }).catch(() => {});
+    await P.waitForFunction((n) => window.klibb.stamps.count === n + 3, c2, { timeout: 6000 }).catch(() => {});
     const h9 = await held();
-    check(`each new stamp restarts the 10 s (age ${before.age} → ${h9.age} ms)`, (await count()) === c2 + 2 && before.age > 3500 && h9.age < 1000, { before, h9 });
+    check(`each new stamp restarts the 2 s (age ${before.age} → ${h9.age} ms)`, (await count()) === c2 + 3 && before.age > 800 && before.canSlap && h9.age < 1000, { before, h9 });
     await P.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 6000 });
     // release from the holder: a tap on it slaps where it is (the middle); drag it out = slaps where you let go
+    await P.evaluate(() => window.klibb.stackMenu().chosen()); await P.waitForTimeout(200); // (2 s: back in hand for this part)
     const c4 = await count();
     await P.touchscreen.tap(vp.width / 2, vp.height / 2);
     await P.waitForFunction((n) => window.klibb.stamps.count === n + 1, c4, { timeout: 6000 }).catch(() => {});

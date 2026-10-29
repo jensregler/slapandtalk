@@ -322,6 +322,7 @@ addEventListener('storage', (e) => {
 // var: select() can run before these lines (the first selection at start).
 var lastNatureId = null, lastStickerId = null; // eslint-disable-line no-var
 var touchPinch = null; // eslint-disable-line no-var -- touch: two fingers scaling/turning the held sticker { d0, a0, size0, rot0 }
+var touchesDown = new Set(); // eslint-disable-line no-var -- touch: fingers on the screen now (the held timer waits while any is down)
 var touchAim = null; // eslint-disable-line no-var -- touch: the finger aiming the held sticker { id, x, y } (see the touch input)
 async function select(img) {
   if (isNat(img) && !natureOpen()) { fullUi?.open(); return; } // the Nature wheel is the full version's
@@ -381,6 +382,7 @@ const WHEEL_UP_MS = 2600;
 let wheelUpTimer = 0;
 function wheelUp() {
   if (!isTouch) return;
+  stackMenu?.held.keepAlive(performance.now()); // turning the wheel = working with the held sticker (no fade)
   document.body.classList.add('wheel-up');
   clearTimeout(wheelUpTimer);
   wheelUpTimer = setTimeout(function down() {
@@ -543,6 +545,7 @@ function setSize(cm) {
     toast(S.maxSize((max / 100).toLocaleString(LOCALE)), 1500);
   }
   state.size = cm / 100; showSize();
+  stackMenu?.held.keepAlive(performance.now()); // touch: resizing = working with it (no fade)
 }
 // The start size (Jens, 28 Oct 2026 – replaces the per-design start sizes): the first sticker you
 // hold in a session spawns 30 cm HIGH (whatever its shape: a wide one is wider than 30 cm, the held
@@ -558,7 +561,7 @@ function startSize(img) {
   sizeStarted = true;
   setSize(sideForHeightCm(img, START_HEIGHT_CM));
 }
-function setRot(deg) { deg = ((deg + 540) % 360) - 180; $('rot').value = deg; $('rot').oninput({ target: $('rot') }); }
+function setRot(deg) { deg = ((deg + 540) % 360) - 180; $('rot').value = deg; $('rot').oninput({ target: $('rot') }); stackMenu?.held.keepAlive(performance.now()); }
 
 // Bilden krymps i webbläsaren om den är stor, så uppladdningen går fort även på mobilen.
 // Decode an image file: createImageBitmap where it can (Safari < 15 has none, and some Safaris
@@ -1458,6 +1461,13 @@ if (!isTouch) {
   const canAim = () => !!(stackMenu && state.selected && state.mode === 'slap' && !camView && !placingCam && !state.adminToken
     && !stackMenu.isOpen() && !stackMenu.bookOpen() && !sp.open && !together.busy() && stackMenu.held.canSlap(performance.now()));
   const endAim = () => { touchAim = null; document.body.classList.remove('aiming'); preview.hide(); };
+  // Any touch on the screen (Jens, 29 Oct 2026) counts as working with the held sticker: while it is
+  // up, its 2 s (HELD_VISIBLE_MS) start again; it only fades after 2 s untouched. (A faded one is not
+  // revived by this – a tap wakes it, as before.)
+  const touchAlive = (e) => { if (e.pointerType !== 'mouse') stackMenu?.held.keepAlive(performance.now()); };
+  addEventListener('pointerdown', (e) => { touchAlive(e); if (e.pointerType !== 'mouse') touchesDown.add(e.pointerId); }, true);
+  addEventListener('pointermove', touchAlive, true);
+  for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, (e) => { touchAlive(e); touchesDown.delete(e.pointerId); }, true);
   // ---- Pinch / twist: the fingers on the room or on the held sticker (window, capture phase) ----
   const canPinch = () => !!(stackMenu && state.selected && state.mode === 'slap' && !camView && !placingCam
     && !stackMenu.isOpen() && !stackMenu.bookOpen() && !sp.open && !together.busy() && stackMenu.held.opacity(performance.now()) > 0);
@@ -1553,7 +1563,7 @@ if (!isTouch) {
     }
   };
   // Touch: no Slap/Look switch – the held sticker's timer decides (shared/heldtimer.mjs).
-  // Sharp = this tap slaps (and restarts the 10 s). Fading/faded = this tap only brings the
+  // Sharp = this tap slaps (and restarts the 2 s, HELD_VISIBLE_MS). Fading/faded = this tap only brings the
   // sticker back (never a slap by accident); on a sticker it also shows who made it.
   // Also used when the sticker is released from its holder (stackmenu.js).
   var heldTap = (ndc, x, y) => { // eslint-disable-line no-var
@@ -2397,6 +2407,7 @@ function frame() {
     const h = hitSurface(CENTER);
     if (h) { const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100)); heldNow = { h, q: StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh }; }
   }
+  if (isTouch && touchesDown.size) stackMenu?.held.keepAlive(performance.now()); // a finger on the screen (aiming, pinching, holding still): no fade meanwhile
   recordHeld(heldNow);
   if (cv) renderFramed(renderer, scene, viewCam, cv.aspect || '');
   else { if (camView) exitCamView(); renderer.render(scene, tp ? tpCam : camera); }
@@ -2470,7 +2481,7 @@ window.klibb = {
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
-  touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
+  wheelUp, touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
   held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && getComputedStyle($('design-strip')).visibility !== 'hidden', n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON() }),
   wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,

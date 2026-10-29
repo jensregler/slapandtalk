@@ -9,7 +9,7 @@
 //
 // A tap slaps only while the sticker is fully sharp (canSlap). A tap while it is fading or faded
 // only wakes it – so a wake-up tap never slaps by accident. Pure: every call takes the time (ms).
-export const HELD_VISIBLE_MS = 10000; // visible this long after a stamp / a wake-up tap
+export const HELD_VISIBLE_MS = 2000; // visible this long after a stamp / a wake-up tap (Jens, 29 Oct 2026: 2 s, was 10 s)
 export const HELD_FADE_MS = 1000;     // then fades out over this long
 
 export function createHeldTimer({ visibleMs = HELD_VISIBLE_MS, fadeMs = HELD_FADE_MS } = {}) {

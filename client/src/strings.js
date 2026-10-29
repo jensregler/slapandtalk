@@ -137,7 +137,7 @@ export const EN = {
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
   helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look. The sticker stack bottom right: tap it for the menu (📒 Stickers, 🧍 Character, 🏠 Room, ↩ Undo, 👤 3rd person, 📷 Photo, 💬 Talk, 🎙 Mic), swipe it up/down for the next/previous sticker, or sideways to turn the sticker wheel. '
-    + 'The sticker in your hand sits in its holder in the middle: tap it to slap it there, drag it out and let go where it should go, or tap a wall; size on the right edge, rotation on the left; 📒 🧍 🏠 stay at the bottom. 10 s after a slap it fades away and you just look around – tap the screen to get it back (that tap does not slap). '
+    + 'The sticker in your hand sits in its holder in the middle: tap it to slap it there, drag it out and let go where it should go, or put a finger on a wall: it follows your finger and slaps where you let go; two fingers pinch it bigger/smaller and twist it round; 📒 🧍 🏠 stay at the bottom. Left untouched for 2 s it fades away and one finger just looks around – tap the screen to get it back (that tap does not slap). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room, 🔗 Share link sends it to friends. '
     + '<b>Together:</b> everyone in the same room sees each other right away. 💬 = chat. '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',

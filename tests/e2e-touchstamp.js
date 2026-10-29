@@ -115,6 +115,39 @@ const dist = (a, b) => (a && b ? Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2
     check('faded (nothing in hand): one finger looks around as before, no stamp', s6.yaw !== s5.yaw && s6.n === s5.n && !s6.aiming, { s5, s6 });
     check('no page scroll and no text selected after all the pressing', s6.scroll.join() === '0,0' && s6.sel === '', s6);
 
+    // the held timer (Jens, 29 Oct 2026): fades only after 2 s UNTOUCHED; any touch resets it
+    await P.evaluate(() => { const k = window.klibb; k.stackMenu().chosen(); k.stackMenu().placed(); }); // timed, as after a stamp
+    const ht = () => P.evaluate(() => window.klibb.held());
+    const n7 = (await st()).n, hh0 = await ht();
+    await sleep(1500); // most of the 2 s gone already
+    await T('touchStart', [[80, 300]]); await sleep(3200); // an aiming finger standing still for 3.2 s (on the room, away from the held sticker)
+    const hh1 = await ht(), aimStill = (await st()).aim;
+    await T('touchEnd', []);
+    await P.waitForFunction((n) => window.klibb.stamps.count === n + 1, n7, { timeout: 5000 }).catch(() => {});
+    check('an aiming finger held still for 3.2 s: the sticker does not fade (> 2 s), and letting go still stamps', hh0.state === 'timed' && hh1.heldOpacity === 1 && hh1.canSlap && aimStill && (await st()).n === n7 + 1, { hh0, hh1 });
+    await sleep(300);
+    // pinch/twist touches every ~1 s for 4 s keep it up
+    for (let i = 0; i < 4; i++) {
+      await T('touchStart', [[150, 420, 1]]); await sleep(20); await T('touchStart', [[150, 420, 1], [240, 420, 2]]); await sleep(20);
+      for (let k = 1; k <= 4; k++) { await T('touchMove', [[150, 420 - k * 3, 1], [240, 420 + k * 3, 2]]); await sleep(30); }
+      await T('touchEnd', [[240, 432, 2]]); await T('touchEnd', []); await sleep(800);
+    }
+    const hh2 = await ht();
+    check(`pinching/twisting every second for ~4.5 s keeps it up (age since the last touch ${hh2.age} ms, still sharp)`, hh2.heldOpacity === 1 && hh2.canSlap && hh2.age < 1200, hh2);
+    await sleep(800); // ~1.6 s untouched
+    const hh3 = await ht();
+    await sleep(1700);
+    const hh4 = await ht();
+    check('…then left untouched: still sharp before 2 s, faded after 2 s + the 1 s fade', hh3.heldOpacity === 1 && hh3.age < 2000 && hh4.heldOpacity === 0 && !hh4.canSlap, { hh3, hh4 });
+    // wheel turning (phone band) also counts: keepAlive via wheelUp
+    await P.evaluate(() => { const k = window.klibb; k.stackMenu().chosen(); k.stackMenu().placed(); });
+    await sleep(1500); await P.evaluate(() => window.klibb.wheelUp()); await sleep(1500);
+    const hh5 = await ht();
+    check('turning the sticker wheel (its activity) restarts the 2 s too', hh5.heldOpacity === 1 && hh5.canSlap && hh5.age < 1700, hh5);
+    await P.evaluate(() => window.klibb.setSize(30)); await sleep(1500); await P.evaluate(() => window.klibb.setSize(40)); await sleep(1500);
+    const hh6 = await ht();
+    check('changing the size (as a pinch does) restarts the 2 s', hh6.heldOpacity === 1 && hh6.canSlap, hh6);
+
     // the UI still takes touches: the stack menu opens on a tap and that tap does not stamp
     await P.evaluate(() => window.klibb.stackMenu().chosen()); await sleep(200);
     const nb = (await st()).n;

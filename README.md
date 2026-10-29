@@ -177,9 +177,12 @@ inga 👤/↩/👁-knappar. Styrspaken = gå, **titta** = dra med ett eller två
   (tryck på den = mitt på skärmen, eller dra ut den och släpp). Inget markeras, scrollar eller zoomar.
 - **Ingen Slap mode / Look mode på mobilen** – en timer i stället (`shared/heldtimer.mjs`):
   en nyvald klibba är skarp tills du satt den första gången; efter varje klibba syns den
-  `HELD_VISIBLE_MS` = 10 s och tonar sedan bort på `HELD_FADE_MS` = 1 s. Bortonad = bara titta
-  (tryck på en klibba visar vem som gjorde den). **Ett tryck på skärmen tar tillbaka den** (nya
-  10 s) – det trycket klibbar aldrig. Varje ny klibba startar om de 10 s. Datorn har kvar Look mode (G).
+  `HELD_VISIBLE_MS` = 2 s (29 okt 2026, förut 10 s) och tonar sedan bort på `HELD_FADE_MS` = 1 s.
+  De 2 s räknas från senaste **beröring**: varje tryck/drag på skärmen, siktet, nyp/vrid, storlek/rotation
+  och hjulet startar om dem, så den tonar bara bort när den lämnats helt orörd i 2 s (aldrig medan ett
+  finger siktar eller nyper). Bortonad = tom hand: ett finger tittar runt (tryck på en klibba visar vem
+  som gjorde den). **Ett tryck på skärmen tar tillbaka den** (nya 2 s) – det trycket klibbar aldrig.
+  Varje ny klibba startar om de 2 s. Datorn har ingen sådan timer (Look mode med G, som förut).
 - 💬- och 🎙-bubblorna uppe till höger syns bara när de behövs (olästa meddelanden, mikrofonen på).
 Koden: `client/src/stackmenu.js` (+ CSS under *Touch layout* i `style.css`). Datorlayouten är oförändrad.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.
