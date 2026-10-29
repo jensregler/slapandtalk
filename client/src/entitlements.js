@@ -4,7 +4,7 @@
 // OPEN ACCESS (shared/openaccess.mjs): while on, every flag is true and there is no Full version UI.
 // The server has the last word (/api/entitlements { open }; env OPEN_ACCESS=0 there turns it off).
 import { OPEN_ACCESS } from '../../shared/openaccess.mjs';
-export const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam', 'natureStickers'];
+export const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam', 'natureStickers', 'uploads'];
 const KEY = 'klibb.unlock', DEV = 'klibb.devUnlock';
 // buy = { url } only when the server wants the quiet "Full version" entry (LS_CHECKOUT_URL set,
 // and not the demo profile unless SHOW_BUY=1). Never shown as a popup or teaser.

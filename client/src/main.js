@@ -25,6 +25,7 @@ import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artist
 import { PeelLayer } from './peels.js';
 import { PEEL, peelPlan, onFloor, stampDims } from '../../shared/peels.mjs';
 import { entitlements, loadEntitlements, credentials } from './entitlements.js';
+import { uploadsToReplace, shownUploads } from '../../shared/uploads.mjs';
 import { initFullVersion } from './fullversion.js';
 import { GrooveSteps } from './groove.js';
 import { initAutoSlap } from './autoslap.js';
@@ -317,7 +318,8 @@ function undoRemove() {
 $('undo-btn').onclick = (e) => { e.stopPropagation(); undoRemove(); };
 addEventListener('pagehide', commitRemove);
 // Mina designs i samma ordning som i menyn (nyaste först). R växlar mellan dem.
-function designs() { return DEMO ? state.library.filter((d) => !isNat(d)) : state.mine.slice().reverse(); }
+// Free version: only the newest own upload is on the palette/wheel (shared/uploads.mjs); full/open: all.
+function designs() { return DEMO ? state.library.filter((d) => !isNat(d)) : shownUploads(state.mine, !!entitlements.full.uploads).slice().reverse(); }
 // Two wheels (Jens, 28 Oct 2026): the Nature wheel (left) = every nature sticker of the library
 // (shared/nature.mjs), a full-version feature (entitlements.full.natureStickers; the server refuses
 // nature stamps otherwise); the sticker wheel (right) = everything else, as before. The ACTIVE wheel
@@ -646,9 +648,12 @@ async function onFilePicked(input) {
     const img = await api.uploadSticker(blob, state.artist, { name: file.name }); // the name carries the size prefix
     try { await saveBlob(img.id, blob); } catch { /* local copy is a nice-to-have (private mode Safari) */ }
     state.mine = addMine(img);
+    // Free version: one own sticker – the new one replaces the old (shared/uploads.mjs). Full/open: keep all.
+    const replaced = uploadsToReplace(state.mine, img.id, !!entitlements.full.uploads);
+    if (replaced.length) dropDesigns(replaced);
     await select(img);
     stackMenu?.chosen(); stackMenu?.closeBook(); // touch: the new sticker is in your hand
-    toast(isTouch ? S.uploadedTouch : S.uploadedDesktop);
+    toast(replaced.length ? S.oneUploadReplaced : isTouch ? S.uploadedTouch : S.uploadedDesktop, replaced.length ? 4500 : 2200);
   } catch (err) { toast(err && err.message ? err.message : S.uploadFailed); } finally {
     input.value = ''; // so picking the same file again fires 'change' again
   }
