@@ -8,6 +8,7 @@
 // history.replaceState (no reload, so no loop); main.js then opens that room.
 // Not used: ?room= given (also ?room=stad = the City), ?replay=, ?admin= (admin opens the City
 // as before), the demo (demo.js has its own "your room" rule).
+import { clearMineForNewRoom } from './designs.js';
 const VISITS = 'klibb.rooms', ROOM_KEYS = 'klibb.roomKeys', MEMBERS = 'klibb.memberKeys';
 const MAX_VISITS = 100;
 const ROOM_RE = /^[a-z0-9-]{1,40}$/;
@@ -61,7 +62,7 @@ export async function land() {
     try {
       const r = await timed('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const data = await r.json().catch(() => ({}));
-      if (r.ok && data.room && data.roomKey) { const k = read(ROOM_KEYS); k[data.room.id] = data.roomKey; write(ROOM_KEYS, k); id = data.room.id; }
+      if (r.ok && data.room && data.roomKey) { const k = read(ROOM_KEYS); k[data.room.id] = data.roomKey; write(ROOM_KEYS, k); id = data.room.id; try { clearMineForNewRoom(); } catch { /* no storage */ } } // a new quick room: old uploads off the wheel (main.js too)
     } catch { /* offline: the City, as before */ }
   }
   if (!id) return null;

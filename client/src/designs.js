@@ -34,6 +34,15 @@ export function insertMine(img, index) {
   rest.splice(Math.max(0, Math.min(index, rest.length)), 0, img);
   return writeMine(rest);
 }
+// A new quick room (Jens, 29 Oct 2026): my test uploads should not linger on the sticker wheel. Every
+// upload goes, except the ones I starred (favourites = "staples": the only stickers that can be starred,
+// and the way to keep one). Returns the ids that went (their local image copies go too).
+export function clearMineForNewRoom() {
+  const favs = readFavs(), list = readMine(), gone = list.filter((m) => !favs.has(m.id)).map((m) => m.id);
+  writeMine(list.filter((m) => favs.has(m.id)));
+  writeFavs(new Set([...favs].filter((id) => list.some((m) => m.id === id)))); // a star only on an upload I have
+  return { gone, done: Promise.all(gone.map((id) => deleteBlob(id))) };
+}
 export function removeMine(ids) { return writeMine(readMine().filter((m) => !ids.includes(m.id))); }
 export function updateMine(images) { return writeMine(readMine().map((m) => images[m.id] || m)); }
 

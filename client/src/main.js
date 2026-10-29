@@ -11,7 +11,7 @@ import { createWheel } from './wheel.js';
 import { api } from './api.js';
 import { foldStamp } from './fold.js';
 import { readHistory, addHistory, removeHistory, roomHistory, trimHistory, deviceId, HISTORY_KEY, PER_ROOM } from './history.js';
-import { readMine, addMine, insertMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob, readFavs, setFav, moveFav, FAV_KEY } from './designs.js';
+import { readMine, addMine, insertMine, removeMine, updateMine, saveBlob, deleteBlob, getBlob, readFavs, setFav, moveFav, FAV_KEY, clearMineForNewRoom } from './designs.js';
 import { initTogether } from './together.js';
 import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed, aspectRatio } from './cameras.js';
 import * as photo from './photo.js';
@@ -253,7 +253,9 @@ document.addEventListener('pointerdown', (e) => {
   if (ctlShown && !e.target.closest?.(`.thumb[data-id="${ctlShown}"]`)) { ctlShown = null; renderTray(); }
 });
 
+// Only my uploads can be starred (Jens, 29 Oct 2026) – never library or nature stickers.
 function toggleFav(id) {
+  if (!state.mine.some((m) => m.id === id)) return false;
   state.favs = setFav(id, !state.favs.has(id));
   renderTray();
   return state.favs.has(id);
@@ -1748,6 +1750,9 @@ $('style-ok').onclick = async () => {
     if (sp.mode === 'create') {
       const { room: r, roomKey } = await api.createRoom(sp.style);
       if (roomKey) saveRoomKey(r.id, roomKey);
+      // A new quick room starts with a clean sticker wheel (Jens, 29 Oct 2026): my uploads go, except
+      // the starred ones (designs.js clearMineForNewRoom). Their local image copies too (≤ 1.5 s).
+      if (r.type === 'quick' || !r.type) { const c = clearMineForNewRoom(); await Promise.race([c.done, new Promise((ok) => setTimeout(ok, 1500))]); }
       location.href = roomUrl(r.id);
       return;
     }
