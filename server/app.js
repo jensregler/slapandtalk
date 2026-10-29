@@ -51,11 +51,13 @@ const FREE_SIZE_SLACK = 0.01;
 const { mountVideos, videoSettings } = require('./videos');
 const { mountPhotos, photoSettings } = require('./photos');
 const { createMailer } = require('./mail');
+const { createPresets, PRESET_FACES } = require('./presets');
 
 // demo: the demo profile (server/demo.js createDemo) or null. library: loadLibrary() list.
 function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), photos = photoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500 } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
+const presets = createPresets(store.adapter, { log });
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
 // Full-version flags for a request; asks Lemon Squeezy first when the key is a paid key we haven't seen.
 const entOf = (req) => (entitle.check ? entitle.check(fromReq(req)) : Promise.resolve(entitle(fromReq(req))));
@@ -285,7 +287,7 @@ function cleanStyle(s) {
 }
 const styleOf = (r) => r.style || { ...STYLES.default }; // äldre rum: dagens utseende
 const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt, style: styleOf(r), peels: !!r.peelsOn,
-  ...(r.groove ? { groove: r.groove } : {}),
+  ...(r.groove ? { groove: r.groove } : {}), ...(r.preset && r.preset.faces ? { preset: r.preset } : {}),
   quickTtlHours: r.type === 'quick' ? quickTtlHours : null, ...(r.demo && r.demo.expiresAt ? { expiresAt: r.demo.expiresAt } : {}) });
 
 // Skapa ett nytt snabbrum (inget konto behövs). Svarar med en kort kod, t.ex. "k7m2qx".
@@ -296,8 +298,19 @@ app.post('/api/rooms', rateLimit(10), wrap(async (req, res) => {
   let style = null;
   if (req.body && req.body.style !== undefined) { style = cleanStyle(req.body.style); if (!style) return res.status(400).json({ error: 'Unknown room look' }); }
   if (demo) style = cleanStyle(demo.settings.style); // the demo: always the empty preset room (tiles, concrete, plain ceiling)
+  // Preset rooms (server/presets.js): a room asked for without a look (a new user's first room,
+  // landing.js) gets one of Jens's presets at random – its look and its six baked images. Body
+  // { preset: '<id>' } asks for that one; { preset: false } for none. No presets: as before.
+  let preset = null;
+  if (!demo) {
+    const want = req.body && req.body.preset;
+    if (typeof want === 'string') { preset = await presets.get(want); if (!preset) return res.status(404).json({ error: 'No such preset' }); }
+    else if (want !== false && style === null) preset = await presets.pick();
+    if (preset) style = cleanStyle(preset.style) || style;
+  }
   const roomKey = crypto.randomBytes(24).toString('base64url');
-  const room = await store.createRoom({ type: 'quick', style, keyHash: hashToken(roomKey), extra: demo ? demo.newRoomFields() : null });
+  const extra = demo ? demo.newRoomFields() : preset ? { preset: presets.forRoom(preset) } : null;
+  const room = await store.createRoom({ type: 'quick', style, keyHash: hashToken(roomKey), extra });
   if (demo) demo.created(room);
   res.json({ room: roomPublic(room), roomKey });
 }));
@@ -309,11 +322,42 @@ app.put('/api/rooms/:room/style', rateLimit(30), wrap(async (req, res) => {
   const style = cleanStyle(req.body && req.body.style);
   if (!style) return res.status(400).json({ error: 'Unknown room look' });
   const admin = isAdmin(req), key = String(req.get('x-room-key') || '');
-  const r = await store.setRoomStyle(id, style, (room) => admin || (room.type !== 'stad' && tokenMatches(key, room.keyHash)));
+  let locked = false;
+  const r = await store.setRoomStyle(id, style, (room) => { if (room.preset && !admin) { locked = true; return false; } return admin || (room.type !== 'stad' && tokenMatches(key, room.keyHash)); });
   if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
+  if (locked) return res.status(403).json({ error: 'This room is a preset: its walls are locked' });
   if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can change its look' });
   broadcast(id, { type: 'room:style', style });
   res.json({ ok: true, style });
+}));
+
+// ---------- Preset rooms (admin; server/presets.js) ----------
+// POST multipart: the six baked images (fields floor, ceiling, north, south, west, east; PNG/WebP,
+// made by client/src/preset.js) + sourceRoom (its look is copied) + name. GET lists, DELETE removes.
+const presetUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 6, fields: 4 },
+  fileFilter: (req, file, cb) => cb(null, ['image/png', 'image/webp'].includes(file.mimetype)) });
+app.get('/api/admin/presets', wrap(async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
+  res.json({ presets: await presets.list() });
+}));
+app.post('/api/admin/presets', (req, res, next) => { if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' }); next(); },
+  presetUpload.fields(PRESET_FACES.map((name) => ({ name, maxCount: 1 }))), wrap(async (req, res) => {
+    const b = req.body || {}, src = String(b.sourceRoom || '').toLowerCase();
+    if (!ROOM_RE.test(src)) return res.status(400).json({ error: 'sourceRoom: a room code' });
+    const room = await store.getRoom(src);
+    if (!room) return res.status(404).json({ error: 'That room does not exist' });
+    const files = Object.fromEntries(PRESET_FACES.map((f) => [f, req.files && req.files[f] && req.files[f][0] && req.files[f][0].buffer]));
+    try { res.json({ preset: await presets.create({ name: b.name, sourceRoom: src, style: styleOf(room), files }) }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+app.delete('/api/admin/presets/:id', wrap(async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
+  res.json({ ok: await presets.remove(req.params.id) });
+}));
+app.get('/api/presets/:id/:file', wrap(async (req, res) => {
+  const m = /^([a-z]+)\.webp$/.exec(req.params.file);
+  const buf = m && await presets.image(req.params.id, m[1]);
+  if (!buf) return res.status(404).end();
+  res.set({ 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=2592000, immutable' }).send(buf);
 }));
 
 // Profilrum: förberett för konton. Tills inloggning finns kan bara admin skapa dem.

@@ -19,6 +19,8 @@ export const EN = {
   shareRoom: '🔗 Share link', shareRoomTitle: 'Copy or share the link to this room',
   toCity: '🏙 Visit the City', toCityTitle: 'The shared room everyone can visit',
   editStyle: '🎨 Change room look',
+  savePreset: '🧩 Save as preset room (admin)',
+  presetSaved: (id, n) => `Preset ${id} saved (${n} stickers baked into 6 images). New users' rooms now get it.`,
   roomNoteQuick: (h) => `Your own room. Share the link to invite people. It is deleted when nobody has visited for ${h} hours.`,
   roomNoteProfile: (owner) => `Saved room${owner ? ` owned by ${owner}` : ''}.`,
   roomHud: (type, id) => (type === 'stad' ? 'The City' : `${EN.roomTypes[type] || type} · ${id}`),

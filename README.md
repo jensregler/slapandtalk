@@ -402,6 +402,29 @@ ifrån och deras licens står i [CREDITS.md](CREDITS.md).
 
 ---
 
+### Preset-rum (Jens 29 okt 2026)
+
+Jens designar rum med nature-klibborna och ger rumskoderna till Ulla. Ett **preset** görs av ett
+befintligt rum och sparas som **sex bilder** (golv, tak och de fyra väggarna) i stället för klibbor:
+rummets klibbor "bakas" in i bilderna (i webbläsaren, `client/src/preset.js`: varje yta renderas rakt
+framifrån, bara klibborna, olysta, 160 px/m → väggar 1600×640, golv/tak 1600×1600, genomskinligt där det
+inte sitter något) och rummets utseende (golv/vägg/tak) följer med.
+
+- **Göra ett preset av en rumskod:** `ADMIN_TOKEN=… node scripts/make-preset.js <rumskod> --base https://slapandtalk.com --name "Skog"`
+  (öppnar rummet som admin i en headless Chromium, bakar och sparar; token skrivs aldrig ut).
+  `--list` visar dem, `--delete <id>` tar bort ett. Eller som admin i rummet: Room ▾ → *🧩 Save as preset room*.
+- **Servern** (`server/presets.js`): `presets/<id>.json` + `presets/<id>/<yta>.webp` i lagringen.
+  `POST /api/admin/presets` (multipart: de sex bilderna + `sourceRoom`, admin), `GET /api/admin/presets`,
+  `DELETE /api/admin/presets/:id`, bilderna på `GET /api/presets/:id/<yta>.webp`.
+- **Nya användare:** ett rum som skapas utan valt utseende (`POST /api/rooms {}`, alltså en ny användares
+  första rum via `landing.js`) får ett slumpat preset: dess utseende + de sex bilderna. *＋ New quick room*
+  med ett valt utseende får inget preset (inte heller `{ preset: false }`); `{ preset: "<id>" }` ber om ett visst.
+  **Inga presets = allt som förut.**
+- **I preset-rummet:** bilderna ligger som tunna, belysta lager över ytorna, under alla klibbor. De är inga
+  klibbor: går inte att peela, flytta eller ta bort. Väggarna är låsta (ingen 🎨-knapp, `PUT style` → 403 för
+  alla utom admin). Man kan fortfarande klibba egna klibbor ovanpå (och peela sina egna som vanligt).
+  Repriser visar också bilderna. Tas ett preset bort tappar rum som redan fått det sina bilder.
+
 ## Hur koden hänger ihop
 
 ```

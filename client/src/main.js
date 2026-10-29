@@ -40,6 +40,7 @@ import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
 import { initStackMenu } from './stackmenu.js';
 import { createHeldTimer } from '../../shared/heldtimer.mjs';
+import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -63,6 +64,9 @@ const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
 
 const room = buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
 scene.add(room.group);
+// A preset room's six baked images (preset.js; Jens, 29 Oct 2026): over the surfaces, under the stickers.
+// var: showRoomInfo may run before this line
+var presetLayer = new PresetLayer(scene, room.surfaces); // eslint-disable-line no-var
 camera.position.copy(room.spawn);
 // Lite slumpat var man dyker upp, så inte alla som kommer in står i varandra.
 camera.position.x += (Math.random() - 0.5) * 3; camera.position.z += (Math.random() - 0.5) * 1;
@@ -932,6 +936,29 @@ async function initAdmin() {
   updateStyleUi(); renderRecs();
 }
 
+// Admin: save this room as a preset (Jens designs rooms with the nature stickers and gives the room
+// codes): its stickers baked into six images (preset.js) + its look → POST /api/admin/presets.
+// Also scripts/make-preset.js (a room code → a preset, headless).
+async function savePreset({ name = '', pxPerM = PRESET_PX_PER_M } = {}) {
+  if (!state.adminToken) throw new Error('admin only');
+  const { faces, count } = await bakeFaces(renderer, scene, room.surfaces, { pxPerM });
+  const fd = new FormData();
+  fd.append('sourceRoom', ROOM); fd.append('name', name || ROOM);
+  for (const [f, blob] of Object.entries(faces)) fd.append(f, blob, `${f}.png`);
+  const r = await fetch('/api/admin/presets', { method: 'POST', headers: { 'x-admin-token': state.adminToken }, body: fd });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return { ...j.preset, stickers: count };
+}
+async function bakePresetUrls(opts) { // (tests / a look before saving) the six images as blob: URLs
+  const { faces, count } = await bakeFaces(renderer, scene, room.surfaces, opts);
+  return { count, faces: Object.fromEntries(Object.entries(faces).map(([f, b]) => [f, URL.createObjectURL(b)])) };
+}
+document.getElementById('save-preset')?.addEventListener('click', async (e) => {
+  const b = e.currentTarget; b.disabled = true;
+  try { const p = await savePreset({ name: ROOM }); toast(S.presetSaved(p.id, p.stickers), 5000); } catch (err) { toast(err.message); } finally { b.disabled = false; }
+});
+
 function adminPick(ndc) {
   aimRay(ndc);
   const picked = stamps.pick(raycaster);
@@ -1634,6 +1661,7 @@ function showRoomInfo(info) {
   if (DEMO) { $('room-note').textContent = S.demoNote(config.roomMinutes || 60); badge.hidden = true; }
   roomType = type;
   if (info) currentStyle = normalizeStyle(info.style);
+  if (info) { presetRoom = !!(info.preset && info.preset.faces); presetLayer.set(presetRoom ? info.preset : null); }
   if (info) updateStyleUi();
   window.klibb && (window.klibb.roomInfo = { ...info, type });
 }
@@ -1647,11 +1675,13 @@ function saveRoomKey(id, key) { const k = roomKeys(); k[id] = key; localStorage.
 // var (inte let): showRoomInfo längre upp kan köras innan den här raden.
 var currentStyle = normalizeStyle(DEFAULT_STYLE); // eslint-disable-line no-var
 var roomType = ROOM === 'stad' ? 'stad' : 'quick'; // eslint-disable-line no-var
+var presetRoom = false; // eslint-disable-line no-var -- a preset room: its look (the walls) is locked, only admin may change it
 const canEditStyle = () => !!state.adminToken || (!DEMO && roomType !== 'stad' && !!roomKeys()[ROOM]);
 // Reset (all stickers off): the creator, also in the demo (it is not "editing" the room).
 const canReset = () => canEditStyle() || (DEMO && !!roomKeys()[ROOM]);
 function updateStyleUi() {
-  $('edit-style').hidden = !canEditStyle();
+  $('edit-style').hidden = !canEditStyle() || (presetRoom && !state.adminToken);
+  const sv = document.getElementById('save-preset'); if (sv) sv.hidden = !state.adminToken || DEMO || ROOM === 'stad';
   $('clear-hidden').hidden = !canReset(); // same rule as resetting the room
   $('rec-box').hidden = !(canEditStyle() || (DEMO && canReset())); // the demo records too (no cameras there)
   updatePeelUi();
@@ -2515,6 +2545,7 @@ window.klibb = {
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   wheelUp, touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
+  savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
   held: () => stackMenu?.info() ?? null, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3) }, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && getComputedStyle($('design-strip')).visibility !== 'hidden', n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON() }),
   wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,

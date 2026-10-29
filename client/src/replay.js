@@ -5,6 +5,7 @@
 // you see (free version: + channel bug and link ticker), uploaded with a link to share.
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
+import { PresetLayer } from './preset.js';
 import { applyStyle, normalizeStyle, DEFAULT_STYLE } from './roomstyle.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { PeelLayer } from './peels.js';
@@ -46,6 +47,8 @@ const scene = new THREE.Scene(); scene.background = new THREE.Color(0x111111);
 const camera = new THREE.PerspectiveCamera(EYE_FOV, 1, 0.05, 100); // den fria kameran
 const view = new THREE.PerspectiveCamera(EYE_FOV, 1, 0.05, 100); // det som faktiskt visas
 const room = buildBoxRoom(); scene.add(room.group);
+const presetLayer = new PresetLayer(scene, room.surfaces); // a preset room's baked images (preset.js)
+fetch(`/api/rooms/${ROOM}`).then((r) => r.json()).then((j) => j && j.room && j.room.preset && presetLayer.set(j.room.preset)).catch(() => {});
 camera.position.set(0, 2.4, 4.4);
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
 controls.pitch = -0.22; controls.apply();
