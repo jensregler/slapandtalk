@@ -105,16 +105,28 @@ const preview = new StampPreview(scene, stamps.faces);
 // The held sticker fades on the desktop too (Jens, 29 Oct 2026: "klibborna ska fejda efter ett par
 // sekunder", Slap mode and Nature mode alike) – the same timer as on touch (shared/heldtimer.mjs):
 // a newly chosen sticker stays sharp until it is placed; after each placement ("per tag") it stays
-// sharp for HELD_VISIBLE_MS (2 s) untouched, then fades out over HELD_FADE_MS (1 s). Any input
-// (moving the mouse, a key, the scroll wheel, holding the button) restarts the 2 s – and, unlike on
-// touch, also brings a faded one back (a mouse that moves is someone aiming). Unlike a tap on touch, a
-// click while it is faded still slaps (the crosshair shows where; a swallowed click on the desktop
-// felt broken) – the fade is the idle look, not a lock.
+// sharp for HELD_VISIBLE_MS (2 s) untouched, then fades out over HELD_FADE_MS (1 s). Until the fade
+// is complete, any input (moving the mouse, a key, the scroll wheel, holding the button) restarts the
+// 2 s (a fading one comes back sharp). Once it has faded out completely (point 10, Jens, 29 Oct 2026:
+// mouse movement brought it back, which broke just looking around), only the next explicit press –
+// the left mouse button, like a tap on touch – brings it back, and that press only wakes it (no slap,
+// the same as a tap on touch: the crosshair had no sticker to aim with). Moving, keys and the scroll
+// wheel leave a faded one faded. Picking a new design (R / F, the wheel, the sticker book) is choosing,
+// not idling: that one is sharp until placed (deskHeld.choose), as before.
 const deskHeld = isTouch ? null : createHeldTimer();
 function deskActive() {
   if (!deskHeld) return;
   const t = performance.now();
-  if (deskHeld.state === 'timed' && !deskHeld.canSlap(t)) deskHeld.wake(t); else deskHeld.keepAlive(t);
+  if (deskHeld.state !== 'timed' || deskHeld.faded(t)) return; // faded: only a press brings it back (deskPress)
+  if (!deskHeld.canSlap(t)) deskHeld.wake(t); else deskHeld.keepAlive(t); // fading: back sharp; sharp: a fresh 2 s
+}
+// A left press on the 3D view: true = it only woke a completely faded held sticker (do not slap/act).
+function deskPress() {
+  if (!deskHeld || deskHeld.state !== 'timed') return false;
+  const t = performance.now();
+  if (!deskHeld.faded(t)) return false;
+  deskHeld.wake(t);
+  return true;
 }
 const cams = new CameraLayer(scene); // virtuella kameror (för inspelning)
 const viewCam = new THREE.PerspectiveCamera(60, 1, 0.05, 100); // "Titta genom kamera"
@@ -1480,17 +1492,19 @@ if (!isTouch) {
     if (sp.open || together.busy()) return; // panelen för rummets utseende eller Min gubbe är öppen
     if (together.chatOpen()) { together.closeChat(); if (!controls.locked) controls.lock(); return; } // klick = stäng chatten, stämpla inte
     if (!controls.locked && lockBroken && !placingCam && state.mode === 'slap') {
+      if (deskPress()) return; // faded: this click only brings the held sticker back
       // No pointer lock in this browser: a click still slaps – one sticker where you clicked (no arrays).
       if (state.selected && hitSurface(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1))) deskHeld.placed(performance.now());
       action(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
       return;
     }
-    if (!controls.locked) controls.lock();
+    if (!controls.locked) { if (state.mode === 'slap') deskPress(); controls.lock(); } // (the click that locks: wakes a faded one too)
     else if (placingCam) placeCamAt(CENTER); // ＋ Add cameraman: this click sets where it starts
     else if (state.mode === 'view') clickCredit(); // Look mode: click a sticker = who made it? (never slaps)
+    else if (deskPress()) { /* faded: this press only brings the held sticker back – no slap (point 10) */ }
     else {
       // Hold the button and look/drag away: the sticker repeats toward the crosshair (sticker arrays).
-      if (state.selected && hitSurface(CENTER)) deskHeld.placed(performance.now()); // each placement restarts its 2 s (and brings a faded one back)
+      if (state.selected && hitSurface(CENTER)) deskHeld.placed(performance.now()); // each placement restarts its 2 s
       mouseHeld = true;
       action(CENTER, { onStart: (a) => { if (mouseHeld && controls.locked && state.mode === 'slap') startArray(a); } });
     }
@@ -1502,7 +1516,7 @@ if (!isTouch) {
   // Right-click while dragging: cancel the copies (the first sticker stays).
   canvas.addEventListener('mousedown', (e) => { if (e.button === 2 && arrayDrag) { e.preventDefault(); cancelArray(); } });
   canvas.addEventListener('contextmenu', (e) => { if (arrayDrag || controls.locked) e.preventDefault(); });
-  // any input = working with the held sticker (deskHeld): its 2 s start again / a faded one comes back
+  // any input = working with the held sticker (deskHeld): its 2 s start again while it is up (not once faded)
   addEventListener('mousemove', (e) => { if (e.movementX || e.movementY) deskActive(); }, true);
   addEventListener('keydown', () => deskActive(), true);
   addEventListener('wheel', () => deskActive(), { capture: true, passive: true });
@@ -2476,8 +2490,10 @@ function recordHeld(x) {
 
 // ---------- Huvudloopen ----------
 const clock = new THREE.Clock();
+let holdSharpForTests = false; // klibb.holdSharp(true): tests about other things (arrays) keep the held sticker sharp
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
+  if (holdSharpForTests && deskHeld && deskHeld.state === 'timed') { const t = performance.now(); if (deskHeld.canSlap(t)) deskHeld.keepAlive(t); else deskHeld.wake(t); }
   if (!camView) controls.update(dt);
   for (const ac of autoCamsOf(cams.list())) { const q = liveAutoPose(ac); if (q) cams.place(ac.id, q); }
   let cv = camView && cams.get(camView);
@@ -2616,7 +2632,7 @@ window.klibb = {
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   wheelUp, touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
-  held: () => stackMenu?.info() ?? null, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3) }, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
+  held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3) }, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && getComputedStyle($('design-strip')).visibility !== 'hidden', n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON() }),
   wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,
   natureStrip: () => ({ shown: !$('nature-strip').hidden && $('nature-strip').getClientRects().length > 0, locked: $('nature-strip').classList.contains('locked'), n: $('nature-row').children.length, sel: $('nature-row').querySelector('.sel')?.dataset.id ?? null, num: $('nature-num').textContent, rect: $('nature-strip').getBoundingClientRect().toJSON() }),

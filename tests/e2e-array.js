@@ -8,6 +8,10 @@ const os = require('os');
 const path = require('path');
 const { chromium } = require('playwright');
 const { startServer } = require('./demo-helpers');
+// Point 10 (Jens, 29 Oct 2026): once the held sticker has faded out completely only a press brings
+// it back, and that press only wakes it (no slap). These tests are about arrays, not the fade, and
+// under swiftshader a mouse event can take seconds to arrive: keep the held sticker sharp (test hook).
+const wakeHeld = (p) => p.evaluate(() => window.klibb.holdSharp(true));
 
 let pass = 0, fail = 0;
 const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + name); } else { fail++; console.log('  ✗ ' + name + (extra !== undefined ? ' — ' + JSON.stringify(extra) : '')); } };
@@ -40,7 +44,7 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     const settle = () => p.waitForFunction(() => window.klibb.pendingSlaps() === 0 && window.klibb.arrayState().inFlight === 0, null, { timeout: 15000 });
 
     // 1) Drag: slap, hold, turn, release.
-    await p.mouse.down();
+    await wakeHeld(p); await p.mouse.down();
     await p.waitForTimeout(150);
     await p.evaluate(() => window.klibb.look(-0.45, 0));
     await p.waitForFunction(() => window.klibb.arrayState().ghosts > 0, null, { timeout: 5000 }).catch(() => {});
@@ -66,7 +70,7 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     check('Z peels the whole row in one step', (await onServer()).length === base && (await p.evaluate(() => window.klibb.roomHistory().length)) === 0);
 
     // 3) Esc while dragging cancels the copies; the first sticker stays.
-    await p.mouse.down();
+    await wakeHeld(p); await p.mouse.down();
     await p.waitForTimeout(150);
     await p.evaluate(() => window.klibb.look(0, 0.35));
     await p.waitForFunction(() => window.klibb.arrayState().ghosts > 0, null, { timeout: 5000 }).catch(() => {});
@@ -83,7 +87,7 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     await p.evaluate(() => window.klibb.look(0, 0));
     const floor0 = (await (await fetch(`${S.base}/api/rooms/${R}/stamps`)).json()).peels?.length ?? 0;
     const c0 = await p.evaluate(() => window.klibb.peels().count);
-    await p.mouse.down();
+    await wakeHeld(p); await p.mouse.down();
     await p.waitForTimeout(150);
     await p.evaluate(() => window.klibb.look(-0.62, 0));
     await p.waitForFunction(() => window.klibb.arrayState().ghosts >= 9, null, { timeout: 5000 }).catch(() => {});

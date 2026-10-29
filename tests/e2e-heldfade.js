@@ -4,8 +4,10 @@
 // desktop the held sticker (the preview on the wall at the crosshair) never did.
 // Same rules everywhere (shared/heldtimer.mjs): a newly chosen sticker is sharp until it is placed;
 // each placement restarts the clock: sharp 2 s, then a 1 s fade; any input restarts the 2 s; a
-// tap while faded only brings it back (phone; no slap). Desktop: moving the mouse brings it back, and a
-// click while faded still slaps (the crosshair aims).
+// tap while faded only brings it back (phone; no slap). Desktop (point 10, Jens, 29 Oct 2026): until the
+// fade is complete any input restarts the 2 s; once faded out, mouse movement, keys and the scroll wheel
+// NEVER bring it back – only the next press (mouse button), and that press only wakes it (no slap, like
+// a tap on touch). Picking a new design (R) is sharp until placed.
 // Phone safety: a lost pointerup (iOS) no longer keeps it sharp for good.
 // Own server (HELDFADE_E2E_PORT, default 8893). Screenshots: HELDFADE_SHOTS (default /workspace/heldfade-shots).
 const fs = require('fs');
@@ -54,10 +56,20 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       const s3 = await st();
       check(`${tag}: ~3.3 s untouched: gone (faded, no held sticker on the wall)`, s3.opacity === 0 && !s3.previewVisible, s3);
       await P.screenshot({ path: path.join(SHOTS, `${nature ? 'nature' : 'slap'}-desktop-faded.png`) });
-      await P.mouse.down(); await P.mouse.up(); await sleep(900);
+      // faded: looking around, keys and the scroll wheel leave it faded (point 10: it broke just looking)
+      for (let i = 0; i < 7; i++) { await P.mouse.move(600 + (i % 2 ? 40 : -40), 400 + (i % 3) * 10); await sleep(450); }
+      const s3m = await st();
+      check(`${tag}: faded + 3 s of mouse movement: stays faded (no held sticker comes back)`, s3m.opacity === 0 && !s3m.previewVisible && s3m.n === s3.n, s3m);
+      for (let i = 0; i < 3; i++) { await P.keyboard.press('KeyQ'); await sleep(250); }
+      await P.mouse.wheel(0, 120); await sleep(300);
+      const s3k = await st();
+      check(`${tag}: …keys (Q) and the scroll wheel don't bring it back either`, s3k.opacity === 0 && !s3k.previewVisible && s3k.n === s3.n, s3k);
+      await P.mouse.down(); await P.mouse.up(); await sleep(400);
       const s4 = await st();
-      check(`${tag}: a click while faded still slaps on the desktop (the crosshair aims) and brings it back sharp`, s4.n > s3.n && s4.state === 'timed' && s4.canSlap && s4.previewVisible && s4.previewOpacity === 1, s4);
-      const s5 = s4;
+      check(`${tag}: the next press only wakes it: back sharp, no slap (like a tap on touch)`, s4.n === s3.n && s4.state === 'timed' && s4.canSlap && s4.previewVisible && s4.previewOpacity === 1, s4);
+      await P.mouse.down(); await P.mouse.up(); await sleep(900);
+      const s5 = await st();
+      check(`${tag}: …and the press after that slaps`, s5.n > s4.n && s5.canSlap && s5.previewOpacity === 1, s5);
       // per placement: each slap restarts the 2 s
       await sleep(1500); await P.mouse.down(); await P.mouse.up(); await sleep(1500);
       const s6 = await st();
@@ -65,20 +77,27 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       await sleep(1900);
       const s6b = await st();
       check(`${tag}: …and it fades 2 s after the last one`, s6b.opacity === 0 && !s6b.previewVisible, s6b);
-      // any input keeps it up; moving the mouse brings a faded one back
-      await P.mouse.move(610, 400); await sleep(200); // back
+      // before the fade is complete: any input restarts the 2 s, as before
+      await P.mouse.down(); await P.mouse.up(); await sleep(300); // wake
       const n7 = (await st()).n;
       for (let i = 0; i < 8; i++) { await P.mouse.move(600 + (i % 2 ? 6 : -6), 400); await sleep(450); }
       const s7 = await st();
-      check(`${tag}: moving the mouse (looking around) keeps it sharp (3.6 s of moves)`, s7.canSlap && s7.previewOpacity === 1 && s7.n === n7, s7);
-      for (let i = 0; i < 6; i++) { await P.keyboard.press('KeyQ'); await sleep(500); } // (an unbound key – just input)
+      check(`${tag}: while it is up, moving the mouse keeps it sharp (3.6 s of moves)`, s7.canSlap && s7.previewOpacity === 1 && s7.n === n7, s7);
+      for (let i = 0; i < 6; i++) { await P.keyboard.press('KeyQ'); await sleep(500); }
       const s7k = await st();
       check(`${tag}: keys keep it up too`, s7k.canSlap && s7k.previewOpacity === 1, s7k);
-      await sleep(3200);
-      check(`${tag}: then 3 s still: faded`, (await st()).opacity === 0);
+      await P.waitForFunction(() => { const h = window.klibb.deskHeld(); return h.opacity > 0.1 && h.opacity < 0.9; }, null, { polling: 30, timeout: 6000 });
+      const s7f = await st();
+      await P.mouse.move(620, 410); await sleep(150);
+      const s7g = await st();
+      check(`${tag}: half-faded, a mouse move still brings it back sharp (the fade isn't complete)`, s7f.previewOpacity > 0 && s7f.previewOpacity < 1 && s7g.canSlap && s7g.previewOpacity === 1, { s7f, s7g });
+      await sleep(3300);
       await P.mouse.move(640, 420); await sleep(200);
       const s8 = await st();
-      check(`${tag}: moving the mouse again brings it back (desktop)`, s8.canSlap && s8.previewVisible && s8.previewOpacity === 1, s8);
+      check(`${tag}: faded again: moving the mouse does not bring it back`, s8.opacity === 0 && !s8.previewVisible, s8);
+      await P.keyboard.press('KeyR'); await sleep(400);
+      const s9 = await st();
+      check(`${tag}: R (a new design) is a choice: that sticker is held sharp until placed`, s9.state === 'holding' && s9.previewVisible && s9.previewOpacity === 1 && s9.n === s8.n, s9);
       await ctx.close();
     }
 

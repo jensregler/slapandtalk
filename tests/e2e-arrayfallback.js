@@ -10,6 +10,10 @@ const os = require('os');
 const path = require('path');
 const { chromium } = require('playwright');
 const { startServer } = require('./demo-helpers');
+// Point 10 (Jens, 29 Oct 2026): once the held sticker has faded out completely only a press brings
+// it back, and that press only wakes it (no slap). These tests are about arrays, not the fade, and
+// under swiftshader a mouse event can take seconds to arrive: keep the held sticker sharp (test hook).
+const wakeHeld = (p) => p.evaluate(() => window.klibb.holdSharp(true));
 
 let pass = 0, fail = 0;
 const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + name); } else { fail++; console.log('  ✗ ' + name + (extra !== undefined ? ' — ' + JSON.stringify(extra) : '')); } };
@@ -48,7 +52,7 @@ const GL = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swifts
     // a hold-and-drag (down, turn, up); look(dx) turns the view like the mouse would
     const drag = async (dx = -0.45) => {
       await p.evaluate(() => window.klibb.look(0, 0));
-      await p.mouse.down(); await p.waitForTimeout(150);
+      await wakeHeld(p); await p.mouse.down(); await p.waitForTimeout(150);
       await p.evaluate((d) => window.klibb.look(d, 0), dx);
       await p.waitForTimeout(250);
       const during = await p.evaluate(() => window.klibb.arrayState());
@@ -62,7 +66,7 @@ const GL = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swifts
     check(`a real drag still makes a row (1 + ${d0.ghosts})`, d0.ghosts >= 3 && (await added()) === 1 + d0.ghosts, d0);
     // 1) Click and release without a drag = exactly one.
     await p.evaluate(() => window.klibb.look(0.3, 0));
-    await p.mouse.down(); await p.waitForTimeout(120);
+    await wakeHeld(p); await p.mouse.down(); await p.waitForTimeout(120);
     const st1 = await p.evaluate(() => window.klibb.arrayState());
     await p.mouse.up(); await settle(); await p.waitForTimeout(150);
     check('click + release without a drag: exactly one sticker (no row)', (await added()) === 1 && st1.ghosts === 0, st1);
@@ -105,7 +109,7 @@ const GL = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swifts
     await nl.p.waitForTimeout(200);
     let s2 = await onServer(R2);
     check('no Pointer Lock: a click places exactly one sticker', s2.length === 1, s2.length);
-    await nl.p.mouse.down(); await nl.p.mouse.move(650, 300, { steps: 5 }); await nl.p.mouse.up();
+    await wakeHeld(nl.p); await nl.p.mouse.down(); await nl.p.mouse.move(650, 300, { steps: 5 }); await nl.p.mouse.up();
     await nl.p.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 15000 }); await nl.p.waitForTimeout(200);
     s2 = await onServer(R2);
     check('no Pointer Lock: press, move, release = one more (no row)', s2.length === 2 && !s2.some((s) => s.group), s2.length);

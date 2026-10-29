@@ -13,6 +13,10 @@ const os = require('os');
 const path = require('path');
 const sharp = require('sharp');
 const { startServer, sleep } = require('./demo-helpers');
+// Point 10 (Jens, 29 Oct 2026): once the held sticker has faded out completely only a press brings
+// it back, and that press only wakes it (no slap). These tests are about arrays, not the fade, and
+// under swiftshader a mouse event can take seconds to arrive: keep the held sticker sharp (test hook).
+const wakeHeld = (p) => p.evaluate(() => window.klibb.holdSharp(true));
 
 const PORT = Number(process.env.ARRAYREC_E2E_PORT || 8921);
 const SHOTS = process.env.ARRAYREC_SHOTS || '';
@@ -50,11 +54,11 @@ const check = (name, ok, info = '') => { if (ok) { passed++; console.log('  ✓ 
     // two plain slaps
     for (const y of [0.35, 0.5]) {
       await A.evaluate((yy) => window.klibb.look(yy, 0.15), y); await sleep(900); // the 3rd-person camera glides after an instant look()
-      await A.mouse.down(); await sleep(60); await A.mouse.up(); await settle(); await sleep(700);
+      await wakeHeld(A); await A.mouse.down(); await sleep(60); await A.mouse.up(); await settle(); await sleep(700);
     }
     // the row: slap, hold, turn toward B over ~2 s, release
     await A.evaluate(() => window.klibb.look(0, 0)); await sleep(900);
-    await A.mouse.down(); await sleep(150);
+    await wakeHeld(A); await A.mouse.down(); await sleep(150);
     let live = null;
     for (let k = 1; k <= 10; k++) {
       await A.evaluate((yy) => window.klibb.look(yy, 0), -0.06 * k); await sleep(200);
