@@ -1267,7 +1267,9 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await M.waitForFunction(() => window.klibb.selfAvatar().visible, null, { timeout: 10000 }); await M.waitForTimeout(500);
     await M.screenshot({ path: path.join(SHOTS, '46-tredje-person-mobil.png') });
     await M.tap('#design-btn'); await M.waitForTimeout(250); await M.tap('#sm-view'); await M.waitForTimeout(200);
-    assert(tpMob === 'third,third,true' && (await M.evaluate(() => window.klibb.view())) === 'first', 'mobil: 👤 växlar mellan första och tredje person (sparas)');
+    const tpFront = await M.evaluate(() => window.klibb.view());
+    await M.tap('#design-btn'); await M.waitForTimeout(250); await M.tap('#sm-view'); await M.waitForTimeout(200);
+    assert(tpMob === 'third,third,true' && tpFront === 'front' && (await M.evaluate(() => window.klibb.view())) === 'first', 'mobil: 👤 växlar första → tredje person → framifrån → första (sparas)');
     assert(await M.isVisible('#joystick') && await M.isHidden('#more-panel'), 'mobil: ✕ stänger ⚙ More och styrspaken är tillbaka');
     await openMore(M); await M.tap('#my-avatar');
     await M.waitForSelector('#avatar-panel', { state: 'visible' });

@@ -174,7 +174,11 @@ const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn'
     await P.tap('#design-btn'); await P.waitForTimeout(250);
     const lab = await P.textContent('#sm-view .sm-lab');
     await P.tap('#sm-view'); await P.waitForTimeout(300);
-    check('👤 switches to 3rd person and back (label: 1st person while in 3rd)', v1 === 'third,true' && lab === '1st person' && (await P.evaluate(() => window.klibb.view())) === 'first', { v1, lab });
+    const v2 = await P.evaluate(() => window.klibb.view());
+    await P.tap('#design-btn'); await P.waitForTimeout(250);
+    const lab2 = await P.textContent('#sm-view .sm-lab');
+    await P.tap('#sm-view'); await P.waitForTimeout(300);
+    check('👤 cycles 1st → 3rd person → front (selfie) → 1st (the label names the next one)', v1 === 'third,true' && lab === 'Front 🤳' && v2 === 'front' && lab2 === '1st person' && (await P.evaluate(() => window.klibb.view())) === 'first', { v1, lab, v2, lab2 });
     // 📷 Photo
     const ph0 = await P.evaluate(() => window.klibb.lastPhoto());
     await P.tap('#design-btn'); await P.waitForTimeout(250); await P.tap('#sm-photo');

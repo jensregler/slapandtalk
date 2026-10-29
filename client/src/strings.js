@@ -93,11 +93,12 @@ export const EN = {
   modeSwitch: 'Mode',
   // ---------- 1st / 3rd person ----------
   secView: 'View', viewSwitch: 'Camera view',
-  viewFirst: '1st person', viewThird: '3rd person',
-  viewFirstTitle: 'See through your own eyes (C)', viewThirdTitle: 'See your avatar from behind (C)',
-  viewBtnAria: '1st / 3rd person view', viewBtnToFirst: 'Back to 1st person', viewBtnToThird: '3rd person: see yourself from behind',
-  viewToastThird: (touch) => (touch ? '3rd person: you see yourself from behind. Sticker stack → 👤 switches back.' : '3rd person: you see yourself from behind. C = 1st person.'),
+  viewFirst: '1st person', viewThird: '3rd person', viewFront: 'Front 🤳',
+  viewFirstTitle: 'See through your own eyes (C)', viewThirdTitle: 'See your avatar from behind (C)', viewFrontTitle: 'See yourself from the front – look into the camera, 📷 takes a selfie (C)',
+  viewBtnAria: '1st / 3rd person view', viewBtnToFirst: 'Back to 1st person', viewBtnToThird: '3rd person: see yourself from behind', viewBtnToFront: 'Front: see yourself from the front (selfie)',
+  viewToastThird: (touch) => (touch ? '3rd person: you see yourself from behind. Sticker stack → 👤 = front (selfie).' : '3rd person: you see yourself from behind. C = front (selfie).'),
   viewToastFirst: (touch) => (touch ? '1st person' : '1st person · C = 3rd person'),
+  viewToastFront: (touch) => (touch ? 'Front: the camera looks at you – 📷 takes a selfie. 👤 = 1st person.' : 'Front: the camera looks at you – P / 📷 takes a selfie. C = 1st person.'),
 
   // ---------- Peel and history ----------
   myslaps: 'My slaps in this room',
@@ -131,7 +132,7 @@ export const EN = {
   // ---------- Desktop / touch help ----------
   enter: 'Enter the room',
   resumeHint: 'Click to enter',
-  quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C 3rd person · T chat',
+  quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C camera (1st / 3rd / front) · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
     + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = Slap mode / 🌿 Nature mode (nature stickers), G = look mode on/off '
     + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), P = 📷 photo of what you see, Esc = menu (Esc again = back into the room). '
@@ -147,7 +148,7 @@ export const EN = {
   stripAria: 'Your stickers', stripTitle: 'Your sticker wheel – click one to pick it (R/F: next/previous; scroll or drag to turn it – it goes round)',
   // ---------- Touch: the sticker stack menu (stackmenu.js) ----------
   stackBtnAria: 'Your stickers: tap for the menu, swipe up/down for the next/previous sticker, swipe sideways to turn the sticker wheel',
-  smAria: 'Menu', smBook: 'Stickers', smAvatar: 'Character', smRoom: 'Room', smUndo: 'Undo', smView: '3rd person', smViewFirst: '1st person',
+  smAria: 'Menu', smBook: 'Stickers', smAvatar: 'Character', smRoom: 'Room', smUndo: 'Undo', smView: '3rd person', smViewFirst: '1st person', smViewFront: 'Front 🤳',
   smPhoto: 'Photo', smTalk: 'Talk', smMic: 'Mic', smTalkAria: 'Talk and microphone',
   smBookTitle: 'Your stickers', smBookHint: 'Tap one to hold it, then tap a wall to slap it.',
   heldWake: 'Tap a wall to slap it.',

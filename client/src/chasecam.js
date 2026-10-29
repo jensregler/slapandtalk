@@ -23,11 +23,15 @@ export function chaseOpts(aspect, o = CHASE) {
   return { ...o, side: o.side * a * 0.5, dist: o.dist + (1 - a) * 0.8 };
 }
 
+// The three views (Jens, 29 Oct 2026): first person, third person (behind) and third person from
+// the FRONT (the camera in front of you, looking back at you: look into it, 📷 = a selfie). C cycles.
+export const VIEWS = ['first', 'third', 'front'];
+export const nextView = (v) => VIEWS[(VIEWS.indexOf(v) + 1) % VIEWS.length];
 export function loadView(storage = globalThis.localStorage) {
-  try { return storage?.getItem(VIEW_KEY) === 'third' ? 'third' : 'first'; } catch { return 'first'; }
+  try { const v = storage?.getItem(VIEW_KEY); return VIEWS.includes(v) ? v : 'first'; } catch { return 'first'; }
 }
 export function saveView(view, storage = globalThis.localStorage) {
-  const v = view === 'third' ? 'third' : 'first';
+  const v = VIEWS.includes(view) ? view : 'first';
   try { storage?.setItem(VIEW_KEY, v); } catch { /* privat läge: gäller bara nu */ }
   return v;
 }
@@ -64,6 +68,26 @@ export function chasePose(eye, yaw, pitch, cast, o = CHASE) {
   }
   if (pushed) dist = position.distanceTo(pivot);
   return { position, pivot, dist };
+}
+
+// Third person from the front: the camera stands in front of me (where I look), a little above my
+// eyes, and looks back at me (aimed a bit below the eyes, so head and upper body fill the frame).
+// Looking up/down swings it a little up/down. A wall in the way pulls it in toward me (never closer
+// than minDist), and it is pushed out of walls like the chase camera.
+export const FRONT = { dist: 1.9, minDist: 0.45, height: 0.08, lookDown: 0.28, pitchK: 0.6, margin: 0.2 };
+export function frontPose(eye, yaw, pitch, cast, o = FRONT) {
+  const p = Math.max(-0.7, Math.min(0.7, pitch)) * o.pitchK;
+  const fwd = viewDir(yaw, p);
+  const hit = cast(eye, fwd, o.dist + o.margin);
+  let dist = Math.max(o.minDist, Math.min(o.dist, hit - o.margin));
+  const position = eye.clone().addScaledVector(fwd, dist); position.y += o.height;
+  for (const d of AXES) {
+    const h = cast(position, d, o.margin);
+    if (h < o.margin) position.addScaledVector(d, h - o.margin);
+  }
+  dist = position.distanceTo(eye);
+  const target = eye.clone(); target.y -= o.lookDown;
+  return { position, target, dist };
 }
 
 // In direkt (kameran får aldrig hamna bakom en vägg), ut mjukt.

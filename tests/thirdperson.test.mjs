@@ -2,7 +2,7 @@
 // och hur armen rör sig (upp direkt med klibban, sedan ner igen).
 // Körs med: node tests/thirdperson.test.mjs (ingår i npm test)
 import * as THREE from 'three';
-import { CHASE, chaseOpts, VIEW_KEY, chasePose, smoothDist, aimNear, boxCaster, surfaceCaster, loadView, saveView, viewDir } from '../client/src/chasecam.js';
+import { CHASE, chaseOpts, VIEW_KEY, chasePose, smoothDist, aimNear, boxCaster, surfaceCaster, loadView, saveView, viewDir, VIEWS, nextView, frontPose, FRONT } from '../client/src/chasecam.js';
 import { gestureAt, ArmGesture, SLAP_MS, SNAP_MS, HOLD_MS, RETURN_MS, PEEL_MS } from '../client/src/slapanim.js';
 
 const assert = (c, m) => { if (!c) throw new Error('FEL: ' + m); console.log('✔ ' + m); };
@@ -107,5 +107,21 @@ const inside = (p, m) => p.x >= MIN.x + m && p.x <= MAX.x - m && p.y >= MIN.y + 
   g.start('slap', V(-0.18, 1.4, 5), null, 2000); g.apply(root, 2000 + SNAP_MS + 10); root.updateMatrixWorld(true);
   const sh = root.getObjectByName('UpperArm.R').getWorldPosition(V()), far = wr.getWorldPosition(V()).sub(sh);
   assert(far.length() > 0.49 && far.normalize().z > 0.98, 'klibban långt bort: armen pekar rakt mot den, utsträckt');
+}
+// ---------- Tredje person framifrån ('front', Jens 29 okt 2026) ----------
+{
+  const st = mem();
+  assert(saveView('front', st) === 'front' && loadView(st) === 'front', 'framifrån sparas och läses tillbaka');
+  assert(VIEWS.join() === 'first,third,front' && nextView('first') === 'third' && nextView('third') === 'front' && nextView('front') === 'first', 'C/👤 växlar första → tredje → framifrån → första');
+  const MIN2 = V(-5, 0, -5), MAX2 = V(5, 4, 5), cast2 = boxCaster(MIN2, MAX2);
+  const eye = V(0, 1.6, 0);
+  const f = frontPose(eye, 0, 0, cast2); // tittar mot -z (norr): kameran står norr om mig och tittar tillbaka
+  const back = f.target.clone().sub(f.position).normalize();
+  assert(Math.abs(f.dist - Math.hypot(FRONT.dist, FRONT.height)) < 0.02 && f.position.z < eye.z - 1.8 && back.z > 0.9, `framifrån: kameran ${f.dist.toFixed(2)} m framför mig, riktad tillbaka mot mig`);
+  assert(f.target.y < eye.y && f.position.y > eye.y, 'framifrån: lite ovanför ögonen, siktar strax under (huvud och överkropp i bild)');
+  const w = frontPose(V(0, 1.6, -4.4), 0, 0, cast2); // ansiktet mot norra väggen
+  assert(w.position.z > -5 + 0.15 && w.dist > 0.35, `framifrån mot en vägg: kameran dras in (${w.dist.toFixed(2)} m) men aldrig genom väggen`);
+  const up = frontPose(eye, 0, 0.6, cast2);
+  assert(up.position.y > f.position.y + 0.3, 'tittar jag upp svänger kameran upp');
 }
 console.log('\nAlla tester för tredjepersonsvyn gick igenom.');

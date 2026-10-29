@@ -91,7 +91,11 @@ när en vägg är i vägen (den går aldrig genom väggen) och gubben göms om k
 Siktet i mitten gäller precis som vanligt: strålen går från kameran genom siktet och räknas från
 gubben och framåt. När du slappar slår gubben handen mot väggen i samma bildruta som klibban syns
 (upp på 25 ms, en kort tryckning, sedan ner igen på ~320 ms), och vid peel griper den klibban.
-Valet sparas på enheten. Förstapersonsläget är precis som förut (ingen hand syns). De andra i
+**Framifrån (selfie):** tryck **C** en gång till (eller *Front 🤳* under ⚙ More; 👤 på mobilen
+växlar 1:a → 3:e → framifrån → 1:a) så står kameran framför dig och tittar tillbaka – du ser din
+gubbe framifrån och kan titta in i kameran. 📷/P tar då en selfie (sparas med `view: 'front'`).
+Siktet räknas som vanligt från gubben och utåt längs kamerans blick, så klibbor hamnar på väggen bakom dig
+(den kameran tittar mot). Valet sparas på enheten. Förstapersonsläget är precis som förut (ingen hand syns). De andra i
 rummet ser din gubbe slappa och peela i båda lägena: klienten skickar sitt rums-id (`by`) med
 slappen/peelen och servern skickar det vidare i `stamp:add`/`stamp:remove` (äldre klienter
 bryr sig inte om fältet). Matten finns i `client/src/chasecam.js` och rörelsen i

@@ -19,7 +19,7 @@ import { createAutoCrew, liveStickerTargets, AUTO_CHOICES, autoCamsOf, MAX_AUTO_
 import { groupFocus } from '../../shared/personcam.mjs';
 import { S, LOCALE } from './strings.js';
 import { Sounds } from './sound.js';
-import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView } from './chasecam.js';
+import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView, nextView, frontPose, FRONT } from './chasecam.js';
 import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
 import { PeelLayer } from './peels.js';
 import { PEEL, peelPlan, onFloor, stampDims } from '../../shared/peels.mjs';
@@ -645,7 +645,7 @@ $('file').addEventListener('change', (e) => onFilePicked(e.currentTarget));
 // stämplar på något mellan kameran och gubben. Räckvidden är densamma som förut: rummet.
 // var: frame() och setView() kan köras innan raden här (via setMode längre upp).
 var view = loadView(); // eslint-disable-line no-var
-const third = () => view === 'third' && !camView;
+const third = () => view !== 'first' && !camView; // 3rd person: from behind ('third') or from the front ('front')
 function aimRay(ndc) {
   const cam = third() ? tpCam : camera;
   cam.updateMatrixWorld();
@@ -2102,7 +2102,7 @@ function snapPhoto() {
     photo.download(shot.blob, name);
     lastPhoto = { name, w: shot.w, h: shot.h, bytes: shot.blob.size, upload: null, error: null };
     try {
-      const j = await photo.upload(shot.blob, { room: ROOM, source: 'live', view: cv ? (cv.auto ? `autocam:${cv.id}` : `cam:${cv.id}`) : third() ? 'third' : 'eyes' });
+      const j = await photo.upload(shot.blob, { room: ROOM, source: 'live', view: cv ? (cv.auto ? `autocam:${cv.id}` : `cam:${cv.id}`) : third() ? view : 'eyes' }); // 'front' = a selfie
       lastPhoto.upload = j; toast(S.photoSaved(j.shareUrl), 4000);
       if (canEditStyle() || canReset()) renderRecs();
     } catch (err) { lastPhoto.error = err.message; toast(S.photoFailed(err.message), 4000); }
@@ -2236,22 +2236,28 @@ $('camview-exit').onclick = () => exitCamView();
 // och lite ovanför min gubbe, och gubben slappar mot väggen. Valet sparas på enheten.
 // var: setView() runs at start-up, before this line's neighbours below are reached.
 var selfShown = null; // eslint-disable-line no-var -- together.showSelf(): third person, or looking through a camera
+// Three views (Jens, 29 Oct 2026): 1st person, 3rd person (behind) and 3rd person from the FRONT
+// (the camera in front of me looking back – look into it; 📷 then takes a selfie). C / 👤 cycle them.
 function setView(v, { quiet = false } = {}) {
   view = saveView(v);
-  const t = view === 'third';
+  const t = view !== 'first', front = view === 'front';
   document.body.classList.toggle('third-person', t);
+  document.body.classList.toggle('front-view', front);
   chase.eye = null; chase.dist = null; // börja om utan glidning
   together.showSelf(t); selfShown = t;
-  $('view-first').setAttribute('aria-pressed', String(!t)); $('view-third').setAttribute('aria-pressed', String(t));
+  $('view-first').setAttribute('aria-pressed', String(view === 'first')); $('view-third').setAttribute('aria-pressed', String(view === 'third'));
+  $('view-front').setAttribute('aria-pressed', String(front));
+  const nx = nextView(view);
   $('view-btn').setAttribute('aria-pressed', String(t));
-  $('view-btn').title = t ? S.viewBtnToFirst : S.viewBtnToThird;
-  $('sm-view').setAttribute('aria-pressed', String(t)); $('sm-view').querySelector('.sm-lab').textContent = t ? S.smViewFirst : S.smView;
-  if (!quiet) toast(t ? S.viewToastThird(isTouch) : S.viewToastFirst(isTouch), 1600);
+  $('view-btn').title = nx === 'first' ? S.viewBtnToFirst : nx === 'front' ? S.viewBtnToFront : S.viewBtnToThird;
+  $('sm-view').setAttribute('aria-pressed', String(t)); $('sm-view').querySelector('.sm-lab').textContent = nx === 'first' ? S.smViewFirst : nx === 'front' ? S.smViewFront : S.smView;
+  if (!quiet) toast(front ? S.viewToastFront(isTouch) : t ? S.viewToastThird(isTouch) : S.viewToastFirst(isTouch), 1800);
   return view;
 }
-const toggleView = () => setView(view === 'third' ? 'first' : 'third');
+const toggleView = () => setView(nextView(view));
 $('view-first').onclick = () => { if (view !== 'first') setView('first'); };
 $('view-third').onclick = () => { if (view !== 'third') setView('third'); };
+$('view-front').onclick = () => { if (view !== 'front') setView('front'); };
 $('view-btn').onclick = (e) => { e.preventDefault(); toggleView(); };
 setView(view, { quiet: true });
 
@@ -2266,6 +2272,19 @@ function updateChase(dt) {
   tpCam.quaternion.copy(camera.quaternion);
   tpCam.updateMatrixWorld();
   chase.pose = { dist: chase.dist, target: pose.dist };
+}
+
+// The camera in front of me, looking back at me (view 'front'): follows as softly as the chase camera.
+function updateFront(dt) {
+  const eye = camera.position;
+  if (!chase.eye) chase.eye = eye.clone(); else chase.eye.lerp(eye, 1 - Math.exp(-dt * 16));
+  const pose = frontPose(chase.eye, controls.yaw, controls.pitch, chaseCast);
+  chase.dist = smoothDist(chase.dist, pose.dist, dt);
+  const dir = pose.position.clone().sub(chase.eye); if (dir.lengthSq() > 1e-9) dir.normalize();
+  tpCam.position.copy(chase.eye).addScaledVector(dir, chase.dist);
+  tpCam.up.set(0, 1, 0); tpCam.lookAt(pose.target);
+  tpCam.updateMatrixWorld();
+  chase.pose = { dist: chase.dist, target: pose.dist, front: true };
 }
 
 // Footsteps (groove.js + shared/groove.mjs): everyone who walks plays their slot's polyrhythm on
@@ -2415,17 +2434,17 @@ function frame() {
   let cv = camView && cams.get(camView);
   if (cv && cv.auto) { const q = liveAutoPose(cv); if (q) cv = { ...cv, ...q }; }
   if (cv) poseCamera(viewCam, { p: cv.p, yaw: cv.yaw, pitch: cv.pitch, fov: cv.fov });
-  const tp = !cv && view === 'third';
-  if (tp) updateChase(dt);
+  const tp = !cv && view !== 'first';
+  if (tp) { if (view === 'front') updateFront(dt); else updateChase(dt); }
   const eyeCam = cv ? viewCam : tp ? tpCam : camera;
   // Looking through a camera (a placed one or an auto cameraman): my own avatar stands where I
   // stand and is filmed too (also in first person, where it is otherwise not built), unless that
   // camera is right at it. Back in my own eyes the first-person view hides it again.
-  const wantSelf = view === 'third' || !!cv;
+  const wantSelf = view !== 'first' || !!cv;
   if (wantSelf !== selfShown) { selfShown = wantSelf; together.showSelf(wantSelf); }
   const camAtMe = cv && Math.hypot(camera.position.x - viewCam.position.x, camera.position.z - viewCam.position.z) < 0.45;
   // gubbar precis vid kameran döljs, och min egen om kameran kommer för nära (t.ex. mot en vägg)
-  together.update(dt, eyeCam.position, { hideSelf: cv ? camAtMe : !tp || chase.dist < CHASE.hideBelow });
+  together.update(dt, eyeCam.position, { hideSelf: cv ? camAtMe : !tp || chase.dist < (view === 'front' ? FRONT.minDist * 0.8 : CHASE.hideBelow) });
   cams.update(cv ? null : eyeCam.position);
   peelLayer.update();
   walkSounds();
@@ -2552,7 +2571,7 @@ window.klibb = {
   natureStrip: () => ({ shown: !$('nature-strip').hidden && $('nature-strip').getClientRects().length > 0, locked: $('nature-strip').classList.contains('locked'), n: $('nature-row').children.length, sel: $('nature-row').querySelector('.sel')?.dataset.id ?? null, num: $('nature-num').textContent, rect: $('nature-strip').getBoundingClientRect().toJSON() }),
   // the held sticker's drop shadow, and where it and the sticker are on screen (px), for the tests
   heldShadow: () => {
-    const st = preview.shadowState(), cam = camView ? viewCam : view === 'third' ? tpCam : camera;
+    const st = preview.shadowState(), cam = camView ? viewCam : view !== 'first' ? tpCam : camera;
     const px = (m) => {
       m.updateMatrixWorld(); const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3()).project(cam), r = [Infinity, Infinity, -Infinity, -Infinity];
       for (let i = 0; i < 8; i++) { const v = new THREE.Vector3(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).project(cam); const x = (v.x + 1) / 2 * innerWidth, y = (1 - v.y) / 2 * innerHeight; r[0] = Math.min(r[0], x); r[1] = Math.min(r[1], y); r[2] = Math.max(r[2], x); r[3] = Math.max(r[3], y); }
