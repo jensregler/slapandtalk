@@ -23,7 +23,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
   try {
     const lib = (await (await fetch(`${S.base}/api/library`)).json()).stickers;
     const nat = lib.filter((d) => d.nature), rest = lib.filter((d) => !d.nature);
-    check(`/api/library: ${lib.length} stickers, ${nat.length} nature (≥ 80) + ${rest.length} others (≥ 186)`, nat.length >= 80 && rest.length >= 186, { n: lib.length, nat: nat.length });
+    check(`/api/library: ${lib.length} stickers, ${nat.length} nature (≥ 89) + ${rest.length} others (≥ 186)`, nat.length >= 89 && rest.length >= 186, { n: lib.length, nat: nat.length });
     const ready = (p, full) => p.waitForFunction((f) => window.klibb && window.klibb.ready && window.klibb.state.selected && window.klibb.natureOpen() === f, full, { timeout: 30000 });
     const settle = (p, w) => p.waitForFunction((w) => { const x = window.klibb[w](); return Math.abs(x.pos - x.target) < 0.002; }, w, { timeout: 8000 }).catch(() => {});
 
