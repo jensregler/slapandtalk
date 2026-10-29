@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { PresetLayer } from './preset.js';
-import { applyStyle, normalizeStyle, DEFAULT_STYLE } from './roomstyle.js';
+import { applyStyle, normalizeStyle, DEFAULT_STYLE, tickRoomFabric } from './roomstyle.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { PeelLayer } from './peels.js';
 import { Avatar, loadAvatarModel } from './avatars.js';
@@ -438,6 +438,7 @@ function toast(msg, ms = 2500) { const t = $('toast'); t.textContent = msg; t.cl
 const clock = new THREE.Clock();
 function frame() {
   const raw = clock.getDelta(), dt = Math.min(raw, 0.1);
+  tickRoomFabric(room.surfaces); // Färg (the room's own image) moves in the replay too
   if (rp.tl) {
     if (rp.playing) {
       // Uppspelningen följer klockan även om datorn bara orkar få bilder per sekund.

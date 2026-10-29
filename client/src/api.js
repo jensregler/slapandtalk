@@ -37,11 +37,11 @@ export const api = {
   }).then(json),
 
   createRoom: (style) => fetch('/api/rooms', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(style ? { style } : {}),
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...unlockHeaders() }, body: JSON.stringify(style ? { style } : {}), // (unlock: Färg is the full version's)
   }).then(json),
   setStyle: (room, style, { key, admin } = {}) => fetch(`/api/rooms/${room}/style`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...(key ? { 'x-room-key': key } : {}), ...(admin ? { 'x-admin-token': admin } : {}) },
+    headers: { 'Content-Type': 'application/json', ...unlockHeaders(), ...(key ? { 'x-room-key': key } : {}), ...(admin ? { 'x-admin-token': admin } : {}) },
     body: JSON.stringify({ style }),
   }).then(json),
   visit: (room) => fetch(`/api/rooms/${room}/visit`, { method: 'POST' }).then(json),

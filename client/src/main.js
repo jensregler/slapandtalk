@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { startSizeCm } from '../../shared/sizeprefix.mjs';
 import { sizeLimitsCm, isNature, NATURE } from '../../shared/nature.mjs';
-import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl } from './roomstyle.js';
+import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl, tickRoomFabric, roomFabricInfo } from './roomstyle.js';
+import { initFargUI } from './fargui.js';
 import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { createWheel } from './wheel.js';
@@ -1797,10 +1798,15 @@ function renderStylePanel() {
   swatchButtons($('sw-color'), 'color', CATALOG.wallColors, s.wallColor, (id) => custom({ wallColor: id }));
   swatchButtons($('sw-ceiling'), 'ceiling', CATALOG.ceilings, s.ceiling, (id) => custom({ ceiling: id }));
   $('sp-color-row').hidden = !CATALOG.walls[s.wall].colored;
+  fargUi.render();
   if (document.activeElement !== $('style-seed')) $('style-seed').value = s.seed || '';
   $('style-name').textContent = styleName(s);
 }
 function previewStyle() { renderStylePanel(); showStyle(sp.style); }
+// Färg (fargui.js): the room's own image on every surface, kept through 🎲 Random and the code.
+const fargUi = initFargUI({ $, toast, getStyle: () => sp.style,
+  setFabric: (f, rerender) => { const st = { ...sp.style }; if (f) st.fabric = f; else delete st.fabric; sp.style = normalizeStyle(st); if (rerender) previewStyle(); else showStyle(sp.style); } });
+const withFarg = (st) => (sp.style?.fabric ? normalizeStyle({ ...st, fabric: sp.style.fabric }) : st);
 function openStylePanel(mode) {
   sp.open = true; sp.mode = mode;
   sp.style = mode === 'create' ? styleFromSeed(randomSeed()) : { ...currentStyle };
@@ -1819,11 +1825,11 @@ function closeStylePanel(revert = true) {
 $('new-room').onclick = () => { if (DEMO) { $('new-room').disabled = true; demo.goToNewRoom().catch((e) => { $('new-room').disabled = false; toast(e.message); }); } else openStylePanel('create'); };
 $('edit-style').onclick = () => openStylePanel('edit');
 $('style-cancel').onclick = () => closeStylePanel(true);
-$('style-random').onclick = () => { sp.style = styleFromSeed(randomSeed()); previewStyle(); };
+$('style-random').onclick = () => { sp.style = withFarg(styleFromSeed(randomSeed())); previewStyle(); };
 $('style-seed').oninput = (e) => {
   const v = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
   if (v !== e.target.value) e.target.value = v;
-  if (v) { sp.style = styleFromSeed(v); previewStyle(); }
+  if (v) { sp.style = withFarg(styleFromSeed(v)); previewStyle(); }
 };
 $('style-ok').onclick = async () => {
   const b = $('style-ok'); b.disabled = true;
@@ -2495,6 +2501,7 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (holdSharpForTests && deskHeld && deskHeld.state === 'timed') { const t = performance.now(); if (deskHeld.canSlap(t)) deskHeld.keepAlive(t); else deskHeld.wake(t); }
   if (!camView) controls.update(dt);
+  tickRoomFabric(room.surfaces); if (sp.open) fargUi.tick(); // Färg: the room image spins / cycles / scrolls
   for (const ac of autoCamsOf(cams.list())) { const q = liveAutoPose(ac); if (q) cams.place(ac.id, q); }
   let cv = camView && cams.get(camView);
   if (cv && cv.auto) { const q = liveAutoPose(cv); if (q) cv = { ...cv, ...q }; }
@@ -2614,7 +2621,7 @@ window.klibb = {
   arrayFaults, arraysOff: () => arraysOff, lockBroken: () => lockBroken,
   arrayState: () => ({ dragging: !!arrayDrag, ghosts: ghosts.count, inFlight: arrayOps.length, items: arrayDrag ? arrayDrag.items.length : 0 }), arrayPlan,
   pendingSlaps: () => pendingSlaps.size, // klibbor som syns men inte är bekräftade av servern än
-  styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
+  styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, roomFabric: () => roomFabricInfo(room.surfaces), styleDraft: () => sp.style && JSON.parse(JSON.stringify(sp.style)), canEditStyle, surfaces: room.surfaces,
   net: together.net, players: () => together.players.list(), me: together.me, roomLook: () => together.roomLook(), openChat: together.openChat,
   openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
   photo: () => snapPhoto(), lastPhoto: () => lastPhoto,

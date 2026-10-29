@@ -9,7 +9,7 @@ const express = require('express');
 const multer = require('multer');
 const sharp = require('sharp');
 const { contentId } = require('./store');
-const { broadcast, cleanName, playerPosition, roomSeat } = require('./realtime');
+const { broadcast, cleanName, playerPosition, roomSeat, cleanFabrics } = require('./realtime');
 const { createHidden, autoPruneOn } = require('./hidden');
 const { publicSticker } = require('./library');
 
@@ -277,12 +277,20 @@ app.get('/api/stickers', wrap(async (req, res) => {
 // ---------- Rum ----------
 // Rummets utseende kontrolleras mot samma katalog som webbappen använder.
 const STYLES = require('../shared/styles.json');
-function cleanStyle(s) {
+// Färg (point 11): the room's own image over floor, walls and ceiling (client/src/roomstyle.js
+// cleanRoomFabric). Full version only (fabric: !!ent.fabrics); presets keep theirs. Dropped otherwise.
+function cleanRoomFabric(f) {
+  const c = cleanFabrics({ shirt: f });
+  if (!c) return null;
+  return { ...c.shirt, photo: false, base: typeof f.base === 'string' && /^#[0-9a-f]{6}$/i.test(f.base) ? f.base.toLowerCase() : '#ffffff' };
+}
+function cleanStyle(s, { fabric = false } = {}) {
   if (!s || typeof s !== 'object') return null;
   if (!STYLES.floors[s.floor] || !STYLES.walls[s.wall] || !STYLES.ceilings[s.ceiling || STYLES.default.ceiling]) return null;
   const out = { floor: s.floor, wall: s.wall, ceiling: STYLES.ceilings[s.ceiling] ? s.ceiling : STYLES.default.ceiling };
   if (STYLES.walls[s.wall].colored) { if (!STYLES.wallColors[s.wallColor]) return null; out.wallColor = s.wallColor; }
   if (s.seed !== undefined && s.seed !== null && s.seed !== '') { if (typeof s.seed !== 'string' || !/^[a-z0-9]{1,12}$/.test(s.seed)) return null; out.seed = s.seed; }
+  if (fabric && s.fabric) { const f = cleanRoomFabric(s.fabric); if (f) out.fabric = f; }
   return out;
 }
 const styleOf = (r) => r.style || { ...STYLES.default }; // äldre rum: dagens utseende
@@ -296,7 +304,8 @@ const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, cre
 // rummets utseende ändras senare. Servern sparar bara en hash av nyckeln.
 app.post('/api/rooms', rateLimit(10), wrap(async (req, res) => {
   let style = null;
-  if (req.body && req.body.style !== undefined) { style = cleanStyle(req.body.style); if (!style) return res.status(400).json({ error: 'Unknown room look' }); }
+  const ent = await entOf(req);
+  if (req.body && req.body.style !== undefined) { style = cleanStyle(req.body.style, { fabric: !!ent.fabrics }); if (!style) return res.status(400).json({ error: 'Unknown room look' }); }
   if (demo) style = cleanStyle(demo.settings.style); // the demo: always the empty preset room (tiles, concrete, plain ceiling)
   // Preset rooms (server/presets.js): a room asked for without a look (a new user's first room,
   // landing.js) gets one of Jens's presets at random – its look and its six baked images. Body
@@ -306,7 +315,7 @@ app.post('/api/rooms', rateLimit(10), wrap(async (req, res) => {
     const want = req.body && req.body.preset;
     if (typeof want === 'string') { preset = await presets.get(want); if (!preset) return res.status(404).json({ error: 'No such preset' }); }
     else if (want !== false && style === null) preset = await presets.pick();
-    if (preset) style = cleanStyle(preset.style) || style;
+    if (preset) style = cleanStyle(preset.style, { fabric: true }) || style;
   }
   const roomKey = crypto.randomBytes(24).toString('base64url');
   const extra = demo ? demo.newRoomFields() : preset ? { preset: presets.forRoom(preset) } : null;
@@ -319,7 +328,8 @@ app.post('/api/rooms', rateLimit(10), wrap(async (req, res) => {
 app.put('/api/rooms/:room/style', rateLimit(30), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id) return;
-  const style = cleanStyle(req.body && req.body.style);
+  const ent = await entOf(req);
+  const style = cleanStyle(req.body && req.body.style, { fabric: !!ent.fabrics });
   if (!style) return res.status(400).json({ error: 'Unknown room look' });
   const admin = isAdmin(req), key = String(req.get('x-room-key') || '');
   let locked = false;

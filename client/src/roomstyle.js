@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { S } from './strings.js';
 import CATALOG from '../../shared/styles.json';
+import { cleanFabric, acquireFabric, releaseFabric, makeFabricable, setFabric, tickFabric } from './fabrics.js';
 
 export { CATALOG };
 export const DEFAULT_STYLE = { ...CATALOG.default };
@@ -23,7 +24,22 @@ export function normalizeStyle(s) {
   };
   if (CATALOG.walls[out.wall].colored) out.wallColor = CATALOG.wallColors[st.wallColor] ? st.wallColor : 'vit';
   if (typeof st.seed === 'string' && /^[a-z0-9]{1,12}$/.test(st.seed)) out.seed = st.seed;
+  const f = cleanRoomFabric(st.fabric); if (f) out.fabric = f;
   return out;
+}
+// "Färg" (Jens, 29 Oct 2026, point 11): the room's own image over the floor, the walls AND the ceiling,
+// with every fabric control the avatar has (scale, rotation, hue, cycle hue, spin, scroll) and the
+// colour under transparent parts (base). style.fabric = { id, scale, rot, hue, cycleHue, hueHz, spin,
+// spinHz, scroll, base }. Full version (entitlements.full.fabrics, like the avatar's fabrics; the
+// server drops it for the free version). One tile = scale × ROOM_TILE_M on every surface.
+export const ROOM_TILE_M = 1;
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+export function cleanRoomFabric(f) {
+  const c = f && typeof f === 'object' ? cleanFabric(f) : null;
+  if (!c) return null;
+  c.photo = false;
+  c.base = typeof f.base === 'string' && HEX_RE.test(f.base) ? f.base.toLowerCase() : '#ffffff';
+  return c;
 }
 
 // ---------- Slump-kod -> stil (samma kod ger alltid samma rum) ----------
@@ -48,6 +64,7 @@ export function styleFromSeed(seed) {
 export function styleName(s) {
   s = normalizeStyle(s);
   const w = CATALOG.walls[s.wall];
+  if (s.fabric) return S.styleNameFarg;
   return S.styleName(CATALOG.floors[s.floor].name, w.name, s.wallColor ? CATALOG.wallColors[s.wallColor].name : '');
 }
 
@@ -116,12 +133,46 @@ function texture(spec, color) {
   return cache.get(key);
 }
 
+// Färg: the room's fabric texture (one at a time, ref-counted in fabrics.js's cache).
+let roomFab = { id: null, tex: null };
+async function roomFabricTexture(id) {
+  if (roomFab.id === id) return roomFab.tex;
+  const old = roomFab.id;
+  roomFab = { id, tex: null };
+  if (old) releaseFabric(old);
+  if (!id) return null;
+  const tex = await (acquireFabric(id) || Promise.resolve(null));
+  if (roomFab.id === id) roomFab.tex = tex;
+  return tex;
+}
+// Every frame: the room's Färg spins / cycles / scrolls on the wall clock, like the avatars' fabrics.
+export function tickRoomFabric(surfaces, tMs = Date.now()) {
+  if (!roomFab.id) return;
+  for (const m of surfaces) if (m.material?.userData?.fab?.f) tickFabric(m.material, tMs);
+}
+export const roomFabricInfo = (surfaces) => ({ id: roomFab.id, loaded: !!roomFab.tex,
+  on: surfaces.filter((m) => m.material?.userData?.fab?.f).map((m) => m.name), colors: surfaces.map((m) => '#' + m.material.color.getHexString()) });
+
 // Lägg en stil på rummets ytor. Returnerar ett löfte som blir klart när texturerna laddats.
 let applyVersion = 0;
 export async function applyStyle(surfaces, style) {
   const s = normalizeStyle(style);
   const v = ++applyVersion;
   const color = s.wallColor ? CATALOG.wallColors[s.wallColor].hex : null;
+  for (const mesh of surfaces) if (!mesh.material.userData.fab) makeFabricable(mesh.material, { unit: 0.25 / ROOM_TILE_M }); // fabric space: 25 cm × scale = 1 m × scale
+  if (s.fabric) {
+    const tex = await roomFabricTexture(s.fabric.id);
+    if (v !== applyVersion) return s;
+    for (const mesh of surfaces) {
+      const mat = mesh.material;
+      if (mat.map) { mat.map.dispose(); mat.map = null; }
+      mat.color.set(s.fabric.base); mat.roughness = 0.9;
+      setFabric(mat, tex, tex ? s.fabric : null); // no texture (failed / too many): just the colour under it
+      mat.needsUpdate = true;
+    }
+    return s;
+  }
+  roomFabricTexture(null);
   const jobs = surfaces.map(async (mesh) => {
     const kind = mesh.name === 'golv' ? 'floor' : mesh.name === 'tak' ? 'ceiling' : 'wall';
     const spec = kind === 'floor' ? CATALOG.floors[s.floor] : kind === 'ceiling' ? CATALOG.ceilings[s.ceiling] : CATALOG.walls[s.wall];
@@ -132,6 +183,7 @@ export async function applyStyle(surfaces, style) {
     t.repeat.set(width / spec.scale, height / spec.scale);
     t.needsUpdate = true;
     const mat = mesh.material;
+    setFabric(mat, null, null); mat.color.set(0xffffff);
     if (mat.map && mat.map !== t) mat.map.dispose();
     mat.map = t;
     mat.roughness = spec.roughness ?? 0.95;

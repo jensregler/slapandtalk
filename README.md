@@ -612,6 +612,11 @@ gratisklibbor till 1 m), **färdiga videor och 📷-bilder utan kanallogga och l
 biblioteket – en ny uppladdning ersätter den gamla med en kort toast, äldre sparade uppladdningar ligger
 kvar på enheten men bara den nyaste visas; `shared/uploads.mjs`, regeln gäller i webbläsaren eftersom
 uppladdningarna bor på enheten och det inte finns konton).
+**Färg i rummet** (under `fabrics`: i rumsutseendet – ＋ New quick room / Change look – raden
+"Färg": en egen bild över golv, väggar OCH tak, med tygets reglage: skala, rotation, nyans, cykla nyans,
+snurra, rulla, färgen under genomskinliga delar och 🌀 Randomize; sparas i rummets utseende
+`style.fabric`, så alla i rummet, inspelningar/replay och presets ser den; bilden går via
+POST /api/fabrics; servern stryker den för gratisversionen; `client/src/fargui.js`, `roomstyle.js`) och
 **sin egen gubbe i preset-rum** (`ownAvatar`; gratis: i ett rum som fått en preset är man en slumpad
 figur för just det rummet – kläder, hår, färger, hud/ansikte, namnet behålls – samma varje gång för samma
 person i samma rum (frö = rum + enhets-id, `shared/randomlook.mjs`), och det är den de andra och

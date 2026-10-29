@@ -37,6 +37,11 @@ export const EN = {
   styleCreateTitle: 'New quick room', styleEditTitle: 'Change room look',
   styleCreateOk: 'Create room', styleEditOk: 'Save',
   styleHint: 'Pick a floor and walls. The room behind changes right away. All walls look the same.',
+  // Färg (point 11): the room's own image over floor, walls and ceiling. The label is 'Färg' as Jens asked.
+  farg: 'Färg', fargHint: 'Your own image over the floor, the walls and the ceiling – pick one:',
+  fargOnHint: 'Your image is on the floor, the walls and the ceiling. Another one:',
+  fargNone: 'None', fargNoneTitle: 'No image: the floor, walls and ceiling above', fargUploadTitle: 'Use a picture from your device on every surface (it gets repeated)',
+  fargRandomize: '🌀 Randomize', fargRandomizeTitle: 'Wild values for the room image', styleNameFarg: 'Färg: your own image on every surface',
   floor: 'Floor', walls: 'Walls', wallColor: 'Wall colour', ceiling: 'Ceiling', code: 'Code', codePlaceholder: 'custom',
   random: '🎲 Random', randomTitle: 'Roll a random room', cancel: 'Cancel', save: 'Save',
   styleName: (floor, wall, color) => `${floor} floor · ${wall}${color ? ` ${color.toLowerCase()}` : ''} walls`,

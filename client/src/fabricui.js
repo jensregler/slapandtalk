@@ -20,27 +20,29 @@ const SLIDERS = [['scale', () => S.fabScale, null], ['rot', () => S.fabRotation,
   ['hueHz', () => S.fabCycleHue, 'cycleHue'], ['spinHz', () => S.fabSpin, 'spin'], ['scroll', () => S.fabScroll, null]];
 const fmt = (k, v) => { const p = FABRIC.params[k]; return p.unit === '×' ? `${v.toFixed(2)}×` : p.unit === '°' ? `${Math.round(v)}°` : p.unit === 'Hz' ? `${v.toFixed(2)} Hz` : `${v.toFixed(2)}/s`; };
 
+// (also used by the room's Färg, fargui.js)
+// Hämta (eller ladda upp) ett tyg-id för en källa: förinställt mönster, egen klibba eller fil.
+export async function idForPreset(key) {
+  const map = readJson(PRESET_KEY, {});
+  if (ID_RE.test(map[key] || '')) return map[key];
+  const img = await uploadFabric(await presetBlob(key));
+  writeJson(PRESET_KEY, { ...readJson(PRESET_KEY, {}), [key]: img.id }); return img.id;
+}
+export async function idForSticker(st) {
+  const map = readJson(FROM_STICKER_KEY, {});
+  if (ID_RE.test(map[st.id] || '')) return map[st.id];
+  const blob = (await getBlob(st)) || (await fetch(st.url).then((r) => (r.ok ? r.blob() : null)));
+  if (!blob) throw new Error('image not found');
+  const img = await uploadFabric(await prepareFabricImage(blob));
+  writeJson(FROM_STICKER_KEY, { ...readJson(FROM_STICKER_KEY, {}), [st.id]: img.id }); return img.id;
+}
+export async function idForFile(file) { return (await uploadFabric(await prepareFabricImage(file))).id; }
+
 export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
   const modes = {};   // plats -> 'color' | 'fabric' (fabric utan bild än = väntar på val)
   const params = {};  // plats -> senaste värdena, så de finns kvar om man byter bild
   let busy = 0;
 
-  // Hämta (eller ladda upp) ett tyg-id för en källa: förinställt mönster, egen klibba eller fil.
-  async function idForPreset(key) {
-    const map = readJson(PRESET_KEY, {});
-    if (ID_RE.test(map[key] || '')) return map[key];
-    const img = await uploadFabric(await presetBlob(key));
-    writeJson(PRESET_KEY, { ...readJson(PRESET_KEY, {}), [key]: img.id }); return img.id;
-  }
-  async function idForSticker(st) {
-    const map = readJson(FROM_STICKER_KEY, {});
-    if (ID_RE.test(map[st.id] || '')) return map[st.id];
-    const blob = (await getBlob(st)) || (await fetch(st.url).then((r) => (r.ok ? r.blob() : null)));
-    if (!blob) throw new Error('image not found');
-    const img = await uploadFabric(await prepareFabricImage(blob));
-    writeJson(FROM_STICKER_KEY, { ...readJson(FROM_STICKER_KEY, {}), [st.id]: img.id }); return img.id;
-  }
-  async function idForFile(file) { return (await uploadFabric(await prepareFabricImage(file))).id; }
 
   function setSlot(slot, f) {
     const d = getDraft(), fabric = { ...(d.fabric || {}) };
