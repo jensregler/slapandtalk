@@ -179,7 +179,13 @@ inga 👤/↩/👁-knappar. Styrspaken = gå, **titta** = dra med ett eller två
   och hjulet startar om dem, så den tonar bara bort när den lämnats helt orörd i 2 s (aldrig medan ett
   finger siktar eller nyper). Bortonad = tom hand: ett finger tittar runt (tryck på en klibba visar vem
   som gjorde den). **Ett tryck på skärmen tar tillbaka den** (nya 2 s) – det trycket klibbar aldrig.
-  Varje ny klibba startar om de 2 s. Datorn har ingen sådan timer (Look mode med G, som förut).
+  Varje ny klibba startar om de 2 s. Om ett fingers pointerup tappas (iOS) räknas skärmen som tom när
+  sista fingret lyfts, så klibban fastnar aldrig skarp.
+- **Datorn har samma timer sedan 29 okt 2026** (Jens: "klibborna ska fejda efter ett par sekunder", i Slap
+  mode och Nature mode): förhandsklibban vid siktet är skarp tills den satts första gången, sedan 2 s efter
+  varje klibb och tonar bort på 1 s. All input (musrörelse, tangent, scrollhjul, hållen knapp) startar om
+  de 2 s, och en musrörelse tar även tillbaka en bortonad klibba. Ett klick medan den är bortonad klibbar
+  ändå (siktet visar var; ett "uppätet" klick kändes trasigt på datorn) och tar tillbaka den. Look mode (G) finns kvar som förut.
 - 💬- och 🎙-bubblorna uppe till höger syns bara när de behövs (olästa meddelanden, mikrofonen på).
 Koden: `client/src/stackmenu.js` (+ CSS under *Touch layout* i `style.css`). Datorlayouten är oförändrad.
 Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en app.

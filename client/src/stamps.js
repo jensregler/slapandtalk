@@ -591,6 +591,12 @@ export class StampPreview {
     }
   }
   hide() { this.mesh.visible = false; this.shadow.visible = false; }
+  // The held sticker's fade (0–1; desktop: the held timer, shared/heldtimer.mjs): sticker and shadow together.
+  setFade(f) {
+    f = Math.max(0, Math.min(1, f));
+    if (f === this.fade) return;
+    this.fade = f; this.mat.opacity = HELD_OPACITY * f; this.shadowMat.opacity = HELD_SHADOW.opacity * f;
+  }
   // for the tests
   shadowState() {
     const c = (m) => { if (!this.faces) return m.position.clone(); m.geometry.computeBoundingBox(); return m.geometry.boundingBox.getCenter(new THREE.Vector3()); };

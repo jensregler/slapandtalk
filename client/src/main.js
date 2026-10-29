@@ -39,6 +39,7 @@ import { ArrayGhosts } from './arraydrag.js';
 import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
 import { initStackMenu } from './stackmenu.js';
+import { createHeldTimer } from '../../shared/heldtimer.mjs';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -93,6 +94,20 @@ function nope() {
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
 }
 const preview = new StampPreview(scene, stamps.faces);
+// The held sticker fades on the desktop too (Jens, 29 Oct 2026: "klibborna ska fejda efter ett par
+// sekunder", Slap mode and Nature mode alike) – the same timer as on touch (shared/heldtimer.mjs):
+// a newly chosen sticker stays sharp until it is placed; after each placement ("per tag") it stays
+// sharp for HELD_VISIBLE_MS (2 s) untouched, then fades out over HELD_FADE_MS (1 s). Any input
+// (moving the mouse, a key, the scroll wheel, holding the button) restarts the 2 s – and, unlike on
+// touch, also brings a faded one back (a mouse that moves is someone aiming). Unlike a tap on touch, a
+// click while it is faded still slaps (the crosshair shows where; a swallowed click on the desktop
+// felt broken) – the fade is the idle look, not a lock.
+const deskHeld = isTouch ? null : createHeldTimer();
+function deskActive() {
+  if (!deskHeld) return;
+  const t = performance.now();
+  if (deskHeld.state === 'timed' && !deskHeld.canSlap(t)) deskHeld.wake(t); else deskHeld.keepAlive(t);
+}
 const cams = new CameraLayer(scene); // virtuella kameror (för inspelning)
 const viewCam = new THREE.PerspectiveCamera(60, 1, 0.05, 100); // "Titta genom kamera"
 const raycaster = new THREE.Raycaster();
@@ -327,6 +342,7 @@ async function select(img) {
   state.selected = img || null; renderTray(); renderDesignHud();
   if (changed) applySizeLimit(); // nature stickers have their own size limits (shared/nature.mjs)
   if (img && changed) startSize(img);
+  if (img && changed) deskHeld?.choose(performance.now()); // desktop: a newly chosen sticker is sharp until placed
   if (!img) { preview.setTexture(null); return; }
   try {
     const tex = await stamps.texture(img);
@@ -1400,6 +1416,7 @@ if (!isTouch) {
     if (together.chatOpen()) { together.closeChat(); if (!controls.locked) controls.lock(); return; } // klick = stäng chatten, stämpla inte
     if (!controls.locked && lockBroken && !placingCam && state.mode === 'slap') {
       // No pointer lock in this browser: a click still slaps – one sticker where you clicked (no arrays).
+      if (state.selected && hitSurface(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1))) deskHeld.placed(performance.now());
       action(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
       return;
     }
@@ -1408,6 +1425,7 @@ if (!isTouch) {
     else if (state.mode === 'view') clickCredit(); // Look mode: click a sticker = who made it? (never slaps)
     else {
       // Hold the button and look/drag away: the sticker repeats toward the crosshair (sticker arrays).
+      if (state.selected && hitSurface(CENTER)) deskHeld.placed(performance.now()); // each placement restarts its 2 s (and brings a faded one back)
       mouseHeld = true;
       action(CENTER, { onStart: (a) => { if (mouseHeld && controls.locked && state.mode === 'slap') startArray(a); } });
     }
@@ -1419,6 +1437,10 @@ if (!isTouch) {
   // Right-click while dragging: cancel the copies (the first sticker stays).
   canvas.addEventListener('mousedown', (e) => { if (e.button === 2 && arrayDrag) { e.preventDefault(); cancelArray(); } });
   canvas.addEventListener('contextmenu', (e) => { if (arrayDrag || controls.locked) e.preventDefault(); });
+  // any input = working with the held sticker (deskHeld): its 2 s start again / a faded one comes back
+  addEventListener('mousemove', (e) => { if (e.movementX || e.movementY) deskActive(); }, true);
+  addEventListener('keydown', () => deskActive(), true);
+  addEventListener('wheel', () => deskActive(), { capture: true, passive: true });
   addEventListener('wheel', (e) => { if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
   addEventListener('keydown', (e) => {
     if (isTyping(e)) return; // inte medan man skriver
@@ -1465,6 +1487,10 @@ if (!isTouch) {
   addEventListener('pointerdown', (e) => { touchAlive(e); if (e.pointerType !== 'mouse') touchesDown.add(e.pointerId); }, true);
   addEventListener('pointermove', touchAlive, true);
   for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, (e) => { touchAlive(e); touchesDown.delete(e.pointerId); }, true);
+  // Safety (Jens, 29 Oct 2026: "they don't fade"): a finger whose pointerup never arrived (iOS can drop
+  // it, e.g. after a system gesture) kept touchesDown non-empty and the held sticker sharp for good.
+  // When the last real finger leaves the screen, nothing is down any more.
+  for (const ev of ['touchend', 'touchcancel']) addEventListener(ev, (e) => { if (!e.touches || e.touches.length === 0) touchesDown.clear(); }, true);
   // ---- Pinch / twist: the fingers on the room or on the held sticker (window, capture phase) ----
   const canPinch = () => !!(stackMenu && state.selected && state.mode === 'slap' && !camView && !placingCam
     && !stackMenu.isOpen() && !stackMenu.bookOpen() && !sp.open && !together.busy() && stackMenu.held.opacity(performance.now()) > 0);
@@ -2380,7 +2406,9 @@ function frame() {
   together.selfHold(rowEnd ? rowEnd.position : null, rowEnd ? (rowEnd.normal || arrayDrag.a.normal.toArray()) : null);
   if (dragging) { preview.hide(); heldNow = { row: arrayDrag }; } // dragging a row: the ghosts are the preview
   else if (arrayRec) { preview.hide(); heldNow = { msg: arrayRec.msg }; } // released: until the server has the copies
-  else if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap') {
+  else if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap' && deskHeld && deskHeld.opacity(performance.now()) > 0) {
+    if (mouseHeld) deskHeld.keepAlive(performance.now()); // the button held (arrays): no fade meanwhile
+    preview.setFade(deskHeld.opacity(performance.now())); // the desktop fade (2 s untouched → 1 s out)
     const h = hitSurface(CENTER);
     if (h) {
       const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100));
@@ -2390,6 +2418,7 @@ function frame() {
     } else preview.hide();
   } else if (isTouch && touchAim && state.selected && !camView) {
     // Touch, a finger aiming: the sticker on the wall where the finger points (the touch's ray).
+    preview.setFade(1);
     const h = hitSurface(new THREE.Vector2((touchAim.x / innerWidth) * 2 - 1, -(touchAim.y / innerHeight) * 2 + 1));
     touchAim.hit = h ? h.point.toArray() : null; // (tests: where the preview is)
     if (h) {
@@ -2405,6 +2434,7 @@ function frame() {
     const h = hitSurface(CENTER);
     if (h) { const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100)); heldNow = { h, q: StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh }; }
   }
+  else if (deskHeld) preview.hide(); // desktop: faded (or nothing to aim) – no held sticker on the wall
   if (isTouch && touchesDown.size) stackMenu?.held.keepAlive(performance.now()); // a finger on the screen (aiming, pinching, holding still): no fade meanwhile
   recordHeld(heldNow);
   if (cv) renderFramed(renderer, scene, viewCam, cv.aspect || '');
@@ -2480,7 +2510,7 @@ window.klibb = {
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   wheelUp, touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
-  held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
+  held: () => stackMenu?.info() ?? null, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3) }, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && getComputedStyle($('design-strip')).visibility !== 'hidden', n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON() }),
   wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,
   natureStrip: () => ({ shown: !$('nature-strip').hidden && $('nature-strip').getClientRects().length > 0, locked: $('nature-strip').classList.contains('locked'), n: $('nature-row').children.length, sel: $('nature-row').querySelector('.sel')?.dataset.id ?? null, num: $('nature-num').textContent, rect: $('nature-strip').getBoundingClientRect().toJSON() }),
