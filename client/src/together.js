@@ -8,6 +8,7 @@ import { initFabricUI, addRecent } from './fabricui.js';
 import { fabricStats } from './fabrics.js';
 import { has, credentials } from './entitlements.js';
 import { loadSoundLook } from './soundui.js';
+import { SHOW, showTurn } from './avatarview.js';
 
 const SEND_HZ = 12;
 const CHAT_FADE_MS = 15_000;
@@ -147,7 +148,9 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   });
 
   // ---------- Min gubbe ----------
-  const av = { open: false, draft: null, renderer: null, scene: null, cam: null, avatar: null, raf: 0, spin: 0.35, drag: null };
+  // The panel shows the draft on my own avatar in the room (main.js zooms the room camera in on it; avatarview.js).
+  // faceYaw = the direction of the camera (set by main.js), dragged = what I spun it, phase = the slow sway.
+  const av = { open: false, draft: null, faceYaw: null, dragged: 0, phase: 0, dragging: false };
   function chips(el, items, sel, pick) {
     el.innerHTML = '';
     for (const [id, spec] of Object.entries(items)) {
@@ -167,7 +170,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     $, toast, getDraft: () => av.draft,
     setDraft(patch, { rerender = true } = {}) {
       av.draft = normalizeLook({ ...av.draft, ...patch });
-      if (rerender) renderAvatarPanel(); else av.avatar?.setLook(av.draft);
+      if (rerender) renderAvatarPanel(); else self.avatar?.setLook(av.draft);
     },
   });
   function renderAvatarPanel() {
@@ -181,51 +184,26 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     colors($('av-hatcolor'), AVATAR.colors.hat, d.hatColor, (c) => set({ hatColor: c }));
     $('av-hat').checked = d.hat; $('av-hat-row').hidden = !d.hat;
     fab.render();
-    av.avatar?.setLook(d);
+    self.avatar?.setLook(d); // live on my avatar in the room
   }
   $('av-hat').onchange = (e) => { av.draft = normalizeLook({ ...av.draft, hat: e.target.checked }); renderAvatarPanel(); };
-  async function startPreview() {
-    const c = $('avatar-preview');
-    if (!av.renderer) {
-      av.renderer = new THREE.WebGLRenderer({ canvas: c, antialias: true, alpha: true });
-      av.renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); av.renderer.outputColorSpace = THREE.SRGBColorSpace;
-      av.scene = new THREE.Scene();
-      av.scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 2.2));
-      const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(1.5, 3, 2.5); av.scene.add(sun);
-      av.cam = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
-      c.addEventListener('pointerdown', (e) => { av.drag = e.clientX; c.setPointerCapture(e.pointerId); });
-      c.addEventListener('pointermove', (e) => { if (av.drag !== null) { av.spin += (e.clientX - av.drag) * 0.012; av.drag = e.clientX; } });
-      c.addEventListener('pointerup', () => { av.drag = null; });
-    }
-    try {
-      const model = await loadAvatarModel();
-      if (!av.avatar) { av.avatar = new Avatar(model, av.draft, ''); av.scene.add(av.avatar.root); }
-      av.avatar.setLook(av.draft);
-    } catch { toast(S.avatarLoadFailed); }
-    const clock = new THREE.Clock();
-    const loop = () => {
-      if (!av.open) return;
-      const dt = Math.min(clock.getDelta(), 0.1);
-      const w = c.clientWidth, h = c.clientHeight;
-      if (c.width !== Math.round(w * av.renderer.getPixelRatio())) { av.renderer.setSize(w, h, false); av.cam.aspect = w / h; av.cam.updateProjectionMatrix(); }
-      av.cam.position.set(0, 1.0, 3.7); av.cam.lookAt(0, 0.86, 0);
-      if (av.drag === null) av.spin += dt * 0.35;
-      if (av.avatar) { av.avatar.root.rotation.y = av.spin; av.avatar.update(dt, 0); }
-      fab.tick();
-      av.renderer.render(av.scene, av.cam);
-      av.raf = requestAnimationFrame(loop);
-    };
-    cancelAnimationFrame(av.raf); loop();
-  }
   function openAvatarPanel() {
     av.open = true; av.draft = normalizeLook(shownLook()); fab.reset(av.draft);
     $('av-name').value = me.name || cleanName(artist());
     $('avatar-panel').hidden = false;
     if (isTouch) { $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false'); }
     controls.unlock?.();
-    renderAvatarPanel(); startPreview(); onBusyChange();
+    av.faceYaw = null; av.dragged = 0; av.phase = 0; av.dragging = false;
+    document.body.classList.add('avatar-view'); // everything but the room and the panel steps aside (style.css)
+    buildSelf().catch(() => toast(S.avatarLoadFailed));
+    renderAvatarPanel(); onBusyChange();
   }
-  function closeAvatarPanel() { av.open = false; cancelAnimationFrame(av.raf); av.avatar?.setLook(shownLook()); /* släpp tyger man bara provade */ $('avatar-panel').hidden = true; onBusyChange(); }
+  function closeAvatarPanel() {
+    av.open = false; av.dragging = false; document.body.classList.remove('avatar-view');
+    self.avatar?.setLook(shownLook()); /* släpp tyger man bara provade */
+    if (self.avatar) self.avatar.root.visible = self.want;
+    $('avatar-panel').hidden = true; onBusyChange();
+  }
   $('my-avatar').onclick = () => openAvatarPanel();
   $('av-cancel').onclick = () => closeAvatarPanel();
   // 🎲 Random = färger och kläder som förut (inga tyger). 🌀 Randomize = galna tyger på det mesta.
@@ -258,16 +236,23 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   // ---------- Min egen gubbe (bara i tredjepersonsvy, se main.js) ----------
   // Ingen namnskylt: det är ju jag. Byggs först när den behövs.
   const self = { avatar: null, want: false, last: null, speed: 0 };
+  let building = null;
+  function buildSelf() {
+    if (self.avatar) return Promise.resolve(self.avatar);
+    building = building || loadAvatarModel().then((m) => {
+      if (!self.avatar) {
+        self.avatar = new Avatar(m, av.open ? av.draft : shownLook(), ''); self.avatar.root.name = 'min-gubbe';
+        self.avatar.root.visible = self.want || av.open;
+        scene.add(self.avatar.root);
+      }
+      return self.avatar;
+    }).finally(() => { building = null; });
+    return building;
+  }
   function showSelf(on) {
     self.want = !!on;
-    if (self.want && !self.avatar) {
-      loadAvatarModel().then((m) => {
-        if (self.avatar) return;
-        self.avatar = new Avatar(m, shownLook(), ''); self.avatar.root.name = 'min-gubbe'; self.avatar.root.visible = self.want;
-        scene.add(self.avatar.root);
-      }).catch(() => {});
-    }
-    if (self.avatar) self.avatar.root.visible = self.want;
+    if (self.want && !self.avatar) buildSelf().catch(() => {});
+    if (self.avatar) self.avatar.root.visible = self.want || av.open;
   }
   // Varje bildruta: gubben står där jag står (under ögonen) och tittar åt samma håll.
   function updateSelf(dt, { hide = false } = {}) {
@@ -275,7 +260,14 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     const p = new THREE.Vector3(camera.position.x, 0, camera.position.z);
     const v = self.last && dt > 0 ? self.last.distanceTo(p) / dt : 0; self.last = p;
     self.speed += (v - self.speed) * Math.min(1, dt * 10);
-    a.root.position.copy(p); a.root.rotation.y = controls.yaw + Math.PI;
+    a.root.position.copy(p);
+    if (av.open) { // 'My avatar' open: it stands still facing the camera, sways slowly, drag spins it
+      if (!av.dragging) av.phase += dt * SHOW.swaySpeed;
+      a.root.rotation.y = showTurn(av.faceYaw ?? controls.yaw, av.dragged, av.phase);
+      a.root.visible = true; a.update(dt, 0); fab.tick();
+      return;
+    }
+    a.root.rotation.y = controls.yaw + Math.PI;
     a.root.visible = self.want && !hide;
     if (self.want) a.update(dt, self.speed);
   }
@@ -318,7 +310,14 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0, fabrics: self.avatar ? self.avatar.fabricInfo() : {},
       gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null }),
     busy: () => av.open,
-    fabricStats, previewFabrics: () => (av.avatar ? av.avatar.fabricInfo() : {}),
+    // 'My avatar' open: main.js tells which way its camera looks from (faceYaw), and passes on drags (px).
+    avatarView: () => (av.open ? { faceYaw: av.faceYaw, dragged: av.dragged, phase: av.phase, turn: self.avatar ? self.avatar.root.rotation.y : null,
+      built: !!self.avatar, visible: !!self.avatar?.root.visible, pos: self.avatar?.root.position.toArray() || null,
+      look: self.avatar ? { ...self.avatar.look } : null, draft: { ...av.draft } } : null),
+    setAvatarFace(a) { av.faceYaw = a; },
+    spinAvatar(dxPx) { if (av.open) av.dragged += dxPx * SHOW.dragK; },
+    avatarDrag(on) { av.dragging = !!on && av.open; },
+    fabricStats, previewFabrics: () => (self.avatar ? self.avatar.fabricInfo() : {}),
     chatOpen, openChat, closeChat, openAvatarPanel, closeAvatarPanel,
     sys,
     me: () => ({ name: myName(), shownAs: serverName, look: { ...me.look } }),

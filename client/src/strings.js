@@ -189,7 +189,7 @@ export const EN = {
   fullNoSlap: 'The room is full – you can slap as soon as someone leaves.',
   avatarLoadFailed: 'Could not load the avatar right now.',
   avatarSaved: 'Your avatar is saved. Others see it right away.',
-  avatarHeading: 'My avatar', avatarPreview: 'Preview of your avatar',
+  avatarHeading: 'My avatar',
   avatarName: 'Name (shown above your head)', avatarNamePlaceholder: 'e.g. Jens',
   outfit: 'Outfit', hair: 'Hair', shirt: 'Top', pants: 'Trousers', hairColor: 'Hair colour', skin: 'Skin', cap: 'Cap',
   capColour: 'Cap colour',

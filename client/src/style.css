@@ -231,7 +231,10 @@ body.touch #chat-close { display: block; }
 #avatar-panel label { font-size: 13px; }
 #avatar-panel[hidden] { display: none; }
 #avatar-panel h2 { margin: 0; font-size: 17px; }
-#avatar-preview { width: 100%; height: 190px; flex: none; border-radius: 10px; background: radial-gradient(circle at 50% 40%, #3a3a3a, #1a1a1a); display: block; }
+/* 'My avatar' open: the room camera shows my avatar big (avatarview.js); everything else steps aside. */
+body.avatar-view > :not(#scene):not(#avatar-panel):not(#toast):not(script) { visibility: hidden !important; }
+body.avatar-view #scene { cursor: grab; touch-action: none; }
+body.avatar-view #scene:active { cursor: grabbing; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .chips button { padding: 5px 10px; font-size: 13px; border-radius: 14px; }
 .chips button.sel, .swatches.colors button.sel { border-color: #ffd400; }
@@ -268,7 +271,7 @@ body.touch .fab-picks button { width: 38px; height: 38px; }
 body.touch .fab-seg button { padding: 6px 12px; font-size: 13px; }
 body.touch #avatar-panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 70%; border-radius: 14px 14px 0 0;
   padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
-body.touch #avatar-preview { height: 150px; }
+body.touch #avatar-panel { max-height: 58%; } /* the top ~42 % shows my avatar big */
 body.touch #avatar-panel .swatches.colors button { width: 32px; height: 32px; }
 
 /* ---------- Inspelning och kameror ---------- */

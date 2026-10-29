@@ -198,7 +198,7 @@ Välj *Lägg till på hemskärmen* i webbläsarens meny, så öppnas den som en 
 
 Alla som är i samma rum ser varandra. Varje besökare är en liten gubbe med namnskylt ovanför
 huvudet; den går när personen går och står och väger när den står still. Du ser dig själv bara
-inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) finns en förhandsvisning.
+inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) zoomar rummets kamera in på din egen gubbe.
 
 - **Klibbor syns direkt:** när någon stämplar, peelar eller när admin tar bort något ser alla i
   rummet det på en gång, utan att ladda om. Samma sak när rummets utseende ändras.
@@ -211,8 +211,13 @@ inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) finns en 
   Max 300 tecken per meddelande och en spärr mot spam (ungefär ett meddelande varannan sekund).
   Inget filter: det är fritt fram.
 - **🧍 My avatar:** välj namn, kläder (Hoodie, T-shirt, Suit, Vest), frisyr (Short, Fringe,
-  Long, Slicked back, Mohawk), färg på tröja, byxor och hår, hudton och keps. Gubben snurrar i en
-  förhandsvisning medan du väljer (dra för att vrida). **Save** sparar den på den här enheten och
+  Long, Slicked back, Mohawk), färg på tröja, byxor och hår, hudton och keps. Inget litet
+  förhandsfönster: rummets kamera ställer sig framför din egen gubbe och zoomar in så att den fyller
+  skärmen bredvid panelen (till vänster om den på datorn, ovanför på mobilen) – stor och tydlig.
+  Gubben vänder sig långsamt lite fram och tillbaka mot kameran; dra (mus eller ett finger) för att
+  snurra den hela varvet. Allt du väljer (kläder, frisyr, färger, tyger) syns direkt på den. Står du
+  nära en vägg flyttar kameran till en sida med plats (aldrig genom väggen). Resten av HUD:en göms
+  medan panelen är öppen (`client/src/avatarview.js`). **Save**/**Cancel** = vanliga kameran igen. **Save** sparar den på den här enheten och
   de andra ser den direkt. **🎲 Random** ger en slumpad gubbe. Första gången får du en slumpad.
 - **Namn på namnskylten:** det namn du väljer i My avatar syns för alla direkt när du sparar (och
   när du kommer in igen). Har du inget namn där används ditt artistnamn, annars heter du *Guest 1*,

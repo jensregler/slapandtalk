@@ -19,6 +19,7 @@ import { createAutoCrew, liveStickerTargets, AUTO_CHOICES, autoCamsOf, MAX_AUTO_
 import { groupFocus } from '../../shared/personcam.mjs';
 import { S, LOCALE } from './strings.js';
 import { Sounds } from './sound.js';
+import { showPose, freeRect } from './avatarview.js';
 import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView, nextView, frontPose, FRONT } from './chasecam.js';
 import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
 import { PeelLayer } from './peels.js';
@@ -120,6 +121,21 @@ const raycaster = new THREE.Raycaster();
 const tpCam = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
 const chaseCast = surfaceCaster(room.surfaces);
 const chase = { eye: null, dist: null, pose: null };
+// 'My avatar' open (Jens, 29 Oct 2026): the room camera in front of my own avatar, zoomed in so it fills
+// the screen next to the panel (avatarview.js). show.face = the direction picked when the panel opened.
+const showCam = new THREE.PerspectiveCamera(30, 1, 0.05, 100);
+const show = { face: null, pose: null };
+const showCast = (() => { const o = new THREE.Vector3(), d = new THREE.Vector3(); return (a, b) => chaseCast(o.fromArray(a), d.fromArray(b)); })();
+function updateShowcase(avv) {
+  const W = innerWidth, H = innerHeight, rect = freeRect(W, H, $('avatar-panel').getBoundingClientRect());
+  const at = [camera.position.x, camera.position.z];
+  if (show.face === null || avv.faceYaw === null) { show.face = showPose({ at, yaw: controls.yaw, cast: showCast, W, H, rect }).faceYaw; together.setAvatarFace(show.face); }
+  const p = show.pose = showPose({ at, yaw: show.face, cast: showCast, W, H, rect, fixed: true });
+  showCam.fov = p.fov; showCam.aspect = W / H;
+  showCam.setViewOffset(W, H, p.offset[0], p.offset[1], W, H);
+  showCam.position.fromArray(p.position); showCam.up.set(0, 1, 0); showCam.lookAt(p.target[0], p.target[1], p.target[2]);
+  showCam.updateMatrixWorld();
+}
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
@@ -1438,6 +1454,19 @@ controls.onLockChange = (locked) => {
   if (!locked) { preview.hide(); hideCredit(); } // Esc (leaving the room) hides the artist credit
 };
 
+// 'My avatar' open: drag (mouse or one finger) on the room = spin my avatar round.
+{
+  let avDrag = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!together.avatarView() || avDrag) return;
+    avDrag = { id: e.pointerId, x: e.clientX }; together.avatarDrag(true);
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* fine */ }
+  });
+  canvas.addEventListener('pointermove', (e) => { if (avDrag && e.pointerId === avDrag.id) { together.spinAvatar(e.clientX - avDrag.x); avDrag.x = e.clientX; } });
+  const avUp = (e) => { if (avDrag && e.pointerId === avDrag.id) { avDrag = null; together.avatarDrag(false); } };
+  canvas.addEventListener('pointerup', avUp); canvas.addEventListener('pointercancel', avUp);
+}
+
 if (!isTouch) {
   canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
@@ -1589,6 +1618,7 @@ if (!isTouch) {
       stackMenu.held.keepAlive(performance.now()); // aiming = working with it: it does not fade meanwhile
       return;
     }
+    if (together.busy()) { p.x = e.clientX; p.y = e.clientY; return; } // 'My avatar' open: a drag spins the avatar instead
     if (Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 10) p.drag = true;
     // two fingers: each finger's move counts half (= the midpoint's move)
     const k = touches.size >= 2 ? 0.006 / touches.size : 0.006;
@@ -2436,7 +2466,9 @@ function frame() {
   if (cv) poseCamera(viewCam, { p: cv.p, yaw: cv.yaw, pitch: cv.pitch, fov: cv.fov });
   const tp = !cv && view !== 'first';
   if (tp) { if (view === 'front') updateFront(dt); else updateChase(dt); }
-  const eyeCam = cv ? viewCam : tp ? tpCam : camera;
+  const avv = !cv && together.avatarView(); // 'My avatar' open: the camera on my avatar (closing = back to normal)
+  if (avv) updateShowcase(avv); else show.face = null;
+  const eyeCam = avv ? showCam : cv ? viewCam : tp ? tpCam : camera;
   // Looking through a camera (a placed one or an auto cameraman): my own avatar stands where I
   // stand and is filmed too (also in first person, where it is otherwise not built), unless that
   // camera is right at it. Back in my own eyes the first-person view hides it again.
@@ -2492,7 +2524,7 @@ function frame() {
   if (isTouch && touchesDown.size) stackMenu?.held.keepAlive(performance.now()); // a finger on the screen (aiming, pinching, holding still): no fade meanwhile
   recordHeld(heldNow);
   if (cv) renderFramed(renderer, scene, viewCam, cv.aspect || '');
-  else { if (camView) exitCamView(); renderer.render(scene, tp ? tpCam : camera); }
+  else { if (camView) exitCamView(); renderer.render(scene, avv ? showCam : tp ? tpCam : camera); }
   requestAnimationFrame(frame);
 }
 
@@ -2579,7 +2611,7 @@ window.klibb = {
     };
     return { ...st, view, screen: st.visible ? { sticker: px(preview.mesh), shadow: px(preview.shadow) } : null };
   },
-  setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
+  setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, toggleNature, setNatureMode, natureMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, dropsPeel, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };
