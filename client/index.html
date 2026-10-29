@@ -200,15 +200,11 @@
   </button>
   <!-- Touch layout (client/src/stackmenu.js): only the joystick and the sticker stack at first. The held
        sticker floats in its holder (shared/heldtimer.mjs: sharp until the first stamp, then 10 s, then
-       it fades; a tap brings it back), with rotation (left edge) and size (right edge) while it is up.
+       it fades; a tap brings it back); two fingers pinch it bigger/smaller and twist it round while it is up.
        Tapping the stack fans out the menu; the sticker book is a sheet. -->
   <div id="held" aria-hidden="true"><span id="held-sh"><img id="held-img" alt="" /></span></div>
-  <div id="edge-rot" class="edge" role="slider" aria-orientation="vertical" data-t-aria="rotation" aria-valuemin="-180" aria-valuemax="180">
-    <span class="edge-val" id="edge-rot-val">0°</span><div class="edge-track"><div class="edge-fill"></div><div class="edge-thumb"></div></div><span class="edge-name">⟲</span>
-  </div>
-  <div id="edge-size" class="edge" role="slider" aria-orientation="vertical" data-t-aria="size">
-    <span class="edge-val" id="edge-size-val">30 cm</span><div class="edge-track"><div class="edge-fill"></div><div class="edge-thumb"></div></div><span class="edge-name">⤢</span>
-  </div>
+  <!-- Pinch / twist on the held sticker (main.js): the size and turn while two fingers are on it. -->
+  <div id="pinch-hud" aria-live="polite"></div>
   <div id="stack-scrim" hidden></div>
   <nav id="stack-menu" hidden data-t-aria="smAria">
     <button id="sm-book" type="button" class="sm-item" data-ring="2" data-ang="105"><span class="sm-ico">📒</span><span class="sm-lab" data-t="smBook">Stickers</span></button>

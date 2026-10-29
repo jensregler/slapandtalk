@@ -19,7 +19,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PHONE = { ...devices['iPhone 13'], viewport: { width: 390, height: 844 }, permissions: ['microphone'] };
 // what is on the screen (fixed UI), apart from toasts
 const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn', 'view-btn', 'mode-btn', 'mode-hud', 'room-hud', 'chat-btn', 'mic-touch',
-  'held', 'edge-rot', 'edge-size', 'stack-menu', 'sm-book', 'sm-avatar', 'sm-room', 'sm-talk', 'sticker-book', 'more-panel', 'design-hud', 'design-strip'];
+  'held', 'stack-menu', 'sm-book', 'sm-avatar', 'sm-room', 'sm-talk', 'sticker-book', 'more-panel', 'design-hud', 'design-strip'];
 
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
@@ -83,29 +83,16 @@ const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn'
     await P.screenshot({ path: path.join(SHOTS, '03-sticker-book.png') });
     const other = await P.evaluate(() => { const id = window.klibb.state.selected.id; return [...document.querySelectorAll('#tray .thumb')].map((t) => t.dataset.id).find((x) => x !== id); });
     await P.tap(`#tray .thumb[data-id="${other}"] .pick`); await P.waitForTimeout(500);
-    const h2 = await held(), s2 = await shown();
-    check('picking a sticker closes the book and puts it in my hand: sharp, with rotation (left) and size (right) sliders',
-      (await P.evaluate(() => window.klibb.state.selected.id)) === other && !h2.bookOpen && h2.state === 'holding' && h2.heldOpacity === 1 && h2.edges.rot && h2.edges.size, { h2, s2 });
+    const h2 = await held(), s2 = await shown(), hasEdges = await P.evaluate(() => document.querySelectorAll('.edge, #edge-rot, #edge-size').length > 0);
+    check('picking a sticker closes the book and puts it in my hand: sharp (two fingers pinch/twist it: e2e-pinch.js; no edge sliders)',
+      (await P.evaluate(() => window.klibb.state.selected.id)) === other && !h2.bookOpen && h2.state === 'holding' && h2.heldOpacity === 1 && !hasEdges, { h2, s2 });
     // picture 4: the editing view – holder in the middle, the sliders, the three menu buttons lit, nothing else
     const mid = h2.heldRect ? [h2.heldRect.x + h2.heldRect.width / 2, h2.heldRect.y + h2.heldRect.height / 2] : [0, 0];
     const lit = await P.evaluate(() => ['sm-book', 'sm-avatar', 'sm-room'].map((id) => getComputedStyle(document.getElementById(id)).borderTopColor));
-    check('editing view: the sticker sits in its holder in the middle of the screen, sharp; rotation slider left, size slider right; 📒 🧍 🏠 lit at the bottom; no 💬/🎙 (they are on the Talk card)',
+    check('editing view: the sticker sits in its holder in the middle of the screen, sharp; 📒 🧍 🏠 lit at the bottom; no sliders, no 💬/🎙 (they are on the Talk card)',
       h2.editing && Math.abs(mid[0] - vp.width / 2) < 3 && Math.abs(mid[1] - vp.height / 2) < 3 &&
-      s2.join() === 'joystick,design-btn,held,edge-rot,edge-size,stack-menu,sm-book,sm-avatar,sm-room' && lit.every((c) => c === 'rgb(255, 212, 0)'), { mid, s2, lit });
-    // the edge sliders (real touch drags)
-    const cdp0 = await ctx.newCDPSession(P);
-    const drag = async (sel, f0, f1) => { const b = await P.locator(sel).boundingBox(), x = b.x + b.width / 2;
-      await cdp0.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: b.y + b.height * f0 }] });
-      for (let k = 1; k <= 6; k++) await cdp0.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: b.y + b.height * (f0 + ((f1 - f0) * k) / 6) }] });
-      await cdp0.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); };
-    const sz0 = await P.evaluate(() => window.klibb.state.size), c00 = await count();
-    await drag('#edge-size .edge-track', 0.75, 0.2);
-    await drag('#edge-rot .edge-track', 0.5, 0.25);
-    await P.waitForTimeout(200);
-    const after = await P.evaluate(() => ({ size: window.klibb.state.size, rot: window.klibb.state.rotation, sizeLabel: document.getElementById('edge-size-val').textContent, rotLabel: document.getElementById('edge-rot-val').textContent }));
-    check(`size slider (right edge) scales the held sticker (${Math.round(sz0 * 100)} → ${after.sizeLabel}), rotation slider (left edge) turns it (${after.rotLabel})`,
-      after.size > sz0 + 0.05 && after.rot > 30 && after.rot < 150 && (await count()) === c00, after);
-    await quiet(); await P.screenshot({ path: path.join(SHOTS, '04-editing-view-edge-controls.png') });
+      s2.join() === 'joystick,design-btn,held,stack-menu,sm-book,sm-avatar,sm-room' && lit.every((c) => c === 'rgb(255, 212, 0)'), { mid, s2, lit });
+    await quiet(); await P.screenshot({ path: path.join(SHOTS, '04-editing-view.png') });
     // the three buttons work from the editing view
     await P.tap('#sm-book'); await P.waitForTimeout(250);
     const fromEdit = await held(); await P.tap('#book-close'); await P.waitForTimeout(250);
@@ -115,7 +102,7 @@ const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn'
     // ---------- The timer: sharp until the first stamp ----------
     await P.waitForTimeout(11500);
     const h3 = await held();
-    check('held: still sharp 12 s after choosing (indefinitely until the first placement)', h3.state === 'holding' && h3.heldOpacity === 1 && h3.edges.size, h3);
+    check('held: still sharp 12 s after choosing (indefinitely until the first placement)', h3.state === 'holding' && h3.heldOpacity === 1, h3);
     const c1 = await count();
     await P.touchscreen.tap(...wall);
     await P.waitForFunction((n) => window.klibb.stamps.count === n + 1, c1, { timeout: 6000 }).catch(() => {});
@@ -129,8 +116,8 @@ const ON_SCREEN = ['joystick', 'design-btn', 'panel', 'panel-toggle', 'peel-btn'
     const h6 = await held();
     await P.waitForFunction(() => window.klibb.held().age >= 11150, null, { timeout: 5000 }); await P.waitForTimeout(100);
     const h7 = await held(), s7 = await shown();
-    check('after the stamp: sharp for 10 s, then fades over 1 s, then gone (no held sticker, no sliders)',
-      h5.heldOpacity === 1 && h6.heldOpacity > 0.05 && h6.heldOpacity < 0.95 && !h6.canSlap && h7.heldOpacity === 0 && !h7.heldShown && !h7.edges.size && !h7.edges.rot && s7.join() === 'joystick,design-btn',
+    check('after the stamp: sharp for 10 s, then fades over 1 s, then gone (no held sticker)',
+      h5.heldOpacity === 1 && h6.heldOpacity > 0.05 && h6.heldOpacity < 0.95 && !h6.canSlap && h7.heldOpacity === 0 && !h7.heldShown && s7.join() === 'joystick,design-btn',
       { h5: h5.heldOpacity, h6: [h6.age, h6.heldOpacity], h7, s7 });
     await P.screenshot({ path: path.join(SHOTS, '06-held-faded.png') });
     // faded = look mode: a tap only wakes it

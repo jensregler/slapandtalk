@@ -541,7 +541,7 @@ body.placing-cam #crosshair { outline: 2px dashed #ff5a5a; outline-offset: 6px; 
 .auto-step-n { opacity: .65; }
 
 /* ---------- Touch layout (stackmenu.js): the joystick + the sticker stack, nothing else at first ---------- */
-#held, .edge, #stack-menu, #stack-scrim, #sticker-book { display: none; }
+#held, #pinch-hud, #stack-menu, #stack-scrim, #sticker-book { display: none; }
 body.touch #panel, body.touch #panel-toggle, body.touch #peel-btn, body.touch #view-btn, body.touch #mode-btn,
 body.touch #mode-hud, body.touch #room-hud, body.touch #design-btn-num { display: none !important; }
 /* 💬 and 🎙 live on the menu's Talk card; the bubbles only come back while they matter
@@ -579,18 +579,10 @@ body.touch #held img { width: 100%; height: 100%; object-fit: contain; display: 
 body.touch #held-sh { display: block; width: 100%; height: 100%; filter: drop-shadow(0 4px 3px rgba(0,0,0,.4)) drop-shadow(0 1px 1px rgba(0,0,0,.25)); }
 body.touch #held:not(.up) img { animation: none; }
 @keyframes held-hover { 0%, 100% { translate: 0 0; } 50% { translate: 0 -7px; } }
-/* The editing sliders on the edges: rotation left (above the joystick), size right (above the stack) */
-body.touch .edge { display: flex; flex-direction: column; align-items: center; gap: 6px; position: fixed; z-index: 4; width: 52px;
-  height: min(40vh, 320px); opacity: 0; pointer-events: none; touch-action: none; user-select: none; -webkit-user-select: none; }
-body.touch .edge.up { pointer-events: auto; }
-body.touch #edge-rot { left: calc(8px + env(safe-area-inset-left)); bottom: calc(172px + env(safe-area-inset-bottom)); }
-body.touch #edge-size { right: calc(8px + env(safe-area-inset-right)); bottom: calc(126px + env(safe-area-inset-bottom)); }
-.edge-val { font: 700 11.5px/1 system-ui, sans-serif; color: #fff; background: rgba(0,0,0,.55); padding: 3px 6px; border-radius: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.edge-name { font-size: 16px; color: #fff; text-shadow: 0 1px 3px #000; }
-.edge-track { position: relative; flex: 1; width: 8px; border-radius: 4px; background: rgba(255,255,255,.3); box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
-.edge-track::before { content: ''; position: absolute; left: 50%; top: -10px; transform: translateX(-50%); border: 6px solid transparent; border-bottom: 8px solid rgba(255,255,255,.75); border-top: 0; }
-.edge-fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 4px; background: #8fd18f; }
-.edge-thumb { position: absolute; left: 50%; width: 32px; height: 32px; margin: 0 0 -16px -16px; border-radius: 50%; background: #fff; border: 3px solid #5fb85f; box-shadow: 0 2px 6px rgba(0,0,0,.5); }
+/* Pinch / twist (main.js): the held sticker's size and turn, just above it, while two fingers are on it (and a moment after) */
+body.touch.pinching #pinch-hud, body.touch.pinch-after #pinch-hud { display: block; position: fixed; left: 50%; top: calc(50% - 120px);
+  transform: translateX(-50%); z-index: 4; pointer-events: none; font: 700 14px/1 system-ui, sans-serif; color: #fff;
+  background: rgba(0,0,0,.6); padding: 6px 10px; border-radius: 10px; white-space: nowrap; }
 /* The menu: fans out up/left of the stack (two arcs) + the Talk card; a tap outside closes it */
 body.touch.stack-open #stack-scrim { display: block; position: fixed; inset: 0; z-index: 6; background: rgba(0,0,0,.32); }
 body.touch.stack-open #stack-menu { display: block; position: fixed; inset: 0; z-index: 7; pointer-events: none; --sm-half: 29px; }
@@ -608,17 +600,17 @@ body.touch.stack-open #design-btn { z-index: 8; }
 #sm-talk .sm-ico { font-size: 18px; }
 #sm-unread:not(:empty) { position: absolute; top: -6px; right: -6px; background: #e0352b; color: #fff; font-size: 11px; font-weight: 800; border-radius: 9px; padding: 1px 6px; }
 @keyframes sm-pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
-body.touch.stack-open #held, body.touch.stack-open .edge, body.touch.stack-open #joystick { display: none !important; }
+body.touch.stack-open #held, body.touch.stack-open #pinch-hud, body.touch.stack-open #joystick { display: none !important; }
 /* The sticker book: a sheet from below (the palette, ⬆ Upload) */
 body.touch #sticker-book:not([hidden]) { display: flex; flex-direction: column; gap: 9px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; max-height: 70%;
   overflow: auto; background: rgba(20,20,20,.96); border: 1px solid #333; border-radius: 14px 14px 0 0; padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); }
 #book-tray #tray { gap: 10px; }
 #book-tray #tray .pick { width: 64px; height: 64px; }
-body.touch.book-open #joystick, body.touch.book-open #design-btn, body.touch.book-open #held, body.touch.book-open .edge { display: none !important; }
-body.touch.more-open #held, body.touch.more-open .edge, body.touch.more-open #stack-menu, body.touch.more-open #stack-scrim { display: none !important; }
+body.touch.book-open #joystick, body.touch.book-open #design-btn, body.touch.book-open #held, body.touch.book-open #pinch-hud { display: none !important; }
+body.touch.more-open #held, body.touch.more-open #pinch-hud, body.touch.more-open #stack-menu, body.touch.more-open #stack-scrim { display: none !important; }
 body.touch #more-panel #room-box { border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 4px; }
-body.camview #held, body.camview .edge, body.camview #stack-menu, body.camview #stack-scrim, body.camview #sticker-book,
-body.replay #held, body.replay .edge, body.replay #stack-menu, body.replay #stack-scrim, body.replay #sticker-book { display: none !important; }
+body.camview #held, body.camview #pinch-hud, body.camview #stack-menu, body.camview #stack-scrim, body.camview #sticker-book,
+body.replay #held, body.replay #pinch-hud, body.replay #stack-menu, body.replay #stack-scrim, body.replay #sticker-book { display: none !important; }
 body.touch #design-btn.empty > #design-btn-img { visibility: hidden; }
 body.touch #design-btn.empty::after { content: '＋'; position: absolute; inset: 0; display: grid; place-items: center; font-size: 30px; color: #555; z-index: 2; }
 /* the holder: a soft shadow plate the held sticker hovers over */

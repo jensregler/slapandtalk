@@ -321,6 +321,7 @@ addEventListener('storage', (e) => {
 
 // var: select() can run before these lines (the first selection at start).
 var lastNatureId = null, lastStickerId = null; // eslint-disable-line no-var
+var touchPinch = null; // eslint-disable-line no-var -- touch: two fingers scaling/turning the held sticker { d0, a0, size0, rot0 }
 var touchAim = null; // eslint-disable-line no-var -- touch: the finger aiming the held sticker { id, x, y } (see the touch input)
 async function select(img) {
   if (isNat(img) && !natureOpen()) { fullUi?.open(); return; } // the Nature wheel is the full version's
@@ -1445,18 +1446,71 @@ if (!isTouch) {
   // sticker shows on the wall where the finger points (the ray from the touch point, like a stamp
   // held in front of you; the holder in the middle steps aside meanwhile) and follows the finger;
   // letting go stamps it THERE – a tap or a press of any length, with or without dragging. The room
-  // does not turn while aiming. Looking around: TWO fingers dragging (anytime), or one finger when
-  // nothing is in hand (faded / not chosen yet – as before). A second finger cancels the aim (no
-  // stamp). Walking: the joystick (its own element, works alongside an aiming finger).
+  // does not turn while aiming. TWO fingers while a sticker is in hand (Jens, 29 Oct 2026; replaces
+  // the two edge sliders): pinch = scale it (the distance ratio × the size it had), twist = rotate it
+  // (the change of the fingers' angle, clockwise = clockwise), live, through setSize/setRot – the same
+  // limits and state as everywhere (free 15–100 cm, full 5 cm – no max, nature 5–400 cm). A second
+  // finger cancels the aim (no stamp); after a pinch nothing is stamped or looked until both fingers
+  // are up. Looking around: one finger (or two) when nothing is in hand (faded / not chosen yet – as
+  // before). Walking: the joystick (its own element, works alongside an aiming finger).
   const touches = new Map();
   const ndcOf = (x, y) => new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
   const canAim = () => !!(stackMenu && state.selected && state.mode === 'slap' && !camView && !placingCam && !state.adminToken
     && !stackMenu.isOpen() && !stackMenu.bookOpen() && !sp.open && !together.busy() && stackMenu.held.canSlap(performance.now()));
   const endAim = () => { touchAim = null; document.body.classList.remove('aiming'); preview.hide(); };
+  // ---- Pinch / twist: the fingers on the room or on the held sticker (window, capture phase) ----
+  const canPinch = () => !!(stackMenu && state.selected && state.mode === 'slap' && !camView && !placingCam
+    && !stackMenu.isOpen() && !stackMenu.bookOpen() && !sp.open && !together.busy() && stackMenu.held.opacity(performance.now()) > 0);
+  const fingers = new Map(); // pointerId -> { x, y } of touches on the room / the held sticker
+  const spent = new Set();   // fingers of a pinch: they do nothing else until they are lifted
+  const pinchMetrics = () => { const [a, b] = [...fingers.values()]; return { d: Math.hypot(b.x - a.x, b.y - a.y), ang: Math.atan2(b.y - a.y, b.x - a.x) }; };
+  let pinchAfterT = 0;
+  const pinchHud = () => {
+    const hud = $('pinch-hud'), r = $('held').getBoundingClientRect();
+    hud.textContent = `${(Math.round(state.size * 200) / 2).toLocaleString(LOCALE)} cm · ${state.rotation}°`;
+    if (r.height) hud.style.top = `${Math.max(8, r.top - 40)}px`;
+  };
+  const endPinch = () => {
+    if (!touchPinch) return;
+    touchPinch = null; document.body.classList.remove('pinching'); document.body.classList.add('pinch-after');
+    clearTimeout(pinchAfterT); pinchAfterT = setTimeout(() => document.body.classList.remove('pinch-after'), 1200);
+  };
+  const onPinchTarget = (e) => e.pointerType !== 'mouse' && (e.target === canvas || !!e.target.closest?.('#held'));
+  addEventListener('pointerdown', (e) => {
+    if (!onPinchTarget(e)) return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (fingers.size === 2 && !touchPinch && canPinch()) {
+      if (touchAim) endAim();       // the aim is cancelled: no stamp
+      stackMenu.cancelRelease();    // a finger on the held sticker does not release it either
+      for (const id of fingers.keys()) spent.add(id);
+      const m = pinchMetrics();
+      touchPinch = { d0: Math.max(m.d, 1), a0: m.ang, size0: state.size * 100, rot0: state.rotation };
+      document.body.classList.remove('pinch-after'); document.body.classList.add('pinching'); pinchHud();
+      stackMenu.held.keepAlive(performance.now());
+    } else if (touchPinch) spent.add(e.pointerId); // a third finger: ignored
+  }, true);
+  addEventListener('pointermove', (e) => {
+    const f = fingers.get(e.pointerId); if (!f) return;
+    f.x = e.clientX; f.y = e.clientY;
+    if (!touchPinch || fingers.size < 2) return;
+    const m = pinchMetrics();
+    let da = (m.ang - touchPinch.a0) * 180 / Math.PI; da = ((da + 540) % 360) - 180;
+    setSize(touchPinch.size0 * (m.d / touchPinch.d0));
+    setRot(Math.round(touchPinch.rot0 + da));
+    stackMenu.held.keepAlive(performance.now());
+    pinchHud();
+  }, true);
+  const fingerUp = (e) => {
+    if (!fingers.delete(e.pointerId)) return;
+    if (touchPinch && fingers.size < 2) endPinch();
+    setTimeout(() => spent.delete(e.pointerId), 0); // after the room's own pointerup has seen it
+  };
+  addEventListener('pointerup', fingerUp, true); addEventListener('pointercancel', fingerUp, true);
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault(); // no text selection / callout / emulated mouse from a press on the room
     canvas.setPointerCapture(e.pointerId);
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), drag: false });
+    if (spent.has(e.pointerId)) return; // a pinch finger
     if (touches.size === 1 && canAim()) {
       touchAim = { id: e.pointerId, x: e.clientX, y: e.clientY };
       document.body.classList.add('aiming'); hideCredit();
@@ -1467,6 +1521,7 @@ if (!isTouch) {
   });
   canvas.addEventListener('pointermove', (e) => {
     const p = touches.get(e.pointerId); if (!p) return;
+    if (touchPinch || spent.has(e.pointerId)) { p.x = e.clientX; p.y = e.clientY; p.drag = true; return; } // pinching: no look
     if (touchAim && touchAim.id === e.pointerId) {
       touchAim.x = e.clientX; touchAim.y = e.clientY; p.x = e.clientX; p.y = e.clientY;
       stackMenu.held.keepAlive(performance.now()); // aiming = working with it: it does not fade meanwhile
@@ -1480,6 +1535,7 @@ if (!isTouch) {
   });
   const up = (e) => {
     const p = touches.get(e.pointerId); touches.delete(e.pointerId);
+    if (spent.has(e.pointerId)) return; // a pinch finger: no stamp, no tap
     if (touchAim && touchAim.id === e.pointerId) {
       endAim();
       if (e.type === 'pointerup' && stackMenu) heldTap(ndcOf(e.clientX, e.clientY), e.clientX, e.clientY); // stamp where the finger is
@@ -1518,6 +1574,7 @@ if (!isTouch) {
   // gone (CSS) – everything they did is in the stack's menu (stackmenu.js).
   $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false');
   stackMenu = initStackMenu({
+    pinching: () => !!touchPinch,
     S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
     peelLast: () => peelLast(), toggleView: () => toggleView(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
     chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(), wheel: activeWheelApi, wheelUp, natureOpen: () => natureOpen(),
@@ -2413,7 +2470,7 @@ window.klibb = {
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
-  touchAim: () => (touchAim ? { ...touchAim } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
+  touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
   held: () => stackMenu?.info() ?? null, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && getComputedStyle($('design-strip')).visibility !== 'hidden', n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON() }),
   wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,

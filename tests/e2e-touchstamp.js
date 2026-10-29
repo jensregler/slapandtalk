@@ -3,8 +3,8 @@
 // aims it: the preview sits on the wall where the finger points (the ray from the touch point) and
 // follows the finger; the room does not turn; letting go stamps it AT the touch point (compared
 // with the raycast from that screen point – not the middle of the screen, not a sticker that was
-// under the finger, which stays where it is). Two fingers look around (no stamp); with nothing in
-// hand (faded) one finger looks around as before. No dashed ring around the held sticker, no page
+// under the finger, which stays where it is). Two fingers pinch/twist the held sticker (no stamp,
+// no look); with nothing in hand (faded) one finger looks around as before. No dashed ring around the held sticker, no page
 // scroll or text selection. Own server (TOUCHSTAMP_E2E_PORT, default 8869). Screenshots:
 // TOUCH_SHOTS (default /workspace/touch-stamp-shots).
 const fs = require('fs');
@@ -99,13 +99,13 @@ const dist = (a, b) => (a && b ? Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2
     const list3 = await stamps(), third = list3.find((s) => !list2.some((o) => o.id === s.id));
     check('a long press (1.1 s, no move) stamps at the press point', third && dist(third.p, hE.point) < 0.03, { third, hE });
 
-    // two fingers: look around, never a stamp
-    const s3 = await st();
+    // two fingers with a sticker in hand: pinch/twist it (e2e-pinch.js), never a look or a stamp
+    const s3 = await st(), cm3 = await P.evaluate(() => window.klibb.state.size);
     await T('touchStart', [[120, 400, 1]]); await sleep(60); await T('touchStart', [[120, 400, 1], [260, 400, 2]]); await sleep(60);
-    for (let i = 1; i <= 8; i++) { await T('touchMove', [[120 + i * 15, 400 + i * 5, 1], [260 + i * 15, 400 + i * 5, 2]]); await sleep(40); }
-    await T('touchEnd', [[240, 440, 2]]); await T('touchEnd', []); await sleep(600);
-    const s4 = await st();
-    check('two fingers dragging = looking around (the view turns), no stamp, no preview left behind', s4.yaw !== s3.yaw && s4.n === s3.n && !s4.preview && !s4.aiming, { s3, s4 });
+    for (let i = 1; i <= 8; i++) { await T('touchMove', [[120 - i * 5, 400, 1], [260 + i * 5, 400, 2]]); await sleep(40); }
+    await T('touchEnd', [[300, 400, 2]]); await T('touchEnd', []); await sleep(600);
+    const s4 = await st(), cm4 = await P.evaluate(() => window.klibb.state.size);
+    check('two fingers with a sticker in hand = pinch (it got bigger), the view does not turn, no stamp, no preview left behind', cm4 > cm3 && s4.yaw === s3.yaw && s4.n === s3.n && !s4.preview && !s4.aiming, { s3, s4, cm3, cm4 });
 
     // nothing in hand (faded): one finger looks around, a tap only brings the sticker back
     await P.evaluate(() => window.klibb.stackMenu().held.placed(performance.now() - 60000)); await sleep(300);

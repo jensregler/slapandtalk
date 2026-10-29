@@ -8,7 +8,7 @@
 //   room's info and Room ▾ on top of ⚙ More: recording, sound, cameras …), ↩ Undo, 👤 3rd person,
 //   📷 Photo, and the Talk card (💬 chat, 🎙 microphone). A tap outside closes it.
 // - The editing view (Jens's picture 4): the held sticker sits in its holder (no ring) in the middle of the
-//   screen, sharp; the green sliders on the edges: rotation on the left, size on the right; the three
+//   screen, sharp; two fingers pinch to scale it and twist to rotate it (main.js); the three
 //   menu buttons (📒 Stickers, 🧍 Character, 🏠 Room) stay lit at the bottom; everything else is
 //   hidden (💬/🎙 are on the menu's Talk card). Release it from the holder: tap it (it slaps where
 //   it is, the middle of the screen) or drag it out and let go where it should go; or put a finger on
@@ -21,7 +21,6 @@ const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const RING = { 1: 120, 2: 210 };   // px from the stack's centre
 const STACK = { right: 58, bottom: 66 }; // the stack's centre (px from the bottom-right corner)
-const SIZE_TOP_CM = 400;           // the size slider's top when there is no limit (full version)
 
 export function initStackMenu(o) {
   const { state, now = () => performance.now() } = o;
@@ -109,29 +108,10 @@ export function initStackMenu(o) {
     setTimeout(() => { closeBook(); chosen(); }, 0);
   }, true);
 
-  // ---- The editing sliders: rotation (left edge), size (right edge) ----
-  const sizeRange = () => { const lo = o.minSizeCm(), hi = Number.isFinite(o.maxSizeCm()) ? o.maxSizeCm() : SIZE_TOP_CM; return [lo, Math.max(hi, lo + 1)]; };
-  const edges = {
-    rot: { el: $('edge-rot'), get: () => (state.rotation + 180) / 360, set: (v) => o.setRot(Math.round(v * 360 - 180)) },
-    size: {
-      el: $('edge-size'),
-      get: () => { const [lo, hi] = sizeRange(); return clamp(Math.log((state.size * 100) / lo) / Math.log(hi / lo), 0, 1); },
-      set: (v) => { const [lo, hi] = sizeRange(); o.setSize(lo * Math.pow(hi / lo, v)); },
-    },
-  };
-  for (const ed of Object.values(edges)) {
-    const track = ed.el.querySelector('.edge-track');
-    const at = (e) => { const r = track.getBoundingClientRect(); ed.set(clamp(1 - (e.clientY - r.top) / r.height, 0, 1)); held.keepAlive(now()); };
-    ed.el.addEventListener('pointerdown', (e) => {
-      if (Number(getComputedStyle(ed.el).opacity) < 0.5) return;
-      e.preventDefault(); e.stopPropagation(); try { ed.el.setPointerCapture(e.pointerId); } catch { /* synthetic */ } ed.drag = true; at(e);
-    });
-    ed.el.addEventListener('pointermove', (e) => { if (ed.drag) at(e); });
-    const end = () => { ed.drag = false; };
-    ed.el.addEventListener('pointerup', end); ed.el.addEventListener('pointercancel', end);
-  }
+  // (The two edge sliders for rotation and size are gone – Jens, 29 Oct 2026: two fingers pinch to
+  // scale and twist to rotate the held sticker instead; main.js, the touch input.)
 
-  // ---- The held sticker and the sliders follow the timer (every frame) ----
+  // ---- The held sticker follows the timer (every frame) ----
   let last = '';
   function render() {
     const t = now(), sel = state.selected;
@@ -145,15 +125,8 @@ export function initStackMenu(o) {
       const px = clamp(40 + 9 * Math.sqrt(cm), 64, 150);
       h.style.setProperty('--held-px', `${px.toFixed(0)}px`); h.style.setProperty('--held-rot', `${rot}deg`);
       h.style.opacity = String(op); h.classList.toggle('up', op > 0);
-      for (const [k, ed] of Object.entries(edges)) {
-        ed.el.style.opacity = String(op); ed.el.classList.toggle('up', op > 0.5);
-        ed.el.querySelector('.edge-thumb').style.bottom = `${(ed.get() * 100).toFixed(2)}%`;
-        ed.el.querySelector('.edge-fill').style.height = `${(ed.get() * 100).toFixed(2)}%`;
-        ed.el.querySelector('.edge-val').textContent = k === 'rot' ? `${rot}°` : `${cm.toLocaleString(o.locale)} cm`;
-        ed.el.setAttribute('aria-valuenow', String(k === 'rot' ? rot : cm));
-      }
       body.classList.toggle('held-faded', op === 0);
-      body.classList.toggle('editing', op > 0 && !open); // picture 4: holder + sliders + the three buttons
+      body.classList.toggle('editing', op > 0 && !open); // picture 4: the held sticker + the three buttons
     }
     requestAnimationFrame(render);
   }
@@ -162,7 +135,7 @@ export function initStackMenu(o) {
   // ---- Release from the holder: tap it, or drag it out and let go over the spot ----
   const hold = $('held'); let rel = null;
   hold.addEventListener('pointerdown', (e) => {
-    if (!hold.classList.contains('up')) return;
+    if (!hold.classList.contains('up') || o.pinching?.()) return; // (a finger of a pinch: main.js)
     e.preventDefault(); e.stopPropagation(); try { hold.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
     rel = { id: e.pointerId, x: e.clientX, y: e.clientY, t: now() }; hold.classList.add('dragging');
   });
@@ -186,6 +159,8 @@ export function initStackMenu(o) {
 
   return {
     held, chosen,
+    // a pinch started with a finger on the held sticker: that finger does not release it
+    cancelRelease() { if (!rel) return; rel = null; hold.classList.remove('dragging'); hold.style.setProperty('--dx', '0px'); hold.style.setProperty('--dy', '0px'); },
     // A tap on the 3D view: 'slap' (sharp – place it) or 'wake' (it was fading/faded – only bring it back).
     tap() { return held.tap(now()); },
     placed() { held.placed(now()); },
@@ -194,7 +169,7 @@ export function initStackMenu(o) {
       const t = now(), vis = (id) => { const el = $(id); return !!el && el.getClientRects().length > 0 && Number(getComputedStyle(el).opacity) > 0.01; };
       return { ...held.info(t), visibleMs: HELD_VISIBLE_MS, fadeMs: HELD_FADE_MS, menuOpen: open, bookOpen: !$('sticker-book').hidden,
         editing: body.classList.contains('editing'), heldRect: $('held').getBoundingClientRect().toJSON(),
-        heldShown: vis('held'), heldOpacity: Number($('held').style.opacity || 0), edges: { rot: vis('edge-rot'), size: vis('edge-size') } };
+        heldShown: vis('held'), heldOpacity: Number($('held').style.opacity || 0) };
     },
   };
 }

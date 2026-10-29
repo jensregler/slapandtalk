@@ -153,7 +153,7 @@ servern har kvar bilderna. Designs som har försvunnit från servern tas bort ur
 
 **På mobilen (touch):** när du kommer in syns bara **styrspaken** nere till vänster och din
 **klibbhög** nere till höger (dina klibbor, den du håller överst). Ingen panel, ingen ☰ Stickers,
-inga 👤/↩/👁-knappar. Styrspaken = gå, **dra med två fingrar** = titta (ett finger när du inte håller någon klibba).
+inga 👤/↩/👁-knappar. Styrspaken = gå, **titta** = dra med ett eller två fingrar när du inte håller någon klibba (med en klibba i handen siktar ett finger och två fingrar nyper/vrider den).
 - **Tryck på högen** → menyn fäller ut sig uppåt/åt vänster: **📒 Stickers** (klibbboken: dina
   klibbor + ⬆ Upload sticker; stjärna/× med långt tryck som förut), **🧍 Character** (Min gubbe),
   **🏠 Room** (rummets namn och Room ▾ – nytt snabbrum, dela länk, Staden … – överst i ⚙ More, med
@@ -161,14 +161,19 @@ inga 👤/↩/👁-knappar. Styrspaken = gå, **dra med två fingrar** = titta (
   ångra flera), **👤 3rd person**, **📷 Photo**, och kortet **💬 Talk / 🎙 Mic**. Tryck utanför =
   stäng. **Svep upp/ner på högen** = nästa/förra klibba direkt i handen.
 - **Redigeringsvyn (Jens bild 4):** klibban i handen svävar skarp mitt på skärmen (ingen streckad ring runt den sedan 28 okt 2026).
-  Gröna reglage på kanterna: **rotation till vänster**, **storlek till höger** (dra upp/ner). De tre
+  **Två fingrar = nyp och vrid (29 okt 2026, i stället för de två lodräta reglagen):** nyp isär/ihop =
+  större/mindre (avståndet mellan fingrarna × storleken den hade), vrid = rotera (fingrarnas vinkeländring,
+  medurs = medurs), direkt på klibban i handen, med en liten etikett ovanför ("45 cm · 15°"). Samma
+  gränser och samma storlek som överallt (gratis 15–100 cm, full 5 cm – inget tak, nature 5–400 cm);
+  storleken följer med när du byter klibba. Ett nyp klibbar aldrig och vrider inte rummet; ett andra
+  finger medan du siktar avbryter siktet. Utan klibba i handen tittar två fingrar runt som förut. De tre
   menyknapparna **📒 🧍 🏠** lyser längst ner mellan styrspaken och högen; allt annat är dolt
   (💬/🎙 ligger på menyns Talk-kort).
 - **Klibba (28 okt 2026):** med en klibba i handen **siktar ett finger på rummet**: klibban visas på
   väggen där fingret pekar (strålen från fingrets punkt, som en stämpel du håller framför dig) och
   följer fingret; rummet vrider sig inte. **Släpp = klibban sitter där fingret är** – ett tryck, ett
   långt tryck eller efter att du dragit. En klibba som redan sitter under fingret följer inte med.
-  Ett andra finger avbryter (då tittar du, ingen klibba). Du kan fortfarande släppa den ur hållaren
+  Ett andra finger avbryter (då nyper/vrider du i stället, ingen klibba). Du kan fortfarande släppa den ur hållaren
   (tryck på den = mitt på skärmen, eller dra ut den och släpp). Inget markeras, scrollar eller zoomar.
 - **Ingen Slap mode / Look mode på mobilen** – en timer i stället (`shared/heldtimer.mjs`):
   en nyvald klibba är skarp tills du satt den första gången; efter varje klibba syns den
@@ -811,7 +816,7 @@ alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan pref
 - **Nature-klibbor (28 okt 2026, `shared/nature.mjs`; fullversionen, se Två hjul):** biblioteksklibbor vars namn börjar på `nature` (alla
   skiftlägen; importen ger varje fil i en mapp som heter `nature` det prefixet och `nature: true`) får för alla,
   även gratis: **minst `NATURE.minCm` = 5 cm, högst `NATURE.maxHeightCm` = 400 cm HÖG** (längsta sidan alltså
-  400 cm × längsta/höjd, för en bred bild mer). Webbappen (reglage, hjul, slap, mobilens reglage) och servern
+  400 cm × längsta/höjd, för en bred bild mer). Webbappen (reglage, hjul, slap, mobilens nyp) och servern
   (`POST …/stamps`, klämmer) gör samma sak; serverns tekniska golv 2 cm och NaN-kontrollen gäller fortfarande.
   **Inga peels:** nature-klibbor tappar inget baksidespapper alls (de blir för stora) – varken vid slap eller i
   en rad; servern skapar inget (`POST …/stamps`, `…/stamps/array`) och webbappen visar ingen pappersanimation.
@@ -828,7 +833,7 @@ alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan pref
 > **Ändrat 28 okt 2026 (Jens): prefixet sätter inte längre storleken i webbappen.** Den första klibban i en
 > session börjar **30 cm hög** (höjden, oavsett format: en 2:1-bild får 60 cm längsta sida, en stående 30 cm),
 > inom gränserna. Byter du klibba efter det (hjulet, R/F, svep, klibbboken, en ny uppladdning) behåller den
-> storleken du hade, som före startstorlekarna; skala upp/ner fritt som vanligt (dator och mobilens reglage).
+> storleken du hade, som före startstorlekarna; skala upp/ner fritt som vanligt (dator; mobilen: nyp).
 > `startCm` och prefixreglerna ovan finns kvar (sparas på bilder och i `library/manifest.json`, `/api/library`
 > skickar den) men används inte av appen. Serverns storlekskontroll vid slap är oförändrad (längsta sidan, 15 cm – 1 m
 > i gratisversionen). Tester: `tests/e2e-size.js`, `tests/e2e-wheel.js`.
