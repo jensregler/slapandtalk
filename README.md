@@ -714,6 +714,26 @@ skiljer sig en aning i tonhöjd.
 - Testerna: `tests/groove.test.mjs` (rutnätet), `tests/groove.test.js` (rättigheter, broadcast,
   sparas, spelas in), `tests/e2e-groove.js` (reglage, tangenter, synk, stegen på rutnätet; port 8846).
 
+#### Fotsteg på peels ("pillen", Jens 29 okt 2026)
+Går man **på ett baksidespapper på golvet** (peels) låter steget som pappersprasslande filt: samma
+fotsteg som vanligt (samma spelarvariation, slot-färg och groove-takt), men genom en liten insats
+`lågpass → mjuk tanh-distorsion` (`shared/peelstep.mjs`, `SynthEngine.paper`). "Lite filter, lite
+distorsion":
+- **Lågpass** 330 Hz när man släntrar → 420 Hz när man springer (vanliga stegets brus ligger på
+  520 Hz), Q 0,6, 12 dB/okt. Nivå ×0,9.
+- **Distorsion** (WaveShaper, `tanh(k·x)`, k = 1 + 6·drive, enhetsförstärkning för svaga signaler så
+  det inte blir starkare): drive 0,04 vid ≤ 0,6 m/s → 0,28 vid ≥ 4,7 m/s (Shift-spring), linjärt med
+  gånghastigheten (gängse gång med tangenterna, 2,6 m/s ≈ 0,16). Ungefär 3 % → 12 % THD i stegets toppar.
+- **Kontakt:** fötterna (kamerans x/z, de andras positioner) mot de **landade** papperen – en billig
+  rektangeltest i papperets egen ram + 10 cm fotradie (`onPeel`, cirkel-avvisning först; 300 papper
+  kostar inget). Gäller mig, de andra spelarna (rumsligt, som deras vanliga steg), dator och telefon.
+  Ljud av = tyst som vanligt. Inget fullversionskrav (fotstegen är gratis); egna stegpatchar från
+  Sound settings går också genom insatsen. Buzz-läget (groove så snabb att stegen blir en ton) och
+  replay spelar vanliga steg.
+- Testerna: `tests/peelstep.test.mjs` (hastighet → filter/distorsion, kurvan, THD, fot-testet) och
+  `tests/e2e-peelsteps.js` (port 8879: av/på papperet med W, långsamt vs snabbt, den andra
+  spelaren hör det, ljud av, telefon; renderar lyssningsprov till `PILL_STEPS`).
+
 #### Auto-slap: stickern slappar av sig själv, i takt
 
 `shared/autoslap.mjs` (sekvensen, tiden, schemat – samma i webbappen och testerna) +

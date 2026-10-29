@@ -7,6 +7,7 @@
 // FX chains and the room reverb are cached and shared; voices are short-lived and disposed
 // after they ring out, and at most MAX_VOICES play at once (phones stay fine).
 import { cleanPatch, cleanFx, delaySeconds, patchLength, FX_DEFAULTS } from '../../shared/synth.mjs';
+import { peelCurve } from '../../shared/peelstep.mjs';
 
 export const MAX_VOICES = 12;
 // Footsteps have their own, smaller budget (pool 'step'), so a fast groove never starves the slaps.
@@ -78,11 +79,12 @@ export class SynthEngine {
     return input;
   }
 
-  // Play a patch now (or at `time`). opts: { gain, rate, fx, pos: [x,y,z] (spatial) | null, keep: don't clean up (offline) }
+  // Play a patch now (or at `time`). opts: { gain, rate, fx, pos: [x,y,z] (spatial) | null, keep: don't clean up (offline),
+  //   paper: { cutoff, q, drive, pre } – the footstep-on-a-peel insert (shared/peelstep.mjs): low-pass → soft clip }
   // Returns false when the polyphony cap skipped it.
   // Voices are plain Web Audio nodes made on Tone's context (see the note at the bottom);
   // they plug into the Tone FX chain / room bus and disconnect themselves when done.
-  play(patch, { gain = 1, rate = 1, fx = null, pos = null, time = null, keep = false, pool = 'main' } = {}) {
+  play(patch, { gain = 1, rate = 1, fx = null, pos = null, time = null, keep = false, pool = 'main', paper = null } = {}) {
     const p = cleanPatch(patch); if (!p) return false;
     const ctx = this.raw, t0 = Math.max(time ?? 0, ctx.currentTime) + 0.005, len = patchLength(p);
     const step = pool === 'step', key = step ? 'stepVoices' : 'voices';
@@ -99,6 +101,7 @@ export class SynthEngine {
       if (pan.positionX) { pan.positionX.value = pos[0]; pan.positionY.value = pos[1]; pan.positionZ.value = pos[2]; } else pan.setPosition(...pos);
       pan.connect(out); out = pan; nodes.push(pan);
     }
+    if (paper) out = this.paper(ctx, paper, out, nodes);
     const vgain = ctx.createGain(); vgain.gain.value = p.gain * gain; vgain.connect(out); nodes.push(vgain);
     let last = null;
     for (const l of p.layers) { const r = this.layer(ctx, l, vgain, t0 + l.delay, rate); nodes.push(...r.nodes); if (!last || r.end > last.end) last = r; }
@@ -106,6 +109,21 @@ export class SynthEngine {
     return true;
   }
   get raw() { return this.Tone.getContext().rawContext; }
+  // The peel-step insert: → low-pass (muffled) → pre gain → tanh soft clip → post gain → out.
+  // Returns the insert's input. Curves are cached per drive (0.01 steps).
+  paper(ctx, { cutoff = 360, q = 0.6, drive = 0.1, pre = 2.2 } = {}, out, nodes) {
+    this.paperCurves ||= new Map();
+    const k = Math.round(drive * 100) / 100;
+    if (!this.paperCurves.has(k)) this.paperCurves.set(k, peelCurve(k));
+    const { curve, post } = this.paperCurves.get(k);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = cutoff; lp.Q.value = q;
+    const g1 = ctx.createGain(); g1.gain.value = pre;
+    const ws = ctx.createWaveShaper(); ws.curve = curve; ws.oversample = '2x';
+    const g2 = ctx.createGain(); g2.gain.value = post;
+    lp.connect(g1); g1.connect(ws); ws.connect(g2); g2.connect(out);
+    nodes.push(lp, g1, ws, g2);
+    return lp;
+  }
 
   // A sustained, looping voice (the footstep "buzz" when the groove is so fast that the steps
   // merge into a tone, see client/src/groove.js): buffer loops from `time`, fades in/out.

@@ -9,6 +9,7 @@
 // replay time: the same at every play, seek or scrub (rewind() puts a landed peel back in the air).
 import * as THREE from 'three';
 import { PEEL, peelPose, pathParams, maskFromAlpha, overlapFraction, stampDims, stampFrame } from '../../shared/peels.mjs';
+import { onPeel } from '../../shared/peelstep.mjs';
 
 const SIL_PX = 128;
 const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
@@ -94,14 +95,17 @@ export class PeelLayer {
     this.peels.set(peel.id, e);
     let g;
     try { g = await this.group(image); } catch { if (this.peels.get(peel.id) === e) this.peels.delete(peel.id); return; }
-    if (this.peels.get(peel.id) !== e) return; // removed (or removed and added again) while loading
+    // (confirm() may have renamed my own temporary peel to the server's id while the silhouette
+    // loaded – the first slap of a design: carry on under the new id, or it never falls or shows)
+    const id = e.peel.id;
+    if (this.peels.get(id) !== e) return; // removed (or removed and added again) while loading
     if (born != null) { e.landed = !(animate = this.now() - born < params.dur * 1000); } // the replay may have moved on
     else if (animate) e.born = this.now(); // fallet börjar när formen finns
     if (g.items.length >= g.cap) this.resize(g, g.cap * 2);
-    g.items.push({ id: peel.id });
+    g.items.push({ id });
     g.mesh.count = g.edge.count = g.items.length;
-    if (animate) this.falling.add(peel.id); else this.landedCount++;
-    this.place(g, { id: peel.id }, g.items.length - 1);
+    if (animate) this.falling.add(id); else this.landedCount++;
+    this.place(g, { id }, g.items.length - 1);
     g.mesh.instanceMatrix.needsUpdate = g.edge.instanceMatrix.needsUpdate = true;
     this.trim();
   }
@@ -155,6 +159,13 @@ export class PeelLayer {
       list.push({ x: P.x, z: P.z, w: P.w, h: P.h, yaw: P.yaw, mask: s ? s.mask : null });
     }
     return overlapFraction(sticker, list);
+  }
+  // Is a foot at (x, z) on a landed peel? (the footsteps' paper variant, shared/peelstep.mjs)
+  under(x, z) {
+    if (!this.on || !this.landedCount) return false;
+    const list = [];
+    for (const e of this.peels.values()) if (e.landed) list.push(e.peel);
+    return onPeel(x, z, list);
   }
   get count() { return this.peels.size; }
   info() {
