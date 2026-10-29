@@ -240,6 +240,10 @@ body.avatar-view #scene:active { cursor: grabbing; }
 .chips button.sel, .swatches.colors button.sel { border-color: #ffd400; }
 .chips button.sel { background: #ffd400; color: #111; font-weight: 700; }
 #av-hat-row[hidden] { display: none; }
+#av-face .face-same { width: auto; padding: 0 8px; border-radius: 13px; font-size: 11px; color: #111; text-shadow: 0 0 2px #fff; }
+#av-face input[type=color] { width: 30px; height: 26px; padding: 0; border: 2px solid #555; border-radius: 6px; background: none; cursor: pointer; }
+#av-face input[type=color].sel { border-color: #ffd400; }
+.fab-photo.sel { border-color: #ffd400; }
 /* Tyger (fabrics) */
 .fab-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .fab-seg { display: inline-flex; border: 1px solid #555; border-radius: 13px; overflow: hidden; }

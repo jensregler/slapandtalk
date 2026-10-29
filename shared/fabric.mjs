@@ -8,6 +8,9 @@
 //   cycleHue + hueHz  = the hue goes round the wheel hueHz times per second
 //   spin + spinHz     = the pattern turns round hueHz times per second
 //   scroll            = the pattern slides (tiles per second)
+//   photo             = (the face slot) the image is a picture of a face: drawn once over the front of
+//                       the head (scale = zoom, rot = tilt) instead of tiled; other slots ignore it
+// Slots: shirt, pants, hair, skin, hat and face (the face has its own material, see avatars.js).
 // Slots without a fabric use their colour. Old clients don't know `fabric` and just show the colour.
 import FABRIC from './fabric.json' with { type: 'json' };
 

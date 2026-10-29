@@ -1,13 +1,13 @@
 // "Min gubbe": the Colour | Fabric switch on every colour slot, the fabric picker and sliders,
 // and 🌀 Randomize. together.js owns the draft look; this file only edits draft.fabric.
 import { S } from './strings.js';
-import { FABRIC, cleanFabric, fabricPhase, fabricUrl, prepareFabricImage, uploadFabric, PRESETS, presetCanvas, presetBlob } from './fabrics.js';
+import { FABRIC, cleanFabric, fabricPhase, fabricUrl, prepareFabricImage, prepareFacePhoto, uploadFabric, PRESETS, presetCanvas, presetBlob } from './fabrics.js';
 import { randomFabricParams } from '../../shared/fabric.mjs';
 import { readMine, getBlob } from './designs.js';
 import { has } from './entitlements.js';
 
-export const SLOTS = { shirt: 'shirt', pants: 'pants', hair: 'hairColor', skin: 'skin', hat: 'hatColor' }; // plats -> färgfältet i looken
-const SLOT_LABEL = { shirt: () => S.shirt, pants: () => S.pants, hair: () => S.hairColor, skin: () => S.skin, hat: () => S.capColour };
+export const SLOTS = { shirt: 'shirt', pants: 'pants', hair: 'hairColor', skin: 'skin', hat: 'hatColor', face: 'face' }; // plats -> färgfältet i looken
+const SLOT_LABEL = { shirt: () => S.shirt, pants: () => S.pants, hair: () => S.hairColor, skin: () => S.skin, hat: () => S.capColour, face: () => S.face };
 const RECENT_KEY = 'klibb.fabrics', PRESET_KEY = 'klibb.fabricPresets', FROM_STICKER_KEY = 'klibb.fabricFromSticker';
 const ID_RE = /^[a-f0-9]{16}$/;
 const readJson = (k, def) => { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v && typeof v === 'object' ? v : def; } catch { return def; } };
@@ -47,18 +47,26 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     if (f) fabric[slot] = f; else delete fabric[slot];
     setDraft({ fabric }, { rerender: true });
   }
-  async function useSource(slot, getId) {
-    busy++; toast(S.fabUploading, 1200);
+  // photo: the face slot's face photo (drawn once on the front of the head) instead of a tiled fabric.
+  async function useSource(slot, getId, { photo = false } = {}) {
+    busy++; toast(photo ? S.facePhotoMaking : S.fabUploading, 1200);
     try {
       const id = await getId();
       modes[slot] = 'fabric';
-      setSlot(slot, cleanFabric({ ...(params[slot] || {}), id }));
+      const was = params[slot] || {};
+      // switching between a photo and a pattern starts from neutral zoom/rotation (they mean different things)
+      const keep = !!was.photo === photo ? was : {};
+      setSlot(slot, cleanFabric({ ...keep, id, photo: slot === 'face' && photo }));
     } catch (e) { toast(S.fabFailed(e.message || 'error'), 3500); }
     finally { busy--; }
   }
 
-  const file = $('fab-file'); let fileSlot = null;
-  file.onchange = () => { const f = file.files && file.files[0]; file.value = ''; if (f && fileSlot) useSource(fileSlot, () => idForFile(f)); };
+  const file = $('fab-file'); let fileSlot = null, filePhoto = false;
+  file.onchange = () => {
+    const f = file.files && file.files[0]; file.value = ''; if (!f || !fileSlot) return;
+    if (filePhoto) useSource(fileSlot, async () => (await uploadFabric(await prepareFacePhoto(f))).id, { photo: true });
+    else useSource(fileSlot, () => idForFile(f));
+  };
 
   // The Fabric button's icon: a tiny swatch of plain, off-white cotton weave (drawn once).
   // Deliberately unremarkable – the wild stuff is only found once the panel is open.
@@ -95,8 +103,15 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     const tile = document.createElement('div'); tile.className = 'fab-tile'; pv.appendChild(tile);
     const src = document.createElement('div'); src.className = 'fab-src';
     const up = document.createElement('button'); up.type = 'button'; up.className = 'fab-up'; up.textContent = S.fabUpload; up.title = S.fabUploadTitle;
-    up.onclick = () => { fileSlot = slot; file.click(); };
-    const hint = document.createElement('small'); hint.textContent = f ? S.fabPickHint : `${S.fabNone} ${S.fabPickHint}`;
+    up.onclick = () => { fileSlot = slot; filePhoto = false; file.click(); };
+    const hint = document.createElement('small'); hint.textContent = f?.photo ? `${S.facePhotoOn} ${S.fabPickHint}` : f ? S.fabPickHint : `${S.fabNone} ${S.fabPickHint}`;
+    const srcBtns = [up];
+    if (slot === 'face') { // the face: a photo of a face, mapped once onto the front of the head
+      const ph = document.createElement('button'); ph.type = 'button'; ph.className = 'fab-up fab-photo'; ph.textContent = S.facePhoto; ph.title = S.facePhotoTitle;
+      if (f?.photo) ph.classList.add('sel');
+      ph.onclick = () => { fileSlot = slot; filePhoto = true; file.click(); };
+      srcBtns.push(ph);
+    }
     const picks = document.createElement('div'); picks.className = 'fab-picks';
     const curId = f?.id;
     const fromSticker = readJson(FROM_STICKER_KEY, {}), presetIds = readJson(PRESET_KEY, {});
@@ -106,7 +121,7 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     const shown = new Set([...Object.values(fromSticker), ...Object.values(presetIds)]);
     for (const id of readRecent()) if (!shown.has(id)) picks.appendChild(pickButton(S.fabRecent, fabricUrl(id), id === curId, null, () => useSource(slot, async () => id)));
     for (const [k, p] of Object.entries(PRESETS)) picks.appendChild(pickButton(S.fabPreset(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId, null, () => useSource(slot, () => idForPreset(k))));
-    src.append(up, hint, picks);
+    src.append(...srcBtns, hint, picks);
     top.append(pv, src); ctl.appendChild(top);
     const vals = f || cleanFabric({ ...(params[slot] || {}), id: '0000000000000000' });
     for (const [k, label, flag] of SLIDERS) {
@@ -168,8 +183,9 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     for (const row of document.querySelectorAll('#avatar-panel .fab-slot')) {
       const slot = row.dataset.slot, f = d.fabric?.[slot], pv = row.querySelector('.fab-preview'); if (!pv) continue;
       const tile = pv.firstChild;
-      pv.style.backgroundColor = d[SLOTS[slot]] || '#333';
+      pv.style.backgroundColor = d[SLOTS[slot]] || (slot === 'face' ? d.skin : '') || '#333';
       if (!f) { tile.style.backgroundImage = 'none'; continue; }
+      if (f.photo) { const url = `url("${fabricUrl(f.id)}")`; if (tile.dataset.url !== url) { tile.style.backgroundImage = url; tile.dataset.url = url; } tile.style.backgroundSize = 'cover'; tile.style.backgroundPosition = 'center'; tile.style.transform = `rotate(${-f.rot}deg) scale(${1 / f.scale})`; tile.style.filter = f.hue ? `hue-rotate(${f.hue}deg)` : ''; continue; }
       const ph = fabricPhase(f, now), px = 33 * f.scale;
       const url = `url("${fabricUrl(f.id)}")`; if (tile.dataset.url !== url) { tile.style.backgroundImage = url; tile.dataset.url = url; }
       tile.style.backgroundSize = `${px}px ${px}px`;
@@ -183,7 +199,7 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
   // 🌀 Randomize: färger, kläder och tyger på det mesta, med galna värden.
   async function wild(baseLook) {
     const sources = [...Object.keys(PRESETS).map((k) => () => idForPreset(k)), ...readMine().slice(-10).map((st) => () => idForSticker(st)), ...readRecent().map((id) => async () => id)];
-    const slots = Object.keys(SLOTS).filter((s) => (s === 'skin' ? Math.random() < 0.35 : Math.random() < 0.8));
+    const slots = Object.keys(SLOTS).filter((s) => (s === 'skin' || s === 'face' ? Math.random() < 0.35 : Math.random() < 0.8));
     busy++; toast(S.randomizing, 1500);
     try {
       const ids = await Promise.all(slots.map(() => sources[Math.floor(Math.random() * sources.length)]().catch(() => null)));

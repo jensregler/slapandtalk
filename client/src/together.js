@@ -165,6 +165,20 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       if (hex === sel) b.classList.add('sel'); b.onclick = () => pick(hex); el.appendChild(b);
     }
   }
+  // The face's colour: 'Same as skin' (no face field: it follows the skin), the swatches, or any colour.
+  function faceColors(el, d, set) {
+    colors(el, AVATAR.colors.face, d.face || null, (c) => set({ face: c }));
+    const same = document.createElement('button'); same.type = 'button'; same.className = 'face-same'; same.dataset.id = 'skin';
+    same.textContent = S.faceSameAsSkin; same.title = S.faceSameAsSkinTitle; same.style.background = d.skin;
+    if (!d.face) same.classList.add('sel');
+    same.onclick = () => { const { face, ...rest } = av.draft; av.draft = normalizeLook(rest); renderAvatarPanel(); };
+    const pick = document.createElement('input'); pick.type = 'color'; pick.id = 'av-face-any'; pick.title = S.faceCustomTitle; pick.setAttribute('aria-label', S.faceCustom);
+    pick.value = d.face || d.skin;
+    if (d.face && !AVATAR.colors.face.includes(d.face)) pick.classList.add('sel');
+    pick.oninput = () => { av.draft = normalizeLook({ ...av.draft, face: pick.value }); self.avatar?.setLook(av.draft); };
+    pick.onchange = () => set({ face: pick.value });
+    el.prepend(same); el.appendChild(pick);
+  }
   // Tyger: Colour | Fabric på varje färgplats (fabricui.js). rerender: false = bara förhandsvisningen (slidrar).
   const fab = initFabricUI({
     $, toast, getDraft: () => av.draft,
@@ -182,6 +196,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     colors($('av-haircolor'), AVATAR.colors.hair, d.hairColor, (c) => set({ hairColor: c }));
     colors($('av-skin'), AVATAR.colors.skin, d.skin, (c) => set({ skin: c }));
     colors($('av-hatcolor'), AVATAR.colors.hat, d.hatColor, (c) => set({ hatColor: c }));
+    faceColors($('av-face'), d, set);
     $('av-hat').checked = d.hat; $('av-hat-row').hidden = !d.hat;
     fab.render();
     self.avatar?.setLook(d); // live on my avatar in the room
@@ -308,7 +323,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     freezeGestures(ms) { if (self.avatar) self.avatar.gesture.freeze = ms; for (const p of players.map.values()) if (p.avatar) p.avatar.gesture.freeze = ms; },
     handPos: () => { const a = self.avatar; if (!a) return null; const w = a.gesture.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray()); return w; },
     selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0, fabrics: self.avatar ? self.avatar.fabricInfo() : {},
-      gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null }),
+      face: self.avatar ? self.avatar.faceInfo() : null, gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null }),
     busy: () => av.open,
     // 'My avatar' open: main.js tells which way its camera looks from (faceYaw), and passes on drags (px).
     avatarView: () => (av.open ? { faceYaw: av.faceYaw, dragged: av.dragged, phase: av.phase, turn: self.avatar ? self.avatar.root.rotation.y : null,

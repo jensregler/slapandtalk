@@ -11,6 +11,8 @@ import { ArmGesture } from './slapanim.js';
 import { cleanFabrics } from '../../shared/fabric.mjs';
 import { acquireFabric, releaseFabric, makeFabricable, setFabric, tickFabric } from './fabrics.js';
 import { Mouth, MOUTH } from './mouth.js';
+import { FACE, isFaceTriangle, effectiveFabrics } from './face.js';
+export { FACE, effectiveFabrics };
 const MOUTH_AT = MOUTH.at;
 import { quantLevel, openOf } from '../../shared/director.mjs';
 
@@ -20,6 +22,7 @@ const SCALE = 0.9;              // modellen är 1,87 m; 0,9 ger ögonen ungefär
 const TOP = 1.87 * SCALE;       // huvudets topp
 const LOOK_KEY = 'klibb.avatar';
 
+export const FACE_HEX = /^#[0-9a-f]{6}$/i;
 const pickColor = (v, list, def) => (typeof v === 'string' && list.includes(v.toLowerCase()) ? v.toLowerCase() : def);
 export function normalizeLook(l) {
   const d = AV.default; l = l && typeof l === 'object' ? l : {};
@@ -32,6 +35,7 @@ export function normalizeLook(l) {
     skin: pickColor(l.skin, AV.colors.skin, d.skin),
     hat: l.hat === true,
     hatColor: pickColor(l.hatColor, AV.colors.hat, d.hatColor),
+    ...(typeof l.face === 'string' && FACE_HEX.test(l.face) ? { face: l.face.toLowerCase() } : {}), // own face colour; absent = skin
     ...(cleanFabrics(l.fabric) ? { fabric: cleanFabrics(l.fabric) } : {}), // tyger (valfritt), se shared/fabric.mjs
   };
 }
@@ -60,6 +64,7 @@ export function loadAvatarModel() {
     modelPromise = loader.loadAsync(AVATAR_URL).then((gltf) => {
       const clips = Object.fromEntries(gltf.animations.map((a) => [a.name, a]));
       addFabricPositions(gltf.scene);
+      addFaceGroups(gltf.scene);
       return { scene: gltf.scene, clips };
     });
     modelPromise.catch(() => { modelPromise = null; });
@@ -79,6 +84,25 @@ function addFabricPositions(scene) {
     const n = o.geometry.attributes.position.count, out = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { o.getVertexPosition(i, v); v.applyMatrix4(o.matrixWorld); out.set([v.x, v.y, v.z], i * 3); }
     o.geometry.setAttribute('fabPos', new THREE.BufferAttribute(out, 3));
+  });
+}
+
+// ---------- The face (Jens, 29 Oct 2026): its own material, independent of the body (face.js) ----------
+const HEADS = new Set(Object.values(AV.hair).map((h) => h.head));
+const headPart = (o) => { let p = o; while (p && !HEADS.has(p.name)) p = p.parent; return p; };
+function addFaceGroups(scene) {
+  scene.traverse((o) => {
+    if (!o.isSkinnedMesh || !headPart(o)) return;
+    const g = o.geometry, name = o.material.name;
+    if (name === 'Skin_Darker') { g.userData.faceAll = true; return; } // the stubble patch: all face
+    if (name !== 'Skin' || g.userData.faceGroups || !g.index) return;
+    const fp = g.attributes.fabPos.array, idx = g.index.array, rest = [], face = [];
+    const P = (i) => [fp[i * 3], fp[i * 3 + 1], fp[i * 3 + 2]];
+    for (let t = 0; t < idx.length; t += 3) (isFaceTriangle(P(idx[t]), P(idx[t + 1]), P(idx[t + 2])) ? face : rest).push(idx[t], idx[t + 1], idx[t + 2]);
+    if (!face.length) return;
+    idx.set([...rest, ...face]); g.index.needsUpdate = true;
+    g.clearGroups(); g.addGroup(0, rest.length, 0); g.addGroup(rest.length, face.length, 1);
+    g.userData.faceGroups = face.length / 3;
   });
 }
 
@@ -150,7 +174,8 @@ export class Avatar {
     this.model.scale.setScalar(SCALE);
     this.root.add(this.model);
     this.parts = {}; // delnamn -> [meshar]
-    this.mats = { skin: [], skinDark: [], brows: [], hair: [], shirt: [], pants: [] };
+    this.mats = { skin: [], skinDark: [], brows: [], hair: [], shirt: [], pants: [], face: [], faceDark: [] };
+    this.faceFeatures = []; // the head's eyes and eyebrows (hidden under a face photo, which has its own)
     this.model.traverse((o) => {
       if (!o.isMesh) return;
       let part = o; while (part && !PARTS.has(part.name)) part = part.parent;
@@ -158,8 +183,13 @@ export class Avatar {
       o.frustumCulled = false; // skinnade meshar har fel "bounding box" när de rör sig
       o.raycast = () => {};    // gubbar ska aldrig träffas av stämpel-strålen
       (this.parts[part.name] ||= []).push(o);
-      const role = roleOf(part.name, o.material.name);
-      if (role) { o.material = o.material.clone(); this.mats[role].push(o.material); } // bara färgade material klonas, resten delas
+      const role = roleOf(part.name, o.material.name), g = o.geometry;
+      if (HEADS.has(part.name) && (o.material.name === 'Eye' || o.material.name === 'Eyebrows')) this.faceFeatures.push({ m: o, part: part.name });
+      if (role === 'skinDark' && g.userData.faceAll) { o.material = o.material.clone(); o.material.name = 'Face_Darker'; this.mats.faceDark.push(o.material); }
+      else if (role === 'skin' && g.userData.faceGroups) { // the head: skin + the face (its own material)
+        const skin = o.material.clone(), face = o.material.clone(); face.name = 'Face';
+        o.material = [skin, face]; this.mats.skin.push(skin); this.mats.face.push(face);
+      } else if (role) { o.material = o.material.clone(); this.mats[role].push(o.material); } // bara färgade material klonas, resten delas
     });
     this.head = this.model.getObjectByName('Head');
     const capMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, flatShading: true });
@@ -169,9 +199,9 @@ export class Avatar {
     // The talking mouth (mouth.js): follows the head bone like the cap, hidden while silent.
     this.mouth = new Mouth(name || Math.random()); this.root.add(this.mouth.group); this.mouthT = null;
     // Tyger: varje färgplats kan bära en upprepad bild (fabrics.js). Huden har två material (mörkare skugga).
-    for (const [role, list] of Object.entries(this.mats)) for (const m of list) makeFabricable(m, { tint: role === 'skinDark' ? 0.82 : 1 });
+    for (const [role, list] of Object.entries(this.mats)) for (const m of list) makeFabricable(m, { tint: role === 'skinDark' || role === 'faceDark' ? 0.82 : 1, face: role === 'face' || role === 'faceDark' ? FACE : null });
     makeFabricable(capMat);
-    this.slotMats = { shirt: this.mats.shirt, pants: this.mats.pants, hair: this.mats.hair, skin: [...this.mats.skin, ...this.mats.skinDark], hat: [capMat] };
+    this.slotMats = { shirt: this.mats.shirt, pants: this.mats.pants, hair: this.mats.hair, skin: [...this.mats.skin, ...this.mats.skinDark], hat: [capMat], face: [...this.mats.face, ...this.mats.faceDark] };
     this.fab = {}; // plats -> { id, f, tex, ok }
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = {};
@@ -190,8 +220,10 @@ export class Avatar {
     const set = (role, hex, mul = 1) => this.mats[role].forEach((m) => { m.color.set(hex); if (mul !== 1) m.color.multiplyScalar(mul); });
     set('skin', L.skin); set('skinDark', L.skin, 0.82); set('hair', L.hairColor); set('brows', L.hairColor, 0.55);
     set('shirt', L.shirt); set('pants', L.pants);
+    set('face', L.face || L.skin); set('faceDark', L.face || L.skin, 0.82);
     this.cap.visible = L.hat; this.capMat.color.set(L.hatColor);
-    this.applyFabrics(L.fabric || {});
+    this.applyFabrics(effectiveFabrics(L));
+    this.updateFaceFeatures();
   }
   // Samma tyg-id som förut: bara nya värden. Nytt id: hämta texturen (cachad), färgen syns tills den är laddad.
   applyFabrics(fabric) {
@@ -208,9 +240,24 @@ export class Avatar {
       p.then((tex) => {
         if (this.fab[slot] !== entry || this.disposed || !tex) return;
         entry.tex = tex; mats.forEach((m) => setFabric(m, tex, entry.f));
+        if (slot === 'face') this.updateFaceFeatures();
       });
     }
   }
+  // A face photo (loaded) brings its own eyes: the model's eyes and eyebrows step aside meanwhile.
+  updateFaceFeatures() {
+    const L = this.look, o = AV.outfits[L.outfit], hd = AV.hair[L.hair], show = new Set([o.body, o.legs, o.feet, hd.head]);
+    const photo = !!(this.fab.face?.tex && this.fab.face.f.photo);
+    for (const { m, part } of this.faceFeatures) m.visible = !photo && show.has(part);
+  }
+  // Tests: what the face shows (its colour, its fabric/photo, whether the model's eyes are shown).
+  faceInfo() {
+    const f = this.fab.face;
+    return { colour: '#' + (this.mats.face[0]?.color.getHexString() || ''), skin: '#' + (this.mats.skin[0]?.color.getHexString() || ''),
+      split: this.mats.face.length > 0, fabric: f ? { id: f.id, loaded: !!f.tex, photo: !!f.f.photo } : null, photo: this.facePhoto,
+      eyes: this.faceFeatures.some(({ m }) => m.visible) };
+  }
+  get facePhoto() { return !!(this.fab.face?.tex && this.fab.face.f.photo); }
   fabricInfo() { return Object.fromEntries(Object.entries(this.fab).map(([s, e]) => [s, { id: e.id, loaded: !!e.tex, f: e.f }])); }
   setName(name) {
     this.name = name;
@@ -375,6 +422,6 @@ export class Players {
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
       walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false,
-      gestures: p.gestures || 0, slot: p.slot, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {} }));
+      gestures: p.gestures || 0, slot: p.slot, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
   }
 }

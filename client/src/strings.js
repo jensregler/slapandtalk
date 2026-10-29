@@ -193,6 +193,10 @@ export const EN = {
   avatarName: 'Name (shown above your head)', avatarNamePlaceholder: 'e.g. Jens',
   outfit: 'Outfit', hair: 'Hair', shirt: 'Top', pants: 'Trousers', hairColor: 'Hair colour', skin: 'Skin', cap: 'Cap',
   capColour: 'Cap colour',
+  face: 'Face', faceSameAsSkin: 'Same as skin', faceSameAsSkinTitle: 'The face follows the skin colour (and skin fabric)',
+  faceCustom: 'Any colour', faceCustomTitle: 'Pick any colour for the face',
+  facePhoto: '🙂 Face photo', facePhotoTitle: 'Use a photo of a face: it goes on the front of the head (the middle square of the picture)',
+  facePhotoOn: 'Face photo – Zoom and Rotation move it on the face.', facePhotoMaking: 'Putting the photo on your face…',
   // Peels (backing paper on the floor)
   peelsToggle: '🧻 Peels: backing paper falls to the floor', peelsTitle: 'Every slap drops the sticker’s backing paper on the floor, like for real',
   peelsClear: '🧹 Sweep up the peels', peelsOnToast: 'Peels on: the backing paper lands on the floor.', peelsOffToast: 'Peels off.', peelsCleared: 'The floor is swept.',

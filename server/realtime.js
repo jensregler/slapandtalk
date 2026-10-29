@@ -95,6 +95,8 @@ function cleanLook(l, ent = ALL) {
     skin: pick(l.skin, AV.colors.skin, d.skin),
     hat: l.hat === true,
     hatColor: pick(l.hatColor, AV.colors.hat, d.hatColor),
+    // The face's own colour (any #rrggbb, the face picker); absent = the same as the skin.
+    ...(typeof l.face === 'string' && /^#[0-9a-f]{6}$/i.test(l.face) ? { face: l.face.toLowerCase() } : {}),
     ...(ent.fabrics ? fabricField(l.fabric) : {}),
     ...soundField(l.sound, ent),
   };

@@ -65,7 +65,7 @@ const VERT = `
 #endif
 `;
 const FRAG_PARS = `varying vec3 vFabPos;
-uniform sampler2D fabMap; uniform vec4 fabXf; uniform vec2 fabOff; uniform float fabHue; uniform float fabTint;
+uniform sampler2D fabMap; uniform vec4 fabXf; uniform vec2 fabOff; uniform float fabHue; uniform float fabTint; uniform vec4 fabFace;
 vec3 fabHueShift(vec3 c, float a) { const vec3 k = vec3(0.57735); float ca = cos(a); return c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca); }
 vec4 fabSample(vec2 p, mat2 R) { return texture2D(fabMap, R * p * fabXf.z + fabOff); }
 `;
@@ -75,23 +75,33 @@ const FRAG = `
     vec3 fw = abs(normalize(cross(dFdx(fp), dFdy(fp))));
     fw = pow(fw, vec3(4.0)); fw /= (fw.x + fw.y + fw.z + 1e-5);
     mat2 R = mat2(fabXf.x, fabXf.y, -fabXf.y, fabXf.x);
+#ifdef USE_FABPHOTO
+    // A face photo: one square over the front of the head (avatars.js FACE), zoom = scale, tilt = rot.
+    vec2 q = R * ((fp.xy - fabFace.xy) / (fabFace.z * fabXf.w)) + 0.5;
+    vec4 fc = texture2D(fabMap, clamp(q, 0.002, 0.998));
+    vec2 e = smoothstep(vec2(0.0), vec2(0.02), q) * smoothstep(vec2(0.0), vec2(0.02), 1.0 - q);
+    fc.a *= e.x * e.y * smoothstep(fabFace.w, fabFace.w + 0.03, fp.z);
+#else
     vec4 fc = fabSample(fp.zy, R) * fw.x + fabSample(fp.xz, R) * fw.y + fabSample(fp.xy, R) * fw.z;
+#endif
     fc.rgb = max(fabHueShift(fc.rgb, fabHue), 0.0) * fabTint;
     diffuseColor.rgb = mix(diffuseColor.rgb, fc.rgb, fc.a);
   }
 `;
 function fabricCompile(shader) {
   const u = this.userData.fab;
-  Object.assign(shader.uniforms, { fabMap: u.map, fabXf: u.xf, fabOff: u.off, fabHue: u.hue, fabTint: u.tint, fabUnit: u.unit });
+  Object.assign(shader.uniforms, { fabMap: u.map, fabXf: u.xf, fabOff: u.off, fabHue: u.hue, fabTint: u.tint, fabUnit: u.unit, fabFace: u.face });
   if (!this.defines || !('USE_FABRIC' in this.defines)) return;
   shader.vertexShader = VERT_PARS + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n' + VERT);
   shader.fragmentShader = FRAG_PARS + shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + FRAG);
 }
-const cacheKey = function () { return 'fabric1' + (this.defines && 'USE_FABRIC' in this.defines ? '+' : '-'); };
+const cacheKey = function () { const d = this.defines || {}; return 'fabric2' + ('USE_FABRIC' in d ? '+' : '-') + ('USE_FABPHOTO' in d ? 'p' : ''); };
 // Make a material able to wear a fabric (does nothing until setFabric).
-export function makeFabricable(mat, { tint = 1, unit = 1 } = {}) {
+// face = avatars.js FACE: this material is the face's and may wear a face photo (f.photo).
+export function makeFabricable(mat, { tint = 1, unit = 1, face = null } = {}) {
   mat.userData.fab = { map: { value: null }, xf: { value: new THREE.Vector4(1, 0, 4, 0) }, off: { value: new THREE.Vector2() },
-    hue: { value: 0 }, tint: { value: tint }, unit: { value: unit }, f: null };
+    hue: { value: 0 }, tint: { value: tint }, unit: { value: unit }, f: null,
+    canPhoto: !!face, face: { value: face ? new THREE.Vector4(face.cx, face.cy, face.size, face.zMin) : new THREE.Vector4(0, 0, 1, 0) } };
   mat.onBeforeCompile = fabricCompile; mat.customProgramCacheKey = cacheKey;
   return mat;
 }
@@ -99,15 +109,19 @@ export function setFabric(mat, tex, f) {
   const u = mat.userData.fab; if (!u) return;
   const on = !!(tex && f);
   u.map.value = on ? tex : null; u.f = on ? f : null;
-  const had = !!mat.defines && 'USE_FABRIC' in mat.defines;
-  if (on !== had) { mat.defines = { ...(mat.defines || {}) }; if (on) mat.defines.USE_FABRIC = ''; else delete mat.defines.USE_FABRIC; mat.needsUpdate = true; }
+  const photo = on && u.canPhoto && !!f.photo, d = mat.defines || {};
+  if (on !== 'USE_FABRIC' in d || photo !== 'USE_FABPHOTO' in d) {
+    const nd = { ...d }; delete nd.USE_FABRIC; delete nd.USE_FABPHOTO;
+    if (on) nd.USE_FABRIC = ''; if (photo) nd.USE_FABPHOTO = '';
+    mat.defines = nd; mat.needsUpdate = true;
+  }
   if (on) tickFabric(mat);
 }
 const DEG = Math.PI / 180;
 export function tickFabric(mat, tMs = Date.now()) {
   const u = mat.userData.fab; if (!u || !u.f) return;
   const f = u.f, ph = fabricPhase(f, tMs);
-  u.xf.value.set(Math.cos(ph.rot * DEG), Math.sin(ph.rot * DEG), 1 / (FABRIC.tileMeters * f.scale), 0);
+  u.xf.value.set(Math.cos(ph.rot * DEG), Math.sin(ph.rot * DEG), 1 / (FABRIC.tileMeters * f.scale), f.scale);
   u.off.value.set(0, ph.offset); u.hue.value = ph.hue * DEG;
 }
 
@@ -124,6 +138,21 @@ export async function prepareFabricImage(blob) {
     g.imageSmoothingQuality = 'high'; g.drawImage(bmp, (size - w) / 2, (size - h) / 2, w, h);
     let out = await toBlob(c, 'image/webp', 0.88);
     if (!out || out.type !== 'image/webp') out = await toBlob(c, 'image/png');
+    if (out.size <= FABRIC.maxBytes || size <= 64) { bmp.close?.(); return out; }
+    size /= 2;
+  }
+}
+// A face photo: the middle square of the picture (cover, not fit), so a portrait fills the face.
+export async function prepareFacePhoto(blob) {
+  const bmp = await createImageBitmap(blob);
+  let size = fabricSize(Math.min(bmp.width, bmp.height), Math.min(bmp.width, bmp.height));
+  const side = Math.min(bmp.width, bmp.height), sx = (bmp.width - side) / 2, sy = (bmp.height - side) / 2;
+  const c = document.createElement('canvas');
+  for (;;) {
+    c.width = c.height = size;
+    const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(bmp, sx, sy, side, side, 0, 0, size, size);
+    let out = await toBlob(c, 'image/webp', 0.88);
+    if (!out || out.type !== 'image/webp') out = await toBlob(c, 'image/jpeg', 0.85);
     if (out.size <= FABRIC.maxBytes || size <= 64) { bmp.close?.(); return out; }
     size /= 2;
   }

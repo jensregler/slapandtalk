@@ -219,6 +219,16 @@ inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) zoomar ru
   nära en vägg flyttar kameran till en sida med plats (aldrig genom väggen). Resten av HUD:en göms
   medan panelen är öppen (`client/src/avatarview.js`). **Save**/**Cancel** = vanliga kameran igen. **Save** sparar den på den här enheten och
   de andra ser den direkt. **🎲 Random** ger en slumpad gubbe. Första gången får du en slumpad.
+- **Ansiktet (Face):** ansiktet har ett eget material, skilt från kroppen (framsidan av huvudet, från
+  pannan till hakan; `client/src/face.js`). Raden *Face* (efter *Skin*) har färgrutor, **Same as skin**
+  (standard: ansiktet följer hudens färg och hudens tyg) och **valfri färg** (färgväljaren). Med
+  *Colour | Fabric* får ansiktet ett tyg precis som tröjan (dina klibbor, senaste tyger, mönster, egen
+  bild) eller ett **🙂 Face photo**: bildens mittersta kvadrat läggs en gång över ansiktet (ögonen ca
+  42 % från toppen, som i ett vanligt porträtt); *Zoom* och *Rotation* flyttar det, och modellens egna
+  ögon/ögonbryn göms så länge fotot syns. Allt syns direkt på den inzoomade gubben, sparas med gubben,
+  skickas till de andra i rummet (`look.face`, `look.fabric.face` med `photo: true`) och finns med i
+  inspelningar och foton. Tyg/foto i ansiktet kräver samma behörighet som tyger på tröjan (fullversionen;
+  öppet för alla medan OPEN_ACCESS är på); färgen är gratis.
 - **Namn på namnskylten:** det namn du väljer i My avatar syns för alla direkt när du sparar (och
   när du kommer in igen). Har du inget namn där används ditt artistnamn, annars heter du *Guest 1*,
   *Guest 2* … (servern delar ut numren, så två i samma rum får aldrig samma gästnamn, och ingen kan

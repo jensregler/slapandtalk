@@ -27,8 +27,8 @@ const seeded = (seed) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let 
 // ---------- Värdena ----------
 {
   const f = cleanFabric({ id: ID });
-  assert(same(Object.keys(f).sort(), ['cycleHue', 'hue', 'hueHz', 'id', 'rot', 'scale', 'scroll', 'spin', 'spinHz'])
-    && f.scale === 1 && f.rot === 0 && f.hue === 0 && f.cycleHue === false && f.spin === false && f.scroll === 0, 'ett tyg med bara id får standardvärden');
+  assert(same(Object.keys(f).sort(), ['cycleHue', 'hue', 'hueHz', 'id', 'photo', 'rot', 'scale', 'scroll', 'spin', 'spinHz'])
+    && f.scale === 1 && f.rot === 0 && f.hue === 0 && f.cycleHue === false && f.spin === false && f.photo === false && f.scroll === 0, 'ett tyg med bara id får standardvärden');
   const c = cleanFabric({ id: ID, scale: 99, rot: -30, hue: 725, hueHz: 50, spinHz: -4, scroll: 1e9, cycleHue: 'true', spin: 1 });
   assert(c.scale === FABRIC.params.scale.max && c.rot === 330 && c.hue === 5 && c.hueHz === 2 && c.spinHz === FABRIC.params.spinHz.min && c.scroll === 2,
     'för stora/små värden kläms in (scale 0.1–4, Hz-gränser), vinklar går runt (−30° = 330°, 725° = 5°)');

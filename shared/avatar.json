@@ -17,7 +17,8 @@
     "pants": ["#2b4c7e", "#5b8bd0", "#222222", "#6d6d6d", "#8b5a2b", "#c2b280", "#f1f1f1", "#b22222"],
     "hair": ["#1b1410", "#4a2c17", "#8d5524", "#d4a35a", "#f0e2b6", "#b5b5b5", "#c0392b", "#ff4fa3", "#2e86de", "#27ae60"],
     "skin": ["#ffe0c4", "#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#5c3a21"],
-    "hat": ["#e63946", "#ffd400", "#3a86ff", "#222222", "#f1f1f1", "#2a9d8f"]
+    "hat": ["#e63946", "#ffd400", "#3a86ff", "#222222", "#f1f1f1", "#2a9d8f"],
+    "face": ["#ffe0c4", "#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#5c3a21", "#f1f1f1", "#7cff4f", "#00d1ff", "#ff70a6", "#b14bff", "#ffd400"]
   },
   "default": { "outfit": "tshirt", "hair": "kort", "shirt": "#3a86ff", "pants": "#2b4c7e", "hairColor": "#4a2c17", "skin": "#e0ac69", "hat": false, "hatColor": "#e63946" },
   "maxName": 24

@@ -1,5 +1,5 @@
 {
-  "slots": ["shirt", "pants", "hair", "skin", "hat"],
+  "slots": ["shirt", "pants", "hair", "skin", "hat", "face"],
   "params": {
     "scale":  { "min": 0.1,  "max": 4,   "def": 1,    "step": 0.05, "unit": "×" },
     "rot":    { "min": 0,    "max": 360, "def": 0,    "step": 1,    "unit": "°", "wrap": true },
@@ -8,7 +8,7 @@
     "spinHz": { "min": 0.02, "max": 1,   "def": 0.1,  "step": 0.01, "unit": "Hz" },
     "scroll": { "min": 0,    "max": 2,   "def": 0,    "step": 0.05, "unit": "tiles/s" }
   },
-  "flags": ["cycleHue", "spin"],
+  "flags": ["cycleHue", "spin", "photo"],
   "tileMeters": 0.25,
   "maxPx": 512,
   "minPx": 32,
