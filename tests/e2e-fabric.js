@@ -57,8 +57,8 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
     await A.waitForSelector('#avatar-panel', { state: 'visible' });
     const slot = (s) => `#avatar-panel .fab-slot[data-slot="${s}"]`;
     const segs = await A.$$eval('#avatar-panel .fab-slot', (rows) => rows.map((r) => [r.dataset.slot, [...r.querySelectorAll('.fab-seg button')].map((b) => b.textContent).join('|')]));
-    assert(segs.length === 5 && segs.every(([, t]) => t === 'Colour|Fabric') && segs.map(([s]) => s).join() === 'shirt,pants,hair,skin,hat',
-      'Min gubbe: varje färgplats (tröja, byxor, hårfärg, hud, keps) har en Colour | Fabric-knapp');
+    assert(segs.length === 6 && segs.every(([, t]) => t === 'Colour|Fabric') && segs.map(([s]) => s).join() === 'shirt,pants,hair,skin,face,hat',
+      'Min gubbe: varje färgplats (tröja, byxor, hårfärg, hud, ansikte, keps) har en Colour | Fabric-knapp');
     const plain = await A.evaluate(() => { const b = document.querySelector('#avatar-panel .fab-seg button[data-mode="fabric"]'), ico = b.querySelector('.fab-ico');
       return { ico: !!ico && /^url\("data:image\/png/.test(ico.style.backgroundImage), text: b.textContent, wild: !!document.getElementById('av-wild').offsetParent }; });
     assert(plain.ico && plain.text === 'Fabric' && !plain.wild, 'closed view: the Fabric button is a plain label with a small cotton-weave swatch, and Randomize is not shown');
