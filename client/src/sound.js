@@ -10,6 +10,7 @@
 // add a subtle, automatic reverb (roomAcoustics). Mute is remembered ('klibb.muted').
 import { DEFAULT_PATCHES, variant, cleanPatch, cleanFx, duffScale, retune, roomAcoustics, colourPatch } from '../../shared/synth.mjs';
 import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
+import { peelStepParams } from '../../shared/peelstep.mjs';
 
 const MUTE_KEY = 'klibb.muted';
 const VOLUME = { slap: [0.75 / 0.75, 0.9 / 0.75], peel: [1, 0.6 / 0.45], nope: [1, 1], step: [1, 1], duff: [1, 1] }; // [mine, remote]
@@ -20,6 +21,8 @@ export class Sounds {
     this.muted = localStorage.getItem(MUTE_KEY) === '1';
     this.log = [];     // the last sounds (for tests and curious people): { kind, remote, distance, gain, rate, seed, custom }
     this.steps = 0;    // footsteps played (not in the log: they would drown it)
+    this.peelSteps = 0; // …of them on a peel (the muffled paper variant, shared/peelstep.mjs)
+    this.stepLog = []; // the last 40 footsteps (tests): { onPeel, speed, cutoff, drive, remote }
     this.mine = null;  // my look.sound ({ seed, patches?, fx? })
     this.room = roomAcoustics(null);
     this.listener = { p: [0, 1.6, 0], f: [0, 0, -1] };
@@ -77,7 +80,8 @@ export class Sounds {
   // room (spatial), or null for my own. opts: { sound: that player's look.sound (default: mine),
   // area: m² (duff), volume }.
   // time: when (AudioContext seconds, the footstep groove schedules ahead); tune: extra pitch ratio.
-  play(kind, at = null, { sound, area, volume = 1, time = null, tune = 1 } = {}) {
+  // onPeel + speed (m/s, footsteps only): the step lands on backing paper – the paper variant.
+  play(kind, at = null, { sound, area, volume = 1, time = null, tune = 1, onPeel = false, speed = 0 } = {}) {
     const remote = !!at;
     const who = sound === undefined ? this.mine : sound;
     const wobble = kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06; // tiny per-play life
@@ -89,11 +93,17 @@ export class Sounds {
     const { patch, custom } = this.patchFor(kind, who);
     const entry = { kind, remote, distance: +distance.toFixed(2), gain: +heard.toFixed(3), level: +gain.toFixed(3), rate: +rate.toFixed(3),
       seed: who?.seed || null, colour: who && Number.isInteger(who.colour) ? who.colour : 0, custom, muted: this.muted, time: Date.now(), ...(kind === 'duff' ? { area: +(+area || 0).toFixed(4) } : {}) };
-    if (kind === 'step') this.steps++; else { this.log.push(entry); if (this.log.length > 50) this.log.shift(); }
+    const paper = kind === 'step' && onPeel ? peelStepParams(speed) : null;
+    if (paper) { gain *= paper.gain; entry.paper = paper; }
+    if (kind === 'step') {
+      this.steps++; if (paper) this.peelSteps++;
+      this.stepLog.push({ onPeel: !!paper, speed: +(+speed || 0).toFixed(2), cutoff: paper?.cutoff ?? null, drive: paper?.drive ?? null, remote, muted: this.muted });
+      if (this.stepLog.length > 40) this.stepLog.shift();
+    } else { this.log.push(entry); if (this.log.length > 50) this.log.shift(); }
     if (this.muted) return entry;
     if (!this.ensure()) return entry;
     const fx = who && who.fx ? cleanFx(who.fx) : null;
-    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, fx, pos: remote ? at : null, time, pool: kind === 'step' ? 'step' : 'main' })) entry.skipped = true; };
+    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, fx, pos: remote ? at : null, time, pool: kind === 'step' ? 'step' : 'main', paper })) entry.skipped = true; };
     if (this.engine) go(this.engine);
     else if (time == null) { const t = Date.now(); this.ready.then((eng) => { if (Date.now() - t < 400) go(eng); }); } // the very first sound waits for Tone.js
     return entry;

@@ -2216,8 +2216,9 @@ function updateChase(dt) {
 // Footsteps (groove.js + shared/groove.mjs): everyone who walks plays their slot's polyrhythm on
 // ONE shared bar, so the room's footsteps are one groove. Mine while I walk, the others' from where they walk.
 function walkSounds() {
-  const walkers = [{ id: 'me', x: camera.position.x, z: camera.position.z, at: null }];
-  for (const pl of together.players.map.values()) walkers.push({ id: pl.id, x: pl.pos.x, z: pl.pos.z, at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id) }); // their seed + slot colour
+  // onPeel: feet on backing paper on the floor = the muffled "paper" step (shared/peelstep.mjs)
+  const walkers = [{ id: 'me', x: camera.position.x, z: camera.position.z, at: null, onPeel: peelLayer.under(camera.position.x, camera.position.z) }];
+  for (const pl of together.players.map.values()) walkers.push({ id: pl.id, x: pl.pos.x, z: pl.pos.z, at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id), onPeel: peelLayer.under(pl.pos.x, pl.pos.z) }); // their seed + slot colour
   groove.update(walkers);
 }
 
@@ -2448,7 +2449,7 @@ window.klibb = {
   demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
     closedText: $('demo-closed-text').textContent, invite: inviteState, inviteNote: $('invite-note').hidden ? '' : $('invite-note').textContent, left: demoTimer && demoTimer.left ? demoTimer.left() : null }),
   inviteFriend, mySlot: () => together.mySlot(), talking: () => together.talking(),
-  soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events,
+  soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
   groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
   setGrooveScale, grooveObj: () => groove,
   autoSlap: () => autoSlap.info(), autoSlapObj: () => autoSlap, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),

@@ -41,7 +41,7 @@ export class GrooveSteps {
     return this.anchor.audio + (ms - this.anchor.wall) / 1000;
   }
 
-  // walkers: [{ id, x, z, at: [x,y,z] | null (me), voice: look.sound | undefined (me) }]
+  // walkers: [{ id, x, z, at: [x,y,z] | null (me), voice: look.sound | undefined (me), onPeel: feet on backing paper }]
   update(walkers, nowMs = this.now()) {
     const seen = new Set(); let budget = WALK.maxPerFrame;
     // look ahead at least 1.5 frames (slow machines), at most WALK.maxAheadMs
@@ -74,7 +74,7 @@ export class GrooveSteps {
         const time = this.audioTime(e.t);
         if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up
         // left/right foot: a hair lower on every other pulse
-        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), time, tune: e.n % 2 ? 0.97 : 1.02 });
+        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), time, tune: e.n % 2 ? 0.97 : 1.02, onPeel: !!w.onPeel, speed: t.v });
       }
       if (budget <= 0) break;
     }
