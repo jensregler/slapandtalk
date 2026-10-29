@@ -24,9 +24,12 @@ export function connect(roomId, handlers) {
   const url = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?room=${encodeURIComponent(roomId)}`;
   const send = (m) => { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(m)); return true; } return false; };
 
+  // h.ready (optional): () => a promise to wait for before the very first connect (main.js: the room info +
+  // entitlements, so my first hello already carries the look I have in this room – the preset-room character).
+  let gated = typeof h.ready === 'function';
   function open() {
     clearTimeout(timer); timer = null;
-    if (closed || (ws && ws.readyState <= 1)) return;
+    if (gated || closed || (ws && ws.readyState <= 1)) return;
     setStatus('connecting');
     let sock;
     try { sock = new WebSocket(url()); } catch { schedule(); return; }
@@ -86,7 +89,10 @@ export function connect(roomId, handlers) {
   const now = () => { if (!closed && (!ws || ws.readyState > 1)) { attempt = 0; open(); } };
   addEventListener('online', now);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') now(); });
-  setTimeout(open, 0); // först när den som anropade är klar med sin egen start
+  setTimeout(() => { // först när den som anropade är klar med sin egen start
+    if (!gated) { open(); return; }
+    Promise.resolve().then(h.ready).catch(() => {}).finally(() => { gated = false; open(); });
+  }, 0);
 
   return {
     get id() { return myId; },

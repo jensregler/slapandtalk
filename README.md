@@ -612,6 +612,12 @@ gratisklibbor till 1 m), **färdiga videor och 📷-bilder utan kanallogga och l
 biblioteket – en ny uppladdning ersätter den gamla med en kort toast, äldre sparade uppladdningar ligger
 kvar på enheten men bara den nyaste visas; `shared/uploads.mjs`, regeln gäller i webbläsaren eftersom
 uppladdningarna bor på enheten och det inte finns konton).
+**sin egen gubbe i preset-rum** (`ownAvatar`; gratis: i ett rum som fått en preset är man en slumpad
+figur för just det rummet – kläder, hår, färger, hud/ansikte, namnet behålls – samma varje gång för samma
+person i samma rum (frö = rum + enhets-id, `shared/randomlook.mjs`), och det är den de andra och
+inspelningen ser. Min gubbe visar figuren med utseendet låst och en lugn rad om varför, namnet går att
+ändra; den egna gubben ligger kvar sparad och är tillbaka i andra rum. Första anslutningen väntar (max 3 s)
+på rumsinfon så att redan första hello bär figuren. Regeln gäller i webbläsaren, som uppladdningarna).
 Allt sitter i en gemensam abstraktion, `entitlements.full.<funktion>` (server/entitlements.js och
 client/src/entitlements.js), så nya saker (t.ex. ljus) blir bara ett namn till i `FEATURES`.
 Standard är `false` för allt. Alla ser och hör andras tyger och ljud; bara att *skicka* egna kräver
@@ -622,7 +628,7 @@ flaggan, och servern stryker/nekar tyg- och patchdata från den som inte har den
 1. Hitta på en hemlig nyckel (minst 12 tecken, `A–Z a–z 0–9 _ . ~ -`), t.ex. `openssl rand -hex 16`.
 2. Lägg den i miljövariabeln `FULL_ACCESS_KEYS` på servern (Render → Environment). Flera nycklar
    separeras med komma. `nyckel` ensam låser upp allt; `nyckel:fabrics+bigStickers` bara de uppräknade
-   (funktioner: `fabrics`, `soundDesign`, `bigStickers`, `cleanVideo`, `multiCam`, `natureStickers`, `uploads`).
+   (funktioner: `fabrics`, `soundDesign`, `bigStickers`, `cleanVideo`, `multiCam`, `natureStickers`, `uploads`, `ownAvatar`).
 3. Öppna `https://<sajten>/?unlock=<nyckel>` en gång i webbläsaren. Nyckeln sparas i den
    webbläsaren (localStorage `klibb.unlock`) och tas bort ur adressfältet. `?unlock=off` glömmer den.
 

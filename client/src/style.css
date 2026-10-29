@@ -696,3 +696,9 @@ body.touch.two-wheels #nature-strip.locked #nature-num { display: block; left: 5
 #mode-nature.locked::after { content: ' 🔒'; }
 #mode-nature[aria-pressed="true"] { background: #7ccf6a; color: #0d1a0a; }
 body.nature-mode #mode-hud { color: #bff0a8; }
+/* A preset room, free version: the room's character – the look rows are shown but not editable. */
+#avatar-panel.room-character .sp-row, #avatar-panel.room-character .check { opacity: .55; }
+#av-room-note { margin: 0; font-size: 13px; color: #cfe8cf; }
+#av-room-note[hidden] { display: none; }
+#avatar-panel.room-character #av-random { opacity: .4; }
+#avatar-panel.room-character button:disabled { cursor: default; }

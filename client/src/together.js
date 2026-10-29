@@ -17,7 +17,7 @@ const CHAT_FADE_MS = 15_000;
 // onPeople(ids): the players in the room changed (voice.js builds its connections from it).
 // onSignal(from, data): WebRTC signalling for voice chat.
 export function initTogether({ room, scene, camera, controls, isTouch, toast, artist, onEvent, onReconnect, onWelcome = () => {}, onBusyChange = () => {}, onSound = () => {},
-  pass = () => null, onDenied = () => {}, onInvite = () => {}, onPeople = () => {}, onSignal = () => {} }) {
+  pass = () => null, ready = null, onDenied = () => {}, onInvite = () => {}, onPeople = () => {}, onSignal = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const me = loadMyAvatar();
   if (!me.saved) saveMyAvatar(me.name, me.look); // en slumpad gubbe ska se likadan ut nästa gång
@@ -27,12 +27,16 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   // Sound: my seed (= my own variation of the default sounds) always; custom patches/FX only
   // with soundDesign (the server drops them otherwise).
   const shownSound = () => { const s = loadSoundLook(); if (!has('soundDesign')) { delete s.patches; delete s.fx; } s.colour = mySlot; return s; };
-  const shownLook = () => { const l = { ...me.look, sound: shownSound() }; if (!has('fabrics')) delete l.fabric; return l; };
+  // roomLook: the room's own character for me (a preset room, free version – main.js, shared/randomlook.mjs).
+  // It replaces my look for others, recordings and my own avatar there; my own look stays saved for other rooms.
+  let roomLook = null;
+  const shownLook = () => { const l = { ...(roomLook || me.look), sound: shownSound() }; if (!has('fabrics') || roomLook) delete l.fabric; return l; };
   const players = new Players(scene);
   let status = 'connecting', full = false, unread = 0, serverName = '', mySlot = 0; const talking = new Set(); // serverName = det namn de andra ser på mig
 
   // ---------- Anslutningen ----------
   const net = connect(room, {
+    ...(ready ? { ready } : {}),
     hello: () => { const ps = pass(); return { name: myName(), look: shownLook(), unlock: credentials(), p: camera.position.toArray(), y: controls.yaw, pi: controls.pitch, ...(ps ? { pass: ps } : {}) }; },
     onYou(name) { serverName = name; renderPeople(); },
     onWelcome(m) {
@@ -59,7 +63,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     },
     onChat(msg) { addChat(msg); if (msg.from !== net.id) players.say(msg.from, msg.text); },
     onEvent,
-    onStatus(s) { status = s; renderPeople(); renderChatInput(); },
+    onStatus(s) { status = s; renderPeople(); renderChatInput(); if (s === 'online' && roomLook) net.sendLook(myName(), shownLook()); },
     onReconnect,
     onError: (e) => toast(e, 2500),
   });
@@ -90,7 +94,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       if (talking.has(id)) li.classList.add('speaking');
       li.append(i, document.createTextNode(mine ? S.youSuffix(name || S.you) : name)); ul.appendChild(li);
     };
-    if (status === 'online') add(serverName || myName(), me.look.shirt, true, 'me');
+    if (status === 'online') add(serverName || myName(), shownLook().shirt, true, 'me');
     for (const p of players.map.values()) add(p.name, p.look?.shirt || '#888', false, p.id);
   }
 
@@ -200,6 +204,20 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     $('av-hat').checked = d.hat; $('av-hat-row').hidden = !d.hat;
     fab.render();
     self.avatar?.setLook(d); // live on my avatar in the room
+    lockForRoomCharacter();
+  }
+  // In a preset room (free): My avatar shows the room's character, the look can't be edited (only the
+  // name), with one calm line saying why. No upsell, no full-version panel.
+  function lockForRoomCharacter() {
+    const on = !!roomLook, panel = $('avatar-panel');
+    panel.classList.toggle('room-character', on);
+    let note = $('av-room-note');
+    if (!note) { note = document.createElement('p'); note.id = 'av-room-note'; note.className = 'hint'; panel.querySelector('h2').after(note); }
+    note.textContent = on ? S.avRoomCharacter : ''; note.hidden = !on;
+    for (const el of panel.querySelectorAll('button, input')) {
+      if (['av-name', 'av-ok', 'av-cancel'].includes(el.id)) continue;
+      el.disabled = on;
+    }
   }
   $('av-hat').onchange = (e) => { av.draft = normalizeLook({ ...av.draft, hat: e.target.checked }); renderAvatarPanel(); };
   function openAvatarPanel() {
@@ -230,7 +248,8 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     av.draft = normalizeLook(look); renderAvatarPanel();
   };
   $('av-ok').onclick = () => {
-    me.look = normalizeLook(av.draft); me.name = cleanName($('av-name').value);
+    if (!roomLook) me.look = normalizeLook(av.draft); // the room's character is not mine to keep
+    me.name = cleanName($('av-name').value);
     if (me.look.fabric) addRecent(Object.values(me.look.fabric).map((f) => f.id));
     self.avatar?.setLook(shownLook());
     saveMyAvatar(me.name, me.look);
@@ -323,8 +342,18 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     freezeGestures(ms) { if (self.avatar) self.avatar.gesture.freeze = ms; for (const p of players.map.values()) if (p.avatar) p.avatar.gesture.freeze = ms; },
     handPos: () => { const a = self.avatar; if (!a) return null; const w = a.gesture.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray()); return w; },
     selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0, fabrics: self.avatar ? self.avatar.fabricInfo() : {},
-      face: self.avatar ? self.avatar.faceInfo() : null, gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null }),
+      face: self.avatar ? self.avatar.faceInfo() : null, look: self.avatar ? { ...self.avatar.look } : null, gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null }),
     busy: () => av.open,
+    // The room's character (null = my own avatar): shown on me, sent to the room, the panel locked.
+    setRoomLook(look) {
+      const next = look ? normalizeLook(look) : null;
+      if (JSON.stringify(next) === JSON.stringify(roomLook)) return;
+      roomLook = next;
+      self.avatar?.setLook(shownLook());
+      if (net.status === 'online') net.sendLook(myName(), shownLook());
+      if (av.open) { av.draft = normalizeLook(shownLook()); fab.reset(av.draft); renderAvatarPanel(); }
+    },
+    roomLook: () => (roomLook ? { ...roomLook } : null),
     // 'My avatar' open: main.js tells which way its camera looks from (faceYaw), and passes on drags (px).
     avatarView: () => (av.open ? { faceYaw: av.faceYaw, dragged: av.dragged, phase: av.phase, turn: self.avatar ? self.avatar.root.rotation.y : null,
       built: !!self.avatar, visible: !!self.avatar?.root.visible, pos: self.avatar?.root.position.toArray() || null,

@@ -25,7 +25,9 @@
 // refuses nature stamps without it (Jens, 28 Oct 2026).
 // uploads: as many own uploaded stickers as you like. Free = ONE (a new upload replaces it; shared/uploads.mjs,
 // enforced in the browser – uploads live on the device, there are no accounts to count against).
-const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam', 'natureStickers', 'uploads'];
+// ownAvatar: your own avatar everywhere. Free: in a preset room you are a random character for that room
+// (shared/randomlook.mjs, seeded by room + device; the browser applies it, others/recordings get it as the look).
+const FEATURES = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam', 'natureStickers', 'uploads', 'ownAvatar'];
 const FREE_MAX_STICKER_M = 1;
 // The free version (the one being released): at most this many people IN a room at once, four
 // walls = one wall each (a session is ~30 min of slapping, then looking at it together). Rooms have

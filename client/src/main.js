@@ -26,6 +26,8 @@ import { PeelLayer } from './peels.js';
 import { PEEL, peelPlan, onFloor, stampDims } from '../../shared/peels.mjs';
 import { entitlements, loadEntitlements, credentials } from './entitlements.js';
 import { uploadsToReplace, shownUploads } from '../../shared/uploads.mjs';
+import { seededLook, roomCharacterSeed } from '../../shared/randomlook.mjs';
+import AVATAR_SPEC from '../../shared/avatar.json';
 import { initFullVersion } from './fullversion.js';
 import { GrooveSteps } from './groove.js';
 import { initAutoSlap } from './autoslap.js';
@@ -1696,7 +1698,7 @@ function showRoomInfo(info) {
   if (DEMO) { $('room-note').textContent = S.demoNote(config.roomMinutes || 60); badge.hidden = true; }
   roomType = type;
   if (info) currentStyle = normalizeStyle(info.style);
-  if (info) { presetRoom = !!(info.preset && info.preset.faces); presetLayer.set(presetRoom ? info.preset : null); }
+  if (info) { presetRoom = !!(info.preset && info.preset.faces); presetLayer.set(presetRoom ? info.preset : null); syncRoomCharacter(); }
   if (info) updateStyleUi();
   window.klibb && (window.klibb.roomInfo = { ...info, type });
 }
@@ -1844,7 +1846,7 @@ noteVisit(ROOM); // one of my rooms now (the City is not): the plain address bri
 async function loadRoom() {
   try {
     const { stamps: list, images, info, cameras, peels } = await api.loadRoom(ROOM);
-    showRoomInfo(info);
+    showRoomInfo(info); roomInfoKnown();
     applyGroove(info?.groove);
     peelLayer.setOn(!!info?.peels);
     for (const p of peels || []) peelLayer.add(p, images[p.imageId]);
@@ -1855,7 +1857,7 @@ async function loadRoom() {
     // allSettled: en enda trasig stämpel ska inte hindra resten av rummet från att laddas.
     await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
     updateCount();
-  } catch (err) { toast(S.roomLoadFailed(err.message)); }
+  } catch (err) { roomInfoKnown(); toast(S.roomLoadFailed(err.message)); }
 }
 
 // ---------- Tillsammans: andra spelare, chatt, Min gubbe (together.js) ----------
@@ -1924,7 +1926,11 @@ async function resyncRoom() {
     updateCount();
   } catch { /* nästa gång */ }
 }
+// The first connect waits (max 3 s) for the room info and the entitlements: in a preset room the free
+// version's first hello (the join the others and the recording see) already is the room's character.
+let roomInfoKnown = () => {}; const roomInfoLoaded = new Promise((r) => { roomInfoKnown = r; });
 const together = initTogether({
+  ready: DEMO ? null : () => Promise.race([Promise.all([roomInfoLoaded, entitlementsReady]), new Promise((r) => setTimeout(r, 3000))]),
   room: ROOM, scene, camera, controls, isTouch, toast, artist: () => state.artist,
   onEvent: onRoomEvent, onReconnect: resyncRoom,
   onWelcome: (m) => { if (groove && Number.isFinite(m.now)) groove.setServerClock(m.now); setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }); if (DEMO) demoWelcome(m); if (voice) voice.reset(); },
@@ -1937,7 +1943,15 @@ const together = initTogether({
 });
 // Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
 const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); fullUi.ready(); });
-function onEntitlements() { $('sound-design-btn').hidden = !entitlements.full.soundDesign; if (isNat(state.selected) && !natureOpen()) select(stickerDesigns()[0] || null); else { renderTray(); renderDesignHud(); } applySizeLimit(); fullUi?.refreshEntry(); if (groove) updateGrooveUi(); if (autoSlap) autoSlap.render(); renderCams(); }
+// Point 8 (Jens, 29 Oct 2026): in a preset room the free version gives me a random character for that
+// room – the same one each time (seed = room + this device), my name kept; the full version
+// (entitlements.full.ownAvatar, and OPEN_ACCESS) keeps my own avatar. Not in the demo profile.
+function syncRoomCharacter() {
+  try { if (!together) return; } catch { return; } // (room info can come before together exists: const, TDZ)
+  const on = presetRoom && !DEMO && !entitlements.full.ownAvatar;
+  together.setRoomLook(on ? seededLook(AVATAR_SPEC, roomCharacterSeed(ROOM, deviceId())) : null);
+}
+function onEntitlements() { syncRoomCharacter(); $('sound-design-btn').hidden = !entitlements.full.soundDesign; if (isNat(state.selected) && !natureOpen()) select(stickerDesigns()[0] || null); else { renderTray(); renderDesignHud(); } applySizeLimit(); fullUi?.refreshEntry(); if (groove) updateGrooveUi(); if (autoSlap) autoSlap.render(); renderCams(); }
 // Full version panel (fullversion.js): a quiet entry in ⚙ More → Help; a new key applies right away.
 var fullUi = initFullVersion({ // eslint-disable-line no-var
   $, onOpen: () => { closeMore(); controls.unlock?.(); },
@@ -2585,7 +2599,7 @@ window.klibb = {
   arrayState: () => ({ dragging: !!arrayDrag, ghosts: ghosts.count, inFlight: arrayOps.length, items: arrayDrag ? arrayDrag.items.length : 0 }), arrayPlan,
   pendingSlaps: () => pendingSlaps.size, // klibbor som syns men inte är bekräftade av servern än
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, canEditStyle, surfaces: room.surfaces,
-  net: together.net, players: () => together.players.list(), me: together.me, openChat: together.openChat,
+  net: together.net, players: () => together.players.list(), me: together.me, roomLook: () => together.roomLook(), openChat: together.openChat,
   openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
   photo: () => snapPhoto(), lastPhoto: () => lastPhoto,
   setAutoCam, startPlacingCam, placingCam: () => placingCam, autoCamPoses: () => Object.fromEntries(autoCamsOf(cams.list()).map((c) => [c.id, liveAutoPose(c)])),

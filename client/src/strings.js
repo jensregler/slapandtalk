@@ -194,6 +194,7 @@ export const EN = {
   avatarName: 'Name (shown above your head)', avatarNamePlaceholder: 'e.g. Jens',
   outfit: 'Outfit', hair: 'Hair', shirt: 'Top', pants: 'Trousers', hairColor: 'Hair colour', skin: 'Skin', cap: 'Cap',
   capColour: 'Cap colour',
+  avRoomCharacter: 'In this room you are a surprise character, made just for you. Your own avatar is back in your other rooms – your name you can still change here.',
   face: 'Face', faceSameAsSkin: 'Same as skin', faceSameAsSkinTitle: 'The face follows the skin colour (and skin fabric)',
   faceCustom: 'Any colour', faceCustomTitle: 'Pick any colour for the face',
   facePhoto: '🙂 Face photo', facePhotoTitle: 'Use a photo of a face: it goes on the front of the head (the middle square of the picture)',
