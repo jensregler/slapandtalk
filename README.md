@@ -72,14 +72,11 @@ kommer den tillbaka på väggen.
 
 **Slap mode och 🌿 Nature mode (V; Jens 28 okt 2026):** du börjar i *Slap mode*. **V** växlar till
 *Nature mode*: du håller en nature-klibba (den du hade senast, annars den första på Nature-hjulet),
-Nature-hjulet blir aktivt och naturljudet spelas i en slinga (vind, löv, fåglar då och då;
-`client/src/ambience.js`). **V** igen = tillbaka till klibban du hade på klibbhjulet, ljudet tonar ut.
-Att välja ur Nature-hjulet/🌿-listan ger också Nature mode, att välja ur klibbhjulet Slap mode. Ljud av
-(**M**) tystar även naturljudet. Nature hör till fullversionen: i gratisversionen öppnar V (och
-panelens 🌿-knapp) fullversionspanelen och du stannar i Slap mode. Demot har inga nature-klibbor: där
-är V kvar som Look mode. *Naturljudet fanns inte sedan tidigare* (inget i koden, assets eller git-
-historiken), så det är nytt och procedurellt som alla andra ljud här (ingen fil, ingen licens). En
-riktig inspelning kan ersätta det utan kod: lägg `client/public/audio/nature-ambience.mp3` (eller .ogg).
+Nature-hjulet blir aktivt. **V** igen = tillbaka till klibban du hade på klibbhjulet.
+Att välja ur Nature-hjulet/🌿-listan ger också Nature mode, att välja ur klibbhjulet Slap mode. Nature
+hör till fullversionen: i gratisversionen öppnar V (och panelens 🌿-knapp) fullversionspanelen och du
+stannar i Slap mode. Demot har inga nature-klibbor: där är V kvar som Look mode. *Nature mode har inget
+eget ljud:* det procedurella naturljudet (vind, löv, fåglar) togs bort 29 okt 2026 på Jens begäran.
 
 **Look mode (G, förr V):** tryck **G** (eller knappen *Look mode*) när du vill kliva
 tillbaka och beundra väggen: pekaren och siktet försvinner (kvar är bara en liten prick), klick

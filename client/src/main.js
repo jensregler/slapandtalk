@@ -19,7 +19,6 @@ import { createAutoCrew, liveStickerTargets, AUTO_CHOICES, autoCamsOf, MAX_AUTO_
 import { groupFocus } from '../../shared/personcam.mjs';
 import { S, LOCALE } from './strings.js';
 import { Sounds } from './sound.js';
-import { NatureAmbience } from './ambience.js';
 import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView } from './chasecam.js';
 import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
 import { PeelLayer } from './peels.js';
@@ -126,8 +125,6 @@ const state = {
 
 // ---------- Ljud (sound.js) ----------
 const sound = new Sounds();
-// Nature mode's ambience (ambience.js): loops while Nature mode is on, stops in Slap/Look mode or when muted.
-var ambience = new NatureAmbience(() => sound.ensure()); // eslint-disable-line no-var -- var: syncNatureMode may run first
 sound.setMine({ seed: loadSoundLook().seed }); // custom patches only once the full version is confirmed
 const myNonces = new Set(); // mina egna stämplar på väg till servern (så ljudet inte spelas två gånger)
 const myPeels = new Set(); // stämplar som jag själv peelar
@@ -140,7 +137,6 @@ function renderSound() {
 function setMuted(m, { quiet = false } = {}) {
   sound.setMuted(m); renderSound();
   if (sound.muted && groove) groove.stopAll(); // the footstep buzz too
-  syncNatureMode(); // the nature ambience follows the sound switch
   if (!quiet) toast(sound.muted ? S.soundOffToast : S.soundOnToast, 1200);
   return sound.muted;
 }
@@ -966,17 +962,15 @@ const toggleMode = () => setMode(state.mode === 'view' ? 'slap' : 'view');
 // ---------- Slap mode / Nature mode (V; Jens, 28 Oct 2026) ----------
 // V toggles Slap mode ⇄ Nature mode (it used to toggle Look mode; Look mode is now G, the panel's
 // "Look mode" button and the phone's 👁). Nature mode = slapping from the Nature wheel (the held
-// sticker is a nature sticker: V picks the one you had last, else the first) with the nature
-// ambience looping (ambience.js); V again = back to the sticker you had on the sticker wheel, the
-// ambience fades out. Picking from the Nature wheel / its list is the same as V (and picking from the
+// sticker is a nature sticker: V picks the one you had last, else the first); V again = back to the
+// sticker you had on the sticker wheel. (Nature mode has no sound of its own: the procedural nature
+// ambience was removed, Jens 29 Oct 2026.) Picking from the Nature wheel / its list is the same as V (and picking from the
 // sticker wheel = Slap mode). Nature is the full version's: free, V opens the full version panel and
 // you stay in Slap mode. The demo has no nature stickers: there V stays Look mode.
 function natureMode() { return state.mode === 'slap' && activeWheel() === 'nature'; }
 function syncNatureMode() {
-  if (typeof ambience === 'undefined') return; // (the very first render, before the sound is made)
   const on = natureMode(), m = state.mode === 'view' ? 'look' : on ? 'nature' : 'slap';
   document.body.classList.toggle('nature-mode', on);
-  if (on && !sound.muted) ambience.start(); else ambience.stop();
   $('mode-hud').textContent = S.modeHud(m, isTouch, DEMO);
   $('mode-slap').setAttribute('aria-pressed', String(m === 'slap'));
   $('mode-look').setAttribute('aria-pressed', String(m === 'look'));
@@ -2502,5 +2496,5 @@ window.klibb = {
   },
   setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
-  nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, toggleNature, setNatureMode, natureMode, ambience: () => ambience.info(), peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, dropsPeel, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
+  nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, toggleNature, setNatureMode, natureMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, dropsPeel, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };

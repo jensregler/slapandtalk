@@ -55,9 +55,9 @@ const ALL = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam', 
 
     // V → Nature mode
     await P.keyboard.press('KeyV'); await sleep(2500);
-    const v1 = await P.evaluate(() => { const k = window.klibb; return { nature: k.natureMode(), selNat: !!(k.state.selected && k.state.selected.nature), sel: k.state.selected && k.state.selected.id, act: k.activeWheel(), hud: document.getElementById('mode-hud').textContent, amb: k.ambience() }; });
+    const v1 = await P.evaluate(() => { const k = window.klibb; return { nature: k.natureMode(), selNat: !!(k.state.selected && k.state.selected.nature), sel: k.state.selected && k.state.selected.id, act: k.activeWheel(), hud: document.getElementById('mode-hud').textContent, amb: { playing: false, gone: typeof k.ambience === 'undefined' && !document.querySelector('audio') } }; });
     const p2 = await noPaywall(P);
-    check('V → straight into 🌿 Nature mode: a nature sticker held, the Nature wheel active, the nature sound playing', v1.nature && v1.selNat && v1.act === 'nature' && v1.hud === '🌿 Nature mode · V' && v1.amb.playing, v1);
+    check('V → straight into 🌿 Nature mode: a nature sticker held, the Nature wheel active, no nature sound (removed 29 Oct 2026)', v1.nature && v1.selNat && v1.act === 'nature' && v1.hud === '🌿 Nature mode · V' && v1.amb.gone, v1);
     check('…and no panel, no lock, no "part of the full version" toast', clean(p2), p2);
     // size the nature sticker to 300 cm and slap it
     const s300 = await P.evaluate(async () => { const k = window.klibb; k.setView?.('first', { quiet: true }); k.moveTo(0, 0); k.look(0, 0.12); k.setSize(300);

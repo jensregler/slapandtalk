@@ -86,7 +86,7 @@ export const EN = {
   modeHud: (m, touch, demo) => ({ slap: 'Slap mode', nature: '🌿 Nature mode', look: 'Look mode' }[m] || 'Slap mode') + (touch ? '' : m === 'look' && !demo ? ' · G' : ' · V'),
   modeBtnToSlap: 'Back to slap mode', modeBtnToLook: 'Look mode: hide the pointer and just look',
   modeToastLook: (touch, demo) => (touch ? 'Look mode: just look around.' : `Look mode: just look around. ${demo ? 'V' : 'G'} = slap again.`),
-  modeToastNature: (touch) => (touch ? 'Nature mode: nature stickers and the sound of nature.' : 'Nature mode: nature stickers and the sound of nature. V = slap mode.'),
+  modeToastNature: (touch) => (touch ? 'Nature mode: slapping nature stickers.' : 'Nature mode: slapping nature stickers. V = slap mode.'),
   modeToastSlap: (touch) => (touch ? 'Slap mode: tap where you want to slap.' : 'Slap mode: click to slap.'),
   modeSwitch: 'Mode',
   // ---------- 1st / 3rd person ----------
@@ -131,7 +131,7 @@ export const EN = {
   resumeHint: 'Click to enter',
   quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C 3rd person · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
-    + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = Slap mode / 🌿 Nature mode (nature stickers + the sound of nature), G = look mode on/off '
+    + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = Slap mode / 🌿 Nature mode (nature stickers), G = look mode on/off '
     + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), P = 📷 photo of what you see, Esc = menu (Esc again = back into the room). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Visit the City opens the shared room (the plain address takes you to your most recent room). '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
@@ -292,7 +292,7 @@ export const EN = {
   fullActive: 'The full version is on in this browser. Thank you for supporting Slap and Talk.',
   fullThanksIntro: 'Your key is in the receipt e-mail from Lemon Squeezy. Paste it below to unlock the full version in this browser.',
   fullThanksDone: 'The full version is on in this browser. Your key is also in the receipt e-mail, for your other devices.',
-  fullFeaturesHtml: '<li><b>Fabrics</b> – your own images as patterns on your avatar</li><li><b>Sound design</b> – a synth and effects for your own slap, peel and step sounds</li><li><b>Big stickers</b> – larger than 1 m</li><li><b>🌿 Nature mode</b> – the Nature wheel (80 nature stickers, 5 cm – 4 m) and a nature soundscape, on V</li><li><b>Clean videos</b> – finished videos without the channel logo and link ticker</li><li>…and more as it comes</li>',
+  fullFeaturesHtml: '<li><b>Fabrics</b> – your own images as patterns on your avatar</li><li><b>Sound design</b> – a synth and effects for your own slap, peel and step sounds</li><li><b>Big stickers</b> – larger than 1 m</li><li><b>🌿 Nature mode</b> – the Nature wheel (80 nature stickers, 5 cm – 4 m) on V</li><li><b>Clean videos</b> – finished videos without the channel logo and link ticker</li><li>…and more as it comes</li>',
   fullPrice: 'Pay what you want, from $1. One payment, no subscription.',
   fullBuy: 'Get the full version', fullBuyNote: 'Opens Lemon Squeezy (card, PayPal, Apple Pay, Google Pay).',
   fullHaveKey: 'I have a key', fullKeyPlaceholder: 'Paste your key', fullKeyOk: 'Unlock',
