@@ -43,7 +43,7 @@ async function page(browser, S, url, { dev = false, admin = null, scale = 1 } = 
     localStorage.setItem('klibb.avatar', JSON.stringify({ name: dev ? 'Full' : 'Fri', look: { outfit: 'tshirt', hair: 'kort', shirt: '#3a86ff', pants: '#2b4c7e', hairColor: '#4a2c17', skin: '#e0ac69', hat: false, hatColor: '#e63946' } }));
     if (dev) localStorage.setItem('klibb.devUnlock', '1');
   }, [dev, admin]);
-  const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push(e.message));
+  const P = await ctx.newPage(); P.setDefaultTimeout(90000); P.on('pageerror', (e) => errors.push(e.message));
   await P.goto(url);
   return P;
 }
