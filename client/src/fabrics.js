@@ -27,6 +27,50 @@ function evictOne() {
   return false;
 }
 function drop(id) { const e = cache.get(id); if (!e) return; e.tex?.dispose(); cache.delete(id); stats.disposed++; }
+// Fabric images are stored as a square with the picture fitted inside (POST /api/fabrics: 'contain',
+// transparent bars beside a portrait / above and below a landscape picture). Tiled as is, those bars
+// became wide gaps (the colour under the fabric) between the tiles (Jens, 30 Oct 2026: "it only repeats
+// vertically, not sideways"). So when the image is letterboxed like that – content touching two
+// opposite edges, equal empty bars on the other two – the bars are cut off and the picture is stretched
+// back over the whole square texture (power of two, mipmaps as before); tex.userData.aspect = its real
+// width / height, and the shader makes a tile that shape, so it tiles seamlessly both ways, undistorted.
+export function letterboxOf(alpha, w, h) {
+  const on = (x, y) => alpha[y * w + x] > 8;
+  const col = (x) => { for (let y = 0; y < h; y++) if (on(x, y)) return true; return false; };
+  const row = (y) => { for (let x = 0; x < w; x++) if (on(x, y)) return true; return false; };
+  let l = 0, r = w - 1, t = 0, b = h - 1;
+  while (l < w && !col(l)) l++;
+  if (l >= w) return null; // empty image
+  while (r > l && !col(r)) r--;
+  while (t < h && !row(t)) t++;
+  while (b > t && !row(b)) b--;
+  const tol = Math.max(2, Math.round(w * 0.01));
+  const padX = l + (w - 1 - r), padY = t + (h - 1 - b);
+  // (cut 2 px further in on the padded side: the resize leaves half-transparent edge pixels – thin seams)
+  if (padX > tol && padY <= 1 && Math.abs(l - (w - 1 - r)) <= tol && r - l > 8) return { x: l + 2, y: 0, w: r - l - 3, h };
+  if (padY > tol && padX <= 1 && Math.abs(t - (h - 1 - b)) <= tol && b - t > 8) return { x: 0, y: t + 2, w, h: b - t - 3 };
+  return null;
+}
+function unletterbox(tex) {
+  const img = tex.image, w = img?.width | 0, h = img?.height | 0;
+  tex.userData.aspect = w && h ? w / h : 1;
+  if (!w || !h || typeof document === 'undefined') return tex;
+  try {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, w, h).data, a = new Uint8Array(w * h);
+    for (let i = 0; i < a.length; i++) a[i] = d[i * 4 + 3];
+    const box = letterboxOf(a, w, h);
+    if (!box) return tex;
+    const o = document.createElement('canvas'); o.width = w; o.height = h;
+    const og = o.getContext('2d'); og.imageSmoothingQuality = 'high';
+    og.drawImage(c, box.x, box.y, box.w, box.h, 0, 0, w, h);
+    const nt = new THREE.CanvasTexture(o);
+    nt.userData.aspect = box.w / box.h; nt.userData.crop = box;
+    tex.dispose();
+    return nt;
+  } catch { return tex; }
+}
 // Returns a promise of the texture (null if it can't be loaded or too many are in use).
 export function acquireFabric(id) {
   if (!FABRIC_ID_RE.test(String(id))) return Promise.resolve(null);
@@ -36,7 +80,8 @@ export function acquireFabric(id) {
     loader ||= new THREE.TextureLoader();
     e = { tex: null, refs: 0, timer: 0, failed: false };
     stats.loads++;
-    e.promise = loader.loadAsync(fabricUrl(id)).then((tex) => {
+    e.promise = loader.loadAsync(fabricUrl(id)).then((t0) => {
+      const tex = unletterbox(t0);
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
       tex.generateMipmaps = true; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.needsUpdate = true;
       if (cache.get(id) !== e) { tex.dispose(); return null; }
@@ -65,9 +110,9 @@ const VERT = `
 #endif
 `;
 const FRAG_PARS = `varying vec3 vFabPos;
-uniform sampler2D fabMap; uniform vec4 fabXf; uniform vec2 fabOff; uniform float fabHue; uniform float fabTint; uniform vec4 fabFace;
+uniform sampler2D fabMap; uniform float fabAsp; uniform vec4 fabXf; uniform vec2 fabOff; uniform float fabHue; uniform float fabTint; uniform vec4 fabFace;
 vec3 fabHueShift(vec3 c, float a) { const vec3 k = vec3(0.57735); float ca = cos(a); return c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca); }
-vec4 fabSample(vec2 p, mat2 R) { return texture2D(fabMap, R * p * fabXf.z + fabOff); }
+vec4 fabSample(vec2 p, mat2 R) { vec2 q = R * p * fabXf.z; q.x /= fabAsp; return texture2D(fabMap, q + fabOff); } // (a tile is the picture's shape: aspect = width / height)
 `;
 const FRAG = `
   {
@@ -90,16 +135,16 @@ const FRAG = `
 `;
 function fabricCompile(shader) {
   const u = this.userData.fab;
-  Object.assign(shader.uniforms, { fabMap: u.map, fabXf: u.xf, fabOff: u.off, fabHue: u.hue, fabTint: u.tint, fabUnit: u.unit, fabFace: u.face });
+  Object.assign(shader.uniforms, { fabMap: u.map, fabAsp: u.asp, fabXf: u.xf, fabOff: u.off, fabHue: u.hue, fabTint: u.tint, fabUnit: u.unit, fabFace: u.face });
   if (!this.defines || !('USE_FABRIC' in this.defines)) return;
   shader.vertexShader = VERT_PARS + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n' + VERT);
   shader.fragmentShader = FRAG_PARS + shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + FRAG);
 }
-const cacheKey = function () { const d = this.defines || {}; return 'fabric2' + ('USE_FABRIC' in d ? '+' : '-') + ('USE_FABPHOTO' in d ? 'p' : ''); };
+const cacheKey = function () { const d = this.defines || {}; return 'fabric3' + ('USE_FABRIC' in d ? '+' : '-') + ('USE_FABPHOTO' in d ? 'p' : ''); };
 // Make a material able to wear a fabric (does nothing until setFabric).
 // face = avatars.js FACE: this material is the face's and may wear a face photo (f.photo).
 export function makeFabricable(mat, { tint = 1, unit = 1, face = null } = {}) {
-  mat.userData.fab = { map: { value: null }, xf: { value: new THREE.Vector4(1, 0, 4, 0) }, off: { value: new THREE.Vector2() },
+  mat.userData.fab = { map: { value: null }, asp: { value: 1 }, xf: { value: new THREE.Vector4(1, 0, 4, 0) }, off: { value: new THREE.Vector2() },
     hue: { value: 0 }, tint: { value: tint }, unit: { value: unit }, f: null,
     canPhoto: !!face, face: { value: face ? new THREE.Vector4(face.cx, face.cy, face.size, face.zMin) : new THREE.Vector4(0, 0, 1, 0) } };
   mat.onBeforeCompile = fabricCompile; mat.customProgramCacheKey = cacheKey;
@@ -109,6 +154,7 @@ export function setFabric(mat, tex, f) {
   const u = mat.userData.fab; if (!u) return;
   const on = !!(tex && f);
   u.map.value = on ? tex : null; u.f = on ? f : null;
+  u.asp.value = on ? Math.min(16, Math.max(1 / 16, tex.userData?.aspect || 1)) : 1;
   const photo = on && u.canPhoto && !!f.photo, d = mat.defines || {};
   if (on !== 'USE_FABRIC' in d || photo !== 'USE_FABPHOTO' in d) {
     const nd = { ...d }; delete nd.USE_FABRIC; delete nd.USE_FABPHOTO;
