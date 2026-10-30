@@ -2996,6 +2996,60 @@
    "artist": "",
    "source": "slap9.png",
    "startCm": 30
+  },
+  {
+   "id": "910d8ca0408dcec8",
+   "file": "910d8ca0408dcec8.webp",
+   "width": 693,
+   "height": 645,
+   "artist": "",
+   "source": "camera.png",
+   "startCm": 30
+  },
+  {
+   "id": "697fceb275175f0c",
+   "file": "697fceb275175f0c.webp",
+   "width": 121,
+   "height": 423,
+   "artist": "",
+   "source": "character.png",
+   "startCm": 30
+  },
+  {
+   "id": "3260f7449c2321d0",
+   "file": "3260f7449c2321d0.webp",
+   "width": 411,
+   "height": 867,
+   "artist": "",
+   "source": "door.png",
+   "startCm": 30
+  },
+  {
+   "id": "a03b0ba5768979e6",
+   "file": "a03b0ba5768979e6.webp",
+   "width": 960,
+   "height": 960,
+   "artist": "",
+   "source": "exit.png",
+   "startCm": 30
+  },
+  {
+   "id": "14ea2304625a5827",
+   "file": "14ea2304625a5827.webp",
+   "width": 576,
+   "height": 387,
+   "artist": "",
+   "source": "redio.png",
+   "startCm": 30
+  },
+  {
+   "id": "e8a93272e6311b69",
+   "file": "e8a93272e6311b69.webp",
+   "width": 960,
+   "height": 960,
+   "artist": "",
+   "source": "room.png",
+   "startCm": 30
   }
  ]
 }
