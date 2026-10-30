@@ -4,8 +4,8 @@ import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { startSizeCm } from '../../shared/sizeprefix.mjs';
 import { sizeLimitsCm, isNature, NATURE } from '../../shared/nature.mjs';
-import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl, tickRoomFabric, roomFabricInfo } from './roomstyle.js';
-import { initFargUI } from './fargui.js';
+import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl, tickRoomFabric, roomFabricInfo, SURF_KINDS } from './roomstyle.js';
+import { initFargUI, initFabricPicker } from './fargui.js';
 import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { createWheel } from './wheel.js';
@@ -1792,13 +1792,20 @@ function swatchButtons(el, kind, items, selected, onPick, color) {
 function renderStylePanel() {
   const s = sp.style;
   const color = s.wallColor ? CATALOG.wallColors[s.wallColor].hex : null;
-  const custom = (patch) => { sp.style = normalizeStyle({ ...sp.style, ...patch, seed: undefined }); delete sp.style.seed; previewStyle(); };
-  swatchButtons($('sw-floor'), 'floor', CATALOG.floors, s.floor, (id) => custom({ floor: id }));
-  swatchButtons($('sw-wall'), 'wall', CATALOG.walls, s.wall, (id) => custom({ wall: id }), color);
+  // Picking a catalogue material for a surface also takes that surface's own image away.
+  const custom = (patch, kind) => {
+    const st = { ...sp.style, ...patch, seed: undefined };
+    if (kind && st.surfFabric?.[kind]) { st.surfFabric = { ...st.surfFabric }; delete st.surfFabric[kind]; ownUi[kind].close(); }
+    sp.style = normalizeStyle(st); delete sp.style.seed; previewStyle();
+  };
+  const own = s.surfFabric || {};
+  swatchButtons($('sw-floor'), 'floor', CATALOG.floors, own.floor ? null : s.floor, (id) => custom({ floor: id }, 'floor'));
+  swatchButtons($('sw-wall'), 'wall', CATALOG.walls, own.wall ? null : s.wall, (id) => custom({ wall: id }, 'wall'), color);
   swatchButtons($('sw-color'), 'color', CATALOG.wallColors, s.wallColor, (id) => custom({ wallColor: id }));
-  swatchButtons($('sw-ceiling'), 'ceiling', CATALOG.ceilings, s.ceiling, (id) => custom({ ceiling: id }));
-  $('sp-color-row').hidden = !CATALOG.walls[s.wall].colored;
+  swatchButtons($('sw-ceiling'), 'ceiling', CATALOG.ceilings, own.ceiling ? null : s.ceiling, (id) => custom({ ceiling: id }, 'ceiling'));
+  $('sp-color-row').hidden = !CATALOG.walls[s.wall].colored || !!own.wall;
   fargUi.render();
+  for (const k of SURF_KINDS) { ownUi[k].render(); $('own-' + k).classList.toggle('on', !!own[k]); }
   if (document.activeElement !== $('style-seed')) $('style-seed').value = s.seed || '';
   $('style-name').textContent = styleName(s);
 }
@@ -1806,9 +1813,23 @@ function previewStyle() { renderStylePanel(); showStyle(sp.style); }
 // Färg (fargui.js): the room's own image on every surface, kept through 🎲 Random and the code.
 const fargUi = initFargUI({ $, toast, getStyle: () => sp.style,
   setFabric: (f, rerender) => { const st = { ...sp.style }; if (f) st.fabric = f; else delete st.fabric; sp.style = normalizeStyle(st); if (rerender) previewStyle(); else showStyle(sp.style); } });
-const withFarg = (st) => (sp.style?.fabric ? normalizeStyle({ ...st, fabric: sp.style.fabric }) : st);
+// Own image per surface (30 Oct 2026): floor, walls and ceiling each have their own image picker
+// (the Färg picker's upload + controls). style.surfFabric[kind]; it wins over Färg on that surface.
+const ownUi = Object.fromEntries(SURF_KINDS.map((k) => [k, initFabricPicker({ box: $('own-' + k), file: $(`own-${k}-file`), toast, anyId: `own-${k}-base-any`,
+  cur: () => sp.style?.surfFabric?.[k] || null,
+  set: (f, rerender) => {
+    const st = { ...sp.style }, sf = { ...(st.surfFabric || {}) };
+    if (f) sf[k] = f; else delete sf[k];
+    st.surfFabric = sf; sp.style = normalizeStyle(st);
+    if (rerender) previewStyle(); else showStyle(sp.style);
+  },
+  open: { label: S.ownOpen, get title() { return S.ownOpenTitle[k]; } },
+  txt: { get hint() { return S.ownHint[k]; }, get onHint() { return S.ownOnHint[k]; }, get noneTitle() { return S.ownNoneTitle[k]; }, get uploadTitle() { return S.ownUploadTitle[k]; }, get wildTitle() { return S.ownWildTitle; } } })]));
+// 🎲 Random and the code roll the catalogue materials; Färg and the surfaces' own images stay.
+const withFarg = (st) => (sp.style?.fabric || sp.style?.surfFabric ? normalizeStyle({ ...st, fabric: sp.style.fabric, surfFabric: sp.style.surfFabric }) : st);
 function openStylePanel(mode) {
   sp.open = true; sp.mode = mode;
+  for (const k of SURF_KINDS) ownUi[k].close();
   sp.style = mode === 'create' ? styleFromSeed(randomSeed()) : { ...currentStyle };
   $('style-title').textContent = mode === 'create' ? S.styleCreateTitle : S.styleEditTitle;
   $('style-ok').textContent = mode === 'create' ? S.styleCreateOk : S.styleEditOk;
@@ -2501,7 +2522,7 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (holdSharpForTests && deskHeld && deskHeld.state === 'timed') { const t = performance.now(); if (deskHeld.canSlap(t)) deskHeld.keepAlive(t); else deskHeld.wake(t); }
   if (!camView) controls.update(dt);
-  tickRoomFabric(room.surfaces); if (sp.open) fargUi.tick(); // Färg: the room image spins / cycles / scrolls
+  tickRoomFabric(room.surfaces); if (sp.open) { fargUi.tick(); for (const k of SURF_KINDS) ownUi[k].tick(); } // Färg: the room image spins / cycles / scrolls
   for (const ac of autoCamsOf(cams.list())) { const q = liveAutoPose(ac); if (q) cams.place(ac.id, q); }
   let cv = camView && cams.get(camView);
   if (cv && cv.auto) { const q = liveAutoPose(cv); if (q) cv = { ...cv, ...q }; }
