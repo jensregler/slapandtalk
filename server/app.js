@@ -291,6 +291,12 @@ function cleanStyle(s, { fabric = false } = {}) {
   if (STYLES.walls[s.wall].colored) { if (!STYLES.wallColors[s.wallColor]) return null; out.wallColor = s.wallColor; }
   if (s.seed !== undefined && s.seed !== null && s.seed !== '') { if (typeof s.seed !== 'string' || !/^[a-z0-9]{1,12}$/.test(s.seed)) return null; out.seed = s.seed; }
   if (fabric && s.fabric) { const f = cleanRoomFabric(s.fabric); if (f) out.fabric = f; }
+  // Own image per surface (30 Oct 2026; roomstyle.js cleanSurfFabrics): { floor?, wall?, ceiling? }, same gating as Färg.
+  if (fabric && s.surfFabric && typeof s.surfFabric === 'object' && !Array.isArray(s.surfFabric)) {
+    const sf = {};
+    for (const k of ['floor', 'wall', 'ceiling']) { const f = s.surfFabric[k] && typeof s.surfFabric[k] === 'object' ? cleanRoomFabric(s.surfFabric[k]) : null; if (f) sf[k] = f; }
+    if (Object.keys(sf).length) out.surfFabric = sf;
+  }
   return out;
 }
 const styleOf = (r) => r.style || { ...STYLES.default }; // äldre rum: dagens utseende

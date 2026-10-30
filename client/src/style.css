@@ -703,15 +703,25 @@ body.nature-mode #mode-hud { color: #bff0a8; }
 #avatar-panel.room-character #av-random { opacity: .4; }
 #avatar-panel.room-character button:disabled { cursor: default; }
 /* Färg (point 11): the room's own image on every surface – in the room look panel. */
-#farg-box { display: flex; flex-direction: column; gap: 6px; }
-#farg-box .farg-src { display: flex; gap: 6px; flex-wrap: wrap; }
-#farg-box .farg-none, #farg-box .farg-up, #farg-box .farg-wild { padding: 5px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
-#farg-box .farg-none.sel { background: #ffd400; color: #111; border-color: #ffd400; }
-#farg-box .farg-picks { display: flex; gap: 5px; flex-wrap: wrap; }
-#farg-box .farg-pick { width: 30px; height: 30px; border-radius: 6px; border: 2px solid transparent; background: #333 center / cover no-repeat; cursor: pointer; padding: 0; }
-#farg-box .farg-pick.sel { border-color: #ffd400; }
-#farg-box .farg-ctl { display: flex; flex-direction: column; gap: 4px; }
-#farg-box .farg-preview { width: 100%; height: 56px; }
-#farg-box .farg-base .swatches { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-#farg-box .farg-base input[type=color] { width: 28px; height: 24px; padding: 0; border: 0; background: none; }
-#farg-box .farg-hint { opacity: .8; }
+:is(#farg-box, .own-box) { display: flex; flex-direction: column; gap: 6px; }
+:is(#farg-box, .own-box) .farg-src { display: flex; gap: 6px; flex-wrap: wrap; }
+:is(#farg-box, .own-box) .farg-none, :is(#farg-box, .own-box) .farg-up, :is(#farg-box, .own-box) .farg-wild { padding: 5px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+:is(#farg-box, .own-box) .farg-none.sel { background: #ffd400; color: #111; border-color: #ffd400; }
+:is(#farg-box, .own-box) .farg-picks { display: flex; gap: 5px; flex-wrap: wrap; }
+:is(#farg-box, .own-box) .farg-pick { width: 30px; height: 30px; border-radius: 6px; border: 2px solid transparent; background: #333 center / cover no-repeat; cursor: pointer; padding: 0; }
+:is(#farg-box, .own-box) .farg-pick.sel { border-color: #ffd400; }
+:is(#farg-box, .own-box) .farg-ctl { display: flex; flex-direction: column; gap: 4px; }
+:is(#farg-box, .own-box) .farg-preview { width: 100%; height: 56px; }
+:is(#farg-box, .own-box) .farg-base .swatches { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+:is(#farg-box, .own-box) .farg-base input[type=color] { width: 28px; height: 24px; padding: 0; border: 0; background: none; }
+:is(#farg-box, .own-box) .farg-hint { opacity: .8; }
+/* Own image per surface (30 Oct 2026): big and clear (Jens sees poorly). */
+#style-panel .own-box[hidden] { display: none !important; }
+#style-panel .own-box { margin-top: 4px; }
+#style-panel .own-box .farg-open { width: 100%; padding: 10px 12px; border-radius: 10px; border: 2px dashed #ffd400; background: rgba(255,212,0,.08); color: #ffd400; font: inherit; font-size: 16px; font-weight: 700; text-align: left; cursor: pointer; }
+#style-panel .own-box .farg-none, #style-panel .own-box .farg-up, #style-panel .own-box .farg-wild { font-size: 15px; padding: 8px 12px; }
+#style-panel .own-box .farg-pick { width: 40px; height: 40px; }
+#style-panel .own-box .farg-hint { font-size: 13px; opacity: 1; color: #ddd; }
+#style-panel .own-box .fab-sl { font-size: 14px; grid-template-columns: 96px 1fr 62px; }
+#style-panel .own-box.on { border: 2px solid #ffd400; border-radius: 10px; padding: 6px; }
+.swatches button.own-sel { border-color: #ffd400; }
