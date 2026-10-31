@@ -49,7 +49,7 @@ await ok('face photo mapping: centre of the square = face centre; the eyes ~42 %
   const z = facePhotoUv(FACE.cx + 0.05, FACE.cy, 2); assert.ok(Math.abs(z[0] - (0.5 + 0.05 / (FACE.size * 2))) < 1e-9);
   const t = facePhotoUv(FACE.cx + 0.05, FACE.cy, 1, 90); assert.ok(Math.abs(t[0] - 0.5) < 1e-9 && t[1] > 0.5, t);
 });
-await ok('the real model: every head gets face triangles (front, forehead to chin); the back of the head and neck stay skin', async () => {
+await ok('the real model: every head gets face triangles (front and sides, forehead to chin, nose sides too); the back of the head and the neck stay skin', async () => {
   const buf = fs.readFileSync(new URL('../client/public/avatars/gubbe.glb', import.meta.url));
   await MeshoptDecoder.ready;
   const gltf = await new Promise((res, rej) => new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), '', res, rej));
@@ -58,14 +58,18 @@ await ok('the real model: every head gets face triangles (front, forehead to chi
   gltf.scene.traverse((o) => {
     if (!o.isMesh || o.material.name !== 'Skin' || !heads.has(o.parent?.name)) return;
     const P = (i) => { o.getVertexPosition(i, v); v.applyMatrix4(o.matrixWorld); return v.toArray(); };
-    const idx = o.geometry.index.array; let face = 0, back = 0, total = 0;
+    const idx = o.geometry.index.array; let face = 0, back = 0, neck = 0, total = 0, frontMissed = 0, noseSides = 0;
     for (let t = 0; t < idx.length; t += 3) {
       const a = P(idx[t]), b = P(idx[t + 1]), c = P(idx[t + 2]); total++;
-      if (isFaceTriangle(a, b, c)) { face++; if ((a[2] + b[2] + c[2]) / 3 < 0.05) back++; }
+      const cx = (a[0] + b[0] + c[0]) / 3, cy = (a[1] + b[1] + c[1]) / 3, cz = (a[2] + b[2] + c[2]) / 3, f = isFaceTriangle(a, b, c);
+      if (f) { face++; if (cz < 0.03) back++; if (cy < FACE.yMin - 0.005) neck++; }
+      // in front of the ears, chin to hairline: always face, whichever way it faces (Jens, 31 Oct 2026: the nose sides showed the skin fabric)
+      if (cy > FACE.yMin + 0.005 && cy < FACE.yMax - 0.005 && cz > FACE.zMin && !f) frontMissed++;
+      if (f && Math.abs(cx) < 0.02 && cy > 1.6 && cy < 1.65 && cz > 0.2) noseSides++;
     }
-    seen[o.parent.name] = { face, total, back };
+    seen[o.parent.name] = { face, total, back, neck, frontMissed, noseSides };
   });
   assert.deepEqual(Object.keys(seen).sort(), [...heads].sort());
-  for (const [h, s] of Object.entries(seen)) assert.ok(s.face >= 20 && s.face < s.total * 0.6 && s.back === 0, `${h}: ${JSON.stringify(s)}`);
+  for (const [h, s] of Object.entries(seen)) assert.ok(s.face >= 20 && s.face < s.total * 0.9 && s.back === 0 && s.neck === 0 && s.frontMissed === 0 && s.noseSides >= 4, `${h}: ${JSON.stringify(s)}`);
 });
 console.log(`face: ${n} passed`);

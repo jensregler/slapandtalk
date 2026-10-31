@@ -3,20 +3,22 @@
 // (the model) and the tests (tests/face.test.mjs).
 //
 // The model's head is one skin mesh. Once per geometry the triangles on the front of the head
-// (forehead to chin, facing forwards) are moved to the end of the index and get their own group,
+// (forehead to chin, from just behind the ears forwards, whichever way they face) are moved to the end of the index and get their own group,
 // so each avatar can give them a second material.
 // FACE = where the face is in the rest pose (model metres, the fabPos system): a face photo is drawn
 // as a square of `size` centred on (cx, cy), only where z > zMin (the front); with these numbers the
 // model's eyes sit ~42 % from the top of the square, as in an ordinary portrait.
-export const FACE = { cx: 0.004, cy: 1.633, size: 0.27, zMin: 0.1, yMin: 1.49, yMax: 1.8, nzMin: 0.2 };
+// zFace: the face triangles reach back to here (behind the ears, the head's centre is z ≈ 0.11), so the
+// sides of the head next to the face are face too; the photo itself fades out at zMin (fabrics.js).
+export const FACE = { cx: 0.004, cy: 1.633, size: 0.27, zMin: 0.1, yMin: 1.49, yMax: 1.8, zFace: 0.04 };
 
-// Is a triangle (rest-pose corners a, b, c, each [x, y, z]) part of the face?
+// Is a triangle (rest-pose corners a, b, c, each [x, y, z]) part of the face? Everything on the head
+// between chin and hairline in front of the ears, whichever way it faces: the sides of the nose and
+// the cheeks by the ears face sideways, and once left out the body's skin (fabric) showed through
+// there, in stripes, next to a face photo (Jens, 31 Oct 2026).
 export function isFaceTriangle(a, b, c) {
   const cy = (a[1] + b[1] + c[1]) / 3, cz = (a[2] + b[2] + c[2]) / 3;
-  if (cy < FACE.yMin || cy > FACE.yMax || cz < FACE.zMin) return false;
-  const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-  const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], len = Math.hypot(...n) || 1;
-  return n[2] / len > FACE.nzMin;
+  return cy >= FACE.yMin && cy <= FACE.yMax && cz >= FACE.zFace;
 }
 
 // What each slot wears. The face follows the skin (its colour and its fabric) until it gets its own

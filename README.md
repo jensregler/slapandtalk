@@ -219,8 +219,9 @@ inifrån (förstapersonsvy), men i **🧍 My avatar** (under ⚙ More) zoomar ru
   nära en vägg flyttar kameran till en sida med plats (aldrig genom väggen). Resten av HUD:en göms
   medan panelen är öppen (`client/src/avatarview.js`). **Save**/**Cancel** = vanliga kameran igen. **Save** sparar den på den här enheten och
   de andra ser den direkt. **🎲 Random** ger en slumpad gubbe. Första gången får du en slumpad.
-- **Ansiktet (Face):** ansiktet har ett eget material, skilt från kroppen (framsidan av huvudet, från
-  pannan till hakan; `client/src/face.js`). Raden *Face* (efter *Skin*) har färgrutor, **Same as skin**
+- **Ansiktet (Face):** ansiktet har ett eget material, skilt från kroppen (framsidan och sidorna av huvudet, från
+  pannan till hakan och bakåt förbi öronen – även näsans sidor, så att hudens tyg aldrig lyser igenom
+  bredvid ett ansiktsfoto; `client/src/face.js`). Raden *Face* (efter *Skin*) har färgrutor, **Same as skin**
   (standard: ansiktet följer hudens färg och hudens tyg) och **valfri färg** (färgväljaren). Med
   *Colour | Fabric* får ansiktet ett tyg precis som tröjan (dina klibbor, senaste tyger, mönster, egen
   bild) eller ett **🙂 Face photo**: bildens mittersta kvadrat läggs en gång över ansiktet (ögonen ca
