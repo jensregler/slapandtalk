@@ -61,6 +61,24 @@ const quiet = { error: () => {}, log: () => {}, warn: () => {} };
     const locked = await put(nu.roomKey);
     assert(locked.status === 403 && /preset/.test((await locked.json()).error), 'the walls are locked: the creator\'s key cannot change the look');
     assert((await put(null, 'adm-presets')).status === 200, '…admin still can');
+    // display names + pictures + the public list (the start card's picker; Jens, 2 Nov 2026)
+    const pub0 = (await (await fetch(`${base}/api/presets`)).json()).presets;
+    assert(pub0.length === 1 && pub0[0].title === '' && pub0[0].code === src.id && !pub0[0].thumb && /north/.test(pub0[0].wall) && !('style' in pub0[0]), 'GET /api/presets: public; no name yet → title "" + the room code');
+    const patch = (id, body, tok = 'adm-presets') => fetch(`${base}/api/admin/presets/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(tok ? { 'x-admin-token': tok } : {}) }, body: JSON.stringify(body) });
+    assert((await patch(preset.id, { title: 'x' }, null)).status === 403 && (await patch(preset.id, {})).status === 400 && (await patch('nope000000', { title: 'x' })).status === 404, 'PATCH: admin only, a title, a preset');
+    assert((await (await patch(src.id, { title: '  Skogen\u0007  ' })).json()).preset.title === 'Skogen', 'PATCH by the room code; the name cleaned');
+    const fdT = new FormData(); fdT.append('thumb', new Blob([await png(1200, 800, 1)], { type: 'image/png' }), 't.png');
+    const tj = await (await fetch(`${base}/api/admin/presets/${preset.id}/thumb`, { method: 'POST', headers: { 'x-admin-token': 'adm-presets' }, body: fdT })).json();
+    const tm = await sharp(Buffer.from(await (await fetch(base + tj.preset.thumb)).arrayBuffer())).metadata();
+    assert(tm.format === 'webp' && tm.width === 960 && tm.height === 600, 'POST …/thumb: the picture, stored as a 960×600 WebP');
+    const pub1 = (await (await fetch(`${base}/api/presets`)).json()).presets[0];
+    assert(pub1.title === 'Skogen' && pub1.thumb === tj.preset.thumb, '…the picker gets the name and the picture');
+    assert(((await (await patch(preset.id, { title: '' })).json()).preset.title || '') === '', 'PATCH title "" → back to the room code');
+    // the 24 h cleanup keeps the rooms presets were made from (before 2 Nov 2026 it did not)
+    const st2 = createStore(new LocalAdapter(fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-presets-keep-'))), { writeDelayMs: 0, log: quiet, clock: () => Date.now() });
+    const ra = await st2.createRoom({ type: 'quick' }), rb = await st2.createRoom({ type: 'quick' }); await st2.flush();
+    const gone = await st2.cleanupRooms({ quickTtlMs: -1, keep: new Set([ra.id]) });
+    assert(gone.includes(rb.id) && !gone.includes(ra.id), 'cleanupRooms({ keep }): a preset source room is never deleted by the 24 h cleanup');
     const del = await (await fetch(`${base}/api/admin/presets/${preset.id}`, { method: 'DELETE', headers: { 'x-admin-token': 'adm-presets' } })).json();
     assert(del.ok && !(await mk({})).room.preset, 'DELETE: gone, new rooms as before');
   } finally { server.close(); }

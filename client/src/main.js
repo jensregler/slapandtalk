@@ -47,6 +47,7 @@ import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
 import { initStackMenu } from './stackmenu.js';
 import { createHeldTimer } from '../../shared/heldtimer.mjs';
+import { createRoomSizer } from './roomsize.js';
 import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
 import { menuOf, runMenuSticker, MENU_IDS } from './menustickers.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
@@ -107,6 +108,9 @@ function nope() {
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
 }
 const preview = new StampPreview(scene, stamps.faces);
+// The room size test (roomsize.js; Jens, 2 Nov 2026): Height / Width / Depth in the room panel – this
+// view only, not synced, not saved. Slapping is off while it is not the normal size.
+const roomSizer = createRoomSizer({ room, scene, stamps, camera, restyle: () => showStyle(shownStyle) });
 // The held sticker fades on the desktop too (Jens, 29 Oct 2026: "klibborna ska fejda efter ett par
 // sekunder", Slap mode and Nature mode alike) – the same timer as on touch (shared/heldtimer.mjs):
 // a newly chosen sticker stays sharp until it is placed; after each placement ("per tag") it stays
@@ -724,6 +728,7 @@ async function slapAt(ndc, info, onStart, auto = null) {
   // A panel is open (room look, My avatar): no slap from anywhere (click, key, touch, auto-slap, test
   // hooks). Before the library was always on the wheel, nothing was held then and this never came up.
   if (sp.open || together.busy()) return null;
+  if (!roomSizer.isDefault()) { if (!auto) toast(S.roomSizeNoSlap, 2600); return null; } // a test size: the stickers would land wrong for everyone else
   const h = hitSurface(ndc); if (!h) return null;
   if (auto && auto.check && !auto.check(h)) return null;
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
@@ -1788,7 +1793,9 @@ async function peelsOnAtLoad(info) {
 $('peels-clear').onclick = async () => {
   try { await api.clearPeels(ROOM, { key: roomKeys()[ROOM], admin: state.adminToken }); peelLayer.clear(); toast(S.peelsCleared, 1500); } catch (err) { toast(err.message); }
 };
+var shownStyle = DEFAULT_STYLE; // eslint-disable-line no-var -- (the room size test re-tiles with it)
 async function showStyle(s) {
+  shownStyle = s;
   sound.setRoom(s); // the room's materials give a subtle, automatic acoustic (free, no UI)
   try { return await applyStyle(room.surfaces, s); } catch { toast(S.texturesFailed); return null; }
 }
@@ -2202,6 +2209,26 @@ async function openRoomPanel() {
   if (!$('room-panel').hidden) renderRoomPanel();
 }
 function closeRoomPanel() { $('room-panel').hidden = true; clearInterval(rp.timer); }
+// Room size test: three big sliders with the value as a number (metres), and reset to the normal size.
+{
+  const KS = ['height', 'width', 'depth'];
+  const fmt = (x) => `${Number(x).toFixed(2).replace(/\.?0+$/, '')} m`;
+  const show = () => {
+    const d = roomSizer.get();
+    for (const k of KS) { $(`rs-${k}`).value = String(d[k]); $(`rs-${k}-val`).textContent = fmt(d[k]); }
+    $('rs-sum').textContent = S.roomSizeSum(fmt(d.width), fmt(d.depth), fmt(d.height));
+    $('rs-note').textContent = roomSizer.isDefault() ? S.roomSizeNormal : S.roomSizeTest;
+    $('room-size').classList.toggle('rs-test', !roomSizer.isDefault());
+  };
+  for (const k of KS) {
+    const inp = $(`rs-${k}`), r = roomSizer.RANGE[k];
+    inp.min = String(r.min); inp.max = String(r.max); inp.step = String(r.step);
+    $(`rs-${k}-range`).textContent = `${fmt(r.min)} – ${fmt(r.max)}`;
+    inp.addEventListener('input', () => { roomSizer.set({ [k]: Number(inp.value) }); show(); });
+  }
+  $('rs-reset').onclick = () => { roomSizer.reset(); show(); };
+  show();
+}
 $('rp-close').onclick = closeRoomPanel;
 $('rpi-clear').onclick = () => { $('rpi-confirm-text').textContent = S.roomPanelClearAsk(null); $('rpi-confirm').hidden = false; $('rpi-clear').hidden = true; };
 $('rpi-clear-no').onclick = () => { $('rpi-confirm').hidden = true; $('rpi-clear').hidden = false; };
@@ -2719,6 +2746,7 @@ function frame() {
   else if (deskHeld) preview.hide(); // desktop: faded (or nothing to aim) – no held sticker on the wall
   if (isTouch && touchesDown.size) stackMenu?.held.keepAlive(performance.now()); // a finger on the screen (aiming, pinching, holding still): no fade meanwhile
   recordHeld(heldNow);
+  roomSizer.sync(); if (!roomSizer.isDefault()) preview.hide(); // stickers follow the test size; no held sticker on a moved wall
   if (cv) renderFramed(renderer, scene, viewCam, cv.aspect || '');
   else { if (camView) exitCamView(); renderer.render(scene, avv ? showCam : tp ? tpCam : camera); }
   requestAnimationFrame(frame);
@@ -2768,7 +2796,7 @@ window.klibb = {
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer, scene,
   nameTag: nameTagState, openNameTag, door: doorState,
-  menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: (x = 0, y = 0) => menuOf(pickStampAt(new THREE.Vector2(x, y))), openRoomPanel, askForVisitors, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
+  menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: (x = 0, y = 0) => menuOf(pickStampAt(new THREE.Vector2(x, y))), openRoomPanel, askForVisitors, roomSize: () => ({ ...roomSizer.get(), normal: roomSizer.isDefault() }), setRoomSize: (d) => roomSizer.set(d), roomSurfaces: () => room.surfaces, roomBounds: () => room.bounds, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {
     const pieces = foldStamp(stamps.faces, { center: new THREE.Vector3(...position), quaternion: new THREE.Quaternion(...quaternion), w, h, surface });

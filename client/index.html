@@ -354,6 +354,19 @@
       </div>
       <button id="rpi-ask" type="button" class="big-act" data-t="roomPanelAsk">Ask for visitors</button>
     </div>
+    <!-- Room size test (Jens, 2 Nov 2026; roomsize.js): only this view, not saved; he picks the one size for all rooms. -->
+    <section id="room-size" class="room-size" aria-label="Room size">
+      <h3 data-t="roomSizeTitle">Room size (test)</h3>
+      <label class="rs-row" for="rs-height"><span class="rs-name" data-t="roomSizeHeight">Height</span><b id="rs-height-val" class="rs-val"></b>
+        <input id="rs-height" type="range"><small id="rs-height-range" class="rs-range"></small></label>
+      <label class="rs-row" for="rs-width"><span class="rs-name" data-t="roomSizeWidth">Width</span><b id="rs-width-val" class="rs-val"></b>
+        <input id="rs-width" type="range"><small id="rs-width-range" class="rs-range"></small></label>
+      <label class="rs-row" for="rs-depth"><span class="rs-name" data-t="roomSizeDepth">Depth</span><b id="rs-depth-val" class="rs-val"></b>
+        <input id="rs-depth" type="range"><small id="rs-depth-range" class="rs-range"></small></label>
+      <p id="rs-sum" class="rs-sum"></p>
+      <p id="rs-note" class="rs-note"></p>
+      <button id="rs-reset" type="button" class="big-act" data-t="roomSizeReset">↺ Reset to normal size</button>
+    </section>
   </aside>
   <!-- Two big choices over the room (the exit and door menu stickers; main.js openChoice). -->
   <div id="menu-choice" class="menu-choice" hidden role="dialog" aria-modal="true"><div id="menu-choice-list" class="choice-list"></div></div>
