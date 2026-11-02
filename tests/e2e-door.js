@@ -1,5 +1,6 @@
-// E2E: the door (Jens, 31 Oct 2026; mockups door-1..5, client/src/door.js). Click a placed door (or
-// the Priority Mail pac sticker) → "Enter the city" / "Back to the room"; enter → "choose 3 slaps to
+// E2E: the door (Jens, 31 Oct 2026; mockups door-1..5, client/src/door.js). Click a placed door
+// (city.png; since t471u, 2 Nov 2026, the city goes through city only – an old stickerpac sticker is a
+// plain sticker) → "Enter the city" / "Back to the room"; enter → "choose 3 slaps to
 // bring" → the three go into the Priority Mail pac (Jens's stickerpac.png) → name it, draw on it →
 // "to city" = "The city is coming soon!" (the pac is kept on the device). Own server (DOOR_E2E_PORT, 8903).
 const fs = require('fs');
@@ -28,16 +29,15 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await P.evaluate(() => { const k = window.klibb; k.setView('first', { quiet: true }); k.moveTo(0, -1.4); k.look(0, 0.05); });
     await sleep(400);
     for (const [id, x] of [[DOOR, -0.3], [PAC, 0.3]]) {
-      await P.evaluate((id) => window.klibb.selectDesign(window.klibb.stickerDesigns().find((d) => d.id === id)), id); await sleep(500);
+      await P.evaluate((id) => window.klibb.selectDesign(window.klibb.state.library.find((d) => d.id === id)), id); await sleep(500);
       await P.evaluate((x) => { window.klibb.controls.locked = true; window.klibb.setSize(60); window.klibb.stampAt(x, 0.1); window.klibb.controls.locked = false; }, x);
       await sleep(500);
     }
     await sleep(600);
-    check('door and pac stickers are menu stickers', JSON.stringify(await P.evaluate(() => [window.klibb.menuAt(-0.3, 0.1), window.klibb.menuAt(0.3, 0.1)])) === '["door","pac"]');
-    await P.evaluate(() => window.klibb.menuClick(0.3, 0.1)); await sleep(400);
-    const ch = await P.evaluate(() => [...document.querySelectorAll('#menu-choice-list .choice-btn')].map((b) => b.dataset.id));
-    check('the pac opens the door\'s choice too: enter city / back to room', JSON.stringify(ch) === '["enter-city","back"]', ch);
-    await P.click('#menu-choice-list [data-id="back"]'); await sleep(200);
+    check('the city (door) sticker is a menu sticker; an old stickerpac sticker is not (t471u)', JSON.stringify(await P.evaluate(() => [window.klibb.menuAt(-0.3, 0.1), window.klibb.menuAt(0.3, 0.1)])) === '["door",null]');
+    check('…the stickerpac is not on the wheel any more', await P.evaluate((id) => !window.klibb.stickerDesigns().some((d) => d.id === id), PAC));
+    const used = await P.evaluate(() => window.klibb.menuClick(0.3, 0.1)); await sleep(400);
+    check('…a click on the old stickerpac opens nothing (inert)', used === false && await P.evaluate(() => !window.klibb.choice().open));
     await P.evaluate(() => window.klibb.menuClick(-0.3, 0.1)); await sleep(400);
     await P.screenshot({ path: path.join(SHOTS, '30-door-choice.png') });
     await P.click('#menu-choice-list [data-id="enter-city"]'); await sleep(800);
