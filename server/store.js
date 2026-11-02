@@ -27,6 +27,7 @@ const crypto = require('crypto');
 const ROOM_TYPES = ['stad', 'quick', 'profile'];
 const PUBLIC_ROOM = 'stad';
 const VISIT_WRITE_MS = 60_000; // skriv "senast besökt" högst en gång i minuten per rum
+const MAX_VISITORS = 5000; // short hashes kept per room for "people visited" (more are only counted)
 const PEEL_KEEP = 20; // så många av sina senaste stämplar per rum kan man peela
 // Safety cap: at most this many stickers per room. A new slap beyond it quietly removes the
 // OLDEST sticker (broadcast as an ordinary stamp:remove by app.js). Override: MAX_STAMPS_PER_ROOM.
@@ -354,7 +355,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       if (!anchor || !anchor.peelHash || anchor.peelHash !== peelHash) return null;
       let order = room.stamps.at(-1)?.order ?? 0;
       const now = iso();
-      const added = copies.map((c) => ({ id: newId(), order: ++order, createdAt: now, ...c, group: anchor.id, peelHash: anchor.peelHash, ...(anchor.peelOwner ? { peelOwner: anchor.peelOwner } : {}) }));
+      const added = copies.map((c) => ({ id: newId(), order: ++order, createdAt: now, ...c, group: anchor.id, peelHash: anchor.peelHash, ...(anchor.peelOwner ? { peelOwner: anchor.peelOwner } : {}), ...(anchor.madeBy ? { madeBy: anchor.madeBy } : {}) }));
       room.stamps.push(...added);
       const over = room.stamps.length - Math.max(1, maxStamps);
       let evicted = [];
@@ -391,6 +392,30 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       }
       if (remove.size) { room.stamps = room.stamps.filter((x) => !remove.has(x.id)); await saveRoom(room); }
       return result;
+    });
+  }
+  // "Clear your stickers" (the room info panel; Jens, 31 Oct 2026): every sticker this person made
+  // in the room (madeBy = a hash of their device id, kept for good – unlike peelOwner, which goes
+  // with the peel key after PEEL_KEEP steps). Older stickers without madeBy count while they still
+  // have their peel owner. Returns the removed ids.
+  async function clearMine(roomId, who) {
+    return withLock(roomId, async () => {
+      const room = await loadRoom(roomId);
+      if (!room || !who) return [];
+      const mine = (s) => s.madeBy === who || (!s.madeBy && s.peelOwner === who);
+      const gone = room.stamps.filter(mine).map((s) => s.id);
+      if (gone.length) { room.stamps = room.stamps.filter((s) => !mine(s)); await saveRoom(room); }
+      return gone;
+    });
+  }
+  // A visitor (a hash of their device id) was here: counted once per room ("people visited").
+  async function noteVisitor(roomId, who) {
+    return withLock(roomId, async () => {
+      const room = await loadRoom(roomId);
+      if (!room) return 0;
+      const v = Array.isArray(room.visitors) ? room.visitors : [];
+      if (who && !v.includes(who) && v.length < MAX_VISITORS) { room.visitors = [...v, who]; await saveRoom(room); }
+      return (room.visitors || []).length;
     });
   }
   // Ta bort alla stämplar i rummet. Svar: hur många som togs bort.
@@ -499,7 +524,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   }
 
   return {
-    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, addStamps, deleteStamp, peelStamps, resetStamps, listRooms, deleteRoom, lastActivity,
+    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, addStamps, deleteStamp, peelStamps, resetStamps, clearMine, noteVisitor, listRooms, deleteRoom, lastActivity,
     deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, setGroove, addPeel, peelState, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle,
   };

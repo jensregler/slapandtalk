@@ -62,6 +62,10 @@ function roomSeat(roomId, id) {
   for (const f of seaters) { const s = f(roomId, typeof id === 'string' ? id : null); if (s) return s; }
   return null;
 }
+// Which rooms have people in them right now (the start card's "…or Join" list, app.js)?
+// [{ id, count, max }] for every room on this server with at least one player.
+const listers = new Set();
+function activeRooms() { const out = []; for (const f of listers) out.push(...f()); return out; }
 const fullText = (max) => `This room is full (${max} people max – one wall each). You can watch and read the chat; you get in automatically when someone leaves.`;
 
 const ROOM_RE = /^[a-z0-9-]{1,40}$/;
@@ -83,6 +87,8 @@ const GUEST_RE = /^(guest|g[äa]st)\s*\d*$/i;
 // ent = the sender's full-version flags (server/entitlements.js): fabric (and custom sound)
 // data from a free player is dropped, so nobody can push it past the UI.
 const ALL = { fabrics: true, soundDesign: true }; // cleanLook(l) without flags: trust (recordings, tests)
+// Same rule as shared/insta.mjs (ESM; tests/stickermenu.test.mjs checks they agree).
+const cleanInsta = (v) => String(v ?? '').trim().replace(/^@+/, '').replace(/[^A-Za-z0-9._]/g, '').slice(0, 30).toLowerCase();
 function cleanLook(l, ent = ALL) {
   const d = AV.default; l = l && typeof l === 'object' ? l : {};
   const pick = (v, list, def) => (typeof v === 'string' && list.includes(v.toLowerCase()) ? v.toLowerCase() : def);
@@ -99,6 +105,7 @@ function cleanLook(l, ent = ALL) {
     ...(typeof l.face === 'string' && /^#[0-9a-f]{6}$/i.test(l.face) ? { face: l.face.toLowerCase() } : {}),
     ...(ent.fabrics ? fabricField(l.fabric) : {}),
     ...soundField(l.sound, ent),
+    ...(cleanInsta(l.insta) ? { insta: cleanInsta(l.insta) } : {}), // the Instagram name (shared/insta.mjs: same rule)
   };
 }
 // look.sound (shared/synth.mjs): the seed for the player's own variation of the default sounds,
@@ -239,6 +246,7 @@ function attachRealtime(server, {
     return { full: r.players.size >= maxPlayers, player: !!id && r.players.has(id), max: maxPlayers, count: r.players.size };
   };
   seaters.add(seater);
+  listers.add(() => [...rooms.values()].filter((r) => r.players.size > 0).map((r) => ({ id: r.id, count: r.players.size, max: maxPlayers })));
   const off = onBroadcast((roomId, e) => {
     const list = roomId === '*' ? [...rooms.values()] : rooms.has(roomId) ? [rooms.get(roomId)] : [];
     for (const r of list) toRoom(r, { t: 'event', e });
@@ -429,4 +437,4 @@ function attachRealtime(server, {
   };
 }
 
-module.exports = { cleanHeld, broadcast, onBroadcast, playerPosition, roomSeat, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };
+module.exports = { cleanHeld, broadcast, onBroadcast, playerPosition, roomSeat, activeRooms, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };

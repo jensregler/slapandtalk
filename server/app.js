@@ -9,7 +9,7 @@ const express = require('express');
 const multer = require('multer');
 const sharp = require('sharp');
 const { contentId } = require('./store');
-const { broadcast, cleanName, playerPosition, roomSeat, cleanFabrics } = require('./realtime');
+const { broadcast, cleanName, playerPosition, roomSeat, cleanFabrics, activeRooms } = require('./realtime');
 const { createHidden, autoPruneOn } = require('./hidden');
 const { publicSticker } = require('./library');
 
@@ -259,7 +259,7 @@ function tokenMatches(token, hash) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 // Det som visas för alla: aldrig peel-hashen.
-const publicStamp = ({ peelHash, peelOwner, ...s }) => s; // peel-nyckel och ägare visas aldrig
+const publicStamp = ({ peelHash, peelOwner, madeBy, ...s }) => s; // peel-nyckel och ägare visas aldrig
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // Vilka av de här bilderna finns kvar? ?ids=a,b,c  ->  { images: { a: {...}, c: {...} } }
@@ -300,7 +300,14 @@ function cleanStyle(s, { fabric = false } = {}) {
   return out;
 }
 const styleOf = (r) => r.style || { ...STYLES.default }; // äldre rum: dagens utseende
+// The room's display name (the start card's "roomname?", the room info panel): like a player name, max 40.
+const cleanRoomName = (v) => Array.from(String(v ?? '').normalize('NFC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '').replace(/\s+/g, ' ').trim()).slice(0, 40).join('').trim();
+// Who made a sticker / visited, for "clear your stickers" and "people visited": a hash of the browser's
+// device id (history.js deviceId) – never the id itself, never shown.
+const DEVICE_RE = /^[A-Za-z0-9_-]{8,64}$/;
+const whoOf = (dev) => (typeof dev === 'string' && DEVICE_RE.test(dev) ? hashToken('d:' + dev).slice(0, 24) : null);
 const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt, style: styleOf(r), peels: !!r.peelsOn,
+  ...(r.name ? { name: r.name } : {}), visitors: Array.isArray(r.visitors) ? r.visitors.length : 0, stickers: Array.isArray(r.stamps) ? r.stamps.length : 0,
   ...(r.groove ? { groove: r.groove } : {}), ...(r.preset && r.preset.faces ? { preset: r.preset } : {}),
   quickTtlHours: r.type === 'quick' ? quickTtlHours : null, ...(r.demo && r.demo.expiresAt ? { expiresAt: r.demo.expiresAt } : {}) });
 
@@ -324,7 +331,9 @@ app.post('/api/rooms', rateLimit(10), wrap(async (req, res) => {
     if (preset) style = cleanStyle(preset.style, { fabric: true }) || style;
   }
   const roomKey = crypto.randomBytes(24).toString('base64url');
-  const extra = demo ? demo.newRoomFields() : preset ? { preset: presets.forRoom(preset) } : null;
+  let extra = demo ? demo.newRoomFields() : preset ? { preset: presets.forRoom(preset) } : null;
+  const name = cleanRoomName(req.body && req.body.name);
+  if (name) extra = { ...(extra || {}), name };
   const room = await store.createRoom({ type: 'quick', style, keyHash: hashToken(roomKey), extra });
   if (demo) demo.created(room);
   res.json({ room: roomPublic(room), roomKey });
@@ -400,6 +409,24 @@ function emptyRoomOnStorageError(id, e) {
 // ?room= (client/src/landing.js): ids = the rooms this browser has keys for or has visited.
 // Answers only for rooms that exist (expired demo rooms count as gone) and only the activity time,
 // no names or content. ≤ 50 ids; the City is never part of it.
+// The start card's "…or Join" list (Jens, 31 Oct 2026): rooms with people in them right now AND a
+// free spot. Only quick rooms and the City (no profile rooms, no demo rooms, nothing invite-only);
+// per room: its name, free spots, stickers, visitors and age. No keys, owners or presets.
+app.get('/api/rooms/open', rateLimit(60), wrap(async (req, res) => {
+  const out = [];
+  if (!demo) {
+    for (const a of activeRooms()) {
+      if (a.count >= a.max) continue;
+      let r = null; try { r = await store.peek(a.id); } catch { r = null; }
+      if (a.id !== 'stad' && (!r || r.type !== 'quick')) continue;
+      out.push({ id: a.id, name: a.id === 'stad' ? 'The City' : (r && r.name) || null, people: a.count, free: a.max - a.count, max: a.max,
+        stickers: r && Array.isArray(r.stamps) ? r.stamps.length : 0, visitors: r && Array.isArray(r.visitors) ? r.visitors.length : 0, createdAt: (r && r.createdAt) || null });
+    }
+  }
+  out.sort((x, y) => y.people - x.people || String(y.createdAt).localeCompare(String(x.createdAt)));
+  res.set('Cache-Control', 'no-store').json({ rooms: out.slice(0, 50) });
+}));
+
 app.get('/api/rooms/recent', (req, res, next) => (req.query.ids === undefined ? next('route') : next()), rateLimit(30), wrap(async (req, res) => {
   // (without ?ids= it falls through to GET /api/rooms/:room, so a room called "recent" still works)
   const ids = [...new Set(String(req.query.ids || '').toLowerCase().split(',').map((x) => x.trim()).filter((x) => ROOM_RE.test(x) && x !== 'stad'))].slice(0, 50);
@@ -424,7 +451,23 @@ app.get('/api/rooms/:room', wrap(async (req, res) => {
 app.post('/api/rooms/:room/visit', rateLimit(60), wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
   const room = await store.touchRoom(id);
-  res.json({ ok: !!room });
+  // { visitor: deviceId } = count me once in "people visited" (the room info panel)
+  const who = whoOf(req.body && req.body.visitor);
+  const visitors = room && who ? await store.noteVisitor(id, who) : undefined;
+  res.json({ ok: !!room, ...(visitors !== undefined ? { visitors } : {}) });
+}));
+
+// "Clear your stickers" (the room info panel): removes every sticker this browser made in the room
+// ({ owner: deviceId }, the same id the slaps carry). Everyone gets stamp:remove for each.
+app.post('/api/rooms/:room/clear-mine', rateLimit(10), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  const who = whoOf(req.body && req.body.owner);
+  if (!who) return res.status(400).json({ error: 'Who are you?' });
+  if (demo && !isAdmin(req) && (await demo.roomOpen(id)) !== 'ok') return res.status(410).json({ error: 'This room has closed.', closed: true });
+  const gone = await store.clearMine(id, who);
+  const by = playerId(req.body && req.body.by);
+  for (const sid of gone) broadcast(id, { type: 'stamp:remove', id: sid, quiet: true, ...(by ? { by } : {}) }); // quiet: no peel sound per sticker
+  res.json({ ok: true, removed: gone.length, ids: gone });
 }));
 
 // ---------- Stämplar ----------
@@ -535,7 +578,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   const owner = typeof b.owner === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(b.owner) ? 'd:' + b.owner : 'ip:' + req.ip;
   const evicted = []; // the room is full (MAX_STAMPS_PER_ROOM): the oldest stickers quietly go
   const saved = await store.addStamp(room, {
-    peelHash: hashToken(peelToken), peelOwner: hashToken(owner).slice(0, 24),
+    peelHash: hashToken(peelToken), peelOwner: hashToken(owner).slice(0, 24), ...(owner.startsWith('d:') ? { madeBy: hashToken(owner).slice(0, 24) } : {}),
     ...(join ? { peelHash: join.peelHash, ...(join.peelOwner ? { peelOwner: join.peelOwner } : {}), group: join.group } : {}),
     imageId: image.id,
     position: b.position, normal: b.normal, quaternion: b.quaternion,
