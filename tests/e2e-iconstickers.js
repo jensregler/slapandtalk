@@ -11,7 +11,7 @@ const { startServer, sleep } = require('./demo-helpers');
 
 const PORT = Number(process.env.ICONS_E2E_PORT || 8895);
 const SHOTS = process.env.ICON_SHOTS || '/workspace/icon-shots';
-const ICONS = ['camera.png', 'character.png', 'door.png', 'exit.png', 'redio.png', 'room.png'];
+const ICONS = ['camera.png', 'character.png', 'city.png', 'exit.png', 'redio.png', 'room.png'];
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 600) : '')); } };
 
