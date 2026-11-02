@@ -2,7 +2,7 @@
 // the menu stickers to the right and after them the list from the back (shared/wheelorder.mjs).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { wheelOrder, WHEEL_START } from '../shared/wheelorder.mjs';
+import { wheelOrder, applySwaps, WHEEL_START } from '../shared/wheelorder.mjs';
 import { MENU_IDS, MENU_STICKERS, MENU_ORDER } from '../client/src/menustickers.js';
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ✓ ' + name); };
 const man = JSON.parse(fs.readFileSync(new URL('../library/manifest.json', import.meta.url))).stickers;
@@ -35,5 +35,11 @@ ok('my own uploads: left of d74, newest first going left; an upload that is a li
 ok('without d71 (another library): the old order, mine first', () => {
   const w = wheelOrder([{ id: 'a' }, { id: 'b' }], [{ id: 'm' }]);
   assert.deepEqual(w.map((d) => d.id), ['m', 'a', 'b']);
+});
+ok('applySwaps: a name tag takes the chosen sticker’s place, once; a gone one is ignored', () => {
+  const o = ['a', 'b', 'c', 't'].map((id) => ({ id }));
+  assert.deepEqual(applySwaps(o, { b: 't' }).map((d) => d.id), ['a', 't', 'c']);
+  assert.deepEqual(applySwaps(o, { b: 'gone' }).map((d) => d.id), ['a', 'b', 'c', 't']);
+  assert.deepEqual(applySwaps(o, {}).map((d) => d.id), ['a', 'b', 'c', 't']);
 });
 console.log(`wheelorder: ${n} passed`);

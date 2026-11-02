@@ -24,3 +24,13 @@ export function wheelOrder(library, mine = [], { start = WHEEL_START, menus = []
   const [centre, ...left] = head;                          // left = d72, d73, d74 (going left)
   return [centre, ...menu, ...rest.slice().reverse(), ...[...own, ...ownLib].reverse(), ...left.slice().reverse()];
 }
+// The name-tag tool's "choose one to replace" (Jens, mockup nametag-7): swaps = { oldId: newId }.
+// The new sticker (one of my uploads, so it is in the order too) takes the old one's place, and is
+// not shown a second time among my uploads. A swap whose new sticker is gone is ignored.
+export function applySwaps(order, swaps = {}) {
+  const byId = new Map(order.map((d) => [d.id, d]));
+  const into = new Map(Object.entries(swaps || {}).filter(([from, to]) => from !== to && byId.has(from) && byId.has(to)));
+  if (!into.size) return order;
+  const moved = new Set(into.values());
+  return order.flatMap((d) => (into.has(d.id) ? [byId.get(into.get(d.id))] : moved.has(d.id) ? [] : [d]));
+}

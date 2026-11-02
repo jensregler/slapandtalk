@@ -27,6 +27,7 @@ import { PeelLayer } from './peels.js';
 import { PEEL, peelPlan, onFloor, stampDims } from '../../shared/peels.mjs';
 import { entitlements, loadEntitlements, credentials } from './entitlements.js';
 import { uploadsToReplace, shownUploads } from '../../shared/uploads.mjs';
+import { openNameTag as openNameTagTool, nameTagOpen, nameTagState } from './nametag.js';
 import { seededLook, roomCharacterSeed } from '../../shared/randomlook.mjs';
 import AVATAR_SPEC from '../../shared/avatar.json';
 import { initFullVersion } from './fullversion.js';
@@ -47,7 +48,7 @@ import { initStackMenu } from './stackmenu.js';
 import { createHeldTimer } from '../../shared/heldtimer.mjs';
 import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
 import { menuOf, runMenuSticker, MENU_IDS } from './menustickers.js';
-import { wheelOrder, WHEEL_START } from '../../shared/wheelorder.mjs';
+import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -358,9 +359,9 @@ let wheelKey = '', wheelCache = [];
 function wheelDesigns() { return activeWheel() === 'nature' ? natureDesigns() : stickerDesigns(); }
 function stickerDesigns() {
   if (DEMO) return designs();
-  const mine = designs(), key = mine.map((d) => d.id).join() + '|' + state.library.length;
+  const mine = designs(), swaps = readSwaps(), key = mine.map((d) => d.id).join() + '|' + state.library.length + '|' + JSON.stringify(swaps);
   // Jens, 2 Nov 2026: d71 in the middle, d72-d74 to its left, the menu stickers to its right, then the list from the back (shared/wheelorder.mjs)
-  if (key !== wheelKey) { wheelKey = key; wheelCache = wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: MENU_IDS }); }
+  if (key !== wheelKey) { wheelKey = key; wheelCache = applySwaps(wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: MENU_IDS }), swaps); }
   return wheelCache;
 }
 // En annan flik ändrade listan: hämta den nya.
@@ -2133,11 +2134,35 @@ const menuActions = {
   nametag: () => openNameTag(),
   door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => toast(S.cityComingSoon, 3000) }, { id: 'back', text: S.doorBackToRoom }]),
 };
-// The name-tag roll (editor.png): the drawing tool comes in nametag.js.
-function openNameTag() { toast(S.nameTagSoon, 2600); }
+// The name-tag roll (knappar/editor.png): the "my name is" drawing tool (nametag.js). The finished tag
+// is uploaded as my sticker and takes the place of the wheel sticker I chose (klibb.swaps, applySwaps).
+const SWAP_KEY = 'klibb.swaps';
+function readSwaps() { try { const o = JSON.parse(localStorage.getItem(SWAP_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; } catch { return {}; } }
+function openNameTag() {
+  closeMore(); closeRoomMenu(); controls.unlock?.();
+  openNameTagTool({
+    S, toast,
+    choices: () => stickerDesigns().filter((d) => !MENU_IDS.includes(d.id)),
+    onSave: async (blob, replaceId) => {
+      toast(S.uploading, 10000);
+      const img = await api.uploadSticker(blob, state.artist, { name: 'name-tag.png' });
+      try { await saveBlob(img.id, blob); } catch { /* nice-to-have */ }
+      const wasMine = state.mine.some((m) => m.id === replaceId);
+      state.mine = addMine(img, wasMine ? replaceId : null);
+      const swaps = readSwaps();
+      for (const [k, v] of Object.entries(swaps)) if (v === replaceId) swaps[k] = img.id; // replacing an earlier tag: the same slot
+      if (!wasMine && !Object.values(swaps).includes(img.id)) swaps[replaceId] = img.id;
+      localStorage.setItem(SWAP_KEY, JSON.stringify(swaps));
+      const replaced = uploadsToReplace(state.mine, img.id, !!entitlements.full.uploads);
+      if (replaced.length) dropDesigns(replaced);
+      await select(img);
+      toast(S.ntSaved, 2600);
+    },
+  });
+}
 // ndc: where (the dot when locked, else the finger/cursor). true = a menu opened (the click is used up).
 function menuClick(ndc) {
-  if (sp.open || together.busy() || camView || state.adminToken || arrayDrag || !$('room-panel').hidden || !$('sound-panel').hidden || !$('menu-choice').hidden) return false;
+  if (sp.open || together.busy() || camView || state.adminToken || arrayDrag || !$('room-panel').hidden || !$('sound-panel').hidden || !$('menu-choice').hidden || nameTagOpen()) return false;
   const hit = pickStampAt(ndc);
   if (!menuOf(hit)) return false;
   hideCredit();
@@ -2732,6 +2757,7 @@ window.klibb = {
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer, scene,
+  nameTag: nameTagState, openNameTag,
   menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: (x = 0, y = 0) => menuOf(pickStampAt(new THREE.Vector2(x, y))), openRoomPanel, askForVisitors, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {
