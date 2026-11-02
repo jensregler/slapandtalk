@@ -911,3 +911,8 @@ body.start-card-on { overflow: auto; }
 #door-flow #df-name::placeholder { color: rgba(255,255,255,.75); }
 #door-flow .df-pac-btns { display: flex; gap: 18px; }
 #door-flow .df-back { font-size: 20px; background: rgba(0,0,0,.45); }
+
+/* Selfie mode (view 'front'; Jens, 2 Nov 2026): slap mode is off – no aim ring, no held sticker, no
+   "Slap mode · V" hint, the mode button greyed out. Back as soon as you leave the view. */
+body.front-view:not(.camview) #crosshair, body.front-view:not(.camview) #mode-hud, body.front-view:not(.camview) #held, body.front-view:not(.camview) #pinch-hud { display: none !important; }
+body.front-view:not(.camview) #mode-btn { opacity: .35; pointer-events: none; }

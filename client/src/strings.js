@@ -219,6 +219,7 @@ export const EN = {
   roomSizeSum: (w, d, h) => `${w} wide × ${d} deep × ${h} high`,
   roomSizeNormal: 'The normal size. Try others: only you see it, nothing is saved.',
   roomSizeTest: 'Test size – only you see it, nothing is saved. Slapping is off until you reset.',
+  selfieNoSlap: (touch) => (touch ? 'Selfie mode – tap 👤 to go back and slap.' : 'Selfie mode – press C to go back and slap.'),
   roomSizeNoSlap: 'Room size test is on – reset the size (Room panel) to slap.',
   roomAge: (ms) => { const m = Math.max(0, Math.round(ms / 60000)); if (m < 1) return 'just started'; if (m < 60) return `${m} min`; const h = Math.floor(m / 60); if (h < 48) return `${h} h ${m % 60} min`; return `${Math.floor(h / 24)} days`; },
   roomLifeNote: 'lives while someone is here',

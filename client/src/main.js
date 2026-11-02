@@ -691,6 +691,7 @@ $('file').addEventListener('change', (e) => onFilePicked(e.currentTarget));
 // var: frame() och setView() kan köras innan raden här (via setMode längre upp).
 var view = loadView(); // eslint-disable-line no-var
 const third = () => view !== 'first' && !camView; // 3rd person: from behind ('third') or from the front ('front')
+const selfieOn = () => view === 'front' && !camView; // selfie mode: slap mode is off (slapAt, V, the preview, CSS body.front-view)
 function aimRay(ndc) {
   const cam = third() ? tpCam : camera;
   cam.updateMatrixWorld();
@@ -728,6 +729,9 @@ async function slapAt(ndc, info, onStart, auto = null) {
   // A panel is open (room look, My avatar): no slap from anywhere (click, key, touch, auto-slap, test
   // hooks). Before the library was always on the wheel, nothing was held then and this never came up.
   if (sp.open || together.busy()) return null;
+  // Selfie mode (the camera in front of me, view 'front'; Jens, 2 Nov 2026): no slap mode – nothing to aim
+  // with, nothing placed (click, tap, the holder, auto-slap, array drags all come through here).
+  if (selfieOn()) { if (!auto) toast(S.selfieNoSlap(isTouch), 2200); return null; }
   if (!roomSizer.isDefault()) { if (!auto) toast(S.roomSizeNoSlap, 2600); return null; } // a test size: the stickers would land wrong for everyone else
   const h = hitSurface(ndc); if (!h) return null;
   if (auto && auto.check && !auto.check(h)) return null;
@@ -1552,7 +1556,7 @@ if (!isTouch) {
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return; // inte Ctrl+V osv.
-    if (e.code === 'KeyV' && !e.repeat) toggleNature(); // Slap ⇄ Nature mode (the demo: Look mode)
+    if (e.code === 'KeyV' && !e.repeat && !selfieOn()) toggleNature(); // Slap ⇄ Nature mode (the demo: Look mode)
     if (e.code === 'KeyG' && !e.repeat) toggleMode(); // Look mode on/off (was V until 28 Oct 2026)
     if (e.code === 'KeyM' && !e.repeat) setMuted(!sound.muted);
     if (e.code === 'KeyP' && !e.repeat) snapPhoto(); // 📷 Photo
@@ -2746,7 +2750,7 @@ function frame() {
   else if (deskHeld) preview.hide(); // desktop: faded (or nothing to aim) – no held sticker on the wall
   if (isTouch && touchesDown.size) stackMenu?.held.keepAlive(performance.now()); // a finger on the screen (aiming, pinching, holding still): no fade meanwhile
   recordHeld(heldNow);
-  roomSizer.sync(); if (!roomSizer.isDefault()) preview.hide(); // stickers follow the test size; no held sticker on a moved wall
+  roomSizer.sync(); if (!roomSizer.isDefault() || selfieOn()) preview.hide(); // stickers follow the test size; no held sticker on a moved wall, nor in selfie mode
   if (cv) renderFramed(renderer, scene, viewCam, cv.aspect || '');
   else { if (camView) exitCamView(); renderer.render(scene, avv ? showCam : tp ? tpCam : camera); }
   requestAnimationFrame(frame);
