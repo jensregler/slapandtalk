@@ -10,8 +10,10 @@
 export const WHEEL_START = Object.freeze(['6705c0bb226e755f', '637af7039ccbc251', '63101930ca537cf2', 'cdc47e9da5787154']); // d71, d72, d73, d74 .png
 // Pure: library = the non-nature library in manifest order, mine = my uploads newest first,
 // menus = the menu stickers' ids in the order they sit right of the middle. Ids missing from the
-// library are skipped; every sticker is on the wheel once.
-export function wheelOrder(library, mine = [], { start = WHEEL_START, menus = [] } = {}) {
+// library are skipped; every sticker is on the wheel once. exclude = ids never on the wheel (the
+// retired menu stickers camera, menue, stickerpac – Jens, t471u), also not as one of my uploads.
+export function wheelOrder(library, mine = [], { start = WHEEL_START, menus = [], exclude = [] } = {}) {
+  if (exclude.length) { const no = new Set(exclude); library = library.filter((d) => !no.has(d.id)); mine = mine.filter((d) => !no.has(d.id)); }
   const byId = new Map(library.map((d) => [d.id, d]));
   const used = new Set();
   const take = (id) => { const d = byId.get(id); if (!d || used.has(id)) return null; used.add(id); return d; };

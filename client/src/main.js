@@ -49,7 +49,7 @@ import { initStackMenu } from './stackmenu.js';
 import { createHeldTimer } from '../../shared/heldtimer.mjs';
 import { createRoomSizer } from './roomsize.js';
 import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
-import { menuOf, runMenuSticker, MENU_IDS } from './menustickers.js';
+import { menuOf, runMenuSticker, MENU_IDS, RETIRED_MENU_IDS } from './menustickers.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 
 const $ = (id) => document.getElementById(id);
@@ -366,7 +366,7 @@ function stickerDesigns() {
   if (DEMO) return designs();
   const mine = designs(), swaps = readSwaps(), key = mine.map((d) => d.id).join() + '|' + state.library.length + '|' + JSON.stringify(swaps);
   // Jens, 2 Nov 2026: d71 in the middle, d72-d74 to its left, the menu stickers to its right, then the list from the back (shared/wheelorder.mjs)
-  if (key !== wheelKey) { wheelKey = key; wheelCache = applySwaps(wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: MENU_IDS }), swaps); }
+  if (key !== wheelKey) { wheelKey = key; wheelCache = applySwaps(wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: MENU_IDS, exclude: RETIRED_MENU_IDS }), swaps); }
   return wheelCache;
 }
 // En annan flik ändrade listan: hämta den nya.
@@ -2174,10 +2174,7 @@ const menuActions = {
   character: () => { closeMore(); closeRoomMenu(); together.openAvatarPanel(); },
   radio: () => { closeMore(); if (entitlements.full.soundDesign) soundUi.open(); else { fullUi?.open(); toast(S.soundLocked, 2600); } },
   room: () => openRoomPanel(),
-  camera: () => toggleView(),
   exit: () => openChoice('exit', [{ id: 'exit-menu', text: S.exitToMenu, go: () => { location.href = `${location.origin}/?start=1`; } }, { id: 'back', text: S.choiceBack }]),
-  menu: () => menuActions.exit(),
-  pac: () => menuActions.door(),
   nametag: () => openNameTag(),
   door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => openDoorPick({ S, toast, choices: () => stickerDesigns().filter((d) => !MENU_IDS.includes(d.id)) }) }, { id: 'back', text: S.doorBackToRoom }]),
 };
