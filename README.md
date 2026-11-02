@@ -433,6 +433,18 @@ inte sitter något) och rummets utseende (golv/vägg/tak) följer med.
 - **Göra ett preset av en rumskod:** `ADMIN_TOKEN=… node scripts/make-preset.js <rumskod> --base https://slapandtalk.com --name "Skog"`
   (öppnar rummet som admin i en headless Chromium, bakar och sparar; token skrivs aldrig ut).
   `--list` visar dem, `--delete <id>` tar bort ett. Eller som admin i rummet: Room ▾ → *🧩 Save as preset room*.
+- **Ett preset är en ögonblicksbild** (Jens 2 nov 2026): de sex bilderna och utseendet ligger i `presets/`, inte i
+  rummet. Rummet kan försvinna utan att presetet påverkas. Presetens källrum sparas ändå: varken 24-timmarsstädningen
+  (`cleanupRooms({ keep })`, som före 2 nov saknade undantaget och tog de sex första källrummen) eller
+  tomrumsstädningen tar dem.
+- **Namn och bild för startkortets rumsväljare:** `ADMIN_TOKEN_FILE=… node scripts/make-preset.js --rename <id eller rumskod> "Skogen"`
+  (`""` = tillbaka till rumskoden). `--thumb <id|rumskod|all>` tar en bild av presetet (ett rum gjort av presetet,
+  headless) → `presets/<id>/thumb.webp`. Ett nytt preset får namnet från `--name` och en bild direkt.
+  I rummet: *🧩 Save as preset room* frågar efter namnet, och det man ser blir bilden.
+  `GET /api/presets` (publik: id, title, code, thumb, wall), `PATCH /api/admin/presets/:id { title }`,
+  `POST /api/admin/presets/:id/thumb`.
+- **Startkortet** (*enter new room*): *room?* = **Blank room** (förvalt, `{ preset: false }`) eller ett preset
+  (`{ preset: id }`), i en väljare med stora bilder.
 - **Servern** (`server/presets.js`): `presets/<id>.json` + `presets/<id>/<yta>.webp` i lagringen.
   `POST /api/admin/presets` (multipart: de sex bilderna + `sourceRoom`, admin), `GET /api/admin/presets`,
   `DELETE /api/admin/presets/:id`, bilderna på `GET /api/presets/:id/<yta>.webp`.
