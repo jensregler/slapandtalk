@@ -1095,3 +1095,24 @@ Every room (and the City) is the box in `shared/room.json`: 16 m wide, 16 m deep
   box (2560 × 1280 walls) and cover every surface 1:1.
 - **Sizes:** stickers 10 cm – 1.5 m in the full version (free 15 cm – 1 m); nature stickers 10 cm up to the
   room's height (8 m) high. Stickers already up keep their size.
+
+## The City (t476u, 2 Nov 2026)
+
+`?room=stad` (The City, the public room) is no longer a box: it is a 96 × 96 × 24 m room-like space
+(sky walls and a sky ceiling you can slap on) with a 3 × 3 grid of 32 × 32 m plots (`shared/city.mjs`,
+scene in `client/src/city.js`). Each plot is a 0.5 m slab with a 16 × 8 × 16 m house; the middle plot
+holds the green Town Hall (three house blocks, 24 m). Every building has a black arched door on its
+south side. Everything outside (ground, slabs, house walls and roofs, sky) is a sticker surface.
+
+- **Houses** `stad-1` … `stad-8` are real rooms (type `stad`: never swept, look locked like the City).
+  The first visit creates one with a preset as its starting look (house n gets preset n, oldest first).
+  Walk into a door (or click it) → "Go into house n"; inside, Exit → "Back to the City" puts you in front
+  of its door.
+- **The wheel in the city** (outside and in the houses): only the 3 stickers from my pack (+ the 2 packs I
+  took: max 9), the exit button and my pack (`client/src/citymode.js`). No uploads, lists or Nature wheel.
+- **The Town Hall** (its door): hand in my pack – it stays one week – then take two packs from other
+  people (`server/citypacks.js`; `GET/POST /api/city/packs`, `POST /api/city/packs/:id/take`, the
+  browser keeps a secret token). Taking copies a pack (it stays for others).
+- **Old City stickers** (from the box City) are put away in the room file (`legacy`), not deleted.
+- Not in the City (yet): peels, cameras/cameramen, recordings start, clear-hidden (all box features) → 400.
+  They work in the houses.
