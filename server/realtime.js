@@ -198,7 +198,7 @@ function attachRealtime(server, {
   const boxBounds = (b) => ({ x: b.width / 2, y: b.height, z: b.depth / 2 });
   // Where people may stand: the room box, but the City is its own 96 × 24 × 96 space (shared/city.mjs).
   const roomBounds = boxBounds(roomSize), cityBounds = boxBounds(CITY.CITY);
-  const boundsOf = (c) => (c && c.room === CITY.CITY_ROOM ? cityBounds : roomBounds);
+  const boundsOf = (c) => (c && CITY.isCityOutside(c.room) ? cityBounds : roomBounds); // every city's outside (t479u)
   const wss = new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 }); // a look with custom sound patches can be ~10 kB
   const rooms = new Map(); // id -> { players: Map<id, client>, watchers: Set<client>, chat: [] }
   const perIp = new Map();

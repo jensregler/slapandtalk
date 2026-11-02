@@ -96,9 +96,16 @@ export function buildCityRoom() {
     // The door: a black arch, just in front of the wall (not a sticker surface).
     const { w: dw, h: dh } = p.door, r = dw / 2, shape = new THREE.Shape();
     shape.moveTo(-r, 0); shape.lineTo(r, 0); shape.lineTo(r, dh - r); shape.absarc(0, dh - r, r, 0, Math.PI, false); shape.lineTo(-r, 0);
-    const door = new THREE.Mesh(new THREE.ShapeGeometry(shape, 24), ink);
-    door.position.set(p.door.x, p.door.y0, p.door.z + 0.03); door.name = `door-${p.room || 'hall'}`;
-    door.userData = { door: p.room || 'hall', plot: p.k }; group.add(door); doors.push(door);
+    const door = new THREE.Mesh(new THREE.ShapeGeometry(shape, 24), p.hall ? ink : ink.clone());
+    door.position.set(p.door.x, p.door.y0, p.door.z + 0.03); door.name = `door-${p.n || 'hall'}`;
+    door.userData = { door: p.n || 'hall', plot: p.k }; group.add(door); doors.push(door);
+    if (!p.hall) { // the house's number over its door, big (which house is which – they start in order)
+      const c = document.createElement('canvas'); c.width = 256; c.height = 128; const g = c.getContext('2d');
+      g.fillStyle = '#15130f'; g.font = '900 104px Arial Black, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(p.n), 128, 68);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      const num = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.8), new THREE.MeshBasicMaterial({ map: t, transparent: true }));
+      num.position.set(p.door.x, p.door.y0 + p.door.h + 0.75, p.door.z + 0.04); group.add(num);
+    }
   }
 
   // Light: an open-air day – sky + ground fill and a low sun from the south-west.
@@ -110,4 +117,15 @@ export function buildCityRoom() {
   const bounds = new THREE.Box3(new THREE.Vector3(-hw + margin, 0, -hd + margin), new THREE.Vector3(hw - margin, H, hd - margin));
   const spawn = new THREE.Vector3(CITY_SPAWN.x, 1.6 + groundAt(CITY_SPAWN.x, CITY_SPAWN.z), CITY_SPAWN.z);
   return { group, surfaces, bounds, spawn, city: true, groundAt, pushOut, doorAt, doors, camFar: 260 };
+}
+// Which houses are started (t479u: houses start in order): a started house's door is black (go in),
+// the next one to start is a warm yellow (start it), the ones after it are grey (not yet).
+const DOOR_COLOURS = { started: 0x15130f, next: 0xf2b632, later: 0x9a948a };
+export function markDoors(doors, { started = [], next = 0 } = {}) {
+  const s = new Set(started);
+  for (const d of doors) {
+    const n = d.userData.door; if (n === 'hall') continue;
+    const state = s.has(n) ? 'started' : n === next ? 'next' : 'later';
+    d.userData.state = state; d.material.color.setHex(DOOR_COLOURS[state]);
+  }
 }

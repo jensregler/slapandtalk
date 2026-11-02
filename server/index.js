@@ -82,6 +82,7 @@ async function cleanup() {
   // and every EMPTY_ROOM_SWEEP_MINUTES (5).
   const reaper = process.env.EMPTY_ROOM_DELETE === '0' || DEMO ? null : createEmptyRoomReaper({
     store, isOccupied: (id) => !!realtime && realtime.occupied(id), graceMs: Number(process.env.EMPTY_ROOM_GRACE_SECONDS || 10) * 1000,
+    ...(process.env.EMPTY_CITY_GRACE_SECONDS ? { cityGraceMs: Number(process.env.EMPTY_CITY_GRACE_SECONDS) * 1000 } : {}), // a city as one (default 30 s)
     keepIds: presetSourceRooms,
   });
   realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder, entitle, gate, onEmpty: reaper && reaper.empty, onJoin: reaper && reaper.joined });

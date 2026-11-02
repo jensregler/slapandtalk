@@ -68,13 +68,22 @@ function makeEntitlements(env = process.env, { licenses = null } = {}) {
   const demo = env.DEMO_PROFILE === '1' || String(env.DEMO_PROFILE).toLowerCase() === 'true';
   const devAllowed = env.DEV_UNLOCK === '1' && !demo;
   const open = openAccessOn(env);
-  const resolve = ({ key, dev } = {}) => {
-    if (open) return all(); // OPEN ACCESS: no paywall anywhere (shared/openaccess.mjs)
+  // What a key / license / dev unlock gives, OPEN ACCESS or not (= what the player really paid for).
+  const bought = ({ key, dev } = {}) => {
     if (demo) return none();
     if (typeof key === 'string' && keys.has(key)) { const out = none(); for (const f of keys.get(key)) out[f] = true; return out; }
     if (licenses && typeof key === 'string' && licenses.peek(key)) return all(); // paid: the whole full version
     if (devAllowed && (dev === true || dev === '1')) return all();
     return none();
+  };
+  const resolve = (creds = {}) => (open ? all() : bought(creds)); // OPEN ACCESS: no paywall anywhere (shared/openaccess.mjs)
+  // A paying player (the City's pack archive and carrying packs home, t479u): a real key, a Lemon
+  // Squeezy license or the dev unlock – NOT open access (while it is on, everyone is "free" there, so
+  // packs still leave after a week). DEV_UNLOCK=1 + klibb.devUnlock = "1" makes a paid tester.
+  resolve.paid = async (creds = {}) => {
+    const key = creds.key;
+    if (licenses && typeof key === 'string' && !keys.has(key)) { try { await licenses.ensure(key); } catch { /* stays as known */ } }
+    return Object.values(bought(creds)).some(Boolean);
   };
   resolve.check = async (creds = {}) => {
     const key = creds.key;

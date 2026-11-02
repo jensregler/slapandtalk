@@ -51,9 +51,10 @@ import { createRoomSizer, ROOM_RANGE } from './roomsize.js';
 import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
 import { menuOf, runMenuSticker, MENU_IDS, RETIRED_MENU_IDS } from './menustickers.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
-import { buildCityRoom } from './city.js';
-import { CITY_ROOM, isCityRoom, isPlotRoom, plotOfRoom, spawnOutside, PLOT_ROOMS } from '../../shared/city.mjs';
-import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, cityFrom, setCityFrom } from './citymode.js';
+import { buildCityRoom, markDoors } from './city.js';
+import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside } from '../../shared/city.mjs';
+import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
+import { enterCity, leaveCity } from './cityleave.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -75,10 +76,13 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
 const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
 
-// The City (t476u, 2 Nov 2026): ?room=stad is the city itself (shared/city.mjs, city.js) – plots,
-// houses, the Town Hall; its 8 houses (stad-1 … stad-8) are ordinary box rooms you walk into. In all
-// of them ("in the city", IN_CITY) the wheel holds only what you brought (citymode.js).
-const CITY_OUTSIDE = ROOM === CITY_ROOM, IN_CITY = isCityRoom(ROOM);
+// The cities (t476u, t479u – 2 Nov 2026): ?room=stad-<code> is a city itself (?room=stad the first one;
+// shared/city.mjs, city.js) – plots, houses, the Town Hall; its 8 houses (stad-<code>-1 … -8) are
+// ordinary box rooms you walk into, started in order. In all of them ("in the city", IN_CITY) the wheel
+// holds only what you brought (citymode.js). THIS_CITY = the city's own id (its outside).
+const CITY_OUTSIDE = isCityOutside(ROOM), IN_CITY = isCityRoom(ROOM), THIS_CITY = cityOf(ROOM);
+// leaving a city drops the packs a free player took; a new visit to a city starts with only my pack
+const carryReady = IN_CITY ? enterCity(THIS_CITY) : leaveCity();
 const room = CITY_OUTSIDE ? buildCityRoom() : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
 scene.add(room.group);
 if (room.camFar) { camera.far = room.camFar; camera.updateProjectionMatrix(); }
@@ -89,8 +93,8 @@ var presetLayer = new PresetLayer(scene, room.surfaces); // eslint-disable-line 
 camera.position.copy(room.spawn);
 // Lite slumpat var man dyker upp, så inte alla som kommer in står i varandra.
 camera.position.x += (Math.random() - 0.5) * 3; camera.position.z += (Math.random() - 0.5) * 1;
-// Back out of a house (?at=stad-3): in front of its door, looking away from it.
-const cityAt = CITY_OUTSIDE && isPlotRoom(params.get('at') || '') ? spawnOutside(params.get('at')) : null;
+// Back out of a house (?at=<city>-3): in front of its door, looking away from it.
+const cityAt = CITY_OUTSIDE && houseNumber(params.get('at') || '') && cityOf(params.get('at')) === THIS_CITY ? spawnOutside(params.get('at')) : null;
 if (cityAt) camera.position.set(cityAt.x + (Math.random() - 0.5) * 1.5, 1.6 + room.groundAt(cityAt.x, cityAt.z), cityAt.z);
 
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
@@ -380,9 +384,22 @@ function wheelDesigns() { return activeWheel() === 'nature' ? natureDesigns() : 
 function stickerDesigns() {
   if (DEMO) return designs();
   if (IN_CITY) return cityDesigns();
-  const mine = designs(), swaps = readSwaps(), key = mine.map((d) => d.id).join() + '|' + state.library.length + '|' + JSON.stringify(swaps);
+  return deckDesigns();
+}
+// My deck (the normal wheel, outside the city). A paying player's kept city stickers (citymode.js
+// readKept, t479u) are in it too: each in the place of the sticker it replaced (klibb.swaps, like the
+// name tags), or added at the end; never more than DECK_MAX (228) stickers (menu stickers not counted).
+function deckDesigns() {
+  const mine = designs(), swaps = readSwaps(), kept = readKept(), key = mine.map((d) => d.id).join() + '|' + state.library.length + '|' + JSON.stringify(swaps) + '|' + kept.map((d) => d.id).join();
   // Jens, 2 Nov 2026: d71 in the middle, d72-d74 to its left, the menu stickers to its right, then the list from the back (shared/wheelorder.mjs)
-  if (key !== wheelKey) { wheelKey = key; wheelCache = applySwaps(wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: MENU_IDS, exclude: RETIRED_MENU_IDS }), swaps); }
+  if (key !== wheelKey) {
+    wheelKey = key;
+    const order = wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: MENU_IDS, exclude: RETIRED_MENU_IDS });
+    const have = new Set(order.map((d) => d.id)), extra = kept.filter((d) => !have.has(d.id)).map((d) => ({ ...d, kept: true }));
+    let list = applySwaps([...order, ...extra], swaps), n = 0;
+    list = list.filter((d) => MENU_IDS.includes(d.id) || ++n <= DECK_MAX);
+    wheelCache = list;
+  }
   return wheelCache;
 }
 // The city wheel (t476u): my pack's 3 stickers (+ the 2 packs I took in the Town Hall: ≤ 9), the
@@ -391,13 +408,14 @@ let cityKey = '', cityCache = [];
 function cityDesigns() {
   const byId = (id) => state.library.find((d) => d.id === id) || state.mine.find((d) => d.id === id) || null;
   const exit = state.library.find((d) => d.id === CITY_EXIT_ID) || null;
-  const key = [localStorage.getItem('klibb.pac')?.length, localStorage.getItem('klibb.cityTaken'), state.library.length, state.mine.length, cityPackUrl].join('|');
-  if (key !== cityKey) { cityKey = key; cityCache = cityWheel({ byId, exit }); }
+  const key = [localStorage.getItem('klibb.pac')?.length, localStorage.getItem('klibb.cityTaken'), state.library.length, state.mine.length, cityPackUrl, cityPaid].join('|');
+  if (key !== cityKey) { cityKey = key; cityCache = cityWheel({ byId, exit, max: cityPaid ? DECK_MAX : 9 }); }
   return cityCache;
 }
 const CITY_EXIT_ID = 'a03b0ba5768979e6'; // exit.png (menustickers.js) – the city's exit button
 var cityPackUrl = ''; // eslint-disable-line no-var
-if (IN_CITY) refreshPackPicture().then((u) => { cityPackUrl = u || ''; cityKey = ''; renderDesignHud(); });
+var cityPaid = false; // eslint-disable-line no-var -- a paying player carries more than 3 packs (the Town Hall says)
+if (IN_CITY) carryReady.then(() => refreshPackPicture()).then((u) => { cityPackUrl = u || ''; cityKey = ''; const l = stickerDesigns(); if (state.selected && !l.some((d) => d.id === state.selected.id)) select(l[0] || null); else renderDesignHud(); });
 function cityWheelChanged() { cityKey = ''; refreshPackPicture().then((u) => { cityPackUrl = u || ''; cityKey = ''; const l = stickerDesigns(); if (!l.some((d) => d.id === state.selected?.id)) select(l[0] || null); else renderDesignHud(); }); }
 // En annan flik ändrade listan: hämta den nya.
 addEventListener('storage', (e) => {
@@ -1800,7 +1818,7 @@ const TYPE_NAMES = S.roomTypes;
 // The City too gets ?room=stad: the plain address now goes to your own most recent room (landing.js).
 function roomUrl(id) { return `${location.origin}/?room=${id}`; }
 function showRoomInfo(info) {
-  const type = info?.type || (ROOM === 'stad' ? 'stad' : 'quick');
+  const type = info?.type || (IN_CITY ? 'stad' : 'quick');
   const badge = $('room-type');
   badge.textContent = TYPE_NAMES[type] || type;
   badge.className = 'badge ' + type;
@@ -1808,7 +1826,7 @@ function showRoomInfo(info) {
   $('room-note').textContent = type === 'quick'
     ? S.roomNoteQuick(info?.quickTtlHours ?? 24)
     : type === 'profile' ? S.roomNoteProfile(info.owner?.name) : '';
-  $('room-hud').textContent = DEMO ? S.demoRoomHud(ROOM) : S.roomHud(type, ROOM);
+  $('room-hud').textContent = DEMO ? S.demoRoomHud(ROOM) : S.roomHud(type, ROOM, cityInfo?.name);
   if (DEMO) { $('room-note').textContent = S.demoNote(config.roomMinutes || 60); badge.hidden = true; }
   roomType = type;
   if (info) currentStyle = normalizeStyle(info.style);
@@ -1825,14 +1843,14 @@ const roomKeys = () => { try { return JSON.parse(localStorage.getItem(ROOM_KEYS)
 function saveRoomKey(id, key) { const k = roomKeys(); k[id] = key; localStorage.setItem(ROOM_KEYS, JSON.stringify(k)); }
 // var (inte let): showRoomInfo längre upp kan köras innan den här raden.
 var currentStyle = normalizeStyle(DEFAULT_STYLE); // eslint-disable-line no-var
-var roomType = ROOM === 'stad' ? 'stad' : 'quick'; // eslint-disable-line no-var
+var roomType = IN_CITY ? 'stad' : 'quick'; // eslint-disable-line no-var
 var presetRoom = false; // eslint-disable-line no-var -- a preset room: its look (the walls) is locked, only admin may change it
 const canEditStyle = () => !!state.adminToken || (!DEMO && roomType !== 'stad' && !!roomKeys()[ROOM]);
 // Reset (all stickers off): the creator, also in the demo (it is not "editing" the room).
 const canReset = () => canEditStyle() || (DEMO && !!roomKeys()[ROOM]);
 function updateStyleUi() {
   $('edit-style').hidden = !canEditStyle() || (presetRoom && !state.adminToken);
-  const sv = document.getElementById('save-preset'); if (sv) sv.hidden = !state.adminToken || DEMO || ROOM === 'stad';
+  const sv = document.getElementById('save-preset'); if (sv) sv.hidden = !state.adminToken || DEMO || IN_CITY;
   $('clear-hidden').hidden = !canReset(); // same rule as resetting the room
   $('rec-box').hidden = !(canEditStyle() || (DEMO && canReset())); // the demo records too (no cameras there)
   updatePeelUi();
@@ -2206,54 +2224,95 @@ function openChoice(what, items) {
   const box = $('menu-choice'), list = $('menu-choice-list');
   controls.unlock?.(); box.dataset.what = what; list.textContent = '';
   for (const it of items) {
+    if (it.info) { const p = document.createElement('p'); p.className = 'choice-info'; p.textContent = it.text; p.dataset.id = it.id; list.appendChild(p); continue; } // a line to read, not a button
     const b = document.createElement('button'); b.type = 'button'; b.className = 'choice-btn'; b.textContent = it.text; b.dataset.id = it.id;
+    if (it.note) { const n = document.createElement('small'); n.className = 'choice-note'; n.textContent = it.note; b.appendChild(n); }
     b.onclick = () => { closeChoice(); it.go?.(); }; list.appendChild(b);
   }
   box.hidden = false;
 }
 function closeChoice() { $('menu-choice').hidden = true; delete $('menu-choice').dataset.what; }
 $('menu-choice').addEventListener('click', (e) => { if (e.target === $('menu-choice')) closeChoice(); });
-// ---------- The City: doors, the Town Hall, my pack (t476u) ----------
-// A door in reach (≤ 14 m) under the aim: its plot ({ room | null = Town Hall }).
+// ---------- The city: doors, houses, the Town Hall, my pack (t476u, t479u) ----------
+// The city's state from the server (server/cities.js): its name, which houses are started, who is where.
+var cityInfo = null; // eslint-disable-line no-var
+async function refreshCity() {
+  if (!IN_CITY) return null;
+  try { cityInfo = (await cityApi.info(THIS_CITY)).city; }
+  catch (e) { if (e.status === 404) cityGone(); return null; }
+  if (room.doors) markDoors(room.doors, { started: cityInfo.houses, next: cityInfo.next });
+  $('room-hud').textContent = S.cityHud(cityInfo.name, houseNumber(ROOM));
+  return cityInfo;
+}
+// The city closed (everybody left – server/emptyrooms.js) while this page was away: only Exit to menu.
+let goneShown = false;
+function cityGone() {
+  if (goneShown) return; goneShown = true;
+  toast(S.cityGone, 6000);
+  openChoice('city-gone', [{ id: 'exit-menu', text: S.exitToMenu, go: () => { location.href = `${location.origin}/?start=1`; } }]);
+}
+if (IN_CITY) { refreshCity(); setInterval(() => { if (!document.hidden) refreshCity(); }, CITY_OUTSIDE ? 8000 : 30000); }
+// A door in reach (≤ 14 m) under the aim: its plot ({ n | hall }).
 function doorHit(ndc) {
   const rc = aimRay(ndc), hit = rc.intersectObjects([...room.doors, ...room.surfaces], false)[0];
   if (!hit || !hit.object.userData.door || hit.distance > 14) return null;
   return plotOfDoor(hit.object.userData.door);
 }
-const plotOfDoor = (d) => (d === 'hall' ? { room: null, hall: true } : { ...plotOfRoom(d) });
-function openCityDoor(p) {
+const plotOfDoor = (d) => (d === 'hall' ? { n: 0, hall: true } : { ...plotOfHouse(Number(d)) });
+const goHouse = (n) => { location.href = roomUrl(houseId(THIS_CITY, n)); };
+// A house's door: started → go in; the next one → start it (a new empty room); a later one → not yet.
+async function openCityDoor(p) {
   if (p.hall) { openHall(); return; }
-  const n = PLOT_ROOMS.indexOf(p.room) + 1;
-  openChoice('city-door', [{ id: 'enter-house', text: S.cityEnterHouse(n), go: () => { location.href = roomUrl(p.room); } }, { id: 'back', text: S.cityStay }]);
+  const n = p.n, i = cityInfo || await refreshCity();
+  if (!i) return;
+  if (i.houses.includes(n)) {
+    openChoice('city-door', [{ id: 'enter-house', text: S.cityEnterHouse(n), note: S.cityHouseHere(i.inHouses?.[n] || 0), go: () => goHouse(n) }, { id: 'back', text: S.cityStay }]);
+  } else if (n === i.next) {
+    openChoice('city-door', [{ id: 'start-house', text: S.cityStartHouse(n), go: async () => {
+      toast(S.cityStarting, 4000);
+      try { const r = await cityApi.startHouse(THIS_CITY, state.artist || ''); goHouse(r.n); } catch (e) { toast(e.message, 3000); refreshCity(); }
+    } }, { id: 'back', text: S.cityStay }]);
+  } else {
+    const out = [{ id: 'not-yet', info: true, text: S.cityNotYet(n, i.next) }];
+    if (i.next) out.push({ id: 'to-next', text: S.cityGoNext(i.next), go: () => walkToDoor(i.next) });
+    out.push({ id: 'back', text: S.cityStay });
+    openChoice('city-door', out);
+  }
 }
 function openHall() {
   controls.unlock?.(); closeChoice();
-  openTownHall({ toast, onChange: cityWheelChanged, makePack: () => menuActions.door() });
+  openTownHall({ toast, onChange: cityWheelChanged, makePack: () => openDoorPick(doorOpts()), deck: () => deckDesigns().filter((d) => !MENU_IDS.includes(d.id)), onDeck: () => { wheelKey = ''; } });
+  syncPaid();
 }
-// My pack on the city wheel: no pack yet → make one (the door's "choose 3"); else the Town Hall's
-// view of it from wherever I am (hand in / take works only inside – the hall checks the door).
+// what the Town Hall says about me: a paying player carries more (their wheel is not cut at 9)
+function syncPaid() { const t = setInterval(() => { const h = townHallState(); if (h.maxPacks != null) { clearInterval(t); if (cityPaid !== !!h.paid) { cityPaid = !!h.paid; cityWheelChanged(); } } }, 300); setTimeout(() => clearInterval(t), 15000); }
+// My pack on the city wheel: no pack yet → make one (the door's "choose 3"); else the Town Hall.
 function cityPackAction() {
   if (!localStorage.getItem('klibb.pac')) { openDoorPick(doorOpts()); return; }
   if (CITY_OUTSIDE) openChoice('city-pack', [{ id: 'to-hall', text: S.cityEnterHall, go: () => { walkToHall(); } }, { id: 'back', text: S.choiceBack }]);
-  else openChoice('city-pack', [{ id: 'to-city', text: S.cityBackToCity, go: () => { location.href = roomUrl(CITY_ROOM) + '&at=' + ROOM; } }, { id: 'back', text: S.choiceBack }]);
+  else openChoice('city-pack', [{ id: 'to-city', text: S.cityBackToCity, go: () => { location.href = roomUrl(THIS_CITY) + '&at=' + ROOM; } }, { id: 'back', text: S.choiceBack }]);
 }
 // (from the pack button: straight in front of the Town Hall's door, then in)
 function walkToHall() { camera.position.set(0, 1.6 + (room.groundAt?.(0, 9.6) || 0), 9.6); controls.yaw = 0; controls.apply?.(); openHall(); }
-// The door's pick: "to city" walks out into the City (the room I came from = "Back to my room").
+function walkToDoor(n) { const s = spawnOutside(houseId(THIS_CITY, n)); camera.position.set(s.x, 1.6 + (room.groundAt?.(s.x, s.z) || 0), s.z + 1); controls.yaw = 0; controls.apply?.(); atDoor = null; }
+// The door's pick: "to city →" = the city picker (start a city and name it, or go into one that is
+// alive); in a city already, the new pack is simply what I carry now. Leaving my room for a city is
+// one way (Jens, t479u: it may have filled up with people) – no "back to my room".
 const doorOpts = () => ({ S, toast, choices: () => (IN_CITY ? state.library.filter((d) => !isNat(d) && !MENU_IDS.includes(d.id) && !RETIRED_MENU_IDS.includes(d.id)) : stickerDesigns().filter((d) => !MENU_IDS.includes(d.id))),
-  toCity: () => { if (!IN_CITY) setCityFrom(ROOM); if (CITY_OUTSIDE) cityWheelChanged(); else location.href = roomUrl(CITY_ROOM); } });
+  toCity: () => { if (IN_CITY) cityWheelChanged(); else openCityPick({ toast, go: (id) => { location.href = roomUrl(id); } }); } });
 // Walking into a door's zone (in front of it) opens it once; walk away and back to open it again.
 let atDoor = null;
 function tickCityDoors() {
   if (!CITY_OUTSIDE) return;
-  const p = room.doorAt(camera.position.x, camera.position.z), id = p ? (p.room || 'hall') : null;
-  if (id && id !== atDoor && $('menu-choice').hidden && !townHallOpen() && !doorOpen() && !nameTagOpen()) openCityDoor(p.hall ? { hall: true } : p);
+  const p = room.doorAt(camera.position.x, camera.position.z), id = p ? (p.hall ? 'hall' : p.n) : null;
+  if (id && id !== atDoor && $('menu-choice').hidden && !townHallOpen() && !doorOpen() && !nameTagOpen() && !cityPickOpen()) openCityDoor(p.hall ? { hall: true } : p);
   atDoor = id;
 }
+// In a city with no pack yet (came in from the Join list or a link): make one first.
+if (IN_CITY) carryReady.then(() => setTimeout(() => { if (!localStorage.getItem('klibb.pac') && !doorOpen()) { toast(S.cityNoPack, 3500); openDoorPick(doorOpts()); } }, 1200));
 function exitChoices() {
   const out = [];
-  if (isPlotRoom(ROOM)) out.push({ id: 'to-city', text: S.cityBackToCity, go: () => { location.href = roomUrl(CITY_ROOM) + '&at=' + ROOM; } });
-  if (IN_CITY && cityFrom() && !isCityRoom(cityFrom())) out.push({ id: 'to-room', text: S.cityBackToRoom, go: () => { location.href = roomUrl(cityFrom()); } });
+  if (IN_CITY && !CITY_OUTSIDE) out.push({ id: 'to-city', text: S.cityBackToCity, go: () => { location.href = roomUrl(THIS_CITY) + '&at=' + ROOM; } });
   out.push({ id: 'exit-menu', text: S.exitToMenu, go: () => { location.href = `${location.origin}/?start=1`; } }, { id: 'back', text: S.choiceBack });
   return out;
 }
@@ -2306,7 +2365,7 @@ function menuClick(ndc) {
 const rp = { info: null, timer: 0 };
 function renderRoomPanel() {
   const i = rp.info || {};
-  $('rpi-name').textContent = i.name || (ROOM === 'stad' ? 'The City' : ROOM);
+  $('rpi-name').textContent = IN_CITY ? S.cityHud(cityInfo?.name || i.name || S.cityName, houseNumber(ROOM)) : i.name || ROOM;
   const born = Date.parse(i.createdAt || '');
   $('rpi-life').textContent = Number.isFinite(born) ? S.roomAge(Date.now() - born) : '–';
   $('rpi-visitors').textContent = String(i.visitors ?? '–');
@@ -2914,7 +2973,8 @@ window.klibb = {
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer, scene,
   nameTag: nameTagState, openNameTag, door: doorState, menuAction: (k) => menuActions[k]?.(),
-  city: () => ({ outside: CITY_OUTSIDE, inCity: IN_CITY, wheel: stickerDesigns().map((d) => d.id), taken: takenPacks().map((p) => p.id), hall: townHallState(), atDoor, doors: room.doors ? room.doors.length : 0 }), openHall, cityDoor: (id) => openCityDoor(plotOfDoor(id)),
+  city: () => ({ id: THIS_CITY, outside: CITY_OUTSIDE, inCity: IN_CITY, house: houseNumber(ROOM), info: cityInfo, paid: cityPaid, wheel: stickerDesigns().map((d) => d.id), taken: takenPacks().map((p) => p.id), hall: townHallState(), pick: cityPickState(), atDoor, doors: room.doors ? room.doors.length : 0, doorStates: room.doors ? room.doors.map((d) => [d.userData.door, d.userData.state || null]) : [] }),
+  openHall, cityDoor: (n) => openCityDoor(plotOfDoor(n)), refreshCity, deck: () => deckDesigns().map((d) => d.id), kept: readKept,
   menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: (x = 0, y = 0) => menuOf(pickStampAt(new THREE.Vector2(x, y))), openRoomPanel, askForVisitors, roomSize: () => ({ ...roomSizer.get(), normal: roomSizer.isDefault() }), setRoomSize: (d) => roomSizer.set(d), roomSurfaces: () => room.surfaces, roomBounds: () => room.bounds, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {

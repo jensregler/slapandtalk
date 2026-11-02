@@ -15,6 +15,8 @@ import { cleanInsta } from '../../shared/insta.mjs';
 import { clearMineForNewRoom } from './designs.js';
 import { S } from './strings.js';
 import { resetPersonalSound } from './soundui.js';
+import { leaveCity } from './cityleave.js';
+import { isCityRoom } from '../../shared/city.mjs';
 
 const ROOM_RE = /^[a-z0-9-]{1,40}$/;
 const LOOK_KEY = 'klibb.avatar', ROOM_KEYS = 'klibb.roomKeys';
@@ -34,6 +36,7 @@ export function showStartCard() {
   // "Exit to menu" (and a fresh start): every personal sound setting back to default (Jens, 2 Nov
   // 2026) – they came along from room to room and into the City until now.
   resetPersonalSound();
+  leaveCity(); // Exit to menu from a city: a free player's taken packs stay behind (cityleave.js, t479u)
   document.body.classList.add('start-card-on');
   const root = el('div', { id: 'start-card', className: 'start-card' });
   document.body.appendChild(root);
@@ -66,7 +69,10 @@ export function showStartCard() {
     for (const r of rooms.slice(0, 8)) {
       const b = el('button', { type: 'button', className: 'sc-room' });
       b.dataset.id = r.id;
-      b.append(el('b', { textContent: r.name || r.id }), el('span', { textContent: S.scRoomFacts(r.free, r.stickers, r.visitors, ageText(r.createdAt)) }));
+      // a room in a city (t479u): the city's name with it ("🏙 Slapville" / "🏙 Slapville · house 3")
+      if (r.city) { b.classList.add('sc-room-city'); b.append(el('b', { textContent: '🏙 ' + (r.city.house ? S.cityHud(r.city.name, r.city.house) : r.city.name) })); }
+      else b.append(el('b', { textContent: r.name || r.id }));
+      b.append(el('span', { textContent: (r.city ? S.scInCity(r.people) + ' · ' : '') + S.scRoomFacts(r.free, r.stickers, r.visitors, ageText(r.createdAt)) }));
       b.onclick = () => go(r.id);
       list.append(el('li', {}, b));
     }
@@ -162,7 +168,7 @@ export function showStartCard() {
     ok.onclick = async () => {
       const code = cleanCode(inp.value);
       if (!ROOM_RE.test(code)) { msg.textContent = S.scCodeBad; return; }
-      if (code === 'stad') { go(code); return; }
+      if (isCityRoom(code)) { go(code); return; } // a city (its outside or a house): no 'recent' check
       ok.disabled = true; msg.textContent = '';
       try {
         const r = await fetch(`/api/rooms/recent?ids=${code}`, { cache: 'no-store' }); const a = await r.json();

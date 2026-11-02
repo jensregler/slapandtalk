@@ -925,37 +925,107 @@ body.front-view:not(.camview) #mode-btn { opacity: .35; pointer-events: none; }
 /* ---------- The City (t476u, 2 Nov 2026) ---------- */
 /* In the city (and its houses) you only have what you brought: no uploads, no lists, no Nature wheel. */
 body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-city #nature-box, body.in-city #nature-strip, body.in-city #upload-btn, body.in-city .upload-btn { display: none !important; }
-/* The Town Hall: big and clear, one column on a phone. */
-#townhall { position: fixed; inset: 0; z-index: 60; background: rgba(10, 30, 16, .55); display: flex; align-items: center; justify-content: center; padding: 2vmin; }
-#townhall[hidden], #townhall [hidden] { display: none !important; }
-#townhall .th-panel { background: #eaf6ec; color: #13261a; border: 4px solid #15130f; border-radius: 22px; width: min(1100px, 100%); max-height: 100%; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.45); font-family: system-ui, sans-serif; }
-#townhall .th-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background: #9fd0a8; border-bottom: 4px solid #15130f; border-radius: 18px 18px 0 0; }
-#townhall .th-title { font: 900 clamp(26px, 4.5vw, 44px)/1 "Arial Black", Arial, sans-serif; letter-spacing: .02em; }
-#townhall .th-x { font-size: 28px; font-weight: 900; color: #15130f; width: 52px; height: 52px; border-radius: 50%; border: 3px solid #15130f; background: #fff; cursor: pointer; }
-#townhall .th-body { display: grid; grid-template-columns: minmax(220px, 320px) 1fr; gap: 22px; padding: 18px 20px; overflow: auto; }
-#townhall .th-h { font-weight: 800; font-size: 22px; margin-bottom: 8px; }
-#townhall .th-mine { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; }
+/* The Town Hall's pack shop (t479u) and the city picker: big and clear (Jens has poor eyesight) – big
+   text, big pictures, buttons ≥ 56 px; one column on a phone. Both sheets share the .th-* look. */
+#townhall, #citypick { position: fixed; inset: 0; z-index: 60; background: rgba(10, 30, 16, .6); display: flex; align-items: center; justify-content: center; padding: 2vmin; font-family: system-ui, sans-serif; }
+#townhall[hidden], #townhall [hidden], #citypick[hidden], #citypick [hidden] { display: none !important; }
+#townhall .th-panel, #citypick .th-panel { background: #eaf6ec; color: #13261a; border: 4px solid #15130f; border-radius: 22px; width: min(1240px, 100%); height: min(940px, 100%); display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.45); overflow: hidden; }
+#citypick .th-panel { width: min(860px, 100%); height: auto; max-height: 100%; }
+#townhall .th-head, #citypick .th-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; background: #9fd0a8; border-bottom: 4px solid #15130f; }
+#townhall .th-title, #citypick .th-title { font: 900 clamp(26px, 4.2vw, 44px)/1.05 "Arial Black", Arial, sans-serif; letter-spacing: .01em; }
+#townhall .th-x, #citypick .th-x { flex: none; font-size: 30px; font-weight: 900; color: #15130f; width: 60px; height: 60px; border-radius: 50%; border: 3px solid #15130f; background: #fff; cursor: pointer; }
+#townhall .th-bar { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 20px; border-bottom: 3px solid #15130f; background: #f8fff9; }
+#townhall .th-chip { font-size: 19px; font-weight: 700; padding: 8px 14px; border-radius: 999px; border: 2px solid #15130f; background: #fff; }
+#townhall .th-chip-carry { background: #ffd84a; font-weight: 900; font-size: 21px; }
+#townhall .th-chip-paid { background: #ffe9a8; }
+#townhall .th-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 300px) 1fr; gap: 24px; padding: 18px 20px; overflow: auto; }
+#townhall .th-h { font-weight: 900; font-size: 26px; margin: 4px 0 10px; }
+#townhall .th-mine { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; }
 #townhall .th-mine img { width: 100%; max-width: 260px; aspect-ratio: 563 / 802; object-fit: contain; filter: drop-shadow(0 4px 10px rgba(0,0,0,.35)); }
-#townhall .th-name { font-weight: 800; font-size: 20px; }
-#townhall .th-note { font-size: 16px; opacity: .85; }
-#townhall .th-big, #townhall .th-take, #townhall .th-back { font: 800 19px system-ui, sans-serif; padding: 14px 20px; min-height: 54px; border-radius: 14px; border: 3px solid #15130f; background: #ffd84a; color: #15130f; cursor: pointer; }
-#townhall .th-big:disabled, #townhall .th-take:disabled { background: #d9d9d9; color: #555; cursor: default; }
-#townhall .th-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin-top: 10px; }
-#townhall .th-pack { background: #fff; border: 3px solid #15130f; border-radius: 16px; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+#townhall .th-name { font-weight: 900; font-size: 24px; word-break: break-word; }
+#townhall .th-note { font-size: 19px; line-height: 1.35; opacity: .9; }
+#townhall .th-msg, #citypick .th-msg { font-weight: 800; color: #8a1c00; opacity: 1; min-height: 1.3em; }
+#townhall .th-big, #townhall .th-take, #townhall .th-back, #citypick .th-big { font: 900 21px system-ui, sans-serif; padding: 14px 22px; min-height: 60px; border-radius: 16px; border: 3px solid #15130f; background: #ffd84a; color: #15130f; cursor: pointer; }
+#townhall .th-plain, #citypick .th-plain { background: #fff; }
+#townhall .th-big:disabled, #townhall .th-take:disabled, #citypick .th-big:disabled { background: #d9d9d9; color: #555; cursor: default; }
+#townhall .th-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 18px; }
+#townhall .th-pack { background: #fff; border: 3px solid #15130f; border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; }
+#townhall .th-pack:hover { box-shadow: 0 6px 0 #15130f; transform: translateY(-2px); }
 #townhall .th-pack.taken { background: #dff5e3; }
-#townhall .th-pimg { width: 100%; aspect-ratio: 563 / 802; object-fit: contain; }
-#townhall .th-pname { font-weight: 800; font-size: 17px; text-align: center; word-break: break-word; }
-#townhall .th-stk { display: flex; gap: 6px; justify-content: center; }
-#townhall .th-stk img { width: 40px; height: 40px; object-fit: contain; }
-#townhall .th-take { width: 100%; font-size: 16px; padding: 10px; }
-#townhall .th-none { grid-column: 1 / -1; font-size: 18px; padding: 24px; text-align: center; opacity: .8; }
-#townhall .th-back { margin: 0 20px 18px; align-self: flex-start; background: #fff; }
+#townhall .th-pimg { width: 100%; height: 260px; object-fit: contain; }
+#townhall .th-pname { font-weight: 900; font-size: 24px; line-height: 1.15; word-break: break-word; }
+#townhall .th-by { font-size: 19px; }
+#townhall .th-by-big { font-size: 24px; }
+#townhall .th-insta { font-weight: 800; color: #b0306a; text-decoration: none; }
+#townhall .th-stk { display: flex; gap: 8px; }
+#townhall .th-stk img { width: 68px; height: 68px; object-fit: contain; background: #f2f2f2; border-radius: 10px; padding: 4px; }
+#townhall .th-stk-big img { width: min(160px, 26vw); height: min(160px, 26vw); padding: 8px; }
+#townhall .th-about { font-size: 18px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+#townhall .th-meta { font-size: 16px; opacity: .75; }
+#townhall .th-take { width: 100%; margin-top: auto; }
+#townhall .th-none { grid-column: 1 / -1; font-size: 22px; padding: 28px; text-align: center; opacity: .85; }
+#townhall .th-back { margin: 12px 20px 16px; align-self: flex-start; background: #fff; }
+/* one pack, big */
+#townhall .th-detail { grid-template-columns: minmax(260px, 420px) 1fr; align-items: start; }
+#townhall .th-dpic { position: sticky; top: 0; }
+#townhall .th-dimg { width: 100%; aspect-ratio: 563 / 802; object-fit: contain; filter: drop-shadow(0 6px 14px rgba(0,0,0,.35)); }
+#townhall .th-dinfo { display: flex; flex-direction: column; gap: 14px; }
+#townhall .th-dname, #citypick .th-dname { font: 900 clamp(28px, 4vw, 42px)/1.1 "Arial Black", Arial, sans-serif; word-break: break-word; }
+#townhall .th-dabout { font-size: 22px; line-height: 1.45; white-space: pre-wrap; background: #fff; border: 2px solid #15130f; border-radius: 14px; padding: 14px 16px; }
+/* hand in */
+#townhall .th-form { grid-template-columns: minmax(200px, 280px) 1fr; align-items: start; }
+#townhall .th-fpic { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+#townhall .th-fimg { width: 100%; max-width: 260px; aspect-ratio: 563 / 802; object-fit: contain; }
+#townhall .th-fields { display: flex; flex-direction: column; gap: 14px; }
+#townhall .th-field { display: flex; flex-direction: column; gap: 6px; font-size: 20px; font-weight: 800; }
+#townhall .th-field input, #townhall .th-field textarea, #citypick input { font: 600 22px system-ui, sans-serif; padding: 12px 14px; border: 3px solid #15130f; border-radius: 12px; background: #fff; color: #15130f; }
+#townhall .th-field textarea { resize: vertical; min-height: 140px; line-height: 1.4; }
+#townhall .th-count { font-size: 16px; opacity: .7; text-align: right; margin-top: -8px; }
+#townhall .th-btns, #citypick .th-btns { display: flex; flex-wrap: wrap; gap: 12px; }
+/* a paying player: the pack's stickers into the deck */
+#townhall .th-deck { display: flex; flex-direction: column; gap: 14px; }
+#townhall .dk-slots { display: flex; flex-wrap: wrap; gap: 14px; }
+#townhall .dk-slot { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 3px solid #15130f; border-radius: 16px; background: #fff; cursor: pointer; font: 800 18px system-ui, sans-serif; color: #15130f; min-height: 110px; }
+#townhall .dk-slot.on { background: #ffd84a; box-shadow: 0 0 0 4px #15130f; }
+#townhall .dk-slot.already { opacity: .65; cursor: default; }
+#townhall .dk-new, #townhall .dk-old { width: 88px; height: 88px; object-fit: contain; }
+#townhall .dk-empty { width: 88px; height: 88px; display: grid; place-items: center; border: 3px dashed #15130f; border-radius: 12px; font-size: 15px; text-align: center; padding: 4px; }
+#townhall .dk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+#townhall .dk-g { aspect-ratio: 1; border: 2px solid #b9c7bb; border-radius: 12px; background: #fff; padding: 4px; cursor: pointer; }
+#townhall .dk-g img { width: 100%; height: 100%; object-fit: contain; }
+#townhall .dk-g.picked { border: 4px solid #d12b2b; background: #ffe1e1; }
+/* the city picker */
+#citypick .cp-body { padding: 18px 20px 22px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
+#citypick .cp-new { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 18px 22px; border: 4px solid #15130f; border-radius: 18px; background: #ffd84a; color: #15130f; cursor: pointer; text-align: left; }
+#citypick .cp-new b { font: 900 30px "Arial Black", Arial, sans-serif; }
+#citypick .cp-new span { font-size: 19px; }
+#citypick .cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+#citypick .cp-city { width: 100%; display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 12px; padding: 16px 20px; border: 3px solid #15130f; border-radius: 16px; background: #fff; color: #15130f; cursor: pointer; text-align: left; }
+#citypick .cp-city b { font: 900 26px "Arial Black", Arial, sans-serif; word-break: break-word; }
+#citypick .cp-city span { grid-row: 2; font-size: 19px; opacity: .85; }
+#citypick .cp-city em { grid-row: 1 / 3; grid-column: 2; align-self: center; font: 900 20px system-ui, sans-serif; font-style: normal; background: #9fd0a8; border: 3px solid #15130f; border-radius: 12px; padding: 10px 14px; }
+#citypick .cp-empty { font-size: 20px; padding: 14px 4px; opacity: .85; }
+#citypick #cp-name { width: 100%; box-sizing: border-box; font-size: 28px; }
+.choice-note { display: block; font-size: 18px; font-weight: 600; opacity: .8; margin-top: 4px; }
+.choice-info { font-size: 22px; line-height: 1.35; color: #fff; background: rgba(0,0,0,.55); border-radius: 14px; padding: 14px 18px; margin: 0; max-width: 640px; }
 @media (max-width: 720px) {
-  #townhall { padding: 0; }
-  #townhall .th-panel { border-radius: 0; height: 100%; border-width: 0; }
-  #townhall .th-head { border-radius: 0; }
-  #townhall .th-body { grid-template-columns: 1fr; padding: 14px; }
-  #townhall .th-mine img { max-width: 200px; }
-  #townhall .th-grid { grid-template-columns: repeat(2, 1fr); }
-  #townhall .th-back { margin: 0 14px 14px; align-self: stretch; }
+  #townhall, #citypick { padding: 0; }
+  #townhall .th-panel, #citypick .th-panel { border-radius: 0; height: 100%; max-height: none; border-width: 0; }
+  #townhall .th-head, #citypick .th-head { padding: 10px 12px; }
+  #townhall .th-title, #citypick .th-title { font-size: 26px; }
+  #townhall .th-bar { padding: 10px 12px; }
+  #townhall .th-chip { font-size: 17px; }
+  #townhall .th-body, #townhall .th-detail, #townhall .th-form { grid-template-columns: 1fr; padding: 12px; gap: 16px; }
+  #townhall .th-mine { flex-direction: row; flex-wrap: wrap; justify-content: center; text-align: left; }
+  #townhall .th-mine img { max-width: 120px; }
+  #townhall .th-grid { grid-template-columns: 1fr; }
+  #townhall .th-pimg { height: 300px; }
+  #townhall .th-dpic { position: static; }
+  #townhall .th-dimg { max-height: 50vh; }
+  #townhall .th-back { margin: 8px 12px 12px; align-self: stretch; }
+  #townhall .th-btns > *, #citypick .th-btns > * { flex: 1 1 100%; }
+  #townhall .dk-slot { flex: 1 1 100%; }
+  #townhall .dk-grid { grid-template-columns: repeat(4, 1fr); }
+  #citypick .cp-body { padding: 12px; }
 }
+.sc-room-city b { color: #a8f0b4; }

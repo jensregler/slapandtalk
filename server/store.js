@@ -68,18 +68,21 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   const roomKey = (id) => `rooms/${id}.json`;
   const iso = () => new Date(clock()).toISOString();
 
-  // Rooms that exist without being made: the City and its 8 houses (shared/city.mjs, t476u) – type 'stad'.
-  const autoRoom = (id) => id === PUBLIC_ROOM || CITY.isPlotRoom(id);
-  const defaultType = (id) => (autoRoom(id) ? 'stad' : 'quick');
+  // Rooms that exist without being made: only the first City ('stad'). Every city room (a city outside
+  // or one of its houses, shared/city.mjs – t476u, t479u) is type 'stad': locked like the City, and the
+  // 24 h cleanup never takes it (a city goes when it is empty – server/emptyrooms.js). Houses are made
+  // when somebody starts them (server/cities.js), also the first City's (stad-1 … stad-8).
+  const autoRoom = (id) => id === PUBLIC_ROOM;
+  const defaultType = (id) => (CITY.isCityRoom(id) ? 'stad' : 'quick');
   // Fyller i fält som saknas i äldre rumsfiler (från före rumstyperna).
   function normalize(id, r) {
     const room = { id, type: defaultType(id), owner: null, createdAt: null, lastVisitAt: null, stamps: [], ...(r || {}) };
-    if (autoRoom(id)) room.type = 'stad';
+    if (CITY.isCityRoom(id)) room.type = 'stad';
     if (!ROOM_TYPES.includes(room.type)) room.type = 'quick';
     // The City is no longer a box (t476u, 2 Nov 2026): its old box-room stickers, peels and cameras would
     // hang in the air (or inside the Town Hall), so they are put away – kept in the file (legacy*), not
     // deleted – and the city starts clean. geo = CITY.CITY_GEO from then on (no box remap for it).
-    if (id === PUBLIC_ROOM) {
+    if (CITY.isCityOutside(id)) {
       if (room.geo !== CITY.CITY_GEO) {
         if ((room.stamps || []).length || (room.peels || []).length || (room.cameras || []).length) {
           room.legacy = { geo: room.geo || GEO.sizeKey(GEO.LEGACY_ROOM), stamps: room.stamps || [], peels: room.peels || [], cameras: room.cameras || [], at: iso() };
@@ -219,7 +222,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       if (style) extra.style = style;
       if (keyHash) extra.keyHash = keyHash;
       if (more) Object.assign(extra, more);
-      return saveRoom(normalize(id, { type: id === PUBLIC_ROOM ? 'stad' : type, owner, createdAt: now, lastVisitAt: now, ...extra, stamps: [] }));
+      return saveRoom(normalize(id, { type: CITY.isCityRoom(id) ? 'stad' : type, owner, createdAt: now, lastVisitAt: now, ...extra, stamps: [] }));
     });
   }
 

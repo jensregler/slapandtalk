@@ -54,6 +54,7 @@ const { mountPhotos, photoSettings } = require('./photos');
 const { createMailer } = require('./mail');
 const { createPresets, PRESET_FACES } = require('./presets');
 const { createCityPacks } = require('./citypacks');
+const { createCities } = require('./cities');
 const CITY = require('../shared/city.mjs');
 
 // demo: the demo profile (server/demo.js createDemo) or null. library: loadLibrary() list.
@@ -401,43 +402,68 @@ app.post('/api/admin/presets/:id/thumb', (req, res, next) => { if (!isAdmin(req)
     if (!req.file) return res.status(400).json({ error: 'thumb: an image' });
     try { const p = await presets.setThumb(req.params.id, req.file.buffer); if (!p) return res.status(404).json({ error: 'No such preset' }); res.json({ preset: p }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   }));
-// ---------- The City (t476u, 2 Nov 2026; shared/city.mjs) ----------
-// The 8 houses (stad-1 … stad-8) are real rooms of type 'stad' (never swept, look locked like the
-// City). The first time one is asked for it is made with one of Jens's presets as its starting look
-// (house n gets the n-th preset, oldest first, round and round); no presets = a plain room.
-async function seedPlotRoom(id) {
-  if (await store.getRoom(id)) return;
-  const all = demo ? [] : await presets.list().catch(() => []);
-  const p = all.length ? all[(CITY.PLOT_ROOMS.indexOf(id)) % all.length] : null;
-  try {
-    await store.createRoom({ id, type: 'stad', style: p ? cleanStyle(p.style, { fabric: true }) : null, extra: p ? { preset: presets.forRoom(p) } : null });
-  } catch (e) { if (e.code !== 'EXISTS') throw e; }
-}
-// Not in the City (yet): it isn't a box, and these all work on the room's box (peels fall to its
+// ---------- The cities (t476u, t479u – 2 Nov 2026; shared/city.mjs, server/cities.js) ----------
+// A city is started by the first person going in (they name it); its 8 houses are rooms started one
+// at a time, in order. A city goes when nobody is in it (server/emptyrooms.js). The first City
+// ('stad', "The City") stays.
+const occupancy = (id) => { for (const a of activeRooms()) if (a.id === id) return a.count; return 0; };
+const maxPlayersNow = () => { const a = activeRooms()[0]; return a ? a.max : 4; };
+const cities = createCities(store, { occupancy, get maxPlayers() { return maxPlayersNow(); }, clock, log });
+const who = (req) => { const n = cleanName(req.body?.by); return n || null; };
+app.get('/api/cities', rateLimit(120), wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store').json({ cities: demo ? [] : await cities.list() });
+}));
+app.post('/api/cities', rateLimit(10), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
+  try { res.json({ city: await cities.create({ name: req.body?.name, by: who(req) }) }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+}));
+app.get('/api/cities/:id', rateLimit(240), wrap(async (req, res) => {
+  const i = CITY.isCityOutside(String(req.params.id)) ? await cities.info(String(req.params.id)) : null;
+  if (!i) return res.status(404).json({ error: 'That city is gone' });
+  res.set('Cache-Control', 'no-store').json({ city: i });
+}));
+app.post('/api/cities/:id/houses', rateLimit(20), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
+  if (!CITY.isCityOutside(String(req.params.id))) return res.status(404).json({ error: 'That city is gone' });
+  try { res.json(await cities.startHouse(String(req.params.id), { by: who(req) })); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+}));
+// Not in a city's outside (yet): it isn't a box, and these all work on the room's box (peels fall to its
 // floor, cameras and cameramen walk its walls, hidden stickers are found on its six faces; recording
 // still works, but the replay draws a box room – open question). Only admin
 // could do these in the City anyway: everyone else still gets the old 403 ("Only admin can … in the City").
 app.use((req, res, next) => {
-  if (req.method !== 'GET' && isAdmin(req) && /^\/api\/rooms\/stad\/(peels|cameras|clear-hidden)(\/|$)/.test(req.path)) return res.status(400).json({ error: 'Not in the City (yet)', city: true });
+  const m = /^\/api\/rooms\/([a-z0-9-]+)\/(peels|cameras|clear-hidden)(\/|$)/.exec(req.path);
+  if (req.method !== 'GET' && m && CITY.isCityOutside(m[1]) && isAdmin(req)) return res.status(400).json({ error: 'Not in the City (yet)', city: true });
   next();
 });
-// The Town Hall's packs (server/citypacks.js). GET lists them (+ mine with x-pack-token), POST hands
-// mine in (multipart: img + name + stickers JSON), POST …/:id/take swaps for one of the others.
-const packUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024, files: 1, fields: 4 },
+// The Town Hall's pack shop – one for all cities (server/citypacks.js). GET lists it (+ mine with
+// x-pack-token), POST hands mine in (multipart: img + name + stickers JSON + about + author + insta),
+// POST …/:id/take takes one of the others, POST …/drop drops what I took (leaving the city, free).
+// Paid (server/entitlements.js resolve.paid: a real key, not OPEN ACCESS) = the pack stays for good.
+const packUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024, files: 1, fields: 8, fieldSize: 8 * 1024 },
   fileFilter: (req, f, cb) => cb(null, /^image\/(png|webp|jpeg)$/.test(f.mimetype)) });
 const packToken = (req) => String(req.get('x-pack-token') || req.body?.token || '').slice(0, 80) || null;
 const packError = (res, e) => res.status(e.status || 500).json({ error: e.message, ...(e.pack ? { pack: e.pack } : {}) });
+const paidOf = (req) => (demo ? Promise.resolve(false) : entitle.paid ? entitle.paid(fromReq(req)) : Promise.resolve(false));
 app.get('/api/city/packs', rateLimit(120), wrap(async (req, res) => {
-  try { res.set('Cache-Control', 'no-store').json(await cityPacks.list(packToken(req))); } catch (e) { packError(res, e); }
+  try { res.set('Cache-Control', 'no-store').json(await cityPacks.list(packToken(req), { paid: await paidOf(req) })); } catch (e) { packError(res, e); }
 }));
 app.post('/api/city/packs', rateLimit(10), (req, res, next) => packUpload.single('img')(req, res, (err) => (err ? res.status(400).json({ error: 'The pack picture is too big or not an image' }) : next())), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
   let stickers = null; try { stickers = JSON.parse(String(req.body?.stickers || 'null')); } catch { stickers = null; }
-  try { res.json(await cityPacks.handIn({ name: req.body?.name, stickers, img: req.file && req.file.buffer, token: packToken(req) })); } catch (e) { packError(res, e); }
+  const b = req.body || {};
+  try { res.json(await cityPacks.handIn({ name: b.name, stickers, img: req.file && req.file.buffer, token: packToken(req), about: b.about, author: b.author, insta: b.insta, paid: await paidOf(req) })); } catch (e) { packError(res, e); }
+}));
+app.post('/api/city/packs/drop', rateLimit(60), express.json(), wrap(async (req, res) => {
+  try { res.json(await cityPacks.dropTaken(packToken(req), { paid: await paidOf(req) })); } catch (e) { packError(res, e); }
 }));
 app.post('/api/city/packs/:id/take', rateLimit(30), express.json(), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
-  try { res.json(await cityPacks.take(req.params.id, packToken(req))); } catch (e) { packError(res, e); }
+  try { res.json(await cityPacks.take(req.params.id, packToken(req), { paid: await paidOf(req) })); } catch (e) { packError(res, e); }
+}));
+app.delete('/api/admin/city/packs/:id', wrap(async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
+  res.json({ removed: await cityPacks.remove(req.params.id) });
 }));
 app.get('/api/city/packs/:file', wrap(async (req, res) => {
   const m = /^([a-f0-9]{12})\.webp$/.exec(req.params.file);
@@ -463,7 +489,7 @@ app.post('/api/admin/rooms', express.json(), wrap(async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
   const b = req.body || {};
   const id = String(b.id || '').toLowerCase();
-  if (!ROOM_RE.test(id) || id === 'stad') return res.status(400).json({ error: 'Invalid room' });
+  if (!ROOM_RE.test(id) || CITY.isCityRoom(id)) return res.status(400).json({ error: 'Invalid room' }); // city ids are the cities' (shared/city.mjs)
   const owner = b.owner && typeof b.owner === 'object' ? { id: String(b.owner.id || '').slice(0, 60), name: String(b.owner.name || '').slice(0, 60) } : null;
   try {
     res.json({ room: roomPublic(await store.createRoom({ id, type: 'profile', owner })) });
@@ -491,8 +517,12 @@ app.get('/api/rooms/open', rateLimit(60), wrap(async (req, res) => {
     for (const a of activeRooms()) {
       if (a.count >= a.max) continue;
       let r = null; try { r = await store.peek(a.id); } catch { r = null; }
-      if (a.id !== 'stad' && (!r || r.type !== 'quick')) continue;
-      out.push({ id: a.id, name: a.id === 'stad' ? 'The City' : (r && r.name) || null, people: a.count, free: a.max - a.count, max: a.max,
+      const c = CITY.parseCityRoom(a.id);
+      if (!c && (!r || r.type !== 'quick')) continue;
+      // a room in a city (t479u): its city's name with it – the city's outside, or "house n" in it
+      let city = null;
+      if (c) { if (!r && a.id !== CITY.CITY_ROOM) continue; const o = c.n ? await store.peek(c.city).catch(() => null) : r; city = { id: c.city, name: c.city === CITY.CITY_ROOM ? cities.FIRST_NAME : (o && o.name) || 'A city', house: c.n }; }
+      out.push({ id: a.id, name: c ? (c.n ? `House ${c.n}` : city.name) : (r && r.name) || null, ...(city ? { city } : {}), people: a.count, free: a.max - a.count, max: a.max,
         stickers: r && Array.isArray(r.stamps) ? r.stamps.length : 0, visitors: r && Array.isArray(r.visitors) ? r.visitors.length : 0, createdAt: (r && r.createdAt) || null });
     }
   }
@@ -515,7 +545,6 @@ app.get('/api/rooms/recent', (req, res, next) => (req.query.ids === undefined ? 
 
 app.get('/api/rooms/:room', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
-  if (CITY.isPlotRoom(id)) await seedPlotRoom(id).catch((e) => log.error?.('[city] seeding', id, 'failed', e && e.message));
   let room;
   try { room = await store.roomOrEmpty(id); } catch (e) { room = emptyRoomOnStorageError(id, e); }
   res.json({ room: roomPublic(room), ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });
