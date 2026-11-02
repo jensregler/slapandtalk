@@ -180,6 +180,18 @@ function client(base, room, hello = {}) {
     await sleep(150);
     assert(gone && gone.rejoin && s1.closed === 4000 && ws2.players.length === 1 && watcher.msgs.filter((m) => m.t === 'join' && m.player.name === 'Kalle').length === 1,
       'samma flik som kopplar upp sig igen ersätter sin gamla anslutning (ingen dubbelgångare, inga "gick/kom in"-rader)');
+    // Ghost (Jens, t481u): out of the city into a house – the new page says which page it left (prev);
+    // its connection, still open in the city, goes at once, so nobody outside sees a copy of him.
+    const out1 = join('stad', { name: 'Jens', sid: 'aaaaaaaaaaaaaaaaaaaaaaaa' }); await out1.ready; const wo1 = await out1.wait((m) => m.t === 'welcome');
+    const seer = join('stad', { name: 'Ute' }); await seer.ready; await seer.wait((m) => m.t === 'welcome');
+    const in1 = join('stad-3', { name: 'Jens', sid: 'bbbbbbbbbbbbbbbbbbbbbbbb', prev: 'aaaaaaaaaaaaaaaaaaaaaaaa' }); await in1.ready; await in1.wait((m) => m.t === 'welcome');
+    const left = await seer.wait((m) => m.t === 'leave' && m.id === wo1.id);
+    await sleep(150);
+    const back2 = join('stad', { name: 'Jens', sid: 'cccccccccccccccccccccccc', prev: 'bbbbbbbbbbbbbbbbbbbbbbbb' }); await back2.ready; const wback = await back2.wait((m) => m.t === 'welcome');
+    await sleep(150);
+    assert(left && out1.closed === 4000 && in1.closed === 4000 && wback.players.length === 1 && wback.players[0].name === 'Ute'
+      && seer.msgs.filter((m) => m.t === 'join' && m.player.name === 'Jens').length === 1,
+      'into a house and back out: the old page\'s connection is dropped at once – exactly one Jens in the city, no ghost');
 
 
     rt.close();

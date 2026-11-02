@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { CITY, PLOTS, PLOT, PLOT_GAP, PLOT_SLAB, HOUSE, HALL_BLOCKS, CITY_SPAWN, groundAt, pushOut, doorAt } from '../../shared/city.mjs';
 
 const STONE = 0xd2c9ba, SLAB = 0xc9bfae, HALL_GREEN = 0x9fd0a8, SKY = 0xbfe2f6, STREET = 0x8f8a82, INK = 0x15130f;
+const PATH = 0xb5ab9a; // the painted streets: a little darker than the plots, never a dark "ditch"
 const LINE = 0.14; // outline thickness (m): reads well from across the city and on a phone
 
 // A soft paper/stone grain (canvas), tiled per metre, so big flat walls aren't plastic-flat.
@@ -23,6 +24,24 @@ function grain(base, seed = 1) {
 function material(base, w, h, seed, perM = 0.25) {
   const map = grain(base, seed); map.repeat.set(Math.max(1, w * perM), Math.max(1, h * perM));
   return new THREE.MeshStandardMaterial({ color: 0xffffff, map, roughness: 0.95 });
+}
+
+// The ground's picture (a canvas over the whole 96 × 96 m): street colour, the 9 plots as pale stone
+// squares (PLOT − PLOT_GAP) with a thin ink edge, and a fine grain over everything. Flush: it is paint.
+function groundMaterial(W, D) {
+  const PX = 40, c = document.createElement('canvas'); c.width = Math.round(W * PX / 2); c.height = Math.round(D * PX / 2); // 20 px a metre
+  const g = c.getContext('2d'), k = c.width / W, hex = (n) => '#' + n.toString(16).padStart(6, '0');
+  g.fillStyle = hex(PATH); g.fillRect(0, 0, c.width, c.height);
+  const s = PLOT - PLOT_GAP;
+  for (const p of PLOTS) {
+    const x = (p.x - s / 2 + W / 2) * k, y = (p.z - s / 2 + D / 2) * k;
+    g.fillStyle = hex(SLAB); g.fillRect(x, y, s * k, s * k);
+    g.strokeStyle = 'rgba(21,19,15,.55)'; g.lineWidth = 0.08 * k; g.strokeRect(x, y, s * k, s * k);
+  }
+  let r = 7 * 9301 + 49297; const rnd = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
+  for (let n = 0; n < 60000; n++) { const v = rnd(); g.fillStyle = v < 0.5 ? `rgba(0,0,0,${0.03 + rnd() * 0.05})` : `rgba(255,255,255,${0.03 + rnd() * 0.06})`; g.fillRect(rnd() * c.width, rnd() * c.height, 1 + rnd() * 2, 1 + rnd() * 2); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return new THREE.MeshStandardMaterial({ color: 0xffffff, map: t, roughness: 0.95 });
 }
 
 export function buildCityRoom() {
@@ -48,8 +67,9 @@ export function buildCityRoom() {
   };
   const W = CITY.width, H = CITY.height, D = CITY.depth, hw = W / 2, hd = D / 2;
 
-  // The ground (the streets between the slabs) and the sky – the city's own "room".
-  add('golv', W, D, material(STREET, W, D, 2), [0, 0, 0], [-Math.PI / 2, 0, 0]);
+  // The ground: ONE flat piece (Jens, t481u – no "ditches" between the plots): the plots are painted on
+  // it (pale stone squares, a thin ink line round each) with the streets between them a little darker.
+  add('golv', W, D, groundMaterial(W, D), [0, 0, 0], [-Math.PI / 2, 0, 0]);
   const sky = new THREE.MeshBasicMaterial({ color: SKY }); // the sky: evenly bright, not lit (a ceiling 24 m up would be dark)
   add('tak', W, D, sky, [0, H, 0], [Math.PI / 2, 0, 0]);
   add('vägg-norr', W, H, sky, [0, H / 2, -hd], [0, 0, 0]);
@@ -60,12 +80,6 @@ export function buildCityRoom() {
   const doors = [];
   const s = PLOT - PLOT_GAP;
   for (const p of PLOTS) {
-    // The slab: its top is a surface; its sides are solid stone with a black outline.
-    const slabSide = new THREE.Mesh(new THREE.BoxGeometry(s, PLOT_SLAB, s), new THREE.MeshStandardMaterial({ color: 0xb7ad9b, roughness: 1 }));
-    slabSide.position.set(p.x, PLOT_SLAB / 2 - 0.002, p.z); group.add(slabSide);
-    add(`plot-${p.k}`, s, s, material(SLAB, s, s, 10 + p.k), [p.x, PLOT_SLAB, p.z], [-Math.PI / 2, 0, 0]);
-    outlineBox(p.x, 0, p.z, s, PLOT_SLAB, s, { bottom: false });
-
     // The house (or the Town Hall): 4 walls + a roof, facing out.
     const { x, z, w, d, h, y0 } = p.house, base = p.hall ? HALL_GREEN : STONE, tag = p.hall ? 'hall' : `h${p.k}`;
     const wm = () => material(base, w, h, 20 + p.k, p.hall ? 0.2 : 0.25);

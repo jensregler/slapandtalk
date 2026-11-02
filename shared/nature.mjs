@@ -23,13 +23,14 @@ export const isNatureName = (name) => RE.test(base(name));
 // A design (library entry / image record): the flag from the import, or its original name.
 export const isNature = (img) => !!img && (img.nature === true || isNatureName(img.source) || isNatureName(img.name));
 // The longest side (cm) at which a nature design is NATURE.maxHeightCm high.
-export function natureMaxSideCm(img) {
+// maxHeightCm: the space's height (the city's outside: 24 m – shared/city.mjs natureMaxHeightCmIn; t482u).
+export function natureMaxSideCm(img, maxHeightCm = NATURE.maxHeightCm) {
   const w = Number(img && img.width), h = Number(img && img.height);
   const a = w > 0 && h > 0 && Number.isFinite(w / h) ? Math.max(1, w / h) : 1;
-  return NATURE.maxHeightCm * a;
+  return maxHeightCm * a;
 }
 // The size limits (cm, longest side) for a design: { minCm, maxCm }. normal = the version's limits
 // for every other sticker ({ minCm, maxCm }, maxCm may be Infinity).
-export function sizeLimitsCm(img, normal) {
-  return isNature(img) ? { minCm: NATURE.minCm, maxCm: natureMaxSideCm(img) } : normal;
+export function sizeLimitsCm(img, normal, { maxHeightCm = NATURE.maxHeightCm } = {}) {
+  return isNature(img) ? { minCm: NATURE.minCm, maxCm: natureMaxSideCm(img, maxHeightCm) } : normal;
 }

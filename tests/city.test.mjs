@@ -32,14 +32,25 @@ ok('ids: many cities – stad-<code> outside, stad-<code>-<n> its houses; the fi
   assert.equal(C.nextHouse([]), 1); assert.equal(C.nextHouse([1, 2, 4]), 3); assert.equal(C.nextHouse([1, 2, 3, 4, 5, 6, 7, 8]), 0);
   assert.equal(C.plotOfRoom('stad-ab12cd-2').z, -32); assert.deepEqual({ ...C.roomBox('stad-ab12cd') }, { ...C.CITY }); assert.equal(C.roomBox('stad-ab12cd-2').width, 16);
 });
-ok('walking: slabs raise you, houses push you out, doors are in front of the south wall', () => {
-  assert.equal(C.groundAt(0, 20), C.PLOT_SLAB); assert.equal(C.groundAt(16, 20), 0); // (x = 16: the street between two slabs)
+ok('walking: the ground is ONE flat piece (no ditches, t481u), houses push you out, doors are in front of the south wall', () => {
+  assert.equal(C.PLOT_SLAB, 0); assert.equal(C.CITY_GEO, 'city-2');
+  for (const [x, z] of [[0, 20], [16, 20], [-40, -40], [32, 16.2], [47, 0]]) assert.equal(C.groundAt(x, z), 0, `${x},${z}`); // (x = 16: the street between two plots)
   assert.deepEqual(C.pushOut(0, 7.9), [0, 8.35]);
   assert.deepEqual(C.pushOut(-32 + 7.9, -32), [-32 + 8.35, -32]);
   assert.equal(C.doorAt(0, 8.5).hall, true); assert.equal(C.doorAt(0, 8.5 - 32).room, 'stad-2'); assert.equal(C.doorAt(4, 8.5), null);
   assert.ok(!C.insideHouse(C.CITY_SPAWN.x, C.CITY_SPAWN.z));
   for (const id of C.PLOT_ROOMS) { const s = C.spawnOutside(id); assert.ok(!C.insideHouse(s.x, s.z), id); }
   assert.deepEqual({ ...C.roomBox('stad') }, { ...C.CITY }); assert.equal(C.roomBox('stad-1').width, 16);
+});
+
+ok('nature stickers: up to 24 m high in the city\'s outside, 8 m in a house or room, min 10 cm (t482u)', async () => {
+  assert.equal(C.natureMaxHeightCmIn('stad'), 2400); assert.equal(C.natureMaxHeightCmIn('stad-ab12cd'), 2400); assert.equal(C.natureMaxHeightCmIn('stad-ab12cd-2'), 800); assert.equal(C.natureMaxHeightCmIn('stad-4'), 800); assert.equal(C.natureMaxHeightCmIn('abc123'), 800);
+});
+const NAT = await import('../shared/nature.mjs');
+ok('… the shared limits take the space\'s height', () => {
+  assert.deepEqual(NAT.sizeLimitsCm({ nature: true, width: 1, height: 1 }, null, { maxHeightCm: 2400 }), { minCm: 10, maxCm: 2400 });
+  assert.deepEqual(NAT.sizeLimitsCm({ nature: true, width: 2, height: 1 }, null, { maxHeightCm: 2400 }), { minCm: 10, maxCm: 4800 });
+  assert.deepEqual(NAT.sizeLimitsCm({ nature: true, width: 1, height: 1 }, null), { minCm: 10, maxCm: 800 });
 });
 
 // The packs with an in-memory adapter and a clock
@@ -110,6 +121,23 @@ ok('…a new week: same token, fresh takes', () => { assert.equal(A2.token, A.to
 const { startServer } = require('./demo-helpers.js');
 const dir = fs.mkdtempSync('/tmp/klibb-city-');
 fs.mkdirSync(path.join(dir, 'rooms'), { recursive: true }); fs.mkdirSync(path.join(dir, 'presets/abcd1234ef'), { recursive: true });
+// A city saved with the raised plots ('city-1', live 814b13a): moved down onto the flat ground.
+const city1 = { id: 'stad', type: 'stad', geo: 'city-1', createdAt: '2026-11-02T00:00:00Z', stamps: [
+  { id: 'c'.repeat(16), imageId: 'b'.repeat(16), position: [3, 0.5, 20], normal: [0, 1, 0], quaternion: [0, 0, 0, 1], size: 0.5, surface: 'plot-7', order: 1 },
+  { id: 'd'.repeat(16), imageId: 'b'.repeat(16), position: [30, 3.5, 8.01], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.5, surface: 'h5-s', order: 2 },
+  { id: 'e'.repeat(16), imageId: 'b'.repeat(16), position: [16, 0, 20], normal: [0, 1, 0], quaternion: [0, 0, 0, 1], size: 0.5, surface: 'golv', order: 3 }] };
+const dir1 = fs.mkdtempSync('/tmp/klibb-city1-'); fs.mkdirSync(path.join(dir1, 'rooms'), { recursive: true });
+fs.writeFileSync(path.join(dir1, 'rooms/stad.json'), JSON.stringify(city1));
+const { startServer: start1 } = require('./demo-helpers.js');
+const S1 = await start1(Number(process.env.CITY_TEST_PORT || 8993) + 1, { DATA_DIR: dir1, DEMO_PROFILE: '0', OPEN_ACCESS: '1' });
+try {
+  await fetch(`${S1.base}/api/rooms/stad/stamps`); await new Promise((r) => setTimeout(r, 400));
+  const got = JSON.parse(fs.readFileSync(path.join(dir1, 'rooms/stad.json'), 'utf8')).stamps;
+  ok('a \'city-1\' city: plot stickers land on the flat ground, house stickers move down with the house', () => {
+    assert.deepEqual(got.map((s) => [s.surface, s.position]), [['golv', [3, 0, 20]], ['h5-s', [30, 3, 8.01]], ['golv', [16, 0, 20]]]);
+  });
+} finally { S1.child.kill(); }
+
 const old = { id: 'stad', type: 'stad', createdAt: '2026-01-01T00:00:00Z', stamps: [{ id: 'a'.repeat(16), imageId: 'b'.repeat(16), position: [0, 2, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.5, surface: 'vägg-norr', order: 1 }], cameras: [{ id: '0123456789', p: [0, 1.6, 0], yaw: 0, pitch: 0, fov: 60 }] };
 fs.writeFileSync(path.join(dir, 'rooms/stad.json'), JSON.stringify(old));
 const face = await sharp({ create: { width: 64, height: 32, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).webp().toBuffer();
@@ -150,9 +178,22 @@ try {
   await new Promise((r) => setTimeout(r, 600));
   const saved = JSON.parse(fs.readFileSync(path.join(dir, 'rooms/stad.json'), 'utf8'));
   ok('… kept in the file (legacy), not deleted; a new city slap is saved where it was put', () => {
-    assert.equal(slap.status, 200); assert.equal(saved.geo, 'city-1'); assert.equal(saved.legacy.stamps.length, 1); assert.equal(saved.legacy.cameras.length, 1);
+    assert.equal(slap.status, 200); assert.equal(saved.geo, 'city-2'); assert.equal(saved.legacy.stamps.length, 1); assert.equal(saved.legacy.cameras.length, 1);
     assert.deepEqual(saved.stamps.map((s) => [s.surface, s.position]), [['h5-s', [30, 3, 8.01]]]);
   });
+  // Nature stickers (t482u): asked for 30 m → 24 m outside (the city's height); 30 m in a house → 8 m.
+  const nat = (await (await fetch(`${S.base}/api/library`)).json()).stickers.find((d) => d.nature && d.width && d.height && d.width <= d.height);
+  if (nat) {
+    const big = (room, surface) => fetch(`${S.base}/api/rooms/${room}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: JSON.stringify({ imageId: nat.id, position: [16, 0, 20], normal: [0, 1, 0], quaternion: [0, 0, 0, 1], size: 30, surface }) });
+    const tiny = (room) => fetch(`${S.base}/api/rooms/${room}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: JSON.stringify({ imageId: nat.id, position: [16, 0, 20], normal: [0, 1, 0], quaternion: [0, 0, 0, 1], size: 0.05, surface: 'golv' }) });
+    const out = await (await big('stad', 'golv')).json(), mid = await (await fetch(`${S.base}/api/rooms/stad/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: JSON.stringify({ imageId: nat.id, position: [16, 0, 22], normal: [0, 1, 0], quaternion: [0, 0, 0, 1], size: 20, surface: 'golv' }) })).json();
+    const inHouse = await (await fetch(`${S.base}/api/rooms/stad-3/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: JSON.stringify({ imageId: nat.id, position: [0, 0, 0], normal: [0, 1, 0], quaternion: [0, 0, 0, 1], size: 30, surface: 'golv' }) })).json();
+    const small = await (await tiny('stad')).json();
+    ok('nature stickers on the server: 24 m max in the city\'s outside (20 m kept), 8 m in a house, 10 cm min (t482u)', () => {
+      const sz = (r) => (r.stamp || r).size;
+      assert.equal(sz(out), 24); assert.equal(sz(mid), 20); assert.equal(sz(inHouse), 8); assert.equal(sz(small), 0.1);
+    });
+  } else console.log('  (no portrait nature sticker in the library – server nature check skipped)');
   const peels = await fetch(`${S.base}/api/rooms/stad/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"on":true}' });
   const cam = await fetch(`${S.base}/api/rooms/stad/cameras`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"p":[0,1.6,0]}' });
   const camHouse = await fetch(`${S.base}/api/rooms/stad-3/cameras`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"p":[0,1.6,0],"yaw":0,"pitch":0}' });

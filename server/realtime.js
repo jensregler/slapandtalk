@@ -318,6 +318,11 @@ function attachRealtime(server, {
       // Samma flik som kopplar upp sig igen (sid = slumpat per sidladdning): den gamla, döda
       // anslutningen tas bort direkt, så ingen syns två gånger. Gästnumret behålls.
       c.sid = typeof m.sid === 'string' && /^[A-Za-z0-9_-]{8,40}$/.test(m.sid) ? m.sid : null;
+      // The page this tab left a moment ago (prev = its sid; a door into a house, back out, a reload):
+      // if its connection is still here – in ANY room – it goes now, so nobody sees a ghost of me (t481u).
+      const prevSid = typeof m.prev === 'string' && /^[A-Za-z0-9_-]{8,40}$/.test(m.prev) && m.prev !== c.sid ? m.prev : null;
+      if (prevSid) for (const rr of [...rooms.values()]) for (const o of everyone(rr)) if (o !== c && o.sid === prevSid) { leave(o); try { o.ws.close(4000, 'Replaced by a new connection'); } catch { /* */ } }
+      r = room(c.room);
       const old = c.sid && everyone(r).find((o) => o !== c && o.sid === c.sid);
       if (old) {
         c.guestNo = old.guestNo; old.replaced = true;

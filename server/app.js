@@ -654,7 +654,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   // Nature stickers are the full version's (natureStickers; the Nature wheel): refused otherwise.
   if (nature && !isAdmin(req) && !(await entOf(req)).natureStickers) return res.status(403).json({ error: 'Nature stickers are part of the full version.', full: true, feature: 'natureStickers' });
   if (nature) {
-    const lim = N.sizeLimitsCm({ ...image, ...(libEntry || {}), nature: true });
+    const lim = N.sizeLimitsCm({ ...image, ...(libEntry || {}), nature: true }, null, { maxHeightCm: CITY.natureMaxHeightCmIn(room) }); // 24 m in the city's outside (t482u)
     b.size = Math.min(lim.maxCm / 100, Math.max(lim.minCm / 100, b.size));
   } else if ((b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK || b.size < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) && !(await entOf(req)).bigStickers) {
     b.size = Math.min(FREE_MAX_STICKER_M, Math.max(FREE_MIN_STICKER_M, b.size));

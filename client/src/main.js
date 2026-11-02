@@ -52,7 +52,7 @@ import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
 import { menuOf, runMenuSticker, MENU_IDS, RETIRED_MENU_IDS } from './menustickers.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
-import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside } from '../../shared/city.mjs';
+import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
 
@@ -610,7 +610,8 @@ const FULL_MIN_CM = STICKER_LIMITS.full.minCm;
 const FULL_MAX_CM = STICKER_LIMITS.full.maxCm;
 const SLIDER_FULL_CM = FULL_MAX_CM; // (the slider's end if a limit is ever Infinity again)
 const versionLimits = () => (entitlements.full.bigStickers ? { minCm: FULL_MIN_CM, maxCm: FULL_MAX_CM } : { minCm: FREE_MIN_CM, maxCm: FREE_MAX_CM });
-const limitsFor = (img = state.selected) => (img && img.library === true ? sizeLimitsCm(img, versionLimits()) : versionLimits());
+// (nature stickers: up to the space's height – 24 m in the city's outside, t482u)
+const limitsFor = (img = state.selected) => (img && img.library === true ? sizeLimitsCm(img, versionLimits(), { maxHeightCm: natureMaxHeightCmIn(ROOM) }) : versionLimits());
 const maxSizeCm = (img) => limitsFor(img).maxCm;
 // Nature stickers drop no backing paper (Jens, 28 Oct 2026: they get too large) – the server makes none either.
 const dropsPeel = (img) => !(img && img.library === true && isNature(img));

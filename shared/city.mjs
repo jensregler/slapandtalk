@@ -2,8 +2,9 @@
 // scene, walking, doors) and the server (where people may stand, which rooms are city rooms).
 //
 //   - The city is a room-like space: 96 × 96 m, 24 m high (sky walls + sky ceiling you can slap on).
-//   - A 3 × 3 grid of 32 × 32 m plots. Each plot is a slab (PLOT_SLAB m thick, a little smaller than the
-//     plot, so there are narrow streets between them) with a 16 × 16 × 8 m house on it – one room.
+//   - A 3 × 3 grid of 32 × 32 m plots, painted flush on ONE flat ground (t481u: no slabs, no ditches; a
+//     paler square a little smaller than the plot, narrow painted streets between) with a 16 × 16 × 8 m
+//     house on each – one room.
 //   - The 8 outer houses are real rooms (<city>-1 … <city>-8): a black arched door, walk in = that room.
 //   - The middle plot holds the Town Hall: three room blocks stacked (24 m high), green. Its door opens
 //     the hand-in / swap counter (packs, server/citypacks.js).
@@ -11,11 +12,12 @@
 import ROOM from './room.json' with { type: 'json' };
 
 export const CITY_ROOM = 'stad'; // the first city, "The City" (the public room); always there, never swept
-export const CITY_GEO = 'city-1'; // room.geo of a city room (server/store.js)
+export const CITY_GEO = 'city-2'; // room.geo of a city room (server/store.js); 'city-1' = with raised plots (moved down once)
+export const OLD_PLOT_SLAB = 0.5; // the plots' height in 'city-1' (2 Nov 2026), before the ground was made one flat piece (t481u)
 export const CITY = Object.freeze({ width: 96, height: 24, depth: 96 });
 export const PLOT = 32;
-export const PLOT_SLAB = 0.5; // the slab's thickness (a kerb you step up onto)
-export const PLOT_GAP = 0.8; // street between two slabs
+export const PLOT_SLAB = 0; // the ground is ONE flat piece (Jens, t481u: no 'ditches'); plots are painted on it
+export const PLOT_GAP = 0.8; // the painted street between two plots (flush – nothing to fall into)
 export const HOUSE = Object.freeze({ width: ROOM.width, height: ROOM.height, depth: ROOM.depth }); // 16 × 8 × 16
 export const HALL_BLOCKS = 3; // the Town Hall: three house blocks high (24 m)
 export const DOOR = Object.freeze({ width: 2.6, height: 3.6 }); // the black arch (big and clear)
@@ -96,6 +98,9 @@ export function doorAt(x, z, reach = 1.4) {
 
 // Where people may stand / hold cameras: the city box for the city, the room box elsewhere.
 export const roomBox = (id) => (isCityOutside(id) ? CITY : ROOM);
+// How tall a nature sticker may be here (cm): the space's height – 24 m in the city's outside (ground and
+// sky; Jens, t482u), 8 m in a room or a house (shared/nature.mjs).
+export const natureMaxHeightCmIn = (id) => Math.round(roomBox(id).height * 100);
 // Where you come into the city: on the open square between the Town Hall and the south houses, looking
 // north at the Town Hall door (8 m ahead).
 export const CITY_SPAWN = Object.freeze({ x: 0, z: 17, yaw: 0 });

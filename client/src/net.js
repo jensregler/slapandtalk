@@ -19,6 +19,10 @@ export function connect(roomId, handlers) {
   // Slumpas per sidladdning: kopplar samma flik upp sig igen vet servern att den gamla
   // anslutningen är död och tar bort den direkt (annars kunde man synas två gånger en stund).
   const sid = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
+  // The page this tab was on just before (a door into a house, back out, a reload): its connection is
+  // dropped by the server at once, wherever it is – no ghost of me left standing there (Jens, t481u).
+  let prev = null; try { prev = sessionStorage.getItem('klibb.prevSid'); sessionStorage.removeItem('klibb.prevSid'); } catch { /* private */ }
+  let leaving = false;
   let deniedCode = null, ws = null, closed = false, attempt = 0, timer = null, lastMsg = 0, everOnline = false, status = 'offline', myId = null;
   const setStatus = (s) => { if (s !== status) { status = s; h.onStatus(s); } };
   const url = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?room=${encodeURIComponent(roomId)}`;
@@ -34,7 +38,7 @@ export function connect(roomId, handlers) {
     let sock;
     try { sock = new WebSocket(url()); } catch { schedule(); return; }
     ws = sock;
-    sock.onopen = () => { lastMsg = Date.now(); send({ t: 'hello', ...h.hello(), sid }); };
+    sock.onopen = () => { lastMsg = Date.now(); send({ t: 'hello', ...h.hello(), sid, ...(prev && /^[a-f0-9]{24}$/.test(prev) ? { prev } : {}) }); };
     sock.onmessage = (ev) => {
       lastMsg = Date.now();
       let m; try { m = JSON.parse(ev.data); } catch { return; }
@@ -68,7 +72,7 @@ export function connect(roomId, handlers) {
       // 4003 = not let in (demo invite rules), 4010 = the room has closed: trying again won't help.
       if (ev && (ev.code === 4003 || ev.code === 4010)) { closed = true; setStatus(ev.code === 4010 ? 'closed' : 'denied'); h.onLeave('*'); return; }
       setStatus('offline'); h.onLeave('*'); // alla andra försvinner tills vi är tillbaka
-      schedule();
+      if (!leaving) schedule();
     };
     sock.onerror = () => {};
   }
@@ -88,6 +92,11 @@ export function connect(roomId, handlers) {
   // Kommer nätet tillbaka, eller blir fliken synlig igen: försök direkt.
   const now = () => { if (!closed && (!ws || ws.readyState > 1)) { attempt = 0; open(); } };
   addEventListener('online', now);
+  // Leaving the page (a door, a link, a reload): close the connection now – the server says "leave" to
+  // everyone at once – and tell the next page in this tab who I was. Back from the back/forward cache:
+  // connect again (a new hello).
+  addEventListener('pagehide', () => { leaving = true; try { sessionStorage.setItem('klibb.prevSid', sid); } catch { /* */ } clearTimeout(timer); timer = null; if (ws) { const s = ws; ws = null; try { s.close(1000, 'Page left'); } catch { /* */ } } });
+  addEventListener('pageshow', (e) => { if (e.persisted) { leaving = false; try { sessionStorage.removeItem('klibb.prevSid'); } catch { /* */ } now(); } });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') now(); });
   setTimeout(() => { // först när den som anropade är klar med sin egen start
     if (!gated) { open(); return; }

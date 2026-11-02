@@ -83,6 +83,20 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
     // hang in the air (or inside the Town Hall), so they are put away – kept in the file (legacy*), not
     // deleted – and the city starts clean. geo = CITY.CITY_GEO from then on (no box remap for it).
     if (CITY.isCityOutside(id)) {
+      // 'city-1' (2 Nov 2026) had raised plots (0.5 m slabs) and houses standing on them; the ground is one
+      // flat piece now (t481u): what was on a plot goes onto the ground (same place), what was on a
+      // building moves down with it. The sky and the street ground stay.
+      if (room.geo === 'city-1') {
+        const dy = CITY.OLD_PLOT_SLAB;
+        room.stamps = (room.stamps || []).map((st) => {
+          const surf = String(st.surface || ''), pos = Array.isArray(st.position) ? st.position.slice() : null;
+          if (!pos) return st;
+          if (/^plot-/.test(surf)) return { ...st, surface: 'golv', position: [pos[0], 0, pos[2]] };
+          if (/^(h\d|hall)/.test(surf)) return { ...st, position: [pos[0], Math.round((pos[1] - dy) * 1e4) / 1e4, pos[2]] };
+          return st;
+        });
+        room.geo = CITY.CITY_GEO;
+      }
       if (room.geo !== CITY.CITY_GEO) {
         if ((room.stamps || []).length || (room.peels || []).length || (room.cameras || []).length) {
           room.legacy = { geo: room.geo || GEO.sizeKey(GEO.LEGACY_ROOM), stamps: room.stamps || [], peels: room.peels || [], cameras: room.cameras || [], at: iso() };
