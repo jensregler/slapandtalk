@@ -300,7 +300,10 @@
   <button id="chat-btn" class="touch-only" type="button" data-t-aria="chatAria" data-t-title="chatAria">💬<span id="chat-unread"></span></button>
   <!-- Sound settings (full version): a synth panel per sound + effects. Built by soundui.js. -->
   <aside id="sound-panel" hidden aria-label="Sound settings">
-    <div class="more-head"><h2>Sound settings</h2><button id="snd-close" type="button" class="icon-btn" data-t-aria="close">✕</button></div>
+    <div class="more-head"><h2>Sound settings</h2>
+      <!-- Music vol (Jens, 31 Oct 2026): how loud all the room's sounds are for me (this device only). -->
+      <label id="music-vol-row" class="music-vol"><span data-t="musicVol">Music vol</span><input id="music-vol" type="range" min="0" max="100" step="1" value="100" /></label>
+      <button id="snd-close" type="button" class="icon-btn" data-t-aria="close">✕</button></div>
     <div id="snd-tabs" class="seg" role="group" aria-label="Sound"></div>
     <div id="snd-body"></div>
     <div class="sp-btns">
@@ -333,11 +336,36 @@
     <p id="full-msg" class="hint" aria-live="polite"></p>
     <button id="full-forget" type="button" class="link-btn" hidden data-t="fullForget">Forget the key in this browser</button>
   </aside>
+  <!-- The room info panel (the 'room' menu sticker; Jens, 31 Oct 2026): big and plain. -->
+  <aside id="room-panel" hidden aria-label="Room">
+    <div class="more-head"><h2 data-t="roomPanelTitle">Room</h2><button id="rp-close" type="button" class="icon-btn" data-t-aria="close">✕</button></div>
+    <dl class="room-facts">
+      <dt data-t="roomPanelName">Room name:</dt><dd id="rpi-name"></dd>
+      <dt data-t="roomPanelLifetime">Lifetime:</dt><dd id="rpi-life"></dd>
+      <dt data-t="roomPanelVisited">People visited:</dt><dd id="rpi-visitors"></dd>
+      <dt data-t="roomPanelHere">Here now:</dt><dd id="rpi-here"></dd>
+      <dt data-t="roomPanelStickers">Sticker count:</dt><dd id="rpi-stickers"></dd>
+    </dl>
+    <div class="room-acts">
+      <button id="rpi-clear" type="button" class="big-act" data-t="roomPanelClear">Clear your stickers</button>
+      <div id="rpi-confirm" class="rpi-confirm" hidden>
+        <p id="rpi-confirm-text"></p>
+        <div class="row"><button id="rpi-clear-no" type="button" class="big-act" data-t="cancel">Cancel</button><button id="rpi-clear-yes" type="button" class="big-act danger" data-t="roomPanelClearYes">Yes, remove them</button></div>
+      </div>
+      <button id="rpi-ask" type="button" class="big-act" data-t="roomPanelAsk">Ask for visitors</button>
+    </div>
+  </aside>
+  <!-- Two big choices over the room (the exit and door menu stickers; main.js openChoice). -->
+  <div id="menu-choice" class="menu-choice" hidden role="dialog" aria-modal="true"><div id="menu-choice-list" class="choice-list"></div></div>
   <!-- My avatar: how you look to others. Saved on this device only. -->
   <aside id="avatar-panel" hidden aria-label="My avatar">
     <h2 data-t="avatarHeading">My avatar</h2>
     <label><span data-t="avatarName"></span>
       <input id="av-name" type="text" maxlength="24" autocomplete="nickname" data-t-placeholder="avatarNamePlaceholder" />
+    </label>
+    <!-- The Instagram name: shown as @name in smaller text under your name (look.insta, shared/insta.mjs). -->
+    <label class="av-insta"><span data-t="avatarInsta"></span>
+      <span class="insta-wrap"><span class="at" aria-hidden="true">@</span><input id="av-insta" type="text" maxlength="31" autocomplete="off" autocapitalize="none" spellcheck="false" data-t-placeholder="avatarInstaPlaceholder" /></span>
     </label>
     <div class="sp-row"><b data-t="outfit">Outfit</b><div id="av-outfit" class="chips"></div></div>
     <div class="sp-row"><b data-t="hair">Hair</b><div id="av-hair" class="chips"></div></div>

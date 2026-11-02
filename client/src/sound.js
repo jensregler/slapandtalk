@@ -13,6 +13,7 @@ import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
 import { peelStepParams } from '../../shared/peelstep.mjs';
 
 const MUTE_KEY = 'klibb.muted';
+const VOL_KEY = 'klibb.musicVol';
 const VOLUME = { slap: [0.75 / 0.75, 0.9 / 0.75], peel: [1, 0.6 / 0.45], nope: [1, 1], step: [1, 1], duff: [1, 1] }; // [mine, remote]
 
 export class Sounds {
@@ -28,6 +29,8 @@ export class Sounds {
     this.listener = { p: [0, 1.6, 0], f: [0, 0, -1] };
     this.cache = new Map(); // seed+kind -> varied patch
     // Browsers only allow audio after the user has clicked/tapped/typed: start then.
+    // Music vol (Jens, 31 Oct 2026; Sound settings): how loud everything the room plays is for me, 0…1 (this device).
+    const v = Number(localStorage.getItem(VOL_KEY)); this.volume = localStorage.getItem(VOL_KEY) != null && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
     const unlock = () => { this.ensure(); if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); };
     for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, unlock, { capture: true, passive: true });
   }
@@ -40,11 +43,15 @@ export class Sounds {
       Tone.setContext(new Tone.Context(this.ctx));
       this.Tone = Tone;
       this.engine = new SynthEngine(Tone);
-      this.engine.out.gain.value = 0.9;
+      this.engine.out.gain.value = 0.9 * this.volume;
       this.engine.setRoom(this.room);
       return this.engine;
     }).catch((e) => { console.warn('synth', e); return null; });
     return this.ctx;
+  }
+  setVolume(v) {
+    this.volume = Math.min(1, Math.max(0, Number(v) || 0)); localStorage.setItem(VOL_KEY, String(this.volume));
+    if (this.engine) this.engine.out.gain.value = 0.9 * this.volume;
   }
   setMuted(m) { this.muted = !!m; localStorage.setItem(MUTE_KEY, this.muted ? '1' : '0'); }
   setMine(sound) { this.mine = sound || null; }

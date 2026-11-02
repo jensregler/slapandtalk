@@ -46,6 +46,7 @@ import { boxFaces } from '../../shared/coverage.mjs';
 import { initStackMenu } from './stackmenu.js';
 import { createHeldTimer } from '../../shared/heldtimer.mjs';
 import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
+import { menuOf, runMenuSticker } from './menustickers.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -1493,6 +1494,7 @@ if (!isTouch) {
     if (sp.open || together.busy()) return; // panelen för rummets utseende eller Min gubbe är öppen
     if (together.chatOpen()) { together.closeChat(); if (!controls.locked) controls.lock(); return; } // klick = stäng chatten, stämpla inte
     if (!controls.locked && lockBroken && !placingCam && state.mode === 'slap') {
+      if (menuClick(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1))) return; // a menu sticker
       if (deskPress()) return; // faded: this click only brings the held sticker back
       // No pointer lock in this browser: a click still slaps – one sticker where you clicked (no arrays).
       if (state.selected && hitSurface(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1))) deskHeld.placed(performance.now());
@@ -1501,6 +1503,7 @@ if (!isTouch) {
     }
     if (!controls.locked) { if (state.mode === 'slap') deskPress(); controls.lock(); } // (the click that locks: wakes a faded one too)
     else if (placingCam) placeCamAt(CENTER); // ＋ Add cameraman: this click sets where it starts
+    else if (menuClick(CENTER)) { /* a menu sticker: its menu opened (menustickers.js) */ }
     else if (state.mode === 'view') clickCredit(); // Look mode: click a sticker = who made it? (never slaps)
     else if (deskPress()) { /* faded: this press only brings the held sticker back – no slap (point 10) */ }
     else {
@@ -1652,12 +1655,15 @@ if (!isTouch) {
     if (spent.has(e.pointerId)) return; // a pinch finger: no stamp, no tap
     if (touchAim && touchAim.id === e.pointerId) {
       endAim();
+      // a short tap (no aiming) on a menu sticker opens its menu instead of slapping
+      if (e.type === 'pointerup' && p && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 14 && performance.now() - p.t < 500 && menuClick(ndcOf(e.clientX, e.clientY))) return;
       if (e.type === 'pointerup' && stackMenu) heldTap(ndcOf(e.clientX, e.clientY), e.clientX, e.clientY); // stamp where the finger is
       return;
     }
     if (p && !p.drag && performance.now() - p.t < 400 && e.type === 'pointerup') {
       const ndc = ndcOf(e.clientX, e.clientY);
       if (placingCam) placeCamAt(ndc);
+      else if (menuClick(ndc)) { /* a menu sticker (menustickers.js) */ }
       else if (stackMenu && !camView && !state.adminToken) heldTap(ndc, e.clientX, e.clientY);
       else if (state.mode === 'view' && !camView) {
         // Tittläge: tryck på en klibba = vem gjorde den?
@@ -1880,7 +1886,8 @@ $('share-room').onclick = async () => {
   catch { prompt(S.copyLink, url); }
 };
 // Säg till servern med jämna mellanrum att någon är här, så rummet inte städas bort.
-setInterval(() => { if (document.visibilityState === 'visible') { api.visit(ROOM).catch(() => {}); noteVisit(ROOM); } }, 10 * 60_000);
+setInterval(() => { if (document.visibilityState === 'visible') { api.visit(ROOM, deviceId()).catch(() => {}); noteVisit(ROOM); } }, 10 * 60_000);
+api.visit(ROOM, deviceId()).catch(() => {}); // counted once in 'people visited' (the room info panel)
 noteVisit(ROOM); // one of my rooms now (the City is not): the plain address brings me back here
 
 // ---------- Ladda rummet ----------
@@ -2090,6 +2097,90 @@ addEventListener('pagehide', () => autoSlap.setOn(false)); // leaving the room
 // Sound settings (soundui.js): only reachable with entitlements.full.soundDesign.
 const soundUi = initSoundUI({ $, sound, toast, onSave: () => together.soundChanged(), onOpenChange: (o) => { if (o) controls.unlock?.(); } });
 $('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { closeMore(); soundUi.open(); } };
+
+// Music vol (Jens, 31 Oct 2026): in the Sound settings header – how loud the room's sounds are for me.
+{
+  const mv = $('music-vol');
+  mv.value = String(Math.round(sound.volume * 100));
+  mv.oninput = () => sound.setVolume(Number(mv.value) / 100);
+}
+
+// ---------- Menu stickers (menustickers.js; Jens, 31 Oct 2026) ----------
+// A click/tap on a placed menu sticker opens its menu instead of slapping / showing a credit.
+// The old buttons (👤 My avatar, Sound settings, Room ▾ …) all still work.
+// Two big choices over the room (exit, door): [{ text, go }]; the last one is "back".
+function openChoice(what, items) {
+  const box = $('menu-choice'), list = $('menu-choice-list');
+  controls.unlock?.(); box.dataset.what = what; list.textContent = '';
+  for (const it of items) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'choice-btn'; b.textContent = it.text; b.dataset.id = it.id;
+    b.onclick = () => { closeChoice(); it.go?.(); }; list.appendChild(b);
+  }
+  box.hidden = false;
+}
+function closeChoice() { $('menu-choice').hidden = true; delete $('menu-choice').dataset.what; }
+$('menu-choice').addEventListener('click', (e) => { if (e.target === $('menu-choice')) closeChoice(); });
+const menuActions = {
+  character: () => { closeMore(); closeRoomMenu(); together.openAvatarPanel(); },
+  radio: () => { closeMore(); if (entitlements.full.soundDesign) soundUi.open(); else { fullUi?.open(); toast(S.soundLocked, 2600); } },
+  room: () => openRoomPanel(),
+  camera: () => toggleView(),
+  exit: () => openChoice('exit', [{ id: 'exit-menu', text: S.exitToMenu, go: () => { location.href = `${location.origin}/?start=1`; } }, { id: 'back', text: S.choiceBack }]),
+  door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => toast(S.cityComingSoon, 3000) }, { id: 'back', text: S.doorBackToRoom }]),
+};
+// ndc: where (the dot when locked, else the finger/cursor). true = a menu opened (the click is used up).
+function menuClick(ndc) {
+  if (sp.open || together.busy() || camView || state.adminToken || arrayDrag || !$('room-panel').hidden || !$('sound-panel').hidden || !$('menu-choice').hidden) return false;
+  const hit = pickStampAt(ndc);
+  if (!menuOf(hit)) return false;
+  hideCredit();
+  const name = runMenuSticker(hit, menuActions);
+  if (name && window.klibb) window.klibb.lastMenu = { name, at: Date.now() };
+  return !!name;
+}
+
+// ---------- The room info panel (the 'room' menu sticker) ----------
+const rp = { info: null, timer: 0 };
+function renderRoomPanel() {
+  const i = rp.info || {};
+  $('rpi-name').textContent = i.name || (ROOM === 'stad' ? 'The City' : ROOM);
+  const born = Date.parse(i.createdAt || '');
+  $('rpi-life').textContent = Number.isFinite(born) ? S.roomAge(Date.now() - born) : '–';
+  $('rpi-visitors').textContent = String(i.visitors ?? '–');
+  const here = 1 + together.players.map.size;
+  $('rpi-here').textContent = i.maxPlayers ? S.roomHereNow(here, i.maxPlayers) : String(here);
+  $('rpi-stickers').textContent = String(stamps.count);
+}
+async function openRoomPanel() {
+  closeMore(); closeRoomMenu(); controls.unlock?.();
+  $('rpi-confirm').hidden = true; $('rpi-clear').hidden = false;
+  $('room-panel').hidden = false; renderRoomPanel();
+  clearInterval(rp.timer); rp.timer = setInterval(renderRoomPanel, 5000);
+  try { const r = await api.roomInfo(ROOM); rp.info = r.room; } catch { /* the facts we have */ }
+  if (!$('room-panel').hidden) renderRoomPanel();
+}
+function closeRoomPanel() { $('room-panel').hidden = true; clearInterval(rp.timer); }
+$('rp-close').onclick = closeRoomPanel;
+$('rpi-clear').onclick = () => { $('rpi-confirm-text').textContent = S.roomPanelClearAsk(null); $('rpi-confirm').hidden = false; $('rpi-clear').hidden = true; };
+$('rpi-clear-no').onclick = () => { $('rpi-confirm').hidden = true; $('rpi-clear').hidden = false; };
+$('rpi-clear-yes').onclick = async () => {
+  const b = $('rpi-clear-yes'); b.disabled = true;
+  try {
+    const r = await api.clearMine(ROOM, deviceId(), together.net.id || null);
+    for (const id of r.ids || []) stamps.remove(id);
+    if ((r.ids || []).length) removeHistory(r.ids);
+    updateCount();
+    toast(r.removed ? S.roomPanelCleared(r.removed) : S.roomPanelNoneMine, 2600);
+  } catch (err) { toast(err.message, 3000); } finally { b.disabled = false; $('rpi-confirm').hidden = true; $('rpi-clear').hidden = false; renderRoomPanel(); }
+};
+// Ask for visitors = share the room's link (the phone's share sheet; else copy it).
+async function askForVisitors() {
+  const url = roomUrl(ROOM), title = S.shareTitle(ROOM);
+  if (isTouch && navigator.share) { try { await navigator.share({ title, url }); return 'shared'; } catch (e) { if (e.name === 'AbortError') return 'cancelled'; } }
+  try { await navigator.clipboard.writeText(url); toast(S.roomPanelInvite, 3000); return 'copied'; }
+  catch { prompt(S.copyLink, url); return 'prompt'; }
+}
+$('rpi-ask').onclick = () => askForVisitors();
 
 // ---------- Inspelning ('sessionsinspelning') och virtuella kameror ----------
 // Den som skapade rummet (rumsnyckeln) eller admin kan starta och stoppa en inspelning och
@@ -2630,6 +2721,7 @@ window.klibb = {
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer, scene,
+  menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: (x = 0, y = 0) => menuOf(pickStampAt(new THREE.Vector2(x, y))), openRoomPanel, askForVisitors, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {
     const pieces = foldStamp(stamps.faces, { center: new THREE.Vector3(...position), quaternion: new THREE.Quaternion(...quaternion), w, h, surface });

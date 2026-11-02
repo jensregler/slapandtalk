@@ -36,15 +36,18 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(by ? { items, by } : { items }),
   }).then(json),
 
-  createRoom: (style) => fetch('/api/rooms', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', ...unlockHeaders() }, body: JSON.stringify(style ? { style } : {}), // (unlock: Färg is the full version's)
+  createRoom: (style, { name } = {}) => fetch('/api/rooms', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...unlockHeaders() }, body: JSON.stringify({ ...(style ? { style } : {}), ...(name ? { name } : {}) }), // (unlock: Färg is the full version's)
   }).then(json),
   setStyle: (room, style, { key, admin } = {}) => fetch(`/api/rooms/${room}/style`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...unlockHeaders(), ...(key ? { 'x-room-key': key } : {}), ...(admin ? { 'x-admin-token': admin } : {}) },
     body: JSON.stringify({ style }),
   }).then(json),
-  visit: (room) => fetch(`/api/rooms/${room}/visit`, { method: 'POST' }).then(json),
+  visit: (room, visitor = null) => fetch(`/api/rooms/${room}/visit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(visitor ? { visitor } : {}) }).then(json),
+  roomInfo: (room) => fetch(`/api/rooms/${room}`, { cache: 'no-store' }).then(json),
+  clearMine: (room, owner, by = null) => fetch(`/api/rooms/${room}/clear-mine`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner, ...(by ? { by } : {}) }) }).then(json),
+  openRooms: () => fetch('/api/rooms/open', { cache: 'no-store' }).then(json),
 
   // Vilka av mina designs finns kvar på servern?
   checkStickers: (ids) => fetch(`/api/stickers?ids=${ids.join(',')}`).then(json),

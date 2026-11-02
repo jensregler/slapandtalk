@@ -12,6 +12,8 @@ import { cleanFabrics } from '../../shared/fabric.mjs';
 import { acquireFabric, releaseFabric, makeFabricable, setFabric, tickFabric } from './fabrics.js';
 import { Mouth, MOUTH } from './mouth.js';
 import { FACE, isFaceTriangle, effectiveFabrics } from './face.js';
+import { cleanInsta } from '../../shared/insta.mjs';
+export { cleanInsta };
 export { FACE, effectiveFabrics };
 const MOUTH_AT = MOUTH.at;
 import { quantLevel, openOf } from '../../shared/director.mjs';
@@ -37,6 +39,7 @@ export function normalizeLook(l) {
     hatColor: pickColor(l.hatColor, AV.colors.hat, d.hatColor),
     ...(typeof l.face === 'string' && FACE_HEX.test(l.face) ? { face: l.face.toLowerCase() } : {}), // own face colour; absent = skin
     ...(cleanFabrics(l.fabric) ? { fabric: cleanFabrics(l.fabric) } : {}), // tyger (valfritt), se shared/fabric.mjs
+    ...(cleanInsta(l.insta) ? { insta: cleanInsta(l.insta) } : {}), // Instagram name (shared/insta.mjs)
   };
 }
 const any = (list) => list[Math.floor(Math.random() * list.length)];
@@ -224,6 +227,7 @@ export class Avatar {
     this.cap.visible = L.hat; this.capMat.color.set(L.hatColor);
     this.applyFabrics(effectiveFabrics(L));
     this.updateFaceFeatures();
+    if ((L.insta || '') !== (this.insta ?? '') && this.name !== undefined) this.setName(this.name, L.insta || '');
   }
   // Samma tyg-id som förut: bara nya värden. Nytt id: hämta texturen (cachad), färgen syns tills den är laddad.
   applyFabrics(fabric) {
@@ -259,13 +263,17 @@ export class Avatar {
   }
   get facePhoto() { return !!(this.fab.face?.tex && this.fab.face.f.photo); }
   fabricInfo() { return Object.fromEntries(Object.entries(this.fab).map(([s, e]) => [s, { id: e.id, loaded: !!e.tex, f: e.f }])); }
-  setName(name) {
-    this.name = name;
-    if (this.tag) { this.root.remove(this.tag); this.tag.material.map.dispose(); this.tag.material.dispose(); this.tag = null; }
-    if (!name) return;
-    this.tag = makeSprite(name, { size: 44 }, 0.0021);
-    this.tag.position.set(0, TOP + 0.22, 0);
-    this.root.add(this.tag);
+  // The name above the head, and under it (smaller) the Instagram name with an @ (look.insta).
+  setName(name, insta = this.look?.insta || '') {
+    this.name = name; this.insta = insta || '';
+    for (const k of ['tag', 'instaTag']) if (this[k]) { this.root.remove(this[k]); this[k].material.map.dispose(); this[k].material.dispose(); this[k] = null; }
+    if (!name) return; // (my own avatar has no tag)
+    const lift = this.insta ? 0.09 : 0;
+    { this.tag = makeSprite(name, { size: 44 }, 0.0021); this.tag.position.set(0, TOP + 0.22 + lift, 0); this.tag.name = 'name-tag'; this.root.add(this.tag); }
+    if (this.insta) {
+      this.instaTag = makeSprite('@' + this.insta, { size: 30, font: 500, color: '#ffe680', pad: 14 }, 0.0021);
+      this.instaTag.position.set(0, TOP + 0.2, 0); this.instaTag.name = 'insta-tag'; this.root.add(this.instaTag);
+    }
   }
   // Voice: a small, calm "speaking" mark above the name (three soft bars), only while they talk.
   setSpeaking(on, level = 0) {
@@ -277,7 +285,7 @@ export class Avatar {
     if (!this.talk) return;
     this.talk.visible = !!on;
     if (!on) this.setMouth(0, this.mouthT);
-    this.talk.position.set(0, TOP + (this.tag ? 0.36 : 0.22), 0);
+    this.talk.position.set(0, TOP + (this.tag ? 0.36 : 0.22) + (this.instaTag ? 0.09 : 0), 0);
     const k = 1 + Math.min(1, level * 6) * 0.25; this.talk.scale.set(0.16 * k, 0.08 * k, 1);
   }
   get speaking() { return !!(this.talk && this.talk.visible); }
@@ -290,7 +298,7 @@ export class Avatar {
   say(text, ms = 5000) {
     this.unsay();
     this.bubble = makeSprite(text, { bg: 'rgba(255,255,255,.93)', color: '#111', font: 500, size: 40, maxW: 640, lines: 3 }, 0.0021);
-    this.bubble.position.set(0, TOP + 0.36 + this.bubble.scale.y / 2, 0);
+    this.bubble.position.set(0, TOP + 0.36 + (this.instaTag ? 0.09 : 0) + this.bubble.scale.y / 2, 0);
     this.root.add(this.bubble);
     this.bubbleUntil = performance.now() + ms;
     this.waveUntil = performance.now() + 1600;

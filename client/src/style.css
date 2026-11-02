@@ -229,6 +229,10 @@ body.touch #chat-close { display: block; }
 #avatar-panel .swatches.colors { gap: 5px; }
 #avatar-panel .swatches.colors button { width: 26px; height: 26px; }
 #avatar-panel label { font-size: 13px; }
+#avatar-panel > label:not(.check) { display: flex; flex-direction: column; gap: 4px; }
+#avatar-panel .insta-wrap { display: flex; align-items: center; gap: 4px; }
+#avatar-panel .insta-wrap .at { font-size: 18px; font-weight: 700; color: #ffe680; }
+#avatar-panel .insta-wrap input { flex: 1; min-width: 0; }
 #avatar-panel[hidden] { display: none; }
 #avatar-panel h2 { margin: 0; font-size: 17px; }
 /* 'My avatar' open: the room camera shows my avatar big (avatarview.js); everything else steps aside. */
@@ -725,3 +729,27 @@ body.nature-mode #mode-hud { color: #bff0a8; }
 #style-panel .own-box .fab-sl { font-size: 14px; grid-template-columns: 96px 1fr 62px; }
 #style-panel .own-box.on { border: 2px solid #ffd400; border-radius: 10px; padding: 6px; }
 .swatches button.own-sel { border-color: #ffd400; }
+
+/* Menu stickers (Jens, 31 Oct 2026): the room info panel, the big two-choice dialog, Music vol – big and plain */
+#room-panel { position: fixed; top: 12px; right: 12px; width: 380px; max-height: calc(100% - 24px); overflow: auto; z-index: 10;
+  background: rgba(20,20,20,.96); color: #eee; border: 1px solid #333; border-radius: 14px; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; font-size: 17px; }
+#room-panel[hidden], #room-panel [hidden] { display: none; }
+#room-panel h2 { margin: 0; font-size: 22px; }
+#room-panel .room-facts { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; margin: 0; }
+#room-panel dt { color: #aaa; }
+#room-panel dd { margin: 0; font-weight: 700; word-break: break-word; }
+#room-panel .room-acts { display: flex; flex-direction: column; gap: 10px; }
+#room-panel .row { display: flex; gap: 10px; }
+.big-act { font-size: 18px; padding: 12px 14px; border-radius: 12px; border: 1px solid #555; background: #2a2a2a; color: #fff; cursor: pointer; flex: 1; }
+.big-act:hover { background: #3a3a3a; }
+.big-act.danger { background: #8b1a1a; border-color: #b33; }
+.rpi-confirm p { margin: 0 0 8px; }
+body.touch #room-panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 75%; border-radius: 14px 14px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+.menu-choice { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; }
+.menu-choice[hidden] { display: none; }
+.choice-list { display: flex; flex-direction: column; gap: 16px; min-width: min(420px, 86vw); }
+.choice-btn { font-size: 26px; font-weight: 800; padding: 20px 24px; border-radius: 16px; border: 3px solid #fff; background: #1d1d1d; color: #fff; cursor: pointer; }
+.choice-btn:hover { background: #333; }
+#sound-panel .more-head { display: flex; align-items: center; gap: 10px; }
+.music-vol { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 14px; font-weight: 700; }
+.music-vol input { width: 120px; }

@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { connect } from './net.js';
 import { S, LOCALE } from './strings.js';
-import { Players, Avatar, loadAvatarModel, loadMyAvatar, saveMyAvatar, normalizeLook, randomLook, AVATAR, cleanName } from './avatars.js';
+import { Players, Avatar, loadAvatarModel, loadMyAvatar, saveMyAvatar, normalizeLook, randomLook, AVATAR, cleanName, cleanInsta } from './avatars.js';
 import { initFabricUI, addRecent } from './fabricui.js';
 import { fabricStats } from './fabrics.js';
 import { has, credentials } from './entitlements.js';
@@ -30,7 +30,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   // roomLook: the room's own character for me (a preset room, free version – main.js, shared/randomlook.mjs).
   // It replaces my look for others, recordings and my own avatar there; my own look stays saved for other rooms.
   let roomLook = null;
-  const shownLook = () => { const l = { ...(roomLook || me.look), sound: shownSound() }; if (!has('fabrics') || roomLook) delete l.fabric; return l; };
+  const shownLook = () => { const l = { ...(roomLook || me.look), sound: shownSound() }; if (me.look.insta) l.insta = me.look.insta; else delete l.insta; if (!has('fabrics') || roomLook) delete l.fabric; return l; };
   const players = new Players(scene);
   let status = 'connecting', full = false, unread = 0, serverName = '', mySlot = 0; const talking = new Set(); // serverName = det namn de andra ser på mig
 
@@ -215,7 +215,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     if (!note) { note = document.createElement('p'); note.id = 'av-room-note'; note.className = 'hint'; panel.querySelector('h2').after(note); }
     note.textContent = on ? S.avRoomCharacter : ''; note.hidden = !on;
     for (const el of panel.querySelectorAll('button, input')) {
-      if (['av-name', 'av-ok', 'av-cancel'].includes(el.id)) continue;
+      if (['av-name', 'av-insta', 'av-ok', 'av-cancel'].includes(el.id)) continue;
       el.disabled = on;
     }
   }
@@ -223,6 +223,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   function openAvatarPanel() {
     av.open = true; av.draft = normalizeLook(shownLook()); fab.reset(av.draft);
     $('av-name').value = me.name || cleanName(artist());
+    $('av-insta').value = me.look.insta || '';
     $('avatar-panel').hidden = false;
     if (isTouch) { $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false'); }
     controls.unlock?.();
@@ -250,6 +251,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   $('av-ok').onclick = () => {
     if (!roomLook) me.look = normalizeLook(av.draft); // the room's character is not mine to keep
     me.name = cleanName($('av-name').value);
+    const insta = cleanInsta($('av-insta').value); if (insta) me.look.insta = insta; else delete me.look.insta;
     if (me.look.fabric) addRecent(Object.values(me.look.fabric).map((f) => f.id));
     self.avatar?.setLook(shownLook());
     saveMyAvatar(me.name, me.look);
@@ -266,6 +268,9 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   });
   // Enter i namnfältet = Spara
   $('av-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('av-ok').click(); } });
+  $('av-insta').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('av-ok').click(); } });
+  // Typing: only what Instagram allows stays (letters, digits, . and _; a typed @ is dropped).
+  $('av-insta').addEventListener('input', (e) => { const v = cleanInsta(e.target.value); if (v !== e.target.value.toLowerCase().replace(/^@+/, '')) e.target.value = v; });
 
   // ---------- Min egen gubbe (bara i tredjepersonsvy, se main.js) ----------
   // Ingen namnskylt: det är ju jag. Byggs först när den behövs.
