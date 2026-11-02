@@ -47,10 +47,13 @@ import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
 import { initStackMenu } from './stackmenu.js';
 import { createHeldTimer } from '../../shared/heldtimer.mjs';
-import { createRoomSizer } from './roomsize.js';
+import { createRoomSizer, ROOM_RANGE } from './roomsize.js';
 import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
 import { menuOf, runMenuSticker, MENU_IDS, RETIRED_MENU_IDS } from './menustickers.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
+import { buildCityRoom } from './city.js';
+import { CITY_ROOM, isCityRoom, isPlotRoom, plotOfRoom, spawnOutside, PLOT_ROOMS } from '../../shared/city.mjs';
+import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, cityFrom, setCityFrom } from './citymode.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -72,16 +75,26 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
 const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
 
-const room = buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
+// The City (t476u, 2 Nov 2026): ?room=stad is the city itself (shared/city.mjs, city.js) – plots,
+// houses, the Town Hall; its 8 houses (stad-1 … stad-8) are ordinary box rooms you walk into. In all
+// of them ("in the city", IN_CITY) the wheel holds only what you brought (citymode.js).
+const CITY_OUTSIDE = ROOM === CITY_ROOM, IN_CITY = isCityRoom(ROOM);
+const room = CITY_OUTSIDE ? buildCityRoom() : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
 scene.add(room.group);
+if (room.camFar) { camera.far = room.camFar; camera.updateProjectionMatrix(); }
+document.body.classList.toggle('in-city', IN_CITY); document.body.classList.toggle('city-outside', CITY_OUTSIDE);
 // A preset room's six baked images (preset.js; Jens, 29 Oct 2026): over the surfaces, under the stickers.
 // var: showRoomInfo may run before this line
 var presetLayer = new PresetLayer(scene, room.surfaces); // eslint-disable-line no-var
 camera.position.copy(room.spawn);
 // Lite slumpat var man dyker upp, så inte alla som kommer in står i varandra.
 camera.position.x += (Math.random() - 0.5) * 3; camera.position.z += (Math.random() - 0.5) * 1;
+// Back out of a house (?at=stad-3): in front of its door, looking away from it.
+const cityAt = CITY_OUTSIDE && isPlotRoom(params.get('at') || '') ? spawnOutside(params.get('at')) : null;
+if (cityAt) camera.position.set(cityAt.x + (Math.random() - 0.5) * 1.5, 1.6 + room.groundAt(cityAt.x, cityAt.z), cityAt.z);
 
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
+if (room.city) { controls.ground = room.groundAt; controls.collide = room.pushOut; controls.yaw = cityAt ? cityAt.yaw : 0; controls.apply?.(); }
 // Our own unlocks (a menu, the chat, a camera view …) are told apart from the player's Esc: auto-slap
 // pauses for the first and turns off for the second (see onLockChange).
 var softUnlockAt = 0; // eslint-disable-line no-var
@@ -110,7 +123,9 @@ function nope() {
 const preview = new StampPreview(scene, stamps.faces);
 // The room size test (roomsize.js; Jens, 2 Nov 2026): Height / Width / Depth in the room panel – this
 // view only, not synced, not saved. Slapping is off while it is not the normal size.
-const roomSizer = createRoomSizer({ room, scene, stamps, camera, restyle: () => showStyle(shownStyle) });
+// (the City is no box: its size test is off – the sliders do nothing there)
+const roomSizer = room.city ? { RANGE: ROOM_RANGE, get: () => ({ width: 96, height: 24, depth: 96 }), set() {}, reset() {}, sync() {}, isDefault: () => true }
+  : createRoomSizer({ room, scene, stamps, camera, restyle: () => showStyle(shownStyle) });
 // The held sticker fades on the desktop too (Jens, 29 Oct 2026: "klibborna ska fejda efter ett par
 // sekunder", Slap mode and Nature mode alike) – the same timer as on touch (shared/heldtimer.mjs):
 // a newly chosen sticker stays sharp until it is placed; after each placement ("per tag") it stays
@@ -349,7 +364,7 @@ function designs() { return DEMO ? state.library.filter((d) => !isNat(d)) : show
 // is the one the held sticker is from: clicking/tapping/turning a wheel (or picking from its list)
 // makes it active; R/F, the stack's swipes and the stack itself follow the active wheel.
 const isNat = (d) => !!d && d.library === true && isNature(d);
-const natureOpen = () => !DEMO && !!entitlements.full.natureStickers;
+const natureOpen = () => !DEMO && !IN_CITY && !!entitlements.full.natureStickers; // (in the city: only what you brought)
 let natKey = '', natCache = [];
 function natureDesigns() {
   if (DEMO) return [];
@@ -364,11 +379,26 @@ let wheelKey = '', wheelCache = [];
 function wheelDesigns() { return activeWheel() === 'nature' ? natureDesigns() : stickerDesigns(); }
 function stickerDesigns() {
   if (DEMO) return designs();
+  if (IN_CITY) return cityDesigns();
   const mine = designs(), swaps = readSwaps(), key = mine.map((d) => d.id).join() + '|' + state.library.length + '|' + JSON.stringify(swaps);
   // Jens, 2 Nov 2026: d71 in the middle, d72-d74 to its left, the menu stickers to its right, then the list from the back (shared/wheelorder.mjs)
   if (key !== wheelKey) { wheelKey = key; wheelCache = applySwaps(wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: MENU_IDS, exclude: RETIRED_MENU_IDS }), swaps); }
   return wheelCache;
 }
+// The city wheel (t476u): my pack's 3 stickers (+ the 2 packs I took in the Town Hall: ≤ 9), the
+// exit button and my pack – nothing else (citymode.js cityWheel).
+let cityKey = '', cityCache = [];
+function cityDesigns() {
+  const byId = (id) => state.library.find((d) => d.id === id) || state.mine.find((d) => d.id === id) || null;
+  const exit = state.library.find((d) => d.id === CITY_EXIT_ID) || null;
+  const key = [localStorage.getItem('klibb.pac')?.length, localStorage.getItem('klibb.cityTaken'), state.library.length, state.mine.length, cityPackUrl].join('|');
+  if (key !== cityKey) { cityKey = key; cityCache = cityWheel({ byId, exit }); }
+  return cityCache;
+}
+const CITY_EXIT_ID = 'a03b0ba5768979e6'; // exit.png (menustickers.js) – the city's exit button
+var cityPackUrl = ''; // eslint-disable-line no-var
+if (IN_CITY) refreshPackPicture().then((u) => { cityPackUrl = u || ''; cityKey = ''; renderDesignHud(); });
+function cityWheelChanged() { cityKey = ''; refreshPackPicture().then((u) => { cityPackUrl = u || ''; cityKey = ''; const l = stickerDesigns(); if (!l.some((d) => d.id === state.selected?.id)) select(l[0] || null); else renderDesignHud(); }); }
 // En annan flik ändrade listan: hämta den nya.
 addEventListener('storage', (e) => {
   if (e.key === FAV_KEY) { state.favs = readFavs(); renderTray(); return; }
@@ -735,6 +765,10 @@ async function slapAt(ndc, info, onStart, auto = null) {
   // with, nothing placed (click, tap, the holder, auto-slap, array drags all come through here).
   if (selfieOn()) { if (!auto) toast(S.selfieNoSlap(isTouch), 2200); return null; }
   if (!roomSizer.isDefault()) { if (!auto) toast(S.roomSizeNoSlap, 2600); return null; } // a test size: the stickers would land wrong for everyone else
+  // The City (t476u): my pack and the exit button on the wheel are buttons, not stickers; a click on a
+  // door (in reach) goes through it.
+  if (IN_CITY && (isPackDesign(state.selected) || state.selected.id === CITY_EXIT_ID)) { if (!auto) (isPackDesign(state.selected) ? cityPackAction() : menuActions.exit()); return null; }
+  if (CITY_OUTSIDE && !auto) { const d = doorHit(ndc); if (d) { openCityDoor(d); return null; } }
   const h = hitSurface(ndc); if (!h) return null;
   if (auto && auto.check && !auto.check(h)) return null;
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
@@ -1839,6 +1873,7 @@ var shownStyle = DEFAULT_STYLE; // eslint-disable-line no-var -- (the room size 
 async function showStyle(s) {
   shownStyle = s;
   sound.setRoom(s); // the room's materials give a subtle, automatic acoustic (free, no UI)
+  if (room.city) return null; // the City has its own look (city.js), no room style
   try { return await applyStyle(room.surfaces, s); } catch { toast(S.texturesFailed); return null; }
 }
 showStyle(DEFAULT_STYLE);
@@ -2178,13 +2213,57 @@ function openChoice(what, items) {
 }
 function closeChoice() { $('menu-choice').hidden = true; delete $('menu-choice').dataset.what; }
 $('menu-choice').addEventListener('click', (e) => { if (e.target === $('menu-choice')) closeChoice(); });
+// ---------- The City: doors, the Town Hall, my pack (t476u) ----------
+// A door in reach (≤ 14 m) under the aim: its plot ({ room | null = Town Hall }).
+function doorHit(ndc) {
+  const rc = aimRay(ndc), hit = rc.intersectObjects([...room.doors, ...room.surfaces], false)[0];
+  if (!hit || !hit.object.userData.door || hit.distance > 14) return null;
+  return plotOfDoor(hit.object.userData.door);
+}
+const plotOfDoor = (d) => (d === 'hall' ? { room: null, hall: true } : { ...plotOfRoom(d) });
+function openCityDoor(p) {
+  if (p.hall) { openHall(); return; }
+  const n = PLOT_ROOMS.indexOf(p.room) + 1;
+  openChoice('city-door', [{ id: 'enter-house', text: S.cityEnterHouse(n), go: () => { location.href = roomUrl(p.room); } }, { id: 'back', text: S.cityStay }]);
+}
+function openHall() {
+  controls.unlock?.(); closeChoice();
+  openTownHall({ toast, onChange: cityWheelChanged, makePack: () => menuActions.door() });
+}
+// My pack on the city wheel: no pack yet → make one (the door's "choose 3"); else the Town Hall's
+// view of it from wherever I am (hand in / take works only inside – the hall checks the door).
+function cityPackAction() {
+  if (!localStorage.getItem('klibb.pac')) { openDoorPick(doorOpts()); return; }
+  if (CITY_OUTSIDE) openChoice('city-pack', [{ id: 'to-hall', text: S.cityEnterHall, go: () => { walkToHall(); } }, { id: 'back', text: S.choiceBack }]);
+  else openChoice('city-pack', [{ id: 'to-city', text: S.cityBackToCity, go: () => { location.href = roomUrl(CITY_ROOM) + '&at=' + ROOM; } }, { id: 'back', text: S.choiceBack }]);
+}
+// (from the pack button: straight in front of the Town Hall's door, then in)
+function walkToHall() { camera.position.set(0, 1.6 + (room.groundAt?.(0, 9.6) || 0), 9.6); controls.yaw = 0; controls.apply?.(); openHall(); }
+// The door's pick: "to city" walks out into the City (the room I came from = "Back to my room").
+const doorOpts = () => ({ S, toast, choices: () => (IN_CITY ? state.library.filter((d) => !isNat(d) && !MENU_IDS.includes(d.id) && !RETIRED_MENU_IDS.includes(d.id)) : stickerDesigns().filter((d) => !MENU_IDS.includes(d.id))),
+  toCity: () => { if (!IN_CITY) setCityFrom(ROOM); if (CITY_OUTSIDE) cityWheelChanged(); else location.href = roomUrl(CITY_ROOM); } });
+// Walking into a door's zone (in front of it) opens it once; walk away and back to open it again.
+let atDoor = null;
+function tickCityDoors() {
+  if (!CITY_OUTSIDE) return;
+  const p = room.doorAt(camera.position.x, camera.position.z), id = p ? (p.room || 'hall') : null;
+  if (id && id !== atDoor && $('menu-choice').hidden && !townHallOpen() && !doorOpen() && !nameTagOpen()) openCityDoor(p.hall ? { hall: true } : p);
+  atDoor = id;
+}
+function exitChoices() {
+  const out = [];
+  if (isPlotRoom(ROOM)) out.push({ id: 'to-city', text: S.cityBackToCity, go: () => { location.href = roomUrl(CITY_ROOM) + '&at=' + ROOM; } });
+  if (IN_CITY && cityFrom() && !isCityRoom(cityFrom())) out.push({ id: 'to-room', text: S.cityBackToRoom, go: () => { location.href = roomUrl(cityFrom()); } });
+  out.push({ id: 'exit-menu', text: S.exitToMenu, go: () => { location.href = `${location.origin}/?start=1`; } }, { id: 'back', text: S.choiceBack });
+  return out;
+}
 const menuActions = {
   character: () => { closeMore(); closeRoomMenu(); together.openAvatarPanel(); },
   radio: () => { closeMore(); if (entitlements.full.soundDesign) soundUi.open(); else { fullUi?.open(); toast(S.soundLocked, 2600); } },
   room: () => openRoomPanel(),
-  exit: () => openChoice('exit', [{ id: 'exit-menu', text: S.exitToMenu, go: () => { location.href = `${location.origin}/?start=1`; } }, { id: 'back', text: S.choiceBack }]),
+  exit: () => openChoice('exit', exitChoices()),
   nametag: () => openNameTag(),
-  door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => openDoorPick({ S, toast, choices: () => stickerDesigns().filter((d) => !MENU_IDS.includes(d.id)) }) }, { id: 'back', text: S.doorBackToRoom }]),
+  door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => openDoorPick(doorOpts()) }, { id: 'back', text: S.doorBackToRoom }]),
 };
 // The name-tag roll (knappar/editor.png): the "my name is" drawing tool (nametag.js). The finished tag
 // is uploaded as my sticker and takes the place of the wheel sticker I chose (klibb.swaps, applySwaps).
@@ -2717,6 +2796,7 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (holdSharpForTests && deskHeld && deskHeld.state === 'timed') { const t = performance.now(); if (deskHeld.canSlap(t)) deskHeld.keepAlive(t); else deskHeld.wake(t); }
   if (!camView) controls.update(dt);
+  tickCityDoors();
   tickRoomFabric(room.surfaces); if (sp.open) { fargUi.tick(); for (const k of SURF_KINDS) ownUi[k].tick(); } // Färg: the room image spins / cycles / scrolls
   for (const ac of autoCamsOf(cams.list())) { const q = liveAutoPose(ac); if (q) cams.place(ac.id, q); }
   let cv = camView && cams.get(camView);
@@ -2791,7 +2871,7 @@ function frame() {
 
 renderTray();
 renderHistory();
-if (!DEMO && state.mine.length) select(last(state.mine));
+if (!DEMO && !IN_CITY && state.mine.length) select(last(state.mine));
 const startPick = state.selected; // (replaced by d71 once the library is in, unless I picked something meanwhile)
 // The library (the demo's palette; also loaded outside the demo for later use).
 const LIB_SEL = 'klibb.libSel';
@@ -2800,7 +2880,8 @@ const libraryReady = fetch('/api/library').then((r) => r.json()).then(({ sticker
   renderLibTray();
   if (!DEMO) { // the library is on the wheel for everyone; nothing of my own yet → hold the first library sticker
     // from the start the wheel stands on d71 (Jens, 2 Nov 2026) – also when I have uploads of my own
-    const d71 = state.library.find((d) => d.id === WHEEL_START[0]);
+    const d71 = IN_CITY ? null : state.library.find((d) => d.id === WHEEL_START[0]); // the city: my pack's first sticker
+    if (IN_CITY && (!state.selected || state.selected === startPick || !stickerDesigns().some((d) => d.id === state.selected.id))) { select(stickerDesigns()[0] || null); return; }
     if (d71 && (!state.selected || state.selected === startPick)) select(d71);
     else if (!state.selected && state.library.length) select(wheelDesigns()[0]); else renderDesignHud();
     return;
@@ -2833,6 +2914,7 @@ window.klibb = {
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer, scene,
   nameTag: nameTagState, openNameTag, door: doorState, menuAction: (k) => menuActions[k]?.(),
+  city: () => ({ outside: CITY_OUTSIDE, inCity: IN_CITY, wheel: stickerDesigns().map((d) => d.id), taken: takenPacks().map((p) => p.id), hall: townHallState(), atDoor, doors: room.doors ? room.doors.length : 0 }), openHall, cityDoor: (id) => openCityDoor(plotOfDoor(id)),
   menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: (x = 0, y = 0) => menuOf(pickStampAt(new THREE.Vector2(x, y))), openRoomPanel, askForVisitors, roomSize: () => ({ ...roomSizer.get(), normal: roomSizer.isDefault() }), setRoomSize: (d) => roomSizer.set(d), roomSurfaces: () => room.surfaces, roomBounds: () => room.bounds, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {

@@ -1,15 +1,15 @@
 // The door (Jens, 31 Oct 2026; mockups door-1..5): "enter city" → choose 3 slaps to bring → they go
 // into a Priority Mail pac (Jens's knappar/stickerpac.png, client/public/start/pac.webp – a see-through
 // bag, the stickers inside), "name your pac", draw on it (the name-tag tool's brushes) → "to city".
-// The city itself isn't defined yet: "to city" keeps the pac on this device (klibb.pac) and says
-// "The city is coming soon!".
+// "to city" keeps the pac on this device (klibb.pac) and walks you out into the City (opts.toCity;
+// t476u – the city: shared/city.mjs, city.js, citymode.js).
 import { openNameTag } from './nametag.js';
 const PAC = '/start/pac.webp', PW = 563, PH = 802;
 const PAC_KEY = 'klibb.pac';
 export const readPac = () => { try { return JSON.parse(localStorage.getItem(PAC_KEY) || 'null'); } catch { return null; } };
 
 let ui = null;
-// opts: { S, toast, choices: () => [{ id, url }], unlock: () => void }
+// opts: { S, toast, choices: () => [{ id, url }], unlock: () => void, toCity: () => void }
 export function openDoorPick(opts) { if (!ui) ui = build(); ui.open(opts); return ui; }
 export const doorOpen = () => !!ui && !ui.box.hidden;
 export const doorState = () => (ui ? ui.state() : { open: false });
@@ -105,9 +105,9 @@ function build() {
     });
   };
   $('df-city').onclick = () => {
-    const pac = { name: $('df-name').value.trim().slice(0, 30), stickers: st.picked.map((d) => d.id), urls: st.picked.map((d) => d.url), at: new Date().toISOString() };
+    const pac = { name: $('df-name').value.trim().slice(0, 30), stickers: st.picked.map((d) => d.id), urls: st.picked.map((d) => d.url), designs: st.picked.map((d) => ({ id: d.id, url: d.url, ...(d.width ? { width: d.width, height: d.height } : {}) })), at: new Date().toISOString() };
     try { localStorage.setItem(PAC_KEY, JSON.stringify({ ...pac, img: st.pacImg.toDataURL('image/webp', 0.85) })); } catch { try { localStorage.setItem(PAC_KEY, JSON.stringify(pac)); } catch { /* full */ } }
-    close(); st.opts.toast?.(S.cityComingSoon, 3500);
+    close(); if (st.opts.toCity) st.opts.toCity(); else st.opts.toast?.(S.cityComingSoon, 3500); // the City (t476u): main.js goes there
   };
   function close() { box.hidden = true; }
   addEventListener('keydown', (e) => {

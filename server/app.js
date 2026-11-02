@@ -53,12 +53,15 @@ const { mountVideos, videoSettings } = require('./videos');
 const { mountPhotos, photoSettings } = require('./photos');
 const { createMailer } = require('./mail');
 const { createPresets, PRESET_FACES } = require('./presets');
+const { createCityPacks } = require('./citypacks');
+const CITY = require('../shared/city.mjs');
 
 // demo: the demo profile (server/demo.js createDemo) or null. library: loadLibrary() list.
 function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), photos = photoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500 } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 const presets = createPresets(store.adapter, { log });
+const cityPacks = createCityPacks(store.adapter, { imageInfo: (id) => imageAvailable(id), clock, log });
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
 // Full-version flags for a request; asks Lemon Squeezy first when the key is a paid key we haven't seen.
 const entOf = (req) => (entitle.check ? entitle.check(fromReq(req)) : Promise.resolve(entitle(fromReq(req))));
@@ -398,6 +401,49 @@ app.post('/api/admin/presets/:id/thumb', (req, res, next) => { if (!isAdmin(req)
     if (!req.file) return res.status(400).json({ error: 'thumb: an image' });
     try { const p = await presets.setThumb(req.params.id, req.file.buffer); if (!p) return res.status(404).json({ error: 'No such preset' }); res.json({ preset: p }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   }));
+// ---------- The City (t476u, 2 Nov 2026; shared/city.mjs) ----------
+// The 8 houses (stad-1 … stad-8) are real rooms of type 'stad' (never swept, look locked like the
+// City). The first time one is asked for it is made with one of Jens's presets as its starting look
+// (house n gets the n-th preset, oldest first, round and round); no presets = a plain room.
+async function seedPlotRoom(id) {
+  if (await store.getRoom(id)) return;
+  const all = demo ? [] : await presets.list().catch(() => []);
+  const p = all.length ? all[(CITY.PLOT_ROOMS.indexOf(id)) % all.length] : null;
+  try {
+    await store.createRoom({ id, type: 'stad', style: p ? cleanStyle(p.style, { fabric: true }) : null, extra: p ? { preset: presets.forRoom(p) } : null });
+  } catch (e) { if (e.code !== 'EXISTS') throw e; }
+}
+// Not in the City (yet): it isn't a box, and these all work on the room's box (peels fall to its
+// floor, cameras and cameramen walk its walls, hidden stickers are found on its six faces).
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && /^\/api\/rooms\/stad\/(peels|cameras|recording\/start|clear-hidden)(\/|$)/.test(req.path)) return res.status(400).json({ error: 'Not in the City (yet)', city: true });
+  next();
+});
+// The Town Hall's packs (server/citypacks.js). GET lists them (+ mine with x-pack-token), POST hands
+// mine in (multipart: img + name + stickers JSON), POST …/:id/take swaps for one of the others.
+const packUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024, files: 1, fields: 4 },
+  fileFilter: (req, f, cb) => cb(null, /^image\/(png|webp|jpeg)$/.test(f.mimetype)) });
+const packToken = (req) => String(req.get('x-pack-token') || req.body?.token || '').slice(0, 80) || null;
+const packError = (res, e) => res.status(e.status || 500).json({ error: e.message, ...(e.pack ? { pack: e.pack } : {}) });
+app.get('/api/city/packs', rateLimit(120), wrap(async (req, res) => {
+  try { res.set('Cache-Control', 'no-store').json(await cityPacks.list(packToken(req))); } catch (e) { packError(res, e); }
+}));
+app.post('/api/city/packs', rateLimit(10), (req, res, next) => packUpload.single('img')(req, res, (err) => (err ? res.status(400).json({ error: 'The pack picture is too big or not an image' }) : next())), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
+  let stickers = null; try { stickers = JSON.parse(String(req.body?.stickers || 'null')); } catch { stickers = null; }
+  try { res.json(await cityPacks.handIn({ name: req.body?.name, stickers, img: req.file && req.file.buffer, token: packToken(req) })); } catch (e) { packError(res, e); }
+}));
+app.post('/api/city/packs/:id/take', rateLimit(30), express.json(), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
+  try { res.json(await cityPacks.take(req.params.id, packToken(req))); } catch (e) { packError(res, e); }
+}));
+app.get('/api/city/packs/:file', wrap(async (req, res) => {
+  const m = /^([a-f0-9]{12})\.webp$/.exec(req.params.file);
+  const buf = m && await cityPacks.image(m[1]);
+  if (!buf) return res.status(404).end();
+  res.set({ 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=86400' }).send(buf);
+}));
+
 // The start card's room picker (Jens, 2 Nov 2026): "Blank room" or one of the presets. Public:
 // per preset its id, display name (title, '' until named → show the code), the room code and a picture.
 app.get('/api/presets', rateLimit(60), wrap(async (req, res) => {
@@ -467,6 +513,7 @@ app.get('/api/rooms/recent', (req, res, next) => (req.query.ids === undefined ? 
 
 app.get('/api/rooms/:room', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
+  if (CITY.isPlotRoom(id)) await seedPlotRoom(id).catch((e) => log.error?.('[city] seeding', id, 'failed', e && e.message));
   let room;
   try { room = await store.roomOrEmpty(id); } catch (e) { room = emptyRoomOnStorageError(id, e); }
   res.json({ room: roomPublic(room), ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });

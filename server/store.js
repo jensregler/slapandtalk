@@ -50,6 +50,7 @@ const roomCode = (n = 6) => [...crypto.randomBytes(n)].map((b) => CODE_CHARS[b %
 //   writeDelayMs   hur länge vi väntar innan ett ändrat rum skrivs (samlar ihop klibbor)
 //   retryMs        första väntan efter ett misslyckat försök (dubblas, max 30 s)
 const GEO = require('../shared/roomgeo.mjs');
+const CITY = require('../shared/city.mjs');
 
 function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, retryMs = 1000, log = console } = {}) {
   const locks = new Map();
@@ -67,12 +68,27 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   const roomKey = (id) => `rooms/${id}.json`;
   const iso = () => new Date(clock()).toISOString();
 
-  const defaultType = (id) => (id === PUBLIC_ROOM ? 'stad' : 'quick');
+  // Rooms that exist without being made: the City and its 8 houses (shared/city.mjs, t476u) – type 'stad'.
+  const autoRoom = (id) => id === PUBLIC_ROOM || CITY.isPlotRoom(id);
+  const defaultType = (id) => (autoRoom(id) ? 'stad' : 'quick');
   // Fyller i fält som saknas i äldre rumsfiler (från före rumstyperna).
   function normalize(id, r) {
     const room = { id, type: defaultType(id), owner: null, createdAt: null, lastVisitAt: null, stamps: [], ...(r || {}) };
-    if (id === PUBLIC_ROOM) room.type = 'stad';
+    if (autoRoom(id)) room.type = 'stad';
     if (!ROOM_TYPES.includes(room.type)) room.type = 'quick';
+    // The City is no longer a box (t476u, 2 Nov 2026): its old box-room stickers, peels and cameras would
+    // hang in the air (or inside the Town Hall), so they are put away – kept in the file (legacy*), not
+    // deleted – and the city starts clean. geo = CITY.CITY_GEO from then on (no box remap for it).
+    if (id === PUBLIC_ROOM) {
+      if (room.geo !== CITY.CITY_GEO) {
+        if ((room.stamps || []).length || (room.peels || []).length || (room.cameras || []).length) {
+          room.legacy = { geo: room.geo || GEO.sizeKey(GEO.LEGACY_ROOM), stamps: room.stamps || [], peels: room.peels || [], cameras: room.cameras || [], at: iso() };
+        }
+        room.stamps = []; room.peels = []; room.cameras = []; delete room.peelsOn;
+        room.geo = CITY.CITY_GEO;
+      }
+      return room;
+    }
     // The room got bigger (Jens, 2 Nov 2026: 16 × 8 × 16, was 10 × 4 × 10; shared/roomgeo.mjs): a room
     // from before has its stickers in the old box – each moves out with its surface (same size, same
     // height, same place along the wall). geo = the size its stickers are in; saved with the next write.
@@ -212,7 +228,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   async function setRoomStyle(id, style, canEdit) {
     return withLock(id, async () => {
       let room = await loadRoom(id);
-      if (!room && id === PUBLIC_ROOM) room = normalize(id, { createdAt: iso() });
+      if (!room && autoRoom(id)) room = normalize(id, { createdAt: iso() });
       if (!room) return 'notfound';
       if (!canEdit(room)) return 'forbidden';
       room.style = style;
@@ -225,7 +241,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   async function setPeelsOn(id, on, canEdit) {
     return withLock(id, async () => {
       let room = await loadRoom(id);
-      if (!room && id === PUBLIC_ROOM) room = normalize(id, { createdAt: iso() });
+      if (!room && autoRoom(id)) room = normalize(id, { createdAt: iso() });
       if (!room) return 'notfound';
       if (!canEdit(room)) return 'forbidden';
       if (on) room.peelsOn = true; else delete room.peelsOn;
@@ -238,7 +254,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   async function setGroove(id, make, canEdit) {
     return withLock(id, async () => {
       let room = await loadRoom(id);
-      if (!room && id === PUBLIC_ROOM) room = normalize(id, { createdAt: iso() });
+      if (!room && autoRoom(id)) room = normalize(id, { createdAt: iso() });
       if (!room) return 'notfound';
       if (!canEdit(room)) return 'forbidden';
       const g = make(room.groove || null);
@@ -280,7 +296,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   async function editCameras(id, canEdit, fn) {
     return withLock(id, async () => {
       let room = await loadRoom(id);
-      if (!room && id === PUBLIC_ROOM) room = normalize(id, { createdAt: iso() });
+      if (!room && autoRoom(id)) room = normalize(id, { createdAt: iso() });
       if (!room) return 'notfound';
       if (!canEdit(room)) return 'forbidden';
       room.cameras = Array.isArray(room.cameras) ? room.cameras : [];
@@ -308,7 +324,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   async function touchRoom(id) {
     return withLock(id, async () => {
       let room = await loadRoom(id);
-      if (!room && id !== PUBLIC_ROOM) return null;
+      if (!room && !autoRoom(id)) return null;
       if (!room) room = normalize(id, { createdAt: iso() });
       const last = room.lastVisitAt ? Date.parse(room.lastVisitAt) : 0;
       if (clock() - last >= VISIT_WRITE_MS) { room.lastVisitAt = iso(); await saveRoom(room); }

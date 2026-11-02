@@ -189,11 +189,16 @@ function bucket(rate, burst) {
   };
 }
 
+const CITY = require('../shared/city.mjs');
+
 function attachRealtime(server, {
   maxPlayers = FREE_MAX_PLAYERS, path = '/ws', heartbeatMs = 15_000, maxPerIp = 30, clock = () => Date.now(),
   roomSize = require('../shared/room.json'), recorder = null, entitle = makeEntitlements(process.env), gate = null, onEmpty = null, onJoin = null,
 } = {}) {
-  const bounds = { x: roomSize.width / 2, y: roomSize.height, z: roomSize.depth / 2 };
+  const boxBounds = (b) => ({ x: b.width / 2, y: b.height, z: b.depth / 2 });
+  // Where people may stand: the room box, but the City is its own 96 × 24 × 96 space (shared/city.mjs).
+  const roomBounds = boxBounds(roomSize), cityBounds = boxBounds(CITY.CITY);
+  const boundsOf = (c) => (c && c.room === CITY.CITY_ROOM ? cityBounds : roomBounds);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 }); // a look with custom sound patches can be ~10 kB
   const rooms = new Map(); // id -> { players: Map<id, client>, watchers: Set<client>, chat: [] }
   const perIp = new Map();
@@ -323,7 +328,7 @@ function attachRealtime(server, {
       c.ent = entitle(fromHello(m));
       upgradeEnt(c, fromHello(m)); // a paid key we haven't seen yet: ask Lemon Squeezy, then upgrade
       c.look = cleanLook(m.look, c.ent);
-      c.p = cleanPos(m.p, bounds) || [0, 1.6, 3.5]; c.y = isNum(m.y) ? round(m.y) : 0; c.pi = cleanPitch(m.pi);
+      c.p = cleanPos(m.p, boundsOf(c)) || [0, 1.6, 3.5]; c.y = isNum(m.y) ? round(m.y) : 0; c.pi = cleanPitch(m.pi);
       if (r.players.size < maxPlayers) { takeSlot(c, r); c.player = true; r.players.set(c.id, c); } else r.watchers.push(c);
       if (onJoin) onJoin(c.room);
       welcome(c, r);
@@ -335,7 +340,7 @@ function attachRealtime(server, {
     if (m.t === 'unlock') { if (c.lookLimit()) upgradeEnt(c, fromHello(m), true); return; }
     if (m.t === 'move') {
       if (!c.moveLimit()) return;
-      const p = cleanPos(m.p, bounds); if (!p) return;
+      const p = cleanPos(m.p, boundsOf(c)); if (!p) return;
       c.p = p; c.y = isNum(m.y) ? round(m.y) : c.y; c.pi = m.pi === undefined ? c.pi : cleanPitch(m.pi); c.moves = (c.moves || 0) + 1;
       if (!c.player) return; // den som väntar syns inte, men servern vet var den står (räckvidden med peels)
       rec(r.id, 'move', { id: c.id, p: c.p, y: c.y, pi: c.pi });
@@ -372,7 +377,7 @@ function attachRealtime(server, {
       // recorded, ~8 a second while it moves, null when I stop holding/aiming). Like 'talk': only
       // into the recording (shared/replay.mjs heldAt), so replays and videos show it on the wall.
       if (!c.player || (m.h !== null && !c.heldLimit())) return; // a null (let go) always gets through
-      const h = cleanHeld(m.h, bounds); if (h === undefined) return;
+      const h = cleanHeld(m.h, boundsOf(c)); if (h === undefined) return;
       return rec(r.id, 'held', { id: c.id, h });
     }
     if (m.t === 'signal') {

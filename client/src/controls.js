@@ -84,5 +84,9 @@ export class FirstPersonControls {
     p.addScaledVector(fwd, f * sp).addScaledVector(right, s * sp);
     p.x = THREE.MathUtils.clamp(p.x, this.bounds.min.x, this.bounds.max.x);
     p.z = THREE.MathUtils.clamp(p.z, this.bounds.min.z, this.bounds.max.z);
+    // The City (city.js): houses you can't walk through (collide → pushed out to the nearest side)
+    // and slabs you step up onto (ground: the eye stays 1.6 m above the ground under you).
+    if (this.collide) { const [x, z] = this.collide(p.x, p.z); p.x = x; p.z = z; }
+    if (this.ground) { const want = 1.6 + this.ground(p.x, p.z); p.y += (want - p.y) * Math.min(1, dt * 12); }
   }
 }

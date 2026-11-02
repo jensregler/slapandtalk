@@ -17,7 +17,7 @@ const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } ca
 
 // main.js: "I am in this room now" (the City is not one of your rooms).
 export function noteVisit(id, now = Date.now()) {
-  if (!ROOM_RE.test(id) || id === 'stad') return;
+  if (!ROOM_RE.test(id) || id === 'stad' || /^stad-\d$/.test(id)) return; // the City and its houses (t476u) are nobody's own room
   const v = read(VISITS); v[id] = now;
   const keep = Object.entries(v).sort((a, b) => b[1] - a[1]).slice(0, MAX_VISITS);
   write(VISITS, Object.fromEntries(keep));
@@ -28,7 +28,7 @@ export function forget(ids) {
 // My rooms, most recently visited first (rooms with a key but never noted come last).
 export function myRooms() {
   const v = read(VISITS), ids = new Set([...Object.keys(v), ...Object.keys(read(ROOM_KEYS)), ...Object.keys(read(MEMBERS))]);
-  return [...ids].filter((id) => ROOM_RE.test(id) && id !== 'stad').sort((a, b) => (v[b] || 0) - (v[a] || 0) || a.localeCompare(b)).slice(0, 50);
+  return [...ids].filter((id) => ROOM_RE.test(id) && id !== 'stad' && !/^stad-\d$/.test(id)).sort((a, b) => (v[b] || 0) - (v[a] || 0) || a.localeCompare(b)).slice(0, 50);
 }
 // The choice itself (pure, for tests): server answer { rooms: [{ id, updatedAt }], missing } or
 // null (unreachable) → { id, forget: [...] } or { id: null }.
