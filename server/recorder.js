@@ -15,6 +15,7 @@
 // (och när den stoppas), så en omstart av servern tappar högst de sista sekunderna.
 const crypto = require('crypto');
 const { broadcast, onBroadcast } = require('./realtime');
+const GEO = require('../shared/roomgeo.mjs'); // the box the recording's stickers are in (shared/replay.mjs remaps older ones)
 
 const FORMAT = 'slapandtalk-rec';
 const VERSION = 1;
@@ -152,7 +153,7 @@ function createRecorder(store, {
     r.cameraCount = (snap.cameras || []).length;
     r.header = {
       format: FORMAT, v: VERSION, id: r.id, room, startedAt: iso(now), clock: 'ms', positions: 'eye',
-      style: snap.style || null, stamps: snap.stamps || [], images: snap.images || {}, cameras: snap.cameras || [], players,
+      geo: GEO.CURRENT_KEY, style: snap.style || null, stamps: snap.stamps || [], images: snap.images || {}, cameras: snap.cameras || [], players,
       groove: snap.groove || null, // the footstep groove (shared/groove.mjs); event room:groove when it changes
       peelsOn: !!snap.peelsOn, peels: snap.peels || [], // backing paper on the floor; events room:peels / peels:clear, new ones ride on stamp:add
       tracks: [], // ljudspår per person kommer i steg 2 (se docs/recording-format.md)

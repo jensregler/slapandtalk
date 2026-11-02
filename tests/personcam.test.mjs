@@ -114,7 +114,9 @@ for (const n of [1, 2, 3]) {
       const q = rc.poseAt('cam1', t); assert.ok(q);
       for (const s of subs) { const p = s.subject.at(t); if (!p) continue; all++; if (inFrame(project(q, [p.p[0], p.p[1] - 0.45, p.p[2]]), 1)) ok++; }
     }
-    assert.ok(ok / all > 0.9, `group in frame ${(100 * ok / all).toFixed(1)} % of person-frames`);
+    // 85 %: in the 16 × 8 × 16 m room (t475u; was 90 % in the 10 m one) the fixture's people walk the whole
+    // floor, right past the overview cameraman on his perimeter track, so a few more frames lose someone.
+    assert.ok(ok / all > 0.85, `group in frame ${(100 * ok / all).toFixed(1)} % of person-frames`);
   });
 }
 

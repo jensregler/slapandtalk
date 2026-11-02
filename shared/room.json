@@ -1,6 +1,6 @@
 {
-  "_om": "Rummets mått i meter. Används av både webbappen (room.js) och servern (största tillåtna klibba = väggens höjd).",
-  "width": 10,
-  "height": 4,
-  "depth": 10
+  "_om": "Rummets mått i meter (Jens, 2 Nov 2026: 16 × 8 × 16, var 10 × 4 × 10 – se shared/roomgeo.mjs för gamla rum, klibbor och presets). Används av både webbappen (room.js) och servern.",
+  "width": 16,
+  "height": 8,
+  "depth": 16
 }

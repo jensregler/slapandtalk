@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { startSizeCm } from '../../shared/sizeprefix.mjs';
-import { sizeLimitsCm, isNature, NATURE } from '../../shared/nature.mjs';
+import { sizeLimitsCm, isNature, NATURE, STICKER_LIMITS } from '../../shared/nature.mjs';
 import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl, tickRoomFabric, roomFabricInfo, SURF_KINDS } from './roomstyle.js';
 import { initFargUI, initFabricPicker } from './fargui.js';
 import { FirstPersonControls, isTyping } from './controls.js';
@@ -552,17 +552,16 @@ async function validateDesigns() {
   await handleMissing(missing);
 }
 
-// Storleken = klibbans längsta sida. Free version: at most 1 m. The full version (bigStickers)
-// has NO upper limit, not even the room (Jens, 26 Oct 2026; he may add one back).
-// The slider only travels to SLIDER_FULL_CM (a range input needs a finite end); the wheel goes on
-// past it, and the label shows the real size.
-const FREE_MAX_CM = 100;
-const FREE_MIN_CM = 15; // free version: at least 15 cm (= A_); the full version goes down to 5 cm
-const FULL_MIN_CM = 5;
-const SLIDER_FULL_CM = 400; // slider travel only, not a limit
-// Nature stickers (curated library, name starts with "nature"; shared/nature.mjs): NATURE.minCm (5 cm)
-// up to NATURE.maxHeightCm (4 m) HIGH in every version; every other design the version's limits.
-const versionLimits = () => (entitlements.full.bigStickers ? { minCm: FULL_MIN_CM, maxCm: Infinity } : { minCm: FREE_MIN_CM, maxCm: FREE_MAX_CM });
+// Storleken = klibbans längsta sida (shared/nature.mjs STICKER_LIMITS; Jens, 2 Nov 2026, t475u): the full
+// version 10 cm – 1.5 m (was 5 cm – no limit), the free version 15 cm – 1 m. Nature stickers
+// (curated library, name starts with "nature"): NATURE.minCm (10 cm) up to NATURE.maxHeightCm (the
+// room's height, 8 m) HIGH in every version.
+const FREE_MAX_CM = STICKER_LIMITS.free.maxCm;
+const FREE_MIN_CM = STICKER_LIMITS.free.minCm;
+const FULL_MIN_CM = STICKER_LIMITS.full.minCm;
+const FULL_MAX_CM = STICKER_LIMITS.full.maxCm;
+const SLIDER_FULL_CM = FULL_MAX_CM; // (the slider's end if a limit is ever Infinity again)
+const versionLimits = () => (entitlements.full.bigStickers ? { minCm: FULL_MIN_CM, maxCm: FULL_MAX_CM } : { minCm: FREE_MIN_CM, maxCm: FREE_MAX_CM });
 const limitsFor = (img = state.selected) => (img && img.library === true ? sizeLimitsCm(img, versionLimits()) : versionLimits());
 const maxSizeCm = (img) => limitsFor(img).maxCm;
 // Nature stickers drop no backing paper (Jens, 28 Oct 2026: they get too large) – the server makes none either.
@@ -603,7 +602,7 @@ function setSize(cm) {
   if (!Number.isFinite(cm)) return; // sanity guard only (NaN / endless wheel), not a size limit
   const want = Math.round(cm * 2) / 2; // 0.5 cm steps (the letter sizes are 2.5 cm apart)
   const max = maxSizeCm();
-  cm = Math.min(Math.max(want, minSizeCm()), max); // free 15 cm – 1 m, full 5 cm – no limit
+  cm = Math.min(Math.max(want, minSizeCm()), max); // free 15 cm – 1 m, full 10 cm – 1.5 m, nature 10 cm – 8 m high
   if (want > max && performance.now() - maxToastAt > 1500) {
     maxToastAt = performance.now();
     toast(S.maxSize((max / 100).toLocaleString(LOCALE)), 1500);
@@ -997,6 +996,7 @@ async function initAdmin() {
 // thumb: true = this view, as it is now, is the picker's picture (the button; the script makes its own).
 async function savePreset({ name = '', title = '', thumb = false, pxPerM = PRESET_PX_PER_M } = {}) {
   if (!state.adminToken) throw new Error('admin only');
+  if (!roomSizer.isDefault()) throw new Error('Room size test is on: Reset the room size first'); // a preset is baked in the real box
   let shot = null;
   // (in a frame callback queued after the render loop's: the frame just drawn, before it is shown and cleared)
   if (thumb) shot = await new Promise((ok) => requestAnimationFrame(() => renderer.domElement.toBlob(ok, 'image/jpeg', 0.88)));
@@ -1613,7 +1613,7 @@ if (!isTouch) {
   // does not turn while aiming. TWO fingers while a sticker is in hand (Jens, 29 Oct 2026; replaces
   // the two edge sliders): pinch = scale it (the distance ratio × the size it had), twist = rotate it
   // (the change of the fingers' angle, clockwise = clockwise), live, through setSize/setRot – the same
-  // limits and state as everywhere (free 15–100 cm, full 5 cm – no max, nature 5–400 cm). A second
+  // limits and state as everywhere (free 15–100 cm, full 10–150 cm, nature 10 cm – 8 m high). A second
   // finger cancels the aim (no stamp); after a pinch nothing is stamped or looked until both fingers
   // are up. Looking around: one finger (or two) when nothing is in hand (faded / not chosen yet – as
   // before). Walking: the joystick (its own element, works alongside an aiming finger).

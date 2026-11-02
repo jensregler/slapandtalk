@@ -49,6 +49,8 @@ const roomCode = (n = 6) => [...crypto.randomBytes(n)].map((b) => CODE_CHARS[b %
 // Servern kör som EN process (Render), så minnet kan vara sanningen.
 //   writeDelayMs   hur länge vi väntar innan ett ändrat rum skrivs (samlar ihop klibbor)
 //   retryMs        första väntan efter ett misslyckat försök (dubblas, max 30 s)
+const GEO = require('../shared/roomgeo.mjs');
+
 function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, retryMs = 1000, log = console } = {}) {
   const locks = new Map();
   // Ett rum i taget ändras: annars kan två samtidiga ändringar skriva över varandra.
@@ -71,6 +73,10 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
     const room = { id, type: defaultType(id), owner: null, createdAt: null, lastVisitAt: null, stamps: [], ...(r || {}) };
     if (id === PUBLIC_ROOM) room.type = 'stad';
     if (!ROOM_TYPES.includes(room.type)) room.type = 'quick';
+    // The room got bigger (Jens, 2 Nov 2026: 16 × 8 × 16, was 10 × 4 × 10; shared/roomgeo.mjs): a room
+    // from before has its stickers in the old box – each moves out with its surface (same size, same
+    // height, same place along the wall). geo = the size its stickers are in; saved with the next write.
+    if (room.geo !== GEO.CURRENT_KEY) { room.stamps = GEO.remapStamps(room.stamps, room.geo); room.geo = GEO.CURRENT_KEY; }
     return room;
   }
 

@@ -272,17 +272,18 @@ async function writeBehind() {
       const sizeRoom = (await (await fetch(`${base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json()).room.id;
       const slapSized = async (size, key) => (await (await fetch(`${base}/api/rooms/${sizeRoom}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(key ? { 'x-unlock': key } : {}) },
         body: JSON.stringify({ imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size, surface: 'vägg-norr' }) })).json()).stamp;
-      assert(big && big.size === 6, `full version: no upper limit, not even the room's height (6 m → ${big && big.size} m)`);
+      assert(big && big.size === 1.5, `full version: at most 1.5 m (Jens, 2 Nov 2026; 6 m → ${big && big.size} m)`);
       const sized = { free6: (await slapSized(6)).size, free3: (await slapSized(3, 'wrong-key-123456')).size, freeTol: (await slapSized(1.005)).size,
-        free1: (await slapSized(1)).size, sound: (await slapSized(3, SOUND_KEY)).size, part: (await slapSized(3, PART_KEY)).size };
-      assert(sized.free6 === 1 && sized.free3 === 1 && sized.freeTol === 1.005 && sized.free1 === 1 && sized.sound === 1 && sized.part === 3,
-        `bigStickers: gratis klibbor krymps till 1 m (6 m, 3 m med fel nyckel, 3 m med bara soundDesign → 1 m; 1,005 m ryms i marginalen); nyckel:fabrics+bigStickers får 3 m (${JSON.stringify(sized)})`);
+        free1: (await slapSized(1)).size, sound: (await slapSized(3, SOUND_KEY)).size, part: (await slapSized(3, PART_KEY)).size,
+        fullMin: (await slapSized(0.05, BIG_KEY)).size, fullOk: (await slapSized(0.1, BIG_KEY)).size, fullMax: (await slapSized(1.5, BIG_KEY)).size, freeMin: (await slapSized(0.05)).size };
+      assert(sized.free6 === 1 && sized.free3 === 1 && sized.freeTol === 1.005 && sized.free1 === 1 && sized.sound === 1 && sized.part === 1.5 && sized.fullMin === 0.1 && sized.fullOk === 0.1 && sized.fullMax === 1.5 && sized.freeMin === 0.15,
+        `bigStickers: gratis klibbor krymps till 1 m (6 m, 3 m med fel nyckel, 3 m med bara soundDesign → 1 m; 1,005 m ryms i marginalen); nyckel:fabrics+bigStickers får 3 m → 1,5 m (fullversionen 10 cm – 1,5 m; gratis minst 15 cm) (${JSON.stringify(sized)})`);
       const free = makeEntitlements({ FULL_ACCESS_KEYS: `${BIG_KEY},${PART_KEY}:fabrics+bigStickers` });
       assert(free({ key: BIG_KEY }).bigStickers && free({ key: PART_KEY }).bigStickers && free({ key: PART_KEY }).fabrics && !free({ key: PART_KEY }).soundDesign && !free({}).bigStickers && FEATURES.includes('bigStickers') && FREE_MAX_STICKER_M === 1,
         'bigStickers: en ensam nyckel låser upp allt (även bigStickers), delnycklar bara det uppräknade, gratis = max 1 m');
       await store.addStamp(r.room.id, { imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 5, surface: 'vägg-norr' });
       const loaded = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
-      assert(loaded.stamps.length === 3 && loaded.stamps[1].size === 6 && loaded.stamps[2].size === 5, 'saved stickers bigger than the room load at their own size (no 4 m clamp any more)');
+      assert(loaded.stamps.length === 3 && loaded.stamps[1].size === 1.5 && loaded.stamps[2].size === 5, 'stickers already saved bigger than 1.5 m load at their own size (only new ones are clamped)');
       room.stamps = loaded.stamps.slice(0, 1);
 
       // ---------- Rummets utseende ----------

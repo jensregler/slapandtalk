@@ -1,7 +1,7 @@
 // Room size test (Jens, 2 Nov 2026): Height, Width and Depth sliders in the room panel, so he can try
-// sizes and pick the ONE size every room will get ("alla rum ska ha samma storlek"). A local test tool:
-// only this browser's view changes – nothing is sent, synced or saved (a reload = the normal size). The
-// values he picks become the defaults in shared/room.json later (a separate change).
+// sizes ("alla rum ska ha samma storlek"). A local test tool: only this browser's view changes –
+// nothing is sent, synced or saved (a reload = the normal size). He picked 16 × 8 × 16 m (t475u), now
+// the default in shared/room.json for every room; the sliders start there.
 //
 // What follows the size: the six surfaces (new planes, the textures re-tiled by applyStyle, fabrics are
 // in world space), the ceiling lights, how far you can walk (room.bounds), and everything stuck on the
@@ -12,11 +12,11 @@
 // stored geometry stays in normal-size coordinates).
 import * as THREE from 'three';
 import ROOM_SIZE from '../../shared/room.json';
+import { ceilingLights } from './room.js';
 
 export const ROOM_DEFAULT = Object.freeze({ width: ROOM_SIZE.width, height: ROOM_SIZE.height, depth: ROOM_SIZE.depth });
-export const ROOM_RANGE = Object.freeze({ width: { min: 4, max: 30, step: 0.5 }, height: { min: 2.5, max: 12, step: 0.25 }, depth: { min: 4, max: 30, step: 0.5 } });
+export const ROOM_RANGE = Object.freeze({ width: { min: 4, max: 40, step: 0.5 }, height: { min: 2.5, max: 20, step: 0.25 }, depth: { min: 4, max: 40, step: 0.5 } });
 const KEY = (d) => `${d.width}x${d.height}x${d.depth}`;
-const LIGHT_SPOTS = [[-2.5, -2.5], [2.5, -2.5], [-2.5, 2.5], [2.5, 2.5]]; // room.js (for the 10 × 10 room)
 
 // How a point on the surface with normal n moves from size a to size b.
 function shiftFor(nx, ny, nz, a, b, out) {
@@ -84,7 +84,8 @@ export function createRoomSizer({ room, scene, stamps, restyle = () => {}, camer
       s.geometry.dispose(); s.geometry = new THREE.PlaneGeometry(p[0], p[1]);
       s.position.set(...p[2]); s.updateMatrixWorld();
     }
-    lights.forEach((l, i) => { const [x, z] = LIGHT_SPOTS[i % 4]; l.position.set(x * w / 10, h - 0.3, z * dp / 10); l.distance = 9 * Math.max(1, Math.max(w, dp) / 10, h / 4); });
+    const spots = ceilingLights(w, h, dp);
+    lights.forEach((l, i) => { const o = spots[i % spots.length]; l.position.set(o.x, o.y, o.z); l.intensity = o.intensity; l.distance = o.distance; });
     room.bounds.min.set(-hw + margin, 0, -hd + margin); room.bounds.max.set(hw - margin, h, hd - margin);
     if (camera) { camera.position.x = Math.min(hw - margin, Math.max(-hw + margin, camera.position.x)); camera.position.z = Math.min(hd - margin, Math.max(-hd + margin, camera.position.z)); camera.position.y = Math.min(h - 0.2, camera.position.y); }
     sync();

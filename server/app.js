@@ -22,12 +22,13 @@ const grooveMod = import('../shared/groove.mjs');
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
-// Sticker size: no upper limit in the full version (bigStickers), even beyond the room (Jens,
-// 26 Oct 2026; a limit may come back). Free: at most FREE_MAX_STICKER_M (below). Only a technical
-// guard: the size must be a finite number ≥ 2 cm (checked on slap).
+// Sticker size (shared/nature.mjs STICKER_LIMITS; Jens, 2 Nov 2026, t475u): the full version (bigStickers)
+// 10 cm – 1.5 m (was no upper limit), free FREE_MIN_STICKER_M – FREE_MAX_STICKER_M (15 cm – 1 m). Outside
+// them a new sticker is clamped, not refused; stickers already up stay as they are. A technical guard
+// too: the size must be a finite number ≥ 2 cm (checked on slap).
 // The starting size from a file-name letter prefix ("B_cat.png" = 17.5 cm): shared/sizeprefix.mjs.
 const sizeMod = import('../shared/sizeprefix.mjs');
-// Nature stickers (name starts with "nature"): 5 cm up to 4 m HIGH in every version (shared/nature.mjs).
+// Nature stickers (name starts with "nature"): 10 cm up to the room's height (8 m) HIGH in every version (shared/nature.mjs).
 const natureMod = import('../shared/nature.mjs');
 const { makeEntitlements, fromReq, FREE_MAX_STICKER_M, FREE_MIN_STICKER_M, KEY_RE } = require('./entitlements');
 const { verifySignature } = require('./licenses');
@@ -570,7 +571,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   // Same gate as fabrics: only the full version (bigStickers) may slap stickers bigger than 1 m or
   // smaller than 15 cm. Free sizes outside 15 cm – 1 m are clamped (not refused), like before.
   // Nature stickers (shared/nature.mjs) have their own limits instead, for everyone: NATURE.minCm
-  // (5 cm) up to NATURE.maxHeightCm (4 m) high; outside them clamped the same way.
+  // (10 cm) up to NATURE.maxHeightCm (the room's height, 8 m) high; outside them clamped the same way.
   const N = await natureMod, libEntry = libraryById.get(image.id), nature = isNatureImage(N, image);
   // Nature stickers are the full version's (natureStickers; the Nature wheel): refused otherwise.
   if (nature && !isAdmin(req) && !(await entOf(req)).natureStickers) return res.status(403).json({ error: 'Nature stickers are part of the full version.', full: true, feature: 'natureStickers' });
@@ -579,6 +580,9 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
     b.size = Math.min(lim.maxCm / 100, Math.max(lim.minCm / 100, b.size));
   } else if ((b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK || b.size < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) && !(await entOf(req)).bigStickers) {
     b.size = Math.min(FREE_MAX_STICKER_M, Math.max(FREE_MIN_STICKER_M, b.size));
+  } else {
+    const L = N.STICKER_LIMITS.full; // the full version (and admin): 10 cm – 1.5 m
+    if (b.size > L.maxCm / 100 + FREE_SIZE_SLACK || b.size < L.minCm / 100 - FREE_SIZE_SLACK) b.size = Math.min(L.maxCm / 100, Math.max(L.minCm / 100, b.size));
   }
   // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).
   const P = await peelsMod;

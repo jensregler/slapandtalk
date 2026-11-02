@@ -1,6 +1,7 @@
 // Unit tests: shared/coverage.mjs (which stickers are hidden behind newer ones).
 import assert from 'node:assert/strict';
 import { hiddenStamps, HIDDEN_AT } from '../shared/coverage.mjs';
+import { LEGACY_ROOM, remapStamp } from '../shared/roomgeo.mjs';
 
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ✓ ' + name); };
 const D = Math.PI / 180;
@@ -14,7 +15,9 @@ const st = (surface, position, size, { rot = 0, img = 'sq', id } = {}) => ({ id:
 const images = { sq: { width: 100, height: 100 }, wide: { width: 400, height: 100 }, ring: { width: 100, height: 100 } };
 // A ring: opaque except a hole in the middle third (die-cut).
 const ring = { n: 9, bits: Uint8Array.from({ length: 81 }, (_, i) => { const x = i % 9, y = Math.floor(i / 9); return x >= 3 && x < 6 && y >= 3 && y < 6 ? 0 : 1; }) };
-const hidden = (stamps, extra = {}) => hiddenStamps(stamps, { images, masks: { ring }, ...extra }).map((h) => h.id);
+// The positions below are in a 10 × 4 × 10 m box (written before the room grew to 16 × 8 × 16, t475u); the
+// geometry is the same in any box, so these run in that one (room: LEGACY_ROOM). One check below runs in the real one.
+const hidden = (stamps, extra = {}) => hiddenStamps(stamps, { images, masks: { ring }, room: LEGACY_ROOM, ...extra }).map((h) => h.id);
 
 ok('full overlap on the same wall: the older one is hidden, the newer one stays', () => {
   const a = st('vägg-norr', [0, 2, -5], 0.4), b = st('vägg-norr', [0.05, 2, -5], 1);
@@ -90,5 +93,12 @@ ok('deterministic and quick: 3,000 stickers in well under a second', () => {
   assert.ok(h1.length > 100 && h1.length < 3000, h1.length);
   assert.ok(ms < 3000, ms + ' ms');
   console.log(`    (3,000 stickers: ${h1.length} hidden, ${ms} ms)`);
+});
+ok('the real 16 × 8 × 16 m room: a sticker folding round the corner (8 m out) is hidden by one on each wall; an old covered pair stays covered after the move', () => {
+  const H = (stamps) => hiddenStamps(stamps, { images, masks: { ring } }).map((h) => h.id);
+  const a = st('vägg-norr', [7.9, 2, -8], 0.6), north = st('vägg-norr', [7.6, 2, -8], 0.8), east = st('vägg-öster', [8, 2, -7.6], 0.8);
+  assert.deepEqual(H([a, north, east]), [a.id]);
+  const old1 = remapStamp(st('vägg-norr', [0, 2, -5], 0.4)), old2 = remapStamp(st('vägg-norr', [0.05, 2, -5], 1));
+  assert.equal(old1.position[2], -8); assert.deepEqual(H([old1, old2]), [old1.id]);
 });
 console.log(`coverage: ${n} passed`);

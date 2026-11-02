@@ -9,9 +9,10 @@
 // light comes back when the sheet is lit in the preset room) – one surface at a time with an
 // orthographic camera that looks straight at it, into six PNGs. Transparent where there is no sticker.
 import * as THREE from 'three';
+import { presetSheet, parseSizeKey, LEGACY_ROOM, CURRENT_ROOM } from '../../shared/roomgeo.mjs';
 
 export const FACE_OF = { golv: 'floor', tak: 'ceiling', 'vägg-norr': 'north', 'vägg-söder': 'south', 'vägg-väster': 'west', 'vägg-öster': 'east' };
-export const PRESET_PX_PER_M = 160; // bake resolution: walls 1600×640, floor/ceiling 1600×1600 (10 × 4 × 10 m)
+export const PRESET_PX_PER_M = 160; // bake resolution: walls 2560×1280, floor/ceiling 2560×2560 (16 × 8 × 16 m; was 1600×640 / 1600² in the old 10 × 4 × 10 m box)
 const SHEET_LIFT = 0.0008; // m off the surface (the stickers sit at ~1.5–3 mm)
 
 const planeOf = (s) => {
@@ -21,8 +22,9 @@ const planeOf = (s) => {
 const normalOf = (s) => new THREE.Vector3(0, 0, 1).applyQuaternion(s.getWorldQuaternion(new THREE.Quaternion()));
 
 export class PresetLayer {
-  constructor(scene, surfaces) {
-    this.scene = scene; this.surfaces = surfaces; this.group = new THREE.Group(); this.group.name = 'preset';
+  // room = the box the surfaces are ({ width, height, depth }; shared/room.json)
+  constructor(scene, surfaces, room = CURRENT_ROOM) {
+    this.scene = scene; this.surfaces = surfaces; this.room = room; this.group = new THREE.Group(); this.group.name = 'preset';
     scene.add(this.group); this.id = null; this.loaded = 0; this.key = '';
   }
   async set(preset) {
@@ -32,18 +34,22 @@ export class PresetLayer {
     this.id = preset.id;
     const loader = new THREE.TextureLoader();
     const jobs = this.surfaces.map(async (s) => {
-      const face = FACE_OF[s.name], url = face && preset.faces[face], dims = planeOf(s);
-      if (!url || !dims) return 0;
+      const face = FACE_OF[s.name], url = face && preset.faces[face];
+      if (!url || !planeOf(s)) return 0;
+      // The sheet keeps the size it was baked at (never stretched or tiled): a preset from the old
+      // 10 × 4 × 10 m box (no geo) covers the middle of each bigger surface, bottom-aligned on the walls –
+      // exactly where that box's stickers went (shared/roomgeo.mjs remapStamp).
+      const sheet = presetSheet(face, parseSizeKey(preset.geo) || LEGACY_ROOM, this.room);
       let tex;
       try { tex = await loader.loadAsync(url); } catch { return 0; }
       if (this.key !== key) { tex.dispose(); return 0; }
       tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(dims.w, dims.h), new THREE.MeshStandardMaterial({
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(sheet.w, sheet.h), new THREE.MeshStandardMaterial({
         map: tex, transparent: true, alphaTest: 0.02, depthWrite: false, roughness: 0.75,
         polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
       }));
       m.name = `preset-${face}`; m.userData.presetFace = face;
-      m.position.copy(s.getWorldPosition(new THREE.Vector3())).addScaledVector(normalOf(s), SHEET_LIFT);
+      m.position.set(...sheet.center).addScaledVector(normalOf(s), SHEET_LIFT);
       m.quaternion.copy(s.getWorldQuaternion(new THREE.Quaternion()));
       m.renderOrder = 5; // after the walls, before the stickers (10 + their number)
       m.raycast = () => {}; // never in the way of aiming or picking

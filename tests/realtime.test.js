@@ -56,8 +56,8 @@ function client(base, room, hello = {}) {
     b.send({ t: 'move', p: [999, -5, 'x'], y: 1 });
     b.send({ t: 'move', p: [99, 1.6, -99], y: 1 });
     const mv = await a.wait((m) => m.t === 'move' && m.p[0] === 2);
-    const clamped = await a.wait((m) => m.t === 'move' && m.p[0] === 5);
-    assert(mv && mv.id === wb.id && mv.y === 1.25 && clamped && clamped.p[2] === -5 && !a.msgs.some((m) => m.t === 'move' && m.p.includes(999)),
+    const clamped = await a.wait((m) => m.t === 'move' && m.p[0] === 8);
+    assert(mv && mv.id === wb.id && mv.y === 1.25 && clamped && clamped.p[2] === -8 && !a.msgs.some((m) => m.t === 'move' && m.p.includes(999)),
       'positioner skickas vidare; felaktiga ignoreras och utanför rummet hålls inne i rummet');
     assert(!b.msgs.some((m) => m.t === 'move'), 'man får inte tillbaka sina egna positioner');
     // ---------- Gubbe byts ----------

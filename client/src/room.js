@@ -1,4 +1,4 @@
-// Rummet. I v1 byggs det med kod: en låda på 10 x 4 x 10 meter.
+// Rummet. I v1 byggs det med kod: en låda på 16 x 8 x 16 meter (shared/room.json; var 10 x 4 x 10 till 2 nov 2026).
 // Senare kan det bytas mot en modell från Blender (glTF/.glb): se loadGltfRoom.
 // Det enda resten av appen behöver är:  { group, surfaces, bounds }
 //   group    = allt som ska läggas i scenen
@@ -30,17 +30,27 @@ export function buildBoxRoom({ width = ROOM_SIZE.width, height = ROOM_SIZE.heigh
   add('vägg-väster', depth, height, mat(), [-hw, height / 2, 0], [0, Math.PI / 2, 0]);
   add('vägg-öster', depth, height, mat(), [hw, height / 2, 0], [0, -Math.PI / 2, 0]);
 
-  // Ljus: ett mjukt allmänljus + några lampor i taket.
+  // Ljus: ett mjukt allmänljus + några lampor i taket (ceilingLights: samma ljus på golvet som i det gamla rummet).
   group.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 1.6));
-  for (const [x, z] of [[-2.5, -2.5], [2.5, -2.5], [-2.5, 2.5], [2.5, 2.5]]) {
-    const l = new THREE.PointLight(0xfff4e0, 6, 9, 1.6);
-    l.position.set(x, height - 0.3, z);
+  for (const { x, y, z, intensity, distance } of ceilingLights(width, height, depth)) {
+    const l = new THREE.PointLight(0xfff4e0, intensity, distance, 1.6);
+    l.position.set(x, y, z);
     group.add(l);
   }
 
   const margin = 0.35;
   const bounds = new THREE.Box3(new THREE.Vector3(-hw + margin, 0, -hd + margin), new THREE.Vector3(hw - margin, height, hd - margin));
-  return { group, surfaces, bounds, spawn: new THREE.Vector3(0, 1.6, 3.5) };
+  return { group, surfaces, bounds, spawn: new THREE.Vector3(0, 1.6, depth * 0.35) }; // (3.5 m in the 10 m room, 5.6 m in the 16 m one)
+}
+
+// The four ceiling lamps for a box (also roomsize.js): a quarter of the way in from each wall, 0.3 m
+// under the ceiling. The old 10 × 4 × 10 m room had intensity 6, reach 9 m, decay 1.6; in a bigger
+// room they are further from the floor and from each other, so they get brighter and reach further
+// (the same light where you stand as before).
+export function ceilingLights(width, height, depth) {
+  const drop = Math.max(1, (height - 0.3) / 3.7), spread = Math.max(1, Math.max(width, depth) / 10);
+  const intensity = 6 * Math.pow(drop, 1.6), distance = 9 * Math.max(drop, spread);
+  return [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => ({ x: sx * width / 4, y: height - 0.3, z: sz * depth / 4, intensity, distance }));
 }
 
 // För senare: ladda ett rum gjort i Blender (Arkiv > Exportera > glTF 2.0, .glb).

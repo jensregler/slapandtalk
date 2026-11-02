@@ -8,6 +8,7 @@
 //
 // snapshotAt är en ren funktion av tiden: samma tid ger alltid samma svar, oavsett om man
 // spelar framåt, hoppar bakåt eller spolar. Det gör uppspelningen (och renderingen) deterministisk.
+import { remapStamps, remapStamp, parseSizeKey, LEGACY_ROOM, CURRENT_ROOM, CURRENT_KEY } from './roomgeo.mjs';
 export const REC_FORMAT = 'slapandtalk-rec';
 export const REC_VERSION = 1;
 // Positioner skickas ~12 gånger per sekund och sparas högst 10 gånger per sekund. Står någon
@@ -31,6 +32,14 @@ export function parseRecording(text) {
     events.push(e);
   }
   events.sort((a, b) => a.t - b.t); // stabil sortering: samma tid behåller ordningen i filen
+  // A recording from the old 10 × 4 × 10 m box (no header.geo; shared/roomgeo.mjs): its stickers move
+  // out with their surfaces, like the room's own stickers did – so the replay matches the room.
+  if (header.geo !== CURRENT_KEY) {
+    const from = parseSizeKey(header.geo) || LEGACY_ROOM;
+    header.stamps = remapStamps(header.stamps, header.geo);
+    for (const e of events) if (e.stamp) e.stamp = remapStamp(e.stamp, from, CURRENT_ROOM);
+    header.geo = CURRENT_KEY;
+  }
   const duration = Math.max(end ? end.t : 0, events.length ? events[events.length - 1].t : 0, header.durationMs || 0);
   return { header, events, end, duration, bad };
 }

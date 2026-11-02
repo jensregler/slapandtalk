@@ -42,8 +42,8 @@ const wall = { position: [0, 2, -5], quaternion: [0, 0, 0, 1], surface: 'vägg-n
   assert(near(r.step, 0.3) && r.count === 5, 'rotation: a sticker turned 90° steps by its (now horizontal) height along a horizontal drag');
   const big = arrayPlan(wall, 0.4, 0.6, [1, 2, -5]);
   assert(near(big.step, 0.4) && big.count === 3, 'size: a bigger sticker gets a bigger step (0.4 m → 3 in 1 m)');
-  const edge = arrayPlan({ ...wall, position: [4.5, 2, -5] }, 0.3, 0.3, [9, 2, -5]);
-  assert(edge.count === 16 && edge.items.length === 2 && edge.items.every((x) => x.position[0] <= 5), 'copies whose centre falls off the face are not placed (no wrapping)', edge.items);
+  const edge = arrayPlan({ ...wall, position: [7.5, 2, -8] }, 0.3, 0.3, [12, 2, -8]); // (the north wall of the 16 m room, its east end at x = 8)
+  assert(edge.count === 16 && edge.items.length === 2 && edge.items.every((x) => x.position[0] <= 8), 'copies whose centre falls off the face are not placed (no wrapping)', edge.items);
   const tiny = arrayPlan(wall, 0.2, 0.3, [0.15, 2.1, -5]);
   assert(tiny.count === 1 && tiny.items.length === 1, 'a drag shorter than one step = just the anchor (a plain click)');
   const off = arrayPlan(wall, 0.2, 0.3, [1, 2, 3]);

@@ -15,6 +15,7 @@
 // and sent here (POST /api/admin/presets); scripts/make-preset.js does it from a room code.
 const crypto = require('crypto');
 const sharp = require('sharp');
+const GEO = require('../shared/roomgeo.mjs');
 
 const FACES = ['floor', 'ceiling', 'north', 'south', 'west', 'east'];
 const ID_RE = /^[a-z0-9]{8,16}$/;
@@ -59,7 +60,8 @@ function createPresets(adapter, { log = console } = {}) {
     for (const f of FACES) await adapter.put(`presets/${id}/${f}.webp`, out[f], 'image/webp');
     const v = Date.now().toString(36);
     const preset = { id, name: String(name || '').slice(0, 60), sourceRoom: sourceRoom ? String(sourceRoom).slice(0, 40) : null, style: style || null,
-      faces: Object.fromEntries(FACES.map((f) => [f, faceUrl(id, f, v)])), px, createdAt: new Date().toISOString(), ...(cleanTitle(title) ? { title: cleanTitle(title) } : {}) };
+      // geo: the box it was baked in (shared/roomgeo.mjs; none = the old 10 × 4 × 10 m one)
+      faces: Object.fromEntries(FACES.map((f) => [f, faceUrl(id, f, v)])), px, geo: GEO.CURRENT_KEY, createdAt: new Date().toISOString(), ...(cleanTitle(title) ? { title: cleanTitle(title) } : {}) };
     await adapter.put(`presets/${id}.json`, Buffer.from(JSON.stringify(preset)), 'application/json');
     (await load()).set(id, preset);
     if (thumb) { try { return await setThumb(id, thumb); } catch (e) { log.error?.('[presets] picture failed', e && e.message); } }
@@ -94,7 +96,7 @@ function createPresets(adapter, { log = console } = {}) {
   // No picture yet: the north wall's baked image (the stickers on it) stands in.
   const publicList = async () => (await list().catch(() => [])).map((p) => ({ id: p.id, title: p.title || '', code: p.sourceRoom || p.id, thumb: p.thumb || null, wall: (p.faces && p.faces.north) || null }));
   // What a room carries (self-contained, so the room shows even if the preset list is not loaded).
-  const forRoom = (p) => ({ id: p.id, faces: { ...p.faces } });
+  const forRoom = (p) => ({ id: p.id, faces: { ...p.faces }, ...(p.geo ? { geo: p.geo } : {}) });
   return { FACES, list, get, find, pick, create, remove, image, forRoom, rename, setThumb, publicList };
 }
 
