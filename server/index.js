@@ -13,6 +13,7 @@ const { createLicenses } = require('./licenses');
 const { safeStep, checkStorage, installProcessGuards } = require('./startup');
 const { demoSettings, createDemo } = require('./demo');
 const { loadLibrary, seedLibrary } = require('./library');
+const { createEmptyRoomReaper } = require('./emptyrooms');
 
 installProcessGuards();
 
@@ -72,7 +73,12 @@ async function cleanup() {
 })().catch((e) => console.error('[start] Oväntat fel före start:', e)).finally(() => {
   const server = app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind}, max ${MAX_PLAYERS} per rum${DEMO ? ', DEMO' : ''})`));
   // Flerspelarläget (WebSocket på /ws) går på samma port som webbappen.
-  realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder, entitle, gate });
+  // Empty rooms are deleted after EMPTY_ROOM_GRACE_SECONDS (60); presets' source rooms and the City stay. EMPTY_ROOM_DELETE=0: off.
+  const reaper = process.env.EMPTY_ROOM_DELETE === '0' || DEMO ? null : createEmptyRoomReaper({
+    store, isOccupied: (id) => !!realtime && realtime.occupied(id), graceMs: Number(process.env.EMPTY_ROOM_GRACE_SECONDS || 60) * 1000,
+    keepIds: async () => new Set((await app.locals.presets.list().catch(() => [])).map((p) => p.sourceRoom).filter(Boolean)),
+  });
+  realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder, entitle, gate, onEmpty: reaper && reaper.empty, onJoin: reaper && reaper.joined });
   if (demo) { demo.start(); console.log(`[demo] DEMO_PROFILE on: free version, ${DEMO.maxPlayers} per room, invite-only, rooms close after ${DEMO.roomMs / 60_000} min`); }
   // Vid omstart (pm2, Render): säg till alla anslutna att servern startar om, så kopplar
   // deras webbläsare upp sig igen av sig själva när den nya servern är igång.

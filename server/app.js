@@ -1043,6 +1043,7 @@ app.delete('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
 
 // ---------- Finished videos (see videos.js): upload, list, watch page, email the link ----------
 app.locals.hidden = hidden;
+app.locals.presets = presets; // server/index.js: the rooms presets were made from are never deleted when empty
 app.locals.videos = mountVideos(app, { store, recorder, entitle, fromReq, mailer, rightsTo, roomParam, wrap, isAdmin, settings: videos, clock });
 // ---------- Photos (see photos.js): 📷 / P, live or from the replay; kept like videos, outlive the room ----------
 app.locals.photos = mountPhotos(app, { store, entitle, fromReq, rightsTo, roomParam, wrap, isAdmin, settings: photos, clock });

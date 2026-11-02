@@ -191,7 +191,7 @@ function bucket(rate, burst) {
 
 function attachRealtime(server, {
   maxPlayers = FREE_MAX_PLAYERS, path = '/ws', heartbeatMs = 15_000, maxPerIp = 30, clock = () => Date.now(),
-  roomSize = require('../shared/room.json'), recorder = null, entitle = makeEntitlements(process.env), gate = null,
+  roomSize = require('../shared/room.json'), recorder = null, entitle = makeEntitlements(process.env), gate = null, onEmpty = null, onJoin = null,
 } = {}) {
   const bounds = { x: roomSize.width / 2, y: roomSize.height, z: roomSize.depth / 2 };
   const wss = new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 }); // a look with custom sound patches can be ~10 kB
@@ -271,7 +271,7 @@ function attachRealtime(server, {
     const r = rooms.get(c.room); if (!r) return;
     if (r.players.get(c.id) === c) { r.players.delete(c.id); rec(r.id, 'leave', { id: c.id }); toRoom(r, { t: 'leave', id: c.id, ...(c.replaced ? { rejoin: true } : {}) }); if (!c.replaced) promote(r); }
     r.watchers = r.watchers.filter((w) => w !== c);
-    if (!r.players.size && !r.watchers.length) rooms.delete(c.room); // chatten glöms när rummet är tomt
+    if (!r.players.size && !r.watchers.length) { rooms.delete(c.room); if (onEmpty) onEmpty(c.room); } // chatten glöms när rummet är tomt; tomma rum tas bort (server/emptyrooms.js)
   }
 
   function onMessage(c, raw) {
@@ -325,6 +325,7 @@ function attachRealtime(server, {
       c.look = cleanLook(m.look, c.ent);
       c.p = cleanPos(m.p, bounds) || [0, 1.6, 3.5]; c.y = isNum(m.y) ? round(m.y) : 0; c.pi = cleanPitch(m.pi);
       if (r.players.size < maxPlayers) { takeSlot(c, r); c.player = true; r.players.set(c.id, c); } else r.watchers.push(c);
+      if (onJoin) onJoin(c.room);
       welcome(c, r);
       if (c.player) { toRoom(r, { t: 'join', player: pub(c), ...(old ? { rejoin: true } : {}) }, c); rec(r.id, 'join', pub(c)); }
     }
@@ -427,6 +428,7 @@ function attachRealtime(server, {
       for (const c of all) { try { c.ws.close(4010, 'Room closed'); } catch { /* */ } }
       return all.length;
     },
+    occupied: (id) => { const r = rooms.get(id); return !!r && (r.players.size > 0 || r.watchers.length > 0); },
     stats: () => Object.fromEntries([...rooms.values()].map((r) => [r.id, { players: r.players.size, watchers: r.watchers.length, chat: r.chat.length }])),
     // Vid omstart: säg till alla att servern startar om (kod 1012), så de kopplar upp sig igen.
     close(code = 1012, reason = 'Servern startar om') {
