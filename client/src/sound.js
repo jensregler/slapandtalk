@@ -30,7 +30,9 @@ export class Sounds {
     this.cache = new Map(); // seed+kind -> varied patch
     // Browsers only allow audio after the user has clicked/tapped/typed: start then.
     // Music vol (Jens, 31 Oct 2026; Sound settings): how loud everything the room plays is for me, 0…1 (this device).
-    const v = Number(localStorage.getItem(VOL_KEY)); this.volume = localStorage.getItem(VOL_KEY) != null && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+    // Personal, this visit only (sessionStorage; soundui.js resetPersonalSound on "Exit to menu").
+    const sv = (() => { try { return sessionStorage.getItem(VOL_KEY); } catch { return null; } })();
+    const v = Number(sv); this.volume = sv != null && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
     const unlock = () => { this.ensure(); if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); };
     for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, unlock, { capture: true, passive: true });
   }
@@ -50,7 +52,7 @@ export class Sounds {
     return this.ctx;
   }
   setVolume(v) {
-    this.volume = Math.min(1, Math.max(0, Number(v) || 0)); localStorage.setItem(VOL_KEY, String(this.volume));
+    this.volume = Math.min(1, Math.max(0, Number(v) || 0)); try { sessionStorage.setItem(VOL_KEY, String(this.volume)); } catch { /* private */ }
     if (this.engine) this.engine.out.gain.value = 0.9 * this.volume;
   }
   setMuted(m) { this.muted = !!m; localStorage.setItem(MUTE_KEY, this.muted ? '1' : '0'); }

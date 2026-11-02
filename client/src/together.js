@@ -27,10 +27,14 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   // Sound: my seed (= my own variation of the default sounds) always; custom patches/FX only
   // with soundDesign (the server drops them otherwise).
   const shownSound = () => { const s = loadSoundLook(); if (!has('soundDesign')) { delete s.patches; delete s.fx; } s.colour = mySlot; return s; };
+  // Personal sound (Jens, 2 Nov 2026): others get only my seed (the default sounds' variation), never
+  // my settings; and everyone else's slaps / steps play for me with MY settings (+ their seed and colour).
+  const sentSound = () => { const s = shownSound(); delete s.patches; delete s.fx; return s; };
+  const heardAs = (theirs, slot) => { const m = shownSound(); const o = { seed: theirs?.seed, colour: slot || 0 }; if (m.patches) o.patches = m.patches; if (m.fx) o.fx = m.fx; return o; };
   // roomLook: the room's own character for me (a preset room, free version – main.js, shared/randomlook.mjs).
   // It replaces my look for others, recordings and my own avatar there; my own look stays saved for other rooms.
   let roomLook = null;
-  const shownLook = () => { const l = { ...(roomLook || me.look), sound: shownSound() }; if (me.look.insta) l.insta = me.look.insta; else delete l.insta; if (!has('fabrics') || roomLook) delete l.fabric; return l; };
+  const shownLook = () => { const l = { ...(roomLook || me.look), sound: sentSound() }; if (me.look.insta) l.insta = me.look.insta; else delete l.insta; if (!has('fabrics') || roomLook) delete l.fabric; return l; };
   const players = new Players(scene);
   let status = 'connecting', full = false, unread = 0, serverName = '', mySlot = 0; const talking = new Set(); // serverName = det namn de andra ser på mig
 
@@ -316,7 +320,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     net, players,
     // A player's sound look (seed + custom patches) by connection id; mine for my own id.
     // colour = the player's slot in the room (shared/synth.mjs SLOT_COLOURS): up to 5 people sound distinct.
-    voiceOf(id) { if (!id || id === net.id) return shownSound(); const pl = players.map.get(id); return pl ? { ...(pl.look?.sound || {}), colour: pl.slot || 0 } : null; },
+    voiceOf(id) { if (!id || id === net.id) return shownSound(); const pl = players.map.get(id); return pl ? heardAs(pl.look?.sound, pl.slot) : null; },
     mySlot: () => mySlot,
     // Voice: who is talking right now (the mark above the avatar and in People here). id 'me' = me.
     setSpeaking(id, on, level = 0) {
@@ -327,7 +331,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     },
     talking: () => [...talking],
     // Sound settings saved: tell everyone (they play my patches; no other network cost).
-    soundChanged() { onSound(shownSound()); if (net.status === 'online') net.sendLook(myName(), shownLook()); },
+    soundChanged() { onSound(shownSound()); }, // personal: nothing is sent
     shownSound,
     // A key was added/forgotten in this tab ("I have a key"): tell the server before the next look.
     sendUnlock(unlock) { if (net.status === 'online') net.sendUnlock(unlock); },
@@ -335,7 +339,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     entitlementsChanged() {
       self.avatar?.setLook(shownLook()); onSound(shownSound());
       const l = shownLook();
-      if ((l.fabric || l.sound.patches || l.sound.fx) && net.status === 'online') net.sendLook(myName(), l);
+      if (l.fabric && net.status === 'online') net.sendLook(myName(), l);
       if (av.open) { fab.reset(av.draft); renderAvatarPanel(); }
     },
     update(dt, eye = camera.position, { hideSelf = false } = {}) { sendMove(dt); players.update(dt, eye); updateSelf(dt, { hide: hideSelf }); },

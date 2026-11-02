@@ -1,8 +1,10 @@
 // Sound settings (full version, entitlements.full.soundDesign): one synth panel per sound
 // (slap, peel, nope, steps, duff) and an effects panel, with preview, reset and randomize.
-// Saved in this browser (localStorage 'klibb.sound') and sent with my look, so everyone in
-// the room plays my sounds the same way. Free players never see this; they get their own
-// variation of the default sounds from 'klibb.soundSeed'.
+// Personal (Jens, 2 Nov 2026): my sound settings are mine only – kept for this visit (sessionStorage
+// 'klibb.sound', so they come along from a room out into the City), never sent to anyone, never set
+// by a room or by other people; what I hear (my slaps and everyone else's) plays with them. "Exit to
+// menu" (the start card) puts every one of them back to default (resetPersonalSound). Free players
+// never see the panel; they get their own variation of the default sounds from 'klibb.soundSeed'.
 import { SOUNDS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, DEFAULT_PATCHES, FX_DEFAULTS,
   cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx } from '../../shared/synth.mjs';
 import { S } from './strings.js';
@@ -10,6 +12,16 @@ import { S } from './strings.js';
 const SEED_KEY = 'klibb.soundSeed', SOUND_KEY = 'klibb.sound';
 const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const write = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* full/private */ } };
+// the personal sound settings: this visit (tab) only
+const sread = (k) => { try { return sessionStorage.getItem(k); } catch { return null; } };
+const swrite = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch { /* private */ } };
+// Every personal sound setting (patches + effects, Music vol, the footstep groove's scale).
+export const PERSONAL_SOUND_KEYS = [SOUND_KEY, 'klibb.musicVol', 'klibb.grooveScale'];
+// (before 2 Nov 2026 they lived in localStorage for good: gone, so nobody starts with old ones)
+try { for (const k of PERSONAL_SOUND_KEYS) localStorage.removeItem(k); } catch { /* private */ }
+// "Exit to menu" (the start card): all of them back to default.
+export function resetPersonalSound() { for (const k of PERSONAL_SOUND_KEYS) swrite(k, null); }
+export const personalGet = sread, personalSet = swrite;
 
 export function mySeed() {
   let s = read(SEED_KEY);
@@ -22,13 +34,13 @@ export function mySeed() {
 }
 // My look.sound: { seed, patches?, fx? } (cleaned like the server does).
 export function loadSoundLook() {
-  let saved = {}; try { saved = JSON.parse(read(SOUND_KEY) || '{}') || {}; } catch { saved = {}; }
+  let saved = {}; try { saved = JSON.parse(sread(SOUND_KEY) || '{}') || {}; } catch { saved = {}; }
   return cleanSound({ seed: mySeed(), patches: saved.patches, fx: saved.fx }, { custom: true }) || { seed: mySeed() };
 }
 export function saveSoundLook({ patches, fx }) {
   const clean = cleanSound({ seed: mySeed(), patches, fx }, { custom: true }) || {};
-  if (!clean.patches && !clean.fx) write(SOUND_KEY, null);
-  else write(SOUND_KEY, JSON.stringify({ patches: clean.patches, fx: clean.fx }));
+  if (!clean.patches && !clean.fx) swrite(SOUND_KEY, null);
+  else swrite(SOUND_KEY, JSON.stringify({ patches: clean.patches, fx: clean.fx }));
   return clean;
 }
 

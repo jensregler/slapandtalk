@@ -14,6 +14,7 @@ import AV from '../../shared/avatar.json' with { type: 'json' };
 import { cleanInsta } from '../../shared/insta.mjs';
 import { clearMineForNewRoom } from './designs.js';
 import { S } from './strings.js';
+import { resetPersonalSound } from './soundui.js';
 
 const ROOM_RE = /^[a-z0-9-]{1,40}$/;
 const LOOK_KEY = 'klibb.avatar', ROOM_KEYS = 'klibb.roomKeys';
@@ -30,6 +31,9 @@ const go = (id) => { location.href = `${location.pathname}?room=${encodeURICompo
 
 // Show the card; resolves never (it navigates) – or with null if the page cannot show it.
 export function showStartCard() {
+  // "Exit to menu" (and a fresh start): every personal sound setting back to default (Jens, 2 Nov
+  // 2026) – they came along from room to room and into the City until now.
+  resetPersonalSound();
   document.body.classList.add('start-card-on');
   const root = el('div', { id: 'start-card', className: 'start-card' });
   document.body.appendChild(root);

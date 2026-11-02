@@ -239,7 +239,7 @@ function client(base, room, hello = {}) {
   const imp = await import('../tools/import-library.mjs');
   const csv = imp.parseCsv('file,artist,link\n"cat, big.png",Marika M,https://example.com\nsub/dog.png,"Chattis",\n');
   assert(csv.get('cat, big.png').artist === 'Marika M' && csv.get('cat, big.png').link === 'https://example.com' && csv.get('dog.png').artist === 'Chattis', 'importer: CSV with quotes and commas');
-  assert(imp.artistFor('x.png', { csv }).artist === '' && imp.artistFor('Jens Regler/x.png').artist === 'Jens Regler' && imp.artistFor('Sylvester - robot.png').artist === 'Sylvester'
+  assert(imp.artistFor('x.png', { csv }).artist === '' && imp.artistFor('Jens Regler/x.png').artist === 'Jens Regler' && imp.artistFor('robot - Sylvester.png').artist === 'Sylvester' && imp.artistFor('d71 - Jens Tjerngren @jensregler.png').insta === 'jensregler'
     && imp.artistFor('ulla__heart.png').artist === 'ulla' && imp.artistFor('plain.png', { fallback: 'Jens' }).artist === 'Jens' && imp.artistFor('cat, big.png', { csv }).artist === 'Marika M',
   'importer: artist from CSV, else subfolder, else "Name - title" / "name__title", else --artist');
   const src = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-imp-')), out = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-impout-'));

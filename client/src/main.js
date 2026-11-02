@@ -36,7 +36,7 @@ import { GrooveSteps } from './groove.js';
 import { initAutoSlap } from './autoslap.js';
 import { AUTO, movedEnough } from '../../shared/autoslap.mjs';
 import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, grooveLabel } from '../../shared/groove.mjs';
-import { loadSoundLook, initSoundUI } from './soundui.js';
+import { loadSoundLook, initSoundUI, resetPersonalSound, personalGet, personalSet } from './soundui.js';
 import * as synthShared from '../../shared/synth.mjs';
 import { config } from './config.js';
 import * as demo from './demo.js';
@@ -1107,7 +1107,7 @@ function toggleNature() {
 // var: setMode längre ner använder den innan raden här har körts.
 var stackMenu = null; // eslint-disable-line no-var -- touch only: the sticker stack menu + the held sticker's timer (stackmenu.js)
 var camShow = localStorage.getItem('klibb.camShow') !== '0'; // eslint-disable-line no-var
-setMode('slap', { quiet: true });
+setMode('view', { quiet: true }); // a room starts in View mode (Jens, 2 Nov 2026): look around first; a click on a free surface = Slap mode
 $('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); };
 $('mode-slap').onclick = () => { if (state.mode !== 'slap') setMode('slap', { quiet: true }); if (natureMode()) setNatureMode(false, { quiet: true }); toast(S.modeToastSlap(isTouch), 1600); };
 $('mode-nature').onclick = () => { setNatureMode(true); };
@@ -1363,7 +1363,11 @@ function pruneHistory(stampIds) {
 // var: setMode längre upp (hideCredit) kan köras innan den här raden.
 var credit = { id: null, shown: null, timer: 0 }; // eslint-disable-line no-var
 function creditOf(stamp) {
-  const name = cleanArtistName(stamp?.artist), link = cleanArtistLink(stamp?.artistLink || '');
+  // A library sticker's credit (its file name "<name> - <Creator> @<handle>.png", shared/stickercredit.mjs)
+  // is looked up too, so stickers placed before their credit was known show it as well.
+  const lib = stamp && !stamp.artist && !stamp.artistLink ? state.library.find((d) => d.id === stamp.imageId && d.library) : null;
+  const src = lib ? { artist: lib.artist, artistLink: lib.artistLink } : stamp;
+  const name = cleanArtistName(src?.artist), link = cleanArtistLink(src?.artistLink || '');
   return name || link ? { id: stamp.id, name, link } : null;
 }
 function pickStampAt(ndc) {
@@ -1380,15 +1384,11 @@ function showCredit(c, at = null) {
   $('credit-name').textContent = c.name;
   const a = $('credit-link');
   if (c.link) { a.href = c.link; a.textContent = linkLabel(c.link); } else { a.removeAttribute('href'); a.textContent = ''; }
-  $('credit-hint').textContent = c.link ? (at ? S.creditOpenTap : S.creditOpenKey) : '';
-  el.classList.toggle('tap', !!at);
+  $('credit-hint').textContent = c.link ? (at ? S.creditOpenTap : controls.locked ? S.creditOpenKey : S.creditOpenClick) : '';
+  // Big and clear (Jens, 2 Nov 2026), always in the same place (top middle); clickable when the mouse is free.
+  el.classList.toggle('tap', !!at || !controls.locked);
   el.hidden = false;
-  if (at) {
-    const r = el.getBoundingClientRect();
-    el.style.left = Math.max(12, Math.min(innerWidth - r.width - 12, at.x + 12)) + 'px';
-    el.style.top = Math.max(12, Math.min(innerHeight - r.height - 12, at.y - r.height - 14)) + 'px';
-    clearTimeout(credit.timer); credit.timer = setTimeout(hideCredit, 6000);
-  } else { el.style.left = ''; el.style.top = ''; }
+  clearTimeout(credit.timer); credit.timer = setTimeout(hideCredit, 8000);
   credit.shown = c;
 }
 function hideCredit() {
@@ -1400,16 +1400,28 @@ function hideCredit() {
 // The credit only lives in Look mode with the mouse locked (desktop): anything else hides it.
 function updateCredit() {
   if (isTouch || !credit.shown) return;
-  if (!(controls.locked && state.mode === 'view' && !camView && !sp.open)) hideCredit();
+  if (!(state.mode === 'view' && !camView && !sp.open)) hideCredit();
 }
 // Desktop click in Look mode: the sticker under the dot shows its credit (or switches to it);
 // the same sticker again opens its link; empty wall (or a sticker without a name/link) hides it.
-function clickCredit() {
-  if (camView || sp.open) return;
-  const c = creditOf(pickStampAt(CENTER)?.stamp);
-  if (!c) { hideCredit(); return; }
-  if (credit.shown && credit.shown.id === c.id) { if (c.link) openLink(c.link); return; }
+// Returns: 'credit' (a sticker with a credit), 'sticker' (one without), or null (no sticker there).
+function clickCredit(ndc = CENTER) {
+  if (camView || sp.open) return 'sticker';
+  const p = pickStampAt(ndc);
+  const c = creditOf(p?.stamp);
+  if (!c) { hideCredit(); return p ? 'sticker' : null; }
+  if (credit.shown && credit.shown.id === c.id) { if (c.link) openLink(c.link); return 'credit'; }
   showCredit(c); credit.id = c.id;
+  return 'credit';
+}
+// View mode (Jens, 2 Nov 2026): a click on a surface with no sticker and no button on it = back to
+// Slap mode (the held sticker comes back sharp; this click places nothing).
+function viewClick(ndc = CENTER) {
+  if (clickCredit(ndc)) return 'sticker';
+  if (!hitSurface(ndc)) return null;
+  setMode('slap', { quiet: true }); toast(natureMode() ? S.modeToastNature(isTouch) : S.modeToastSlap(isTouch), 1400);
+  deskHeld?.wake(performance.now());
+  return 'slap';
 }
 const linkDlg = $('link-dialog');
 function openLink(url) {
@@ -1509,6 +1521,7 @@ controls.onLockChange = (locked) => {
   canvas.addEventListener('pointerup', avUp); canvas.addEventListener('pointercancel', avUp);
 }
 
+var viewDrag = null; // eslint-disable-line no-var -- desktop View mode, mouse free: a press that may become a look-around drag
 if (!isTouch) {
   canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
@@ -1522,10 +1535,13 @@ if (!isTouch) {
       action(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
       return;
     }
+    // View mode with the mouse free (e.g. right after entering the room): drag = look around, a click
+    // = a button (menu sticker), a sticker's credit, or (a free surface) Slap mode + the mouse locked.
+    if (!controls.locked && state.mode === 'view' && !placingCam) { viewDrag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false }; return; }
     if (!controls.locked) { if (state.mode === 'slap') deskPress(); controls.lock(); } // (the click that locks: wakes a faded one too)
     else if (placingCam) placeCamAt(CENTER); // ＋ Add cameraman: this click sets where it starts
     else if (menuClick(CENTER)) { /* a menu sticker: its menu opened (menustickers.js) */ }
-    else if (state.mode === 'view') clickCredit(); // Look mode: click a sticker = who made it? (never slaps)
+    else if (state.mode === 'view') viewClick(); // View mode: a sticker = who made it? (never slaps); a free surface = Slap mode
     else if (deskPress()) { /* faded: this press only brings the held sticker back – no slap (point 10) */ }
     else {
       // Hold the button and look/drag away: the sticker repeats toward the crosshair (sticker arrays).
@@ -1534,7 +1550,21 @@ if (!isTouch) {
       action(CENTER, { onStart: (a) => { if (mouseHeld && controls.locked && state.mode === 'slap') startArray(a); } });
     }
   });
+  addEventListener('mousemove', (e) => {
+    if (!viewDrag || controls.locked) return;
+    if (Math.hypot(e.clientX - viewDrag.sx, e.clientY - viewDrag.sy) > 5) viewDrag.moved = true;
+    if (viewDrag.moved) controls.look((e.clientX - viewDrag.x) * 0.005, (e.clientY - viewDrag.y) * 0.005);
+    viewDrag.x = e.clientX; viewDrag.y = e.clientY;
+  });
   addEventListener('mouseup', (e) => {
+    if (e.button === 0 && viewDrag) {
+      const d = viewDrag; viewDrag = null;
+      if (!d.moved && !controls.locked && state.mode === 'view') {
+        const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+        if (!menuClick(ndc) && viewClick(ndc) === 'slap') controls.lock(); // Slap mode: aim with the mouse locked, as always
+      }
+      return;
+    }
     if (e.button !== 0) return; mouseHeld = false;
     if (arrayDrag) { try { commitArray(); } catch (err) { arrayFailed('release', err); } }
   });
@@ -1966,7 +1996,7 @@ function onRoomEvent(e) {
     if (e.on) api.loadRoom(ROOM).then((r) => syncPeels(r.info, r.peels, r.images)).catch(() => {});
     else { peelLayer.setOn(false); updatePeelUi(); }
   } else if (e.type === 'peels:clear') peelLayer.clear();
-  else if (e.type === 'room:groove' && e.groove) applyGroove(e.groove, { flash: cleanGroove(e.groove).scale !== groove.scale });
+  else if (e.type === 'room:groove') { /* the groove is personal now (Jens, 2 Nov 2026): a room's change is ignored */ }
   else if (e.type === 'room:style' && e.style) {
     currentStyle = normalizeStyle(e.style); updateStyleUi();
     if (!sp.open) { showStyle(currentStyle); toast(S.styleChanged, 1800); }
@@ -2029,13 +2059,16 @@ var fullUi = initFullVersion({ // eslint-disable-line no-var
   onChange: () => { together.sendUnlock?.(credentials()); together.entitlementsChanged(); onEntitlements(); },
 });
 // ---------- Footstep groove (shared/groove.mjs) ----------
-// Everyone hears the room's groove (free too, at the room's scale; 1.0× unless the creator changed it).
-// The scale (bar length) is a deep sound control: the room's creator with the full version
-// (soundDesign), or admin. Slider in ⚙ More → Sound, keys [ and ] (Shift = a whole octave).
+// The scale (bar length) is a PERSONAL sound setting (Jens, 2 Nov 2026: sound settings are per user,
+// local, never synced, never set by the room): this visit only (sessionStorage 'klibb.grooveScale',
+// reset on "Exit to menu", soundui.js resetPersonalSound). The room no longer decides it – a room's
+// old stored groove is ignored and nothing is sent. Full version (soundDesign) or admin, as before.
+// Slider in ⚙ More → Sound, keys [ and ] (Shift = a whole octave).
 // var: the WebSocket welcome can arrive before these lines have run.
 var groove = new GrooveSteps(sound); // eslint-disable-line no-var
-const canGroove = () => !DEMO && canEditStyle() && (!!state.adminToken || !!entitlements.full.soundDesign);
-let grooveSend = null, grooveTimer = null, grooveLast = 0, chipTimer = null;
+const canGroove = () => !DEMO && (!!state.adminToken || !!entitlements.full.soundDesign);
+let chipTimer = null;
+const myGrooveScale = () => { const v = Number(personalGet('klibb.grooveScale')); return personalGet('klibb.grooveScale') != null && Number.isFinite(v) ? v : GROOVE.def; };
 function updateGrooveUi({ flash = false } = {}) {
   const box = document.getElementById('groove-box'); if (!box) return;
   box.hidden = !canGroove();
@@ -2043,26 +2076,19 @@ function updateGrooveUi({ flash = false } = {}) {
   const slider = $('groove-scale'); if (document.activeElement !== slider) slider.value = scaleToSlider(s);
   $('groove-val').textContent = S.grooveValue(l.scale, l.bar);
   const chip = $('groove-chip'); chip.textContent = S.grooveChip(l.scale);
-  chip.hidden = s === GROOVE.def && !flash; // calm: only when the room isn't at the default (or just changed)
+  chip.hidden = s === GROOVE.def && !flash; // calm: only when it isn't at the default (or just changed)
   chip.classList.toggle('flash', flash);
   clearTimeout(chipTimer); if (flash) chipTimer = setTimeout(() => { chip.classList.remove('flash'); chip.hidden = groove.scale === GROOVE.def; }, 1800);
 }
-function applyGroove(g, opts) { groove.setGroove(cleanGroove(g)); updateGrooveUi(opts); }
-// Change the scale: I hear it right away; the server (throttled to ~5 a second) tells everyone.
+// (the room's groove from the server: ignored – the scale is mine)
+function applyGroove() { if (groove.scale !== myGrooveScale()) groove.setGroove(retime(groove.groove, myGrooveScale(), groove.now())); updateGrooveUi(); }
+// Change the scale: only for me, kept for this visit.
 function setGrooveScale(scale) {
   if (!canGroove() || scale === null || scale === undefined) return;
   if (scale === groove.scale) return;
   groove.setGroove(retime(groove.groove, scale, groove.now()));
+  personalSet('klibb.grooveScale', groove.scale === GROOVE.def ? null : String(groove.scale));
   updateGrooveUi({ flash: true });
-  grooveSend = scale;
-  const go = () => {
-    grooveTimer = null; if (grooveSend === null) return;
-    const s = grooveSend; grooveSend = null; grooveLast = Date.now();
-    api.setGroove(ROOM, s, { key: roomKeys()[ROOM], admin: state.adminToken })
-      .then((r) => { if (grooveSend === null && r && r.groove) applyGroove(r.groove); })
-      .catch((err) => toast(err.message));
-  };
-  if (!grooveTimer) grooveTimer = setTimeout(go, Math.max(0, 200 - (Date.now() - grooveLast)));
 }
 $('groove-scale').oninput = (e) => setGrooveScale(sliderToScale(e.target.value));
 $('groove-reset').onclick = () => setGrooveScale(GROOVE.def);
@@ -2717,6 +2743,8 @@ function frame() {
   // The drag pose on my own avatar while I pull a row out (3rd person, cameras, and the recording).
   const rowEnd = dragging ? arrayDrag.items[arrayDrag.items.length - 1] : null;
   together.selfHold(rowEnd ? rowEnd.position : null, rowEnd ? (rowEnd.normal || arrayDrag.a.normal.toArray()) : null);
+  // The held sticker has faded out completely (2 s untouched + 1 s): View mode (Jens, 2 Nov 2026: the old way).
+  if (deskHeld && state.mode === 'slap' && deskHeld.state === 'timed' && deskHeld.faded(performance.now()) && !mouseHeld && !arrayDrag && !arrayRec) setMode('view', { quiet: true });
   if (dragging) { preview.hide(); heldNow = { row: arrayDrag }; } // dragging a row: the ghosts are the preview
   else if (arrayRec) { preview.hide(); heldNow = { msg: arrayRec.msg }; } // released: until the server has the copies
   else if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap' && deskHeld && deskHeld.opacity(performance.now()) > 0) {

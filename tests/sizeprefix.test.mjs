@@ -58,7 +58,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-size-'));
 try {
   const png = (hex, w = 40, h = 40) => sharp({ create: { width: w, height: h, channels: 4, background: hex } }).png().toBuffer();
   const src = path.join(tmp, 'src'); fs.mkdirSync(src);
-  fs.writeFileSync(path.join(src, 'B_Ulla - cat.png'), await png('#ff0000'));
+  fs.writeFileSync(path.join(src, 'B_cat - Ulla @ulla.ek.png'), await png('#ff0000'));
   fs.writeFileSync(path.join(src, 'Apple.png'), await png('#00ff00'));
   fs.writeFileSync(path.join(src, 'z_wide.png'), await png('#0000ff', 120, 40));
   fs.writeFileSync(path.join(src, 'c-dash.png'), await png('#00ffff'));
@@ -67,7 +67,7 @@ try {
   const man = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'));
   const by = Object.fromEntries(man.stickers.map((s) => [s.source, s]));
   await ok('import: startCm in the manifest from the prefix (none, or a dash, = 30), prefix not in the artist name', () => {
-    assert.equal(by['B_Ulla - cat.png'].startCm, 17.5); assert.equal(by['B_Ulla - cat.png'].artist, 'Ulla');
+    assert.equal(by['B_cat - Ulla @ulla.ek.png'].startCm, 17.5); assert.equal(by['B_cat - Ulla @ulla.ek.png'].artist, 'Ulla'); assert.equal(by['B_cat - Ulla @ulla.ek.png'].insta, 'ulla.ek'); assert.equal(by['B_cat - Ulla @ulla.ek.png'].title, 'cat');
     assert.equal(by['Apple.png'].startCm, 30); assert.equal(by['z_wide.png'].startCm, 77.5); assert.equal(by['c-dash.png'].startCm, 30);
     assert.equal(artistFor('C_Bo__dog.png').artist, 'Bo');
   });
@@ -82,7 +82,7 @@ try {
     const lib = (await (await fetch(`${base}/api/library`)).json()).stickers;
     const lb = Object.fromEntries(lib.map((s) => [s.id, s]));
     await ok('GET /api/library: each sticker has its startCm (also an older entry, from its original name)', () => {
-      assert.equal(lb[by['B_Ulla - cat.png'].id].startCm, 17.5); assert.equal(lb[by['Apple.png'].id].startCm, 30); assert.equal(lb[by['z_wide.png'].id].startCm, 77.5);
+      assert.equal(lb[by['B_cat - Ulla @ulla.ek.png'].id].startCm, 17.5); assert.equal(lb[by['Apple.png'].id].startCm, 30); assert.equal(lb[by['z_wide.png'].id].startCm, 77.5);
       assert.ok(!('source' in lb[by['Apple.png'].id]), 'the file name itself is not sent');
     });
     const up = async (buf, fields = {}, fileName = 'klibba.png') => {

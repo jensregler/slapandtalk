@@ -2,7 +2,8 @@
 // can slap, with the artist's name on each so the Look-mode credit works.
 //
 // On disk (in the repo, built by tools/import-library.mjs):
-//   library/manifest.json   { stickers: [{ id, file, width, height, artist, link?, title?, startCm?, source? }] }
+//   library/manifest.json   { stickers: [{ id, file, width, height, artist, link?, insta?, title?, startCm?, source? }] }
+//   artist / insta / link: the credit, from the file name "<name> - <Creator> @<handle>.png" (shared/stickercredit.mjs)
 //   startCm = starting size in cm from the original file name's letter prefix (source); see shared/sizeprefix.mjs
 //   library/images/<id>.webp  (re-encoded like an upload: WebP, max 1024 px, no metadata; id = content hash)
 // At start-up seedLibrary() copies every one into the normal image storage (images/<id>.json +
@@ -21,7 +22,7 @@ function loadLibrary(dir = LIB_DIR) {
   const list = Array.isArray(man) ? man : Array.isArray(man.stickers) ? man.stickers : [];
   return list.filter((s) => s && ID_RE.test(s.id) && typeof s.file === 'string').map((s) => ({
     id: s.id, file: path.join(dir, 'images', path.basename(s.file)), width: s.width | 0, height: s.height | 0,
-    artist: String(s.artist || '').slice(0, 60), ...(s.link ? { link: String(s.link).slice(0, 200) } : {}), ...(s.title ? { title: String(s.title).slice(0, 80) } : {}),
+    artist: String(s.artist || '').slice(0, 60), ...(s.link ? { link: String(s.link).slice(0, 200) } : {}), ...(s.insta ? { insta: String(s.insta).slice(0, 30) } : {}), ...(s.title ? { title: String(s.title).slice(0, 80) } : {}),
     // The starting size (shared/sizeprefix.mjs): startCm from the import, else derived from source.
     ...(typeof s.startCm === 'number' ? { startCm: s.startCm } : {}), ...(s.source ? { source: String(s.source).slice(0, 200) } : {}),
     // nature: from the import (a "nature" folder / a name starting with "nature"), or the original name (shared/nature.mjs)
@@ -30,18 +31,27 @@ function loadLibrary(dir = LIB_DIR) {
 }
 
 // Public form (GET /api/library): what the palette needs.
-const publicSticker = (s) => ({ id: s.id, url: `/uploads/${s.id}.webp`, width: s.width, height: s.height, artist: s.artist, ...(s.link ? { artistLink: s.link } : {}), ...(s.nature ? { nature: true } : {}), library: true });
+const publicSticker = (s) => ({ id: s.id, url: `/uploads/${s.id}.webp`, width: s.width, height: s.height, artist: s.artist, ...(s.link ? { artistLink: s.link } : {}), ...(s.insta ? { insta: s.insta } : {}), ...(s.nature ? { nature: true } : {}), library: true });
 
 async function seedLibrary(store, list, { log = console } = {}) {
   let added = 0, bad = 0;
   for (const s of list) {
     try {
       const meta = await store.getImage(s.id);
-      if (meta && meta.library && await store.hasImageFile(s.id, { fresh: true })) continue;
+      if (meta && meta.library && await store.hasImageFile(s.id, { fresh: true })) {
+        // already there: only a changed credit (a renamed file re-imported, shared/stickercredit.mjs) is written
+        const want = { artist: s.artist, artistLink: s.link || undefined, insta: s.insta || undefined };
+        if (meta.artist !== want.artist || (meta.artistLink || undefined) !== want.artistLink || (meta.insta || undefined) !== want.insta) {
+          const next = { ...meta, artist: want.artist }; delete next.artistLink; delete next.insta;
+          if (want.artistLink) next.artistLink = want.artistLink; if (want.insta) next.insta = want.insta;
+          await store.addImage(next); added++;
+        }
+        continue;
+      }
       const buf = fs.readFileSync(s.file);
       if (contentId(buf) !== s.id) { bad++; log.error(`[library] ${path.basename(s.file)}: content does not match id ${s.id}, skipped`); continue; }
       await store.putImageFile(s.id, buf);
-      await store.addImage({ id: s.id, url: `/uploads/${s.id}.webp`, width: s.width, height: s.height, artist: s.artist, ...(s.link ? { artistLink: s.link } : {}), ...(s.nature ? { nature: true } : {}), library: true, createdAt: (meta && meta.createdAt) || new Date().toISOString() });
+      await store.addImage({ id: s.id, url: `/uploads/${s.id}.webp`, width: s.width, height: s.height, artist: s.artist, ...(s.link ? { artistLink: s.link } : {}), ...(s.insta ? { insta: s.insta } : {}), ...(s.nature ? { nature: true } : {}), library: true, createdAt: (meta && meta.createdAt) || new Date().toISOString() });
       added++;
     } catch (e) { bad++; log.error(`[library] ${s.id}: ${e.message}`); }
   }

@@ -7,11 +7,16 @@
 // alpha, metadata such as GPS stripped) and gets a content-hash id, so the same picture twice is
 // one sticker. Formats: PNG, JPG/JPEG, WebP, GIF (first frame), AVIF, TIFF. Other files are skipped.
 //
-// The artist's name for each image, first match wins:
+// The credit (creator + Instagram) for each image, first match wins:
 //   1. --csv: a CSV with a header row: file,artist[,link]   (file = name relative to <folder>, or just the file name)
-//   2. a subfolder: <folder>/<Artist Name>/image.png
-//   3. the file name: "Artist Name - title.png" or "Artist Name__title.png"
+//   2. the file name (Jens, 2 Nov 2026; shared/stickercredit.mjs):
+//        "<sticker name> - <Creator name> @<instagramhandle>.png"  ("d71 - Jens Tjerngren @jensregler.png")
+//        "<sticker name> - <Creator name>.png"  (no Instagram);  "<sticker name>.png" = no credit (→ 3, 4)
+//      (Before 2 Nov 2026 it was the other way round, "Artist Name - title.png"; the stickers imported
+//      then keep what they got.)
+//   3. a subfolder: <folder>/<Artist Name>/image.png
 //   4. --artist "Name"   (else empty: the sticker shows no credit)
+// Stored per sticker in the manifest: artist, insta, link (https://www.instagram.com/<handle>), title.
 // Start size: a letter + underscore at the start of the file name sets the sticker's starting size
 //   (the size slider's value, the longest side; shared/sizeprefix.mjs): "A_cat.png" = 15 cm,
 //   "B_cat.png" = 17.5 cm … "Z_cat.png" = 77.5 cm; none (also "b-cat", "C cat") = 30 cm.
@@ -32,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { startHeightCm, stripPrefix } from '../shared/sizeprefix.mjs';
 import { isNatureName, NATURE } from '../shared/nature.mjs';
+import { creditFromName } from '../shared/stickercredit.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_PX = 1024;
@@ -79,13 +85,14 @@ const tidy = (s) => String(s || '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').t
 export function artistFor(rel, { csv = new Map(), fallback = '' } = {}) {
   const hit = csv.get(rel.toLowerCase()) || csv.get(path.basename(rel).toLowerCase()) || csv.get(stripPrefix(path.basename(rel)).toLowerCase());
   rel = stripPrefix(rel); // the size letter is not part of the name
-  if (hit && (hit.artist || hit.link)) return { artist: tidy(hit.artist), link: hit.link || '' };
+  const fromName = creditFromName(path.basename(rel));
+  if (hit && (hit.artist || hit.link)) return { artist: tidy(hit.artist), link: hit.link || '', insta: '', title: fromName.title };
+  if (fromName.artist) return fromName;
+  const old = /^(.+?)__.+$/.exec(path.basename(rel, path.extname(rel))); // the old "Artist__title.png" still works
+  if (old) return { artist: tidy(old[1]), link: '', insta: '', title: fromName.title };
   const parts = rel.split('/').filter((x, i, a) => i === a.length - 1 || x.toLowerCase() !== NATURE.prefix); // a "nature" folder is not an artist
-  if (parts.length > 1) return { artist: tidy(parts[parts.length - 2]), link: '' };
-  const base = path.basename(rel, path.extname(rel));
-  const m = /^(.+?)\s+-\s+.+$/.exec(base) || /^(.+?)__.+$/.exec(base);
-  if (m) return { artist: tidy(m[1]), link: '' };
-  return { artist: tidy(fallback), link: '' };
+  if (parts.length > 1) return { artist: tidy(parts[parts.length - 2]), link: '', insta: '', title: fromName.title };
+  return { artist: tidy(fallback), link: '', insta: '', title: fromName.title };
 }
 function walk(dir, base = dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -132,7 +139,7 @@ export async function importFolder(o, log = console.log) {
     try { enc = await encode(fs.readFileSync(path.join(o.folder, rel))); } catch (e) { report.failed.push(`${rel}: ${e.message}`); continue; }
     if (seen.has(enc.id)) { report.duplicates++; continue; }
     seen.add(enc.id);
-    const { artist, link } = artistFor(rel, { csv, fallback: o.artist });
+    const { artist, link, insta, title } = artistFor(rel, { csv, fallback: o.artist });
     if (!artist) report.noArtist.push(rel);
     const nature = o.nature || [path.basename(o.folder), ...rel.split('/').slice(0, -1)].some((x) => x.toLowerCase() === NATURE.prefix);
     const name = path.basename(rel), source = nature && !isNatureName(name) ? `${NATURE.prefix}-${name}` : name;
@@ -140,7 +147,7 @@ export async function importFolder(o, log = console.log) {
     if (enc.opaque) report.opaque.push(rel); // no transparency: it slaps as a rectangle
     if (Math.max(enc.srcW, enc.srcH) && Math.max(enc.srcW, enc.srcH) < 256) report.small.push(`${rel} (${enc.srcW}×${enc.srcH})`);
     if (Math.max(enc.srcW, enc.srcH) > 4000) report.large.push(`${rel} (${enc.srcW}×${enc.srcH})`);
-    const entry = { id: enc.id, file: `${enc.id}.webp`, width: enc.width, height: enc.height, artist, ...(link ? { link } : {}), source, startCm: startHeightCm(name), ...(nature ? { nature: true } : {}) };
+    const entry = { id: enc.id, file: `${enc.id}.webp`, width: enc.width, height: enc.height, artist, ...(link ? { link } : {}), ...(insta ? { insta } : {}), ...(title ? { title } : {}), source, startCm: startHeightCm(name), ...(nature ? { nature: true } : {}) };
     if (byId.has(enc.id)) report.updated++; else report.added++;
     byId.set(enc.id, entry);
     if (!o.dry) { fs.mkdirSync(imgDir, { recursive: true }); fs.writeFileSync(path.join(imgDir, entry.file), enc.data); }
