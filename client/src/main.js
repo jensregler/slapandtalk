@@ -2099,10 +2099,11 @@ addEventListener('keydown', (e) => {
 addEventListener('pagehide', () => autoSlap.setOn(false)); // leaving the room
 
 // Sound settings (soundui.js): only reachable with entitlements.full.soundDesign.
-const soundUi = initSoundUI({ $, sound, toast, onSave: () => together.soundChanged(), onOpenChange: (o) => { if (o) controls.unlock?.(); } });
-$('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { closeMore(); soundUi.open(); } };
-
 // Music vol (Jens, 31 Oct 2026): in the Sound settings header – how loud the room's sounds are for me.
+const MUSIC_VOL_DEFAULT = 1;
+const musicVol = { def: MUSIC_VOL_DEFAULT, get: () => sound.volume, set: (v) => { sound.setVolume(v); $('music-vol').value = String(Math.round(sound.volume * 100)); } };
+const soundUi = initSoundUI({ $, sound, toast, musicVol, onSave: () => together.soundChanged(), onOpenChange: (o) => { if (o) controls.unlock?.(); } });
+$('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { closeMore(); soundUi.open(); } };
 {
   const mv = $('music-vol');
   mv.value = String(Math.round(sound.volume * 100));

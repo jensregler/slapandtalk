@@ -71,7 +71,8 @@ const GROUPS = [
 const FX_UNITS = [['reverb', 'Reverb'], ['delay', 'Delay'], ['filter', 'Filter'], ['crush', 'Bitcrush'], ['dist', 'Distortion']];
 const TAB_NAMES = { slap: 'Slap', peel: 'Peel', nope: 'Nope', step: 'Steps', duff: 'Duff', fx: 'Effects' };
 
-export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {} }) {
+// musicVol: { get, set, def } – the Music vol slider in the header (this device; main.js), so Reset can put it back too.
+export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, musicVol = null }) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const st = { open: false, tab: 'slap', patches: {}, fx: null, rolls: 0 };
   const base = (k) => variant(DEFAULT_PATCHES[k], mySeed(), k); // my default (what free me sounds like)
@@ -81,9 +82,14 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {} }
     st.patches = {}; for (const k of SOUNDS) st.patches[k] = cleanPatch(cur.patches?.[k]) || base(k);
     st.custom = new Set(Object.keys(cur.patches || {}));
     st.fx = cleanFx(cur.fx) || cleanFx(FX_DEFAULTS);
+    st.vol0 = musicVol ? musicVol.get() : null; st.volReset = false;
     st.open = true; $('sound-panel').hidden = false; render(); onOpenChange(true);
   }
-  function close() { st.open = false; $('sound-panel').hidden = true; onOpenChange(false); }
+  // Closed without saving (✕ / Cancel): a Music vol that only Reset changed goes back too.
+  function close(saved = false) {
+    if (!saved && st.volReset && musicVol && st.vol0 != null) { musicVol.set(st.vol0); st.volReset = false; }
+    st.open = false; $('sound-panel').hidden = true; onOpenChange(false);
+  }
 
   function slider(k, range, value, onInput) {
     const row = el('div', 'snd-sl'); row.dataset.param = k;
@@ -180,20 +186,27 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {} }
     else { st.patches[st.tab] = randomPatch(seed + st.tab, { wild }); st.custom.add(st.tab); }
     render(); preview();
   }
+  // Reset = everything back to the defaults (Jens, 2 Nov 2026): every sound's settings on the Slap,
+  // Peel, Nope, Steps and Duff tabs (incl. their own effects), all the Effects (reverb, delay, filter,
+  // bitcrush, distortion) and Music vol. The sliders show it at once and Preview plays it; Save keeps
+  // it and sends it to the others like any save (no custom patches/fx = the default sounds).
   function reset() {
-    if (st.tab === 'fx') st.fx = cleanFx(FX_DEFAULTS);
-    else { st.patches[st.tab] = base(st.tab); st.custom.delete(st.tab); }
-    render();
+    for (const k of SOUNDS) st.patches[k] = base(k);
+    st.custom = new Set();
+    st.fx = cleanFx(FX_DEFAULTS);
+    if (musicVol) { musicVol.set(musicVol.def); st.volReset = true; }
+    render(); preview();
+    toast(S.soundReset || 'All sounds, effects and Music vol back to default – Save to keep it', 2600);
   }
   function save() {
     const patches = {}; for (const k of st.custom) patches[k] = st.patches[k];
     const fx = JSON.stringify(cleanFx(st.fx)) === JSON.stringify(cleanFx(FX_DEFAULTS)) ? undefined : st.fx;
     const clean = saveSoundLook({ patches, fx });
     if (Object.keys(patches).length && !clean.patches) { toast(S.soundTooBig || 'Too much sound data – remove a layer or two.', 3000); return; }
-    onSave(clean); close(); toast(S.soundSaved || 'Sound settings saved', 1800);
+    onSave(clean); st.volReset = false; close(true); toast(S.soundSaved || 'Sound settings saved', 1800);
   }
 
-  $('snd-close').onclick = close; $('snd-cancel').onclick = close;
+  $('snd-close').onclick = () => close(); $('snd-cancel').onclick = () => close();
   $('snd-preview').onclick = preview; $('snd-random').onclick = () => randomize(false); $('snd-wild').onclick = () => randomize(true);
   $('snd-reset').onclick = reset; $('snd-save').onclick = save;
   return { open, close, isOpen: () => st.open, state: () => st, preview };

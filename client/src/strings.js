@@ -224,6 +224,7 @@ export const EN = {
   scRoomFacts: (free, st, vis, age) => `${free} free spot${free === 1 ? '' : 's'} · ${st} sticker${st === 1 ? '' : 's'} · ${vis} visitor${vis === 1 ? '' : 's'} · ${age}`,
   scName: 'name?', scInsta: 'instagram @:', scRoomName: 'roomname?', scBack: 'back', scSaveEnter: 'save and enter', scMaking: 'Making your room…', scFailed: 'Could not make the room.',
   scCodeTitle: 'I have a code', scCodePlaceholder: 'the room code (or its link)', scCodeGo: 'enter', scCodeBad: 'A code has letters, digits and dashes.', scCodeUnknown: 'There is no room with that code (any more).',
+  soundReset: 'All sounds, effects and Music vol are back to default – Save to keep it.',
   ntBrushSize: 'brushsize', ntBrushType: 'brushtype', ntBrush_solid: 'solid', ntBrush_opaque: 'opaque', ntBrush_dripping: 'dripping',
   ntSave: 'save', ntExit: 'exit', ntUndo: '↶ undo', ntReplace: 'choose one to replace', ntSaved: 'Your name tag is in the wheel – slap it!',
   soundLocked: 'Sound settings are part of the full version.',
