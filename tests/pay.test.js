@@ -262,7 +262,7 @@ async function browserTests({ adapter, ls }) {
     const demo = start({ DEMO_PROFILE: '1' }); servers.push(demo);
 
     // Free visitor, shop configured: nothing visible until ⚙ More → Help; the panel never opens by itself.
-    const p = await open(shop.base);
+    const p = await open(shop.base, '?last=1');
     const nag = await p.evaluate(() => ({ panel: !document.getElementById('full-panel').hidden, text: document.body.innerText }));
     assert(!nag.panel && !/full version|pay what|\$1/i.test(nag.text), 'free visitor: no popup, no "full version" text anywhere in the room UI');
     await p.evaluate(() => window.klibb.openMore());
@@ -303,7 +303,7 @@ async function browserTests({ adapter, ls }) {
 
     // No checkout URL ⇒ no entry. Demo profile ⇒ no entry (unless SHOW_BUY=1).
     for (const [name, srv] of [['no LS_CHECKOUT_URL', noUrl], ['demo profile', demo]]) {
-      const q = await open(srv.base);
+      const q = await open(srv.base, '?last=1');
       await q.evaluate(() => window.klibb.openMore());
       const r = await q.evaluate(() => ({ entry: !document.getElementById('full-entry').hidden, panel: !document.getElementById('full-panel').hidden, text: document.body.innerText }));
       assert(!r.entry && !r.panel && !/full version/i.test(r.text), `${name}: no Full version entry, nothing about buying anywhere`);

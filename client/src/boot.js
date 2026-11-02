@@ -15,7 +15,10 @@ async function start() {
     if (!(await demoGate())) return;
   } else {
     const q = new URLSearchParams(location.search);
-    if (!q.has('room') && !q.has('admin') && !q.has('last')) {
+    // Only the bare address (or ?start=1): links with anything else – ?room, ?admin, ?last, and the
+    // shop's ?unlock= / ?thanks=1#unlock= return – go on to the room as before.
+    const bare = [...q.keys()].every((k) => k === 'start') && !/unlock=/.test(location.hash);
+    if (bare) {
       // The plain address and ?start=1 (the exit sticker's "Exit to menu"): the Priority Mail start
       // card (startcard.js; Jens, 31 Oct 2026) – it loads the chosen room itself.
       const { showStartCard } = await import('./startcard.js');

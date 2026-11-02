@@ -33,7 +33,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       // ---- free version, desktop ----
       const fctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
       const F = await fctx.newPage(); F.on('pageerror', (e) => errors.push(e.message));
-      await F.goto(S.base + '/'); await ready(F, false);
+      await F.goto(S.base + '/?last=1'); await ready(F, false);
       await F.mouse.click(900, 200); await sleep(300); await F.evaluate(() => window.klibb.controls.unlock?.()); // a user gesture (audio allowed), back out
       const f0 = await info(F);
       check('free: starts in Slap mode ("Slap mode · V"), the panel shows Slap | 🌿 Nature (locked) | Look', f0.mode === 'slap' && !f0.nature && f0.hud === 'Slap mode · V' && f0.btn.slap === 'true' && !f0.btn.natHidden && f0.btn.natLocked && f0.btn.look === 'false', f0);
@@ -118,7 +118,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       const mctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
       if (full) await mctx.addInitScript(() => localStorage.setItem('klibb.devUnlock', '1'));
       const M = await mctx.newPage(); M.on('pageerror', (e) => errors.push(e.message));
-      await M.goto(S.base + '/'); await ready(M, full);
+      await M.goto(S.base + '/?last=1'); await ready(M, full);
       const m1 = await info(M);
       check(`phone (${full ? 'full' : 'free'}): starts in Slap mode, no nature sound`, m1.mode === 'slap' && !m1.nature && !m1.amb.playing, m1);
       await M.evaluate(() => { document.body.classList.add('wheel-up'); window.klibb.wheelApi.render(); window.klibb.natureWheelApi.render(); });

@@ -120,7 +120,7 @@ const W = 390, H = 844, CX = W / 2, CY = H / 2;
     // ---- desktop: unchanged (its size/rotation inputs in the panel) ----
     const dctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const D = await dctx.newPage(); D.on('pageerror', (e) => errors.push(e.message));
-    await D.goto(S.base + '/'); await D.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
+    await D.goto(S.base + '/?last=1'); await D.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
     const dk = await D.evaluate(() => ({ touch: document.body.classList.contains('touch'), size: !!document.getElementById('size') && getComputedStyle(document.getElementById('size')).display !== 'none', rot: !!document.getElementById('rot'), edges: document.querySelectorAll('.edge').length, hud: getComputedStyle(document.getElementById('pinch-hud')).display }));
     check('desktop: unchanged – the size slider and rotation input are there, no phone sliders, no pinch readout', !dk.touch && dk.size && dk.rot && dk.edges === 0 && dk.hud === 'none', dk);
     await dctx.close();

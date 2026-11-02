@@ -79,7 +79,7 @@ const ALL = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam', 
     // ---- phone ----
     const mctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     const M = await mctx.newPage(); M.on('pageerror', (e) => errors.push(e.message));
-    await M.goto(S.base + '/');
+    await M.goto(S.base + '/?last=1');
     await M.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.state.selected && window.klibb.natureOpen(), null, { timeout: 30000 });
     await M.evaluate(() => { document.body.classList.add('wheel-up'); window.klibb.wheelApi.render(); window.klibb.natureWheelApi.render(); }); await sleep(600);
     const m0 = await M.evaluate(() => window.klibb.natureStrip());

@@ -455,6 +455,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     assert((await mineIds()).join() === five.join() && Object.keys(onServer.images).length === 5,
       'designs som servern tappat laddas upp igen automatiskt, alla 5 kvar med samma id');
     // Servern tappar designen mitt under stämplingen (svar 410): den återställs och stämpeln sätts ändå.
+    await d.evaluate(() => window.klibb.selectDesign(window.klibb.state.mine.at(-1))); // the wheel starts on d71 (a library sticker) since 2 Nov 2026
     const selId = await d.evaluate(() => window.klibb.state.selected.id);
     await del(selId);
     const stamped = await d.evaluate(() => { window.klibb.look(0.2, 0); return window.klibb.stampAt(0, 0).then((s) => s && s.imageId); });
