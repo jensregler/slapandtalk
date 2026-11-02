@@ -414,9 +414,11 @@ async function seedPlotRoom(id) {
   } catch (e) { if (e.code !== 'EXISTS') throw e; }
 }
 // Not in the City (yet): it isn't a box, and these all work on the room's box (peels fall to its
-// floor, cameras and cameramen walk its walls, hidden stickers are found on its six faces).
+// floor, cameras and cameramen walk its walls, hidden stickers are found on its six faces; recording
+// still works, but the replay draws a box room – open question). Only admin
+// could do these in the City anyway: everyone else still gets the old 403 ("Only admin can … in the City").
 app.use((req, res, next) => {
-  if (req.method !== 'GET' && /^\/api\/rooms\/stad\/(peels|cameras|recording\/start|clear-hidden)(\/|$)/.test(req.path)) return res.status(400).json({ error: 'Not in the City (yet)', city: true });
+  if (req.method !== 'GET' && isAdmin(req) && /^\/api\/rooms\/stad\/(peels|cameras|clear-hidden)(\/|$)/.test(req.path)) return res.status(400).json({ error: 'Not in the City (yet)', city: true });
   next();
 });
 // The Town Hall's packs (server/citypacks.js). GET lists them (+ mine with x-pack-token), POST hands
