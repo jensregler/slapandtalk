@@ -91,7 +91,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const sr = await U.evaluate(() => window.klibb.strip().rect);
     await U.mouse.click(sr.x + sr.width / 2, sr.y + sr.height - 60); await sleep(600);
     const u4 = await U.evaluate(() => ({ act: window.klibb.activeWheel(), nat: !!window.klibb.state.selected.nature, lim: window.klibb.limitsFor() }));
-    check('full: clicking the sticker wheel makes it active again (a normal sticker, normal full limits)', u4.act === 'stickers' && !u4.nat && u4.lim.maxCm === Infinity, u4);
+    check('full: clicking the sticker wheel makes it active again (a normal sticker, normal full limits, 10 cm – 1.5 m)', u4.act === 'stickers' && !u4.nat && u4.lim.maxCm === 150, u4);
     await U.evaluate(() => { window.klibb.controls.locked = true; window.klibb.setSize(30); });
     const st2 = await U.evaluate(() => window.klibb.stampAt(0, 0).then((s) => !!s)); await sleep(800);
     const u5 = await U.evaluate(() => window.klibb.peels().count);
