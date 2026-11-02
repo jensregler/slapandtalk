@@ -980,11 +980,18 @@ async function initAdmin() {
 // Admin: save this room as a preset (Jens designs rooms with the nature stickers and gives the room
 // codes): its stickers baked into six images (preset.js) + its look → POST /api/admin/presets.
 // Also scripts/make-preset.js (a room code → a preset, headless).
-async function savePreset({ name = '', pxPerM = PRESET_PX_PER_M } = {}) {
+// The preset is a snapshot: the six images + the look are stored with the preset (presets/), so it
+// lives on when this room is gone. title = the name the start card's picker shows (else the room code);
+// thumb: true = this view, as it is now, is the picker's picture (the button; the script makes its own).
+async function savePreset({ name = '', title = '', thumb = false, pxPerM = PRESET_PX_PER_M } = {}) {
   if (!state.adminToken) throw new Error('admin only');
+  let shot = null;
+  // (in a frame callback queued after the render loop's: the frame just drawn, before it is shown and cleared)
+  if (thumb) shot = await new Promise((ok) => requestAnimationFrame(() => renderer.domElement.toBlob(ok, 'image/jpeg', 0.88)));
   const { faces, count } = await bakeFaces(renderer, scene, room.surfaces, { pxPerM });
   const fd = new FormData();
-  fd.append('sourceRoom', ROOM); fd.append('name', name || ROOM);
+  fd.append('sourceRoom', ROOM); fd.append('name', name || ROOM); if (title) fd.append('title', title);
+  if (shot) fd.append('thumb', shot, 'thumb.jpg');
   for (const [f, blob] of Object.entries(faces)) fd.append(f, blob, `${f}.png`);
   const r = await fetch('/api/admin/presets', { method: 'POST', headers: { 'x-admin-token': state.adminToken }, body: fd });
   const j = await r.json().catch(() => ({}));
@@ -997,7 +1004,8 @@ async function bakePresetUrls(opts) { // (tests / a look before saving) the six 
 }
 document.getElementById('save-preset')?.addEventListener('click', async (e) => {
   const b = e.currentTarget; b.disabled = true;
-  try { const p = await savePreset({ name: ROOM }); toast(S.presetSaved(p.id, p.stickers), 5000); } catch (err) { toast(err.message); } finally { b.disabled = false; }
+  const title = window.prompt(S.presetNamePrompt, ''); if (title === null) { b.disabled = false; return; } // cancel: nothing saved
+  try { const p = await savePreset({ name: ROOM, title: title.trim(), thumb: true }); toast(S.presetSaved(p.id, p.stickers), 5000); } catch (err) { toast(err.message); } finally { b.disabled = false; }
 });
 
 function adminPick(ndc) {

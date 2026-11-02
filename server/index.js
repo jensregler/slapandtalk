@@ -52,10 +52,14 @@ const gate = demo ? {
   },
 } : null;
 
+// The rooms Jens's presets were made from: never deleted, not by the 24 h cleanup, not when empty. (The
+// presets do not need them – each carries its own six baked images and look – but Jens may go on
+// designing in them.) If the preset list cannot be read, nothing is deleted this round.
+async function presetSourceRooms() { return new Set((await app.locals.presets.list()).map((p) => p.sourceRoom).filter(Boolean)); }
 // Städjobbet: tar bort snabbrum som stått tomma längre än QUICK_ROOM_TTL_HOURS.
 async function cleanup() {
   try {
-    const deleted = await store.cleanupRooms({ quickTtlMs: QUICK_TTL_HOURS * 3600_000 });
+    const deleted = await store.cleanupRooms({ quickTtlMs: QUICK_TTL_HOURS * 3600_000, keep: await presetSourceRooms() });
     if (deleted.length) console.log(`Städning: tog bort ${deleted.length} tomma snabbrum (${deleted.join(', ')})`);
     const oldVideos = await app.locals.videos.cleanup().catch((e) => { console.error("Videostädningen misslyckades:", e.message); return []; }); // videos/ has its own retention (VIDEO_RETENTION_DAYS)
     if (oldVideos.length) console.log(`Städning: tog bort ${oldVideos.length} gamla videor`);
@@ -78,7 +82,7 @@ async function cleanup() {
   // and every EMPTY_ROOM_SWEEP_MINUTES (5).
   const reaper = process.env.EMPTY_ROOM_DELETE === '0' || DEMO ? null : createEmptyRoomReaper({
     store, isOccupied: (id) => !!realtime && realtime.occupied(id), graceMs: Number(process.env.EMPTY_ROOM_GRACE_SECONDS || 10) * 1000,
-    keepIds: async () => new Set((await app.locals.presets.list().catch(() => [])).map((p) => p.sourceRoom).filter(Boolean)),
+    keepIds: presetSourceRooms,
   });
   realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder, entitle, gate, onEmpty: reaper && reaper.empty, onJoin: reaper && reaper.joined });
   if (reaper) {

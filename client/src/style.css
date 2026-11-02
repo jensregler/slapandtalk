@@ -783,6 +783,29 @@ body.start-card-on { overflow: auto; }
 .sc-form { top: 27%; align-items: stretch; gap: 3cqw; background: rgba(236,228,214,.92); border-radius: 2cqw; padding: 2cqw 3cqw; bottom: 18%; }
 .sc-field { display: flex; flex-direction: column; gap: .8cqw; color: #c0453a; font-size: 7cqw; }
 .sc-field input { font-size: 6cqw; padding: 1cqw 2cqw; border: 0; border-bottom: .5cqw solid #c0453a; background: rgba(255,255,255,.55); color: #222; border-radius: 1cqw; }
+.sc-form:has(.sc-field-room:not([hidden])) { top: 24.5%; bottom: 16.5%; gap: 1.6cqw; padding-top: 1.5cqw; padding-bottom: 1.5cqw; }
+.sc-form:has(.sc-field-room:not([hidden])) .sc-field { font-size: 6cqw; gap: .4cqw; }
+.sc-form:has(.sc-field-room:not([hidden])) .sc-field input { font-size: 5.6cqw; padding: .8cqw 2cqw; }
+.sc-form:has(.sc-field-room:not([hidden])) ~ .sc-feet { bottom: 7.5%; }
+.sc-roompick { display: flex; align-items: center; gap: 2.5cqw; padding: 1cqw !important; background: rgba(255,255,255,.55) !important; border: .5cqw solid #c0453a !important; border-radius: 1.5cqw; text-align: left; color: #222 !important; }
+.sc-roompick:hover, .sc-roompick:focus-visible { background: #fff !important; }
+.sc-roompick-name { flex: 1; font-size: 6cqw; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-roompick-change { font-size: 4.6cqw; color: #c0453a; font-weight: 700; white-space: nowrap; }
+.sc-pic { position: relative; display: block; flex: none; overflow: hidden; border-radius: 1cqw; background: #d9cbb3; }
+.sc-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.sc-pic img.sc-pic-wall { object-fit: contain; background: #cdbb9c; }
+/* Blank room: an empty room drawn in CSS (ceiling, back wall, floor) */
+.sc-pic-blank { background: linear-gradient(180deg, #ece6da 0 22%, #f4efe6 22% 64%, #b9ab95 64% 100%); }
+.sc-pic-blank::after { content: ''; position: absolute; inset: 22% 18% 36% 18%; border: 2px solid rgba(0,0,0,.18); border-bottom-width: 3px; }
+.sc-pic-small { width: 21cqw; height: 13cqw; }
+.sc-preset-dialog { width: min(980px, 96vw); max-height: 94vh; padding: 18px 20px; }
+.sc-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 16px; max-height: calc(94vh - 150px); overflow: auto; padding: 4px; }
+.sc-pick { display: flex; flex-direction: column; gap: 8px; padding: 8px !important; border: 5px solid transparent !important; border-radius: 16px; background: #fff !important; color: #222 !important; text-align: left; }
+.sc-pick b { font-size: 30px; line-height: 1.15; padding: 0 4px 2px; overflow-wrap: anywhere; }
+.sc-pick:hover, .sc-pick:focus-visible { border-color: rgba(192,69,58,.55) !important; outline: none; }
+.sc-pick.sc-picked { border-color: #c0453a !important; box-shadow: 0 0 0 3px #f3ead9, 0 0 0 6px #c0453a; }
+.sc-pick.sc-picked b::before { content: '✓ '; color: #c0453a; }
+.sc-pic-big { width: 100%; aspect-ratio: 16 / 10; }
 .sc-msg { min-height: 1em; color: #8b1a1a; font-size: 4cqw; margin: 0; }
 .sc-feet { position: absolute; left: 7%; right: 7%; bottom: 9%; display: flex; justify-content: space-between; }
 .sc-foot { font-size: 7.5cqw !important; color: #c0453a !important; }

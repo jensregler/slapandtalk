@@ -1,7 +1,11 @@
 // The start card (Jens, 31 Oct 2026): a Priority Mail card (his picture: Dropbox /Ulla/knappar/menue.png,
 // client/public/start/card.webp) instead of going straight into a room. Shown for the plain address
 // and for ?start=1 (the exit sticker's "Exit to menu"); boot.js, before main.js.
-//   enter new room       → a second card: name?, instagram @:, roomname?  [back] [save and enter]
+//   enter new room       → a second card: name?, instagram @:, roomname?, room?  [back] [save and enter]
+//                          room? (Jens, 2 Nov 2026): "Blank room" (the default) or one of his preset
+//                          rooms (GET /api/presets) – a big picture each, in a picker; the new room is
+//                          then made from that preset (POST /api/rooms { preset: id }; Blank: { preset: false }).
+//                          A preset is shown by the name Jens gave it, or else by its room code.
 //   …or I have a code    → a code dialog (the room's code = its id in the address)
 //   …or Join             → the rooms with people in them now AND a free spot (GET /api/rooms/open):
 //                          room name, free spots, stickers, visitors, how long it has existed
@@ -64,8 +68,41 @@ export function showStartCard() {
     }
     if (focus) list.querySelector('button')?.focus();
   }
+  // The preset rooms for the picker (fetched once; [] when there are none or the server is old).
+  let presetsP = null;
+  const loadPresets = () => (presetsP ||= fetch('/api/presets', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : { presets: [] })).then((j) => (Array.isArray(j.presets) ? j.presets : [])).catch(() => []));
+  const presetLabel = (p) => (p ? p.title || p.code : S.scBlankRoom);
+  // a picture: the preset's own (thumb), else its north wall's stickers on the card colour; Blank: a drawn empty room
+  function pic(p, cls) {
+    const box = el('span', { className: 'sc-pic ' + cls + (p ? '' : ' sc-pic-blank') });
+    if (p && (p.thumb || p.wall)) {
+      const img = el('img', { src: p.thumb || p.wall, alt: '', draggable: false, className: p.thumb ? '' : 'sc-pic-wall' });
+      img.onerror = () => img.remove();
+      box.append(img);
+    }
+    return box;
+  }
+  let chosen = null; // null = Blank room; else the preset
+  function presetDialog(onPick) {
+    const dlg = el('dialog', { id: 'sc-preset-dialog', className: 'sc-dialog sc-preset-dialog' });
+    const grid = el('div', { className: 'sc-pick-grid', id: 'sc-pick-grid' });
+    const close = el('button', { type: 'button', className: 'sc-foot', id: 'sc-preset-cancel', textContent: S.scBack });
+    dlg.append(el('h2', { textContent: S.scPickTitle }), grid, el('div', { className: 'sc-feet' }, [close]));
+    root.appendChild(dlg); dlg.showModal();
+    const done = () => { dlg.close(); dlg.remove(); };
+    close.onclick = done; dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(); });
+    const tile = (p) => {
+      const b = el('button', { type: 'button', className: 'sc-pick' + ((p ? p.id : null) === (chosen ? chosen.id : null) ? ' sc-picked' : '') }, [pic(p, 'sc-pic-big'), el('b', { textContent: presetLabel(p) })]);
+      b.dataset.id = p ? p.id : ''; b.setAttribute('aria-pressed', String(b.classList.contains('sc-picked')));
+      b.onclick = () => { chosen = p; onPick(); done(); };
+      return b;
+    };
+    grid.append(tile(null));
+    loadPresets().then((list) => { for (const p of list) grid.append(tile(p)); (grid.querySelector('.sc-picked') || grid.firstChild).focus(); });
+  }
   function second() {
     card.textContent = '';
+    chosen = null; // Blank room by default
     const saved = read(LOOK_KEY) || {};
     const field = (id, label, value, max, extra = {}) => {
       const inp = el('input', { id, type: 'text', maxLength: max, value: value || '', autocomplete: 'off', spellcheck: false, ...extra });
@@ -75,10 +112,18 @@ export function showStartCard() {
     const [fInsta, iInsta] = field('sc-insta', S.scInsta, saved.look?.insta, 31, { autocapitalize: 'none' });
     const [fRoom, iRoom] = field('sc-roomname', S.scRoomName, '', 40);
     iInsta.addEventListener('input', () => { const v = cleanInsta(iInsta.value); if (v !== iInsta.value.toLowerCase().replace(/^@+/, '')) iInsta.value = v; });
+    // room?: Blank room or a preset – the choice shown big; tapping it opens the picker
+    const roomBtn = el('button', { type: 'button', className: 'sc-roompick', id: 'sc-preset' });
+    const showChoice = () => { roomBtn.textContent = ''; roomBtn.dataset.id = chosen ? chosen.id : ''; roomBtn.append(pic(chosen, 'sc-pic-small'), el('b', { className: 'sc-roompick-name', id: 'sc-preset-name', textContent: presetLabel(chosen) }), el('span', { className: 'sc-roompick-change', textContent: S.scPickChange })); };
+    showChoice();
+    roomBtn.onclick = () => presetDialog(showChoice);
+    const fPreset = el('div', { className: 'sc-field sc-field-room', id: 'sc-preset-field' }, [el('span', { textContent: S.scRoomType }), roomBtn]);
+    fPreset.hidden = true; // only when there are presets to choose from
+    loadPresets().then((l) => { fPreset.hidden = !l.length; });
     const msg = el('p', { className: 'sc-msg', id: 'sc-msg' });
     const back = el('button', { type: 'button', className: 'sc-foot', id: 'sc-back', textContent: S.scBack });
     const save = el('button', { type: 'button', className: 'sc-foot sc-go', id: 'sc-save', textContent: S.scSaveEnter });
-    card.append(el('div', { className: 'sc-body sc-form' }, [fName, fInsta, fRoom, msg]), el('div', { className: 'sc-feet' }, [back, save]));
+    card.append(el('div', { className: 'sc-body sc-form' }, [fName, fInsta, fRoom, fPreset, msg]), el('div', { className: 'sc-feet' }, [back, save]));
     back.onclick = first;
     for (const i of [iName, iInsta, iRoom]) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save.click(); } });
     iName.focus();
@@ -90,7 +135,7 @@ export function showStartCard() {
       if (insta) look.insta = insta; else delete look.insta;
       write(LOOK_KEY, { ...saved, name: name || saved.name || '', look });
       try {
-        const r = await fetch('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(iRoom.value.trim() ? { name: iRoom.value.trim() } : {}) });
+        const r = await fetch('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(iRoom.value.trim() ? { name: iRoom.value.trim() } : {}), preset: chosen ? chosen.id : false }) });
         const data = await r.json().catch(() => ({}));
         if (!r.ok || !data.room) throw new Error(data.error || `Error ${r.status}`);
         const keys = read(ROOM_KEYS) || {}; keys[data.room.id] = data.roomKey; write(ROOM_KEYS, keys);

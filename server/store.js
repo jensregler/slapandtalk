@@ -466,9 +466,13 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   // Städjobbet: tar bort snabbrum som ingen har besökt på quickTtlMs millisekunder.
   // Staden och profilrum rörs aldrig. Rum utan "senast besökt" (äldre filer) får den
   // tiden satt nu, så de får en hel period på sig.
-  async function cleanupRooms({ quickTtlMs }) {
+  // keep: ids never deleted here (the rooms Jens's presets were made from; server/index.js). Before
+  // 2 Nov 2026 it had none, and so the six presets' source rooms went after a day unvisited – the
+  // presets themselves (presets/, their own baked images) were never touched.
+  async function cleanupRooms({ quickTtlMs, keep = new Set() }) {
     const deleted = [];
     for (const id of await listRooms()) {
+      if (keep.has(id)) continue;
       await withLock(id, async () => {
         const room = await peekRoom(id); // städningen läser utan att lägga alla rum i minnet
         if (!room || room.type !== 'quick') return;

@@ -359,24 +359,48 @@ app.put('/api/rooms/:room/style', rateLimit(30), wrap(async (req, res) => {
 // ---------- Preset rooms (admin; server/presets.js) ----------
 // POST multipart: the six baked images (fields floor, ceiling, north, south, west, east; PNG/WebP,
 // made by client/src/preset.js) + sourceRoom (its look is copied) + name. GET lists, DELETE removes.
-const presetUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 6, fields: 4 },
-  fileFilter: (req, file, cb) => cb(null, ['image/png', 'image/webp'].includes(file.mimetype)) });
+const presetUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 7, fields: 4 },
+  fileFilter: (req, file, cb) => cb(null, ['image/png', 'image/webp', ...(file.fieldname === 'thumb' ? ['image/jpeg'] : [])].includes(file.mimetype)) });
 app.get('/api/admin/presets', wrap(async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
-  res.json({ presets: await presets.list() });
+  let list; try { list = await presets.list(); } catch { return res.status(503).json({ error: 'Storage did not answer' }); }
+  res.json({ presets: list });
 }));
 app.post('/api/admin/presets', (req, res, next) => { if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' }); next(); },
-  presetUpload.fields(PRESET_FACES.map((name) => ({ name, maxCount: 1 }))), wrap(async (req, res) => {
+  presetUpload.fields([...PRESET_FACES, 'thumb'].map((name) => ({ name, maxCount: 1 }))), wrap(async (req, res) => {
     const b = req.body || {}, src = String(b.sourceRoom || '').toLowerCase();
     if (!ROOM_RE.test(src)) return res.status(400).json({ error: 'sourceRoom: a room code' });
     const room = await store.getRoom(src);
     if (!room) return res.status(404).json({ error: 'That room does not exist' });
     const files = Object.fromEntries(PRESET_FACES.map((f) => [f, req.files && req.files[f] && req.files[f][0] && req.files[f][0].buffer]));
-    try { res.json({ preset: await presets.create({ name: b.name, sourceRoom: src, style: styleOf(room), files }) }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+    const thumb = req.files && req.files.thumb && req.files.thumb[0] && req.files.thumb[0].buffer; // (optional) the picture for the picker
+    try { res.json({ preset: await presets.create({ name: b.name, title: b.title, sourceRoom: src, style: styleOf(room), files, thumb }) }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   }));
 app.delete('/api/admin/presets/:id', wrap(async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
   res.json({ ok: await presets.remove(req.params.id) });
+}));
+// The display name (Jens names them; '' = back to the room code): { title }. :id = the id or its room code.
+app.patch('/api/admin/presets/:id', wrap(async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
+  const b = req.body || {};
+  if (typeof b.title !== 'string') return res.status(400).json({ error: 'title: a string' });
+  const p = await presets.rename(req.params.id, b.title);
+  if (!p) return res.status(404).json({ error: 'No such preset' });
+  res.json({ preset: p });
+}));
+// The room's picture for the start card's picker (field "thumb": PNG/JPEG/WebP; scripts/make-preset.js --thumb).
+const thumbUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 2 },
+  fileFilter: (req, file, cb) => cb(null, ['image/png', 'image/webp', 'image/jpeg'].includes(file.mimetype)) });
+app.post('/api/admin/presets/:id/thumb', (req, res, next) => { if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' }); next(); },
+  thumbUpload.single('thumb'), wrap(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'thumb: an image' });
+    try { const p = await presets.setThumb(req.params.id, req.file.buffer); if (!p) return res.status(404).json({ error: 'No such preset' }); res.json({ preset: p }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+// The start card's room picker (Jens, 2 Nov 2026): "Blank room" or one of the presets. Public:
+// per preset its id, display name (title, '' until named → show the code), the room code and a picture.
+app.get('/api/presets', rateLimit(60), wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store').json({ presets: demo ? [] : await presets.publicList() });
 }));
 app.get('/api/presets/:id/:file', wrap(async (req, res) => {
   const m = /^([a-z]+)\.webp$/.exec(req.params.file);
