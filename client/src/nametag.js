@@ -44,7 +44,7 @@ function build() {
   box.innerHTML = `
     <div class="nt-stage">
       <button type="button" class="nt-arrow" id="nt-prev" aria-label="previous">‹</button>
-      <div class="nt-tag"><canvas id="nt-blank"></canvas><canvas id="nt-ink"></canvas><canvas id="nt-stroke"></canvas></div>
+      <div class="nt-tag"><canvas id="nt-blank"></canvas><canvas id="nt-ink"></canvas><canvas id="nt-stroke"></canvas><div class="nt-clip" id="nt-clip" hidden></div></div>
       <button type="button" class="nt-arrow" id="nt-next" aria-label="next">›</button>
     </div>
     <div class="nt-dots" id="nt-dots"></div>
@@ -144,7 +144,11 @@ function build() {
     st.drips = st.drips.filter((d) => d.len < d.max);
     if (st.drips.length) st.raf = requestAnimationFrame(runDrips);
   }
+  // opts.clip {x, y, w, h} (canvas px; the door's pac label, t477u): drawing only inside it – a
+  // stroke can't start outside, and the ink is clipped to it (drips too).
+  const inClip = (p) => !st.clip || (p[0] >= st.clip.x && p[0] <= st.clip.x + st.clip.w && p[1] >= st.clip.y && p[1] <= st.clip.y + st.clip.h);
   strokeEl.addEventListener('pointerdown', (e) => {
+    if (!inClip(toTag(e))) return;
     strokeEl.setPointerCapture(e.pointerId); e.preventDefault();
     st.undo.push(ink.getImageData(0, 0, W, H)); if (st.undo.length > 20) st.undo.shift();
     last = toTag(e); sinceDrip = 20;
@@ -221,10 +225,14 @@ function build() {
       $('nt-prev').style.visibility = $('nt-next').style.visibility = many ? '' : 'hidden'; $('nt-dots').hidden = !many;
       if (opts.saveText) $('nt-save').textContent = opts.saveText;
       ink.clearRect(0, 0, W, H); stroke.clearRect(0, 0, W, H); st.undo = [];
+      st.clip = opts.clip || null;
+      for (const g of [ink, stroke]) { g.restore(); g.save(); if (st.clip) { g.beginPath(); g.rect(st.clip.x, st.clip.y, st.clip.w, st.clip.h); g.clip(); } }
+      const cl = $('nt-clip'); cl.hidden = !st.clip;
+      if (st.clip) Object.assign(cl.style, { left: `${st.clip.x / W * 100}%`, top: `${st.clip.y / H * 100}%`, width: `${st.clip.w / W * 100}%`, height: `${st.clip.h / H * 100}%` });
       box.hidden = false; showBlank(st.custom ? 0 : st.i);
     },
     close,
-    state: () => ({ open: !box.hidden, blank: st.i + 1, brush: st.brush, color: st.color, size: st.size, fallback: [...st.fallback], replacing: !$('nt-replace').hidden, drips: st.drips.length }),
+    state: () => ({ open: !box.hidden, clip: st.clip, blank: st.i + 1, brush: st.brush, color: st.color, size: st.size, fallback: [...st.fallback], replacing: !$('nt-replace').hidden, drips: st.drips.length }),
   };
 }
 export const nameTagState = () => (ui ? ui.state() : { open: false });

@@ -61,6 +61,11 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const tag = await P.locator('#nt-stroke').boundingBox();
     await P.mouse.move(tag.x + tag.width * 0.2, tag.y + tag.height * 0.17); await P.mouse.down(); await P.mouse.move(tag.x + tag.width * 0.6, tag.y + tag.height * 0.15, { steps: 15 }); await P.mouse.up();
     await P.screenshot({ path: path.join(SHOTS, '33-door-draw-on-pac.png') });
+    // t477u: drawing only on the label – a stroke across the bag leaves no ink outside it
+    await P.mouse.move(tag.x + tag.width * 0.1, tag.y + tag.height * 0.55); await P.mouse.down(); await P.mouse.move(tag.x + tag.width * 0.9, tag.y + tag.height * 0.6, { steps: 15 }); await P.mouse.up();
+    await P.mouse.move(tag.x + tag.width * 0.5, tag.y + tag.height * 0.2); await P.mouse.down(); await P.mouse.move(tag.x + tag.width * 0.5, tag.y + tag.height * 0.7, { steps: 15 }); await P.mouse.up();
+    const ink = await P.evaluate(() => { const L = window.klibb.nameTag().clip; const d = document.getElementById('nt-ink').getContext('2d').getImageData(0, 0, 563, 802).data; let inL = 0, out = 0; for (let y = 0; y < 802; y++) for (let x = 0; x < 563; x++) { if (d[(y * 563 + x) * 4 + 3] < 10) continue; if (x >= L.x && x <= L.x + L.w && y >= L.y && y <= L.y + L.h) inL++; else out++; } return { inL, out }; });
+    check('…drawing only on the label (input outside ignored, strokes clipped) (t477u)', ink.inL > 200 && ink.out === 0, ink);
     await P.click('#nt-save');
     await P.waitForFunction(() => window.klibb.door().open, null, { timeout: 10000 }).catch(() => {}); await sleep(300);
     st = await P.evaluate(() => window.klibb.door());

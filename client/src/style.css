@@ -849,6 +849,9 @@ body.start-card-on { overflow: auto; }
 #nametag .nt-tag { position: relative; flex: 1; aspect-ratio: 800 / 536; filter: drop-shadow(0 6px 18px rgba(0,0,0,.5)); }
 #nametag .nt-tag canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 #nametag #nt-stroke { cursor: crosshair; touch-action: none; }
+/* The door's pac: drawing only on the label (t477u) – a dashed frame shows where. */
+#nametag .nt-clip { position: absolute; pointer-events: none; border: 3px dashed rgba(230,25,31,.85); border-radius: 10px; box-sizing: border-box; }
+#nametag .nt-clip[hidden] { display: none; }
 #nametag .nt-arrow { flex: none; width: 46px; height: 74px; border: 0; border-radius: 12px; background: rgba(255,255,255,.14); color: #fff; font-size: 48px; line-height: 1; cursor: pointer; }
 #nametag .nt-arrow:hover { background: rgba(255,255,255,.28); }
 #nametag .nt-dots { display: flex; gap: 8px; }

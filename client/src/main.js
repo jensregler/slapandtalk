@@ -2832,7 +2832,7 @@ window.klibb = {
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer, scene,
-  nameTag: nameTagState, openNameTag, door: doorState,
+  nameTag: nameTagState, openNameTag, door: doorState, menuAction: (k) => menuActions[k]?.(),
   menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: (x = 0, y = 0) => menuOf(pickStampAt(new THREE.Vector2(x, y))), openRoomPanel, askForVisitors, roomSize: () => ({ ...roomSizer.get(), normal: roomSizer.isDefault() }), setRoomSize: (d) => roomSizer.set(d), roomSurfaces: () => room.surfaces, roomBounds: () => room.bounds, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {
