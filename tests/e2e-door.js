@@ -2,7 +2,7 @@
 // (city.png; since t471u, 2 Nov 2026, the city goes through city only – an old stickerpac sticker is a
 // plain sticker) → "Enter the city" / "Back to the room"; enter → "choose 3 slaps to
 // bring" → the three go into the Priority Mail pac (Jens's stickerpac.png) → name it, draw on it →
-// "to city" = out into the City (t476u; the pac is kept on the device). Own server (DOOR_E2E_PORT, 8903).
+// "to city" = the city picker → a new city, named (t476u, t479u; the pac is kept on the device). Own server (DOOR_E2E_PORT, 8903).
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
@@ -70,11 +70,16 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await P.waitForFunction(() => window.klibb.door().open, null, { timeout: 10000 }).catch(() => {}); await sleep(300);
     st = await P.evaluate(() => window.klibb.door());
     check('…save → back to the pac, drawn on', st.open && st.step === 'pac' && st.drawn && !(await P.evaluate(() => window.klibb.nameTag().open)), st);
-    await Promise.all([P.waitForURL(/room=stad(&|$)/, { timeout: 20000 }).catch(() => {}), P.click('#df-city')]);
+    // "to city →" = the city picker (t479u): start a city and name it, then in
+    await P.click('#df-city'); await sleep(500);
+    const pick = await P.evaluate(() => window.klibb.city().pick);
+    check('"to city →" opens the city picker (t479u)', pick.open, pick);
+    await P.click('#cp-new'); await P.fill('#cp-name', 'Door town');
+    await Promise.all([P.waitForURL(/room=stad-[a-z0-9]{6}$/, { timeout: 20000 }).catch(() => {}), P.click('#cp-go')]);
     await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }).catch(() => {}); await sleep(1500);
     const pac = await P.evaluate(() => { const p = JSON.parse(localStorage.getItem('klibb.pac')); return { name: p.name, n: p.stickers.length, img: (p.img || '').slice(0, 15) }; });
     const city = await P.evaluate(() => window.klibb.city());
-    check('"to city" → out into the City (t476u), the pac kept (name, 3 stickers, picture)', city.outside && pac.name === 'Malmö pac' && pac.n === 3 && pac.img.startsWith('data:image/'), { city, pac });
+    check('…started and named → out into the new city, the pac kept (name, 3 stickers, picture)', city.outside && pac.name === 'Malmö pac' && pac.n === 3 && pac.img.startsWith('data:image/'), { city, pac });
     await P.screenshot({ path: path.join(SHOTS, '34-door-to-city.png') });
     check('no page errors', errors.length === 0, errors);
   } catch (e) { failed++; console.log('  ✗ crashed: ' + (e.stack || e)); }

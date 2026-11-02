@@ -260,7 +260,7 @@ export const EN = {
   cpNeedName: 'Give your city a name first.', cpMaking: 'Starting your city…',
   // the Town Hall: one pack shop for every city
   hallTitle: '🏛 Town Hall · Pack shop', hallYourPack: 'Your pack', hallHandIn: '📮 Hand in my pack', hallHandInAnother: '📮 Hand in this pack too',
-  hallHandedIn: (d) => `In the shop until ${d}`, hallForever: '♾ In the shop for good (archive)',
+  hallHandedIn: (d) => `In the shop until ${d}`, hallForever: '♾ In the shop for good (archive)', hallForeverShort: '♾ for good',
   hallHandInNote: 'Hand it in and everybody in every city can see it. Then you may take packs from others.',
   hallCarry: (n, max) => `You carry ${n} of ${max} packs`, hallCarryPaid: (n) => `You carry ${n} pack${n === 1 ? '' : 's'} · they stay with you`,
   hallFreeRule: 'Free: your pack stays one week. What you take is yours while you are in the city.',

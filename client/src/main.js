@@ -2241,7 +2241,7 @@ async function refreshCity() {
   try { cityInfo = (await cityApi.info(THIS_CITY)).city; }
   catch (e) { if (e.status === 404) cityGone(); return null; }
   if (room.doors) markDoors(room.doors, { started: cityInfo.houses, next: cityInfo.next });
-  $('room-hud').textContent = S.cityHud(cityInfo.name, houseNumber(ROOM));
+  $('room-hud').textContent = S.cityHud(cityInfo.name, houseNumber(ROOM)); $('room-name').textContent = S.cityHud(cityInfo.name, houseNumber(ROOM));
   return cityInfo;
 }
 // The city closed (everybody left – server/emptyrooms.js) while this page was away: only Exit to menu.

@@ -111,7 +111,7 @@ function buildHall() {
   const $ = (id) => box.querySelector('#' + id);
   const st = { opts: null, data: null, busy: false, view: 'main', detail: null, deck: null };
   const close = () => { if (box.hidden) return; box.hidden = true; st.opts?.onClose?.(); };
-  const show = (view) => { st.view = view; for (const v of ['main', 'detail', 'form', 'deck']) $('th-' + v).hidden = v !== view; $('th-back').textContent = view === 'main' ? S.hallBack : S.hallDetailBack; box.querySelector('.th-panel').scrollTop = 0; for (const v of ['main', 'detail', 'form', 'deck']) $('th-' + v).scrollTop = 0; };
+  const show = (view) => { st.view = view; for (const v of ['main', 'detail', 'form', 'deck']) $('th-' + v).hidden = v !== view; $('th-back').textContent = view === 'main' ? S.hallBack : S.hallDetailBack; $('th-back').hidden = view === 'form' || view === 'deck'; /* (they have their own buttons) */ box.querySelector('.th-panel').scrollTop = 0; for (const v of ['main', 'detail', 'form', 'deck']) $('th-' + v).scrollTop = 0; };
   const back = () => { if (st.view === 'main') close(); else { show('main'); render(); } };
   $('th-x').onclick = close; $('th-back').onclick = back;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
@@ -128,7 +128,7 @@ function buildHall() {
     if (p.author?.insta) by.append(el('span', { className: 'th-insta', textContent: '@' + p.author.insta }));
     const stk = el('div', { className: 'th-stk' }); for (const s of p.stickers) if (s.url) stk.append(img(s.url));
     const about = el('div', { className: 'th-about', textContent: p.about || '' });
-    const meta = el('div', { className: 'th-meta', textContent: [p.forever ? '♾' : S.hallUntil(fmtDate(p.expiresAt)), p.takenCount ? S.hallTakenCount(p.takenCount) : ''].filter(Boolean).join(' · ') });
+    const meta = el('div', { className: 'th-meta', textContent: [p.forever ? S.hallForeverShort : S.hallUntil(fmtDate(p.expiresAt)), p.takenCount ? S.hallTakenCount(p.takenCount) : ''].filter(Boolean).join(' · ') });
     c.append(img(p.img, 'th-pimg'), el('div', { className: 'th-pname', textContent: p.name }), by, stk, about, meta, takeButton(p, 'th-take'));
     c.onclick = (e) => { if (!e.target.closest('button')) openDetail(p); };
     return c;

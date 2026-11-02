@@ -961,7 +961,7 @@ body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-ci
 #townhall .th-stk img { width: 68px; height: 68px; object-fit: contain; background: #f2f2f2; border-radius: 10px; padding: 4px; }
 #townhall .th-stk-big img { width: min(160px, 26vw); height: min(160px, 26vw); padding: 8px; }
 #townhall .th-about { font-size: 18px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-#townhall .th-meta { font-size: 16px; opacity: .75; }
+#townhall .th-meta { font-size: 18px; font-weight: 600; opacity: .8; }
 #townhall .th-take { width: 100%; margin-top: auto; }
 #townhall .th-none { grid-column: 1 / -1; font-size: 22px; padding: 28px; text-align: center; opacity: .85; }
 #townhall .th-back { margin: 12px 20px 16px; align-self: flex-start; background: #fff; }
@@ -979,7 +979,7 @@ body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-ci
 #townhall .th-fields { display: flex; flex-direction: column; gap: 14px; }
 #townhall .th-field { display: flex; flex-direction: column; gap: 6px; font-size: 20px; font-weight: 800; }
 #townhall .th-field input, #townhall .th-field textarea, #citypick input { font: 600 22px system-ui, sans-serif; padding: 12px 14px; border: 3px solid #15130f; border-radius: 12px; background: #fff; color: #15130f; }
-#townhall .th-field textarea { resize: vertical; min-height: 140px; line-height: 1.4; }
+#townhall .th-field textarea { resize: vertical; min-height: 110px; line-height: 1.4; }
 #townhall .th-count { font-size: 16px; opacity: .7; text-align: right; margin-top: -8px; }
 #townhall .th-btns, #citypick .th-btns { display: flex; flex-wrap: wrap; gap: 12px; }
 /* a paying player: the pack's stickers into the deck */
