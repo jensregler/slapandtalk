@@ -62,15 +62,15 @@ const ALL = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam', 
     // size the nature sticker to 300 cm and slap it
     const s300 = await P.evaluate(async () => { const k = window.klibb; k.setView?.('first', { quiet: true }); k.moveTo(0, 0); k.look(0, 0.12); k.setSize(300);
       const cm = Math.round(k.state.size * 1000) / 10, lim = k.limitsFor(); const s = await k.stampAt(0, 0); return { cm, lim, label: document.getElementById('size-val').textContent, stamp: s && { imageId: s.imageId, size: s.size } }; });
-    check(`nature sticker sized to 300 cm (limits ${s300.lim.minCm}–${s300.lim.maxCm} cm) and slapped at 3 m – the server took it`, s300.cm === 300 && s300.lim.minCm === 5 && s300.lim.maxCm === 400 && s300.stamp && s300.stamp.imageId === v1.sel && Math.abs(s300.stamp.size - 3) < 0.001, s300);
+    check(`nature sticker sized to 300 cm (limits ${s300.lim.minCm}–${s300.lim.maxCm} cm) and slapped at 3 m – the server took it`, s300.cm === 300 && s300.lim.minCm === 10 && s300.lim.maxCm === 800 && s300.stamp && s300.stamp.imageId === v1.sel && Math.abs(s300.stamp.size - 3) < 0.001, s300);
     await P.evaluate(() => window.klibb.setSize(900)); await sleep(100);
-    check('…900 cm is held at the nature 400 cm (its own rule, not a paywall)', (await P.evaluate(() => Math.round(window.klibb.state.size * 1000) / 10)) === 400);
+    check('…900 cm is held at the nature 800 cm (the room height, 8 m; its own rule, not a paywall)', (await P.evaluate(() => Math.round(window.klibb.state.size * 1000) / 10)) === 800);
     await P.evaluate(() => window.klibb.setSize(300)); await sleep(500);
     await P.screenshot({ path: path.join(SHOTS, 'desktop-nature-mode-300cm.png') });
-    // V back → normal sticker, 5 cm – no max
+    // V back → normal sticker, 10 cm – 1.5 m (Jens, t475u: the limits for everyone)
     await P.keyboard.press('KeyV'); await sleep(1200);
     const big = await P.evaluate(() => { const k = window.klibb; k.setSize(1000); const hi = Math.round(k.state.size * 1000) / 10; k.setSize(1); const lo = Math.round(k.state.size * 1000) / 10; k.setSize(40); return { nature: k.natureMode(), hi, lo, max: k.maxSizeCm, min: k.minSizeCm }; });
-    check('V again → Slap mode; a normal sticker goes from 5 cm to 1000 cm (no 15 cm floor, no 1 m cap)', !big.nature && big.hi === 1000 && big.lo === 5 && big.max === Infinity && big.min === 5, big);
+    check('V again → Slap mode; a normal sticker goes from 10 cm to 150 cm (the full limits, t475u; no 15 cm floor, no 1 m cap)', !big.nature && big.hi === 150 && big.lo === 10 && big.max === 150 && big.min === 10, big);
     const srv = await fetch(`${S.base}/api/rooms/stad/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: nat[0].id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 1, surface: 'vägg-norr' }) });
     const sj = await srv.json().catch(() => ({}));
     check('server: a keyless nature stamp is NOT refused as "part of the full version" (no 403 full)', !(srv.status === 403 && sj.full), { status: srv.status, sj });

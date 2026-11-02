@@ -2,7 +2,7 @@
 // (shared/nature.mjs), the sticker wheel (right) = everything else (no nature stickers). Free version:
 // the Nature wheel is greyed + locked, a click opens the full version panel, nothing gets held, and
 // the server refuses nature stamps (403). Full version (natureStickers): clicking a nature sticker makes
-// the Nature wheel active (R/F and the stack follow it), its slap is 5 cm – 4 m high and drops no
+// the Nature wheel active (R/F and the stack follow it), its slap is 10 cm – 8 m high (the room height, t475u) and drops no
 // paper; clicking the sticker wheel goes back. Phone: the two bands side by side, the left one Nature.
 // Own server (NATUREWHEEL_E2E_PORT, default 8865). Screenshots: NATURE_SHOTS (default /workspace/nature-shots).
 const fs = require('fs');
@@ -70,12 +70,12 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await settle(U, 'natureWheel');
     const u1 = await U.evaluate(() => ({ act: window.klibb.activeWheel(), sel: window.klibb.state.selected, idx: window.klibb.natureWheel().index, ids: window.klibb.natureDesigns().map((d) => d.id), strip: window.klibb.strip(), ns: window.klibb.natureStrip(), lim: window.klibb.limitsFor() }));
     check('full: clicking a nature sticker holds it and makes the Nature wheel active (turned to it; the sticker wheel shows no selection)', u1.act === 'nature' && u1.sel.nature && u1.ids[u1.idx] === u1.sel.id && u1.ns.sel === u1.sel.id && u1.strip.sel === null, { act: u1.act, ns: u1.ns.sel, st: u1.strip.sel });
-    check('…nature limits: 5 cm – 400 cm (the full version has no cap otherwise)', u1.lim.minCm === 5 && u1.lim.maxCm >= 400 && Number.isFinite(u1.lim.maxCm), u1.lim);
+    check('…nature limits: 10 cm – 800 cm (the room height, t475u)', u1.lim.minCm === 10 && u1.lim.maxCm >= 800 && Number.isFinite(u1.lim.maxCm), u1.lim);
     await U.keyboard.press('r'); await sleep(500); await U.keyboard.press('r'); await sleep(500); await U.keyboard.press('f'); await sleep(600);
     const u2 = await U.evaluate(() => ({ act: window.klibb.activeWheel(), sel: window.klibb.state.selected.id, ids: window.klibb.natureDesigns().map((d) => d.id) }));
     check('full: R/F turn the ACTIVE (Nature) wheel: R, R, F = one on', u2.act === 'nature' && u2.ids.indexOf(u2.sel) === (u2.ids.indexOf(u1.sel.id) + 1) % u2.ids.length, { a: u2.ids.indexOf(u2.sel), b: u2.ids.indexOf(u1.sel.id) });
     await U.screenshot({ path: path.join(SHOTS, 'e2e-desktop-full-nature.png') });
-    // slap it: 4 m high cap, no paper (peels are on at load for the room's creator)
+    // slap it: 8 m high cap, no paper (peels are on at load for the room's creator)
     await U.evaluate(() => { const k = window.klibb; k.setView('first', { quiet: true }); k.moveTo(0, -2.6); k.look(0, 0.12); k.setMode?.('slap'); k.controls.locked = true; k.setSize(900); });
     await fetch(`${S.base}/api/rooms/${made.room.id}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': made.roomKey }, body: JSON.stringify({ on: true }) });
     await U.waitForFunction(() => document.getElementById('peels-on').checked || window.klibb.peels().on, null, { timeout: 5000 }).catch(() => {});
@@ -85,8 +85,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await sleep(800);
     const u3 = await U.evaluate(() => ({ peels: window.klibb.peels().count, on: window.klibb.peelsOn?.() }));
     const sel = await U.evaluate(() => window.klibb.state.selected);
-    const maxSide = 4 * Math.max(1, sel.width / sel.height);
-    check(`full: a nature slap is placed at most 4 m high (asked 9 m → ${st && st.size} m) and drops no paper`, st && st.imageId === sel.id && Math.abs(st.size - Math.min(9, maxSide)) < 0.011 && u3.peels === peelsBefore, { st, maxSide, peelsBefore, u3 });
+    const maxSide = 8 * Math.max(1, sel.width / sel.height);
+    check(`full: a nature slap is placed at most 8 m high (asked 9 m → ${st && st.size} m) and drops no paper`, st && st.imageId === sel.id && Math.abs(st.size - Math.min(9, maxSide)) < 0.011 && u3.peels === peelsBefore, { st, maxSide, peelsBefore, u3 });
     await U.evaluate(() => { window.klibb.controls.locked = false; });
     const sr = await U.evaluate(() => window.klibb.strip().rect);
     await U.mouse.click(sr.x + sr.width / 2, sr.y + sr.height - 60); await sleep(600);
