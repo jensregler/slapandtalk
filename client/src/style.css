@@ -765,6 +765,13 @@ body.start-card-on { overflow: auto; }
 .sc-sub { font-size: 7cqw; color: #fff; font-weight: 700; margin-top: -3cqw; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
 .sc-mid { font-size: 7cqw !important; color: #fff !important; font-weight: 700; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
 .sc-join .sc-hand { font-size: 13cqw; }
+/* his lettering (start/enter.png, start/orjoin.png): sized as on his mockup start-card-1 */
+.sc-hand-img { display: block; height: auto; pointer-events: none; user-select: none; }
+.sc-hand-enter { width: 80cqw; margin-top: -2cqw; }
+.sc-enter .sc-sub { margin-top: -15cqw; margin-right: 14cqw; position: relative; }
+.sc-hand-join { width: 74cqw; }
+.sc-enter, .sc-join { padding: 0; }
+.start-card button:hover .sc-hand-img { filter: brightness(1.12) drop-shadow(0 0 .6cqw rgba(255,255,255,.6)); }
 .start-card button:hover .sc-hand, .sc-mid:hover { filter: brightness(1.15); text-decoration: underline; }
 .sc-list { list-style: none; margin: 0; padding: 1.5cqw 2cqw; background: #000; border-radius: 1.5cqw; width: 100%; display: flex; flex-direction: column; gap: 1cqw; counter-reset: room; }
 .sc-list li { counter-increment: room; display: flex; align-items: center; gap: 1.5cqw; }

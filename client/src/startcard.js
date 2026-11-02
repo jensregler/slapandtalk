@@ -32,11 +32,17 @@ export function showStartCard() {
   const card = el('div', { className: 'sc-paper' });
   root.appendChild(card);
 
+  // Jens's own hand-drawn red lettering, cut from his mockup (tools/startcard-art.py); typed if it won't load.
+  function hand(src, text, cls) {
+    const img = el('img', { className: 'sc-hand-img ' + cls, src, alt: text, draggable: false });
+    img.onerror = () => img.replaceWith(el('span', { className: 'sc-hand', textContent: text }));
+    return img;
+  }
   function first() {
     card.textContent = '';
-    const enter = el('button', { type: 'button', className: 'sc-big sc-enter', id: 'sc-new' }, [el('span', { className: 'sc-hand', textContent: S.scEnter }), el('span', { className: 'sc-sub', textContent: S.scNewRoom })]);
+    const enter = el('button', { type: 'button', className: 'sc-big sc-enter', id: 'sc-new' }, [hand('/start/enter.png', S.scEnter, 'sc-hand-enter'), el('span', { className: 'sc-sub', textContent: S.scNewRoom })]);
     const code = el('button', { type: 'button', className: 'sc-mid', id: 'sc-code', textContent: S.scHaveCode });
-    const join = el('button', { type: 'button', className: 'sc-big sc-join', id: 'sc-join' }, [el('span', { className: 'sc-hand', textContent: S.scJoin })]);
+    const join = el('button', { type: 'button', className: 'sc-big sc-join', id: 'sc-join' }, [hand('/start/orjoin.png', S.scJoin, 'sc-hand-join')]);
     const list = el('ol', { className: 'sc-list', id: 'sc-list' });
     card.append(el('div', { className: 'sc-body' }, [enter, code, join, list]));
     enter.onclick = second; code.onclick = codeDialog; join.onclick = () => loadJoin(list, true);

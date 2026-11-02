@@ -16,7 +16,8 @@ const GRACE = 300;
   const app = createApp(store, { adminToken: 'x' });
   const server = app.listen(0);
   let rt = null; const keep = new Set();
-  const reaper = createEmptyRoomReaper({ store, graceMs: GRACE, isOccupied: (id) => rt.occupied(id), keepIds: async () => keep, log: {} });
+  let now = Date.now();
+  const reaper = createEmptyRoomReaper({ store, graceMs: GRACE, isOccupied: (id) => rt.occupied(id), keepIds: async () => keep, log: {}, clock: () => now });
   rt = attachRealtime(server, { maxPlayers: 4, heartbeatMs: 200, onEmpty: reaper.empty, onJoin: reaper.joined });
   const base = `http://127.0.0.1:${server.address().port}`;
   const make = async (body = {}) => (await (await fetch(`${base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json()).room.id;
@@ -51,11 +52,42 @@ const GRACE = 300;
     await store.createRoom({ id: 'profil1', type: 'profile' });
     assert(!(await reaper.reap('profil1')) && !!(await store.peek('profil1')), 'a profile room (not quick) is never deleted');
 
-    const d = await make(); // nobody ever joins: no timer (the hourly TTL cleanup takes it)
+    const d = await make(); // nobody ever joins: no timer – the sweep takes it
     await sleep(GRACE + 100);
-    assert(await exists(d) && !reaper.pending().includes(d), 'a room nobody has been in (e.g. already empty at deploy) gets no timer – left to the TTL cleanup');
+    assert(await exists(d) && !reaper.pending().includes(d), 'a room nobody has walked into gets no timer…');
+    const full = await make(); const inside = await join(full);
+    const kept2 = await make(); keep.add(kept2);
+    let swept = await reaper.sweep();
+    assert(swept.length === 0 && await exists(d), '…and a sweep leaves rooms made in the last minute alone (the start card is still loading them)');
+    now = Date.now() + 61_000;
+    swept = await reaper.sweep();
+    assert(swept.includes(d) && !(await exists(d)), 'the sweep (startup + every few minutes): an older room nobody is in is deleted – e.g. empty rooms from before a deploy/restart');
+    assert(await exists(full) && await exists(kept2) && await exists(c) && !!(await store.peek('profil1')), '…not a room someone is in, a preset source room or a profile room');
+    await store.createRoom({ id: 'demo1x', type: 'quick', extra: { demo: true } });
+    assert(!(await reaper.sweep()).includes('demo1x') && !!(await store.peek('demo1x')), '…nor a demo room (the demo has its own expiry)');
+    await leave(inside);
     console.log('\nAll empty-room tests passed');
   } catch (e) { console.error(e.message); process.exitCode = 1; }
   reaper.stop(); rt.close(); server.close(); fs.rmSync(dir, { recursive: true, force: true });
+  // The real server: rooms already empty at startup (e.g. from before a deploy) are swept away.
+  if (!process.exitCode) {
+    const { spawn } = require('child_process');
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-sweep-'));
+    fs.mkdirSync(path.join(d2, 'rooms'), { recursive: true });
+    const old = '2026-10-01T10:00:00.000Z';
+    const put = (id, extra = {}) => fs.writeFileSync(path.join(d2, 'rooms', id + '.json'), JSON.stringify({ id, type: 'quick', owner: null, createdAt: old, lastVisitAt: new Date().toISOString(), // visited recently: the 24 h TTL cleanup leaves them, so it's the sweep
+      stamps: [], ...extra }));
+    put('oldaa1'); put('oldbb2'); put('demoq1', { demo: true }); put('profq1', { type: 'profile' });
+    const port = 8960 + Math.floor(Math.random() * 30);
+    const child = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'index.js')], { env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(port), DATA_DIR: d2, STORAGE: 'local', EMPTY_ROOM_GRACE_SECONDS: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = ''; child.stdout.on('data', (b) => { out += b; }); child.stderr.on('data', (b) => { out += b; });
+    try {
+      await sleep(9000);
+      const left = fs.readdirSync(path.join(d2, 'rooms')).sort();
+      assert(!left.includes('oldaa1.json') && !left.includes('oldbb2.json') && left.includes('demoq1.json') && left.includes('profq1.json'),
+        'server startup: empty rooms from before are swept (after the grace period); demo and profile rooms stay');
+    } catch (e) { console.error(e.message, out.slice(-600)); process.exitCode = 1; }
+    child.kill(); fs.rmSync(d2, { recursive: true, force: true });
+  }
   setTimeout(() => process.exit(process.exitCode || 0), 100);
 })();

@@ -1045,7 +1045,8 @@ Id:t räknas fram ur bildens innehåll, så laddar två personer upp exakt samma
 | `S3_REGION` | `auto` | Region (R2 använder `auto`) |
 | `S3_PREFIX` | tomt | Lägger allt under en "mapp" i bucketen, t.ex. `slapandtalk/` |
 | `QUICK_ROOM_TTL_HOURS` | `24` | Hur länge ett tomt snabbrum får stå kvar |
-| `EMPTY_ROOM_GRACE_SECONDS` | `60` | När sista personen lämnar ett snabbrum tas det bort efter så här många sekunder (om ingen kommit tillbaka). Staden, profilrum och rum som en preset gjorts från tas aldrig bort (server/emptyrooms.js) |
+| `EMPTY_ROOM_GRACE_SECONDS` | `10` | När sista personen lämnar ett snabbrum tas det bort efter så här många sekunder (om ingen kommit tillbaka). Staden, profilrum, demorum och rum som en preset gjorts från tas aldrig bort (server/emptyrooms.js) |
+| `EMPTY_ROOM_SWEEP_MINUTES` | `5` | Hur ofta alla tomma snabbrum i lagringen tas bort (även vid start, efter grace + 5 s). Rum skapade senaste minuten väntar till nästa gång |
 | `EMPTY_ROOM_DELETE` | – | `0` = stäng av borttagningen av tomma rum |
 | `REC_MAX_MINUTES` | `120` | Längsta inspelning (minuter) |
 | `REC_MAX_MB` | `32` | Största inspelning (MB logg) |

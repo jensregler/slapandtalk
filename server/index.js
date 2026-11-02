@@ -73,12 +73,19 @@ async function cleanup() {
 })().catch((e) => console.error('[start] Oväntat fel före start:', e)).finally(() => {
   const server = app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind}, max ${MAX_PLAYERS} per rum${DEMO ? ', DEMO' : ''})`));
   // Flerspelarläget (WebSocket på /ws) går på samma port som webbappen.
-  // Empty rooms are deleted after EMPTY_ROOM_GRACE_SECONDS (60); presets' source rooms and the City stay. EMPTY_ROOM_DELETE=0: off.
+  // Empty rooms are deleted after EMPTY_ROOM_GRACE_SECONDS (10); presets' source rooms and the City stay. EMPTY_ROOM_DELETE=0: off.
+  // Plus a sweep of every empty room: at startup (after the grace period + 5 s, so people reconnecting after the restart keep theirs)
+  // and every EMPTY_ROOM_SWEEP_MINUTES (5).
   const reaper = process.env.EMPTY_ROOM_DELETE === '0' || DEMO ? null : createEmptyRoomReaper({
-    store, isOccupied: (id) => !!realtime && realtime.occupied(id), graceMs: Number(process.env.EMPTY_ROOM_GRACE_SECONDS || 60) * 1000,
+    store, isOccupied: (id) => !!realtime && realtime.occupied(id), graceMs: Number(process.env.EMPTY_ROOM_GRACE_SECONDS || 10) * 1000,
     keepIds: async () => new Set((await app.locals.presets.list().catch(() => [])).map((p) => p.sourceRoom).filter(Boolean)),
   });
   realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder, entitle, gate, onEmpty: reaper && reaper.empty, onJoin: reaper && reaper.joined });
+  if (reaper) {
+    const sweep = () => reaper.sweep().then((d) => { if (d.length) console.log(`[rooms] sweep: deleted ${d.length} empty room(s) (${d.join(', ')})`); }).catch((e) => console.error('[rooms] sweep failed:', e.message));
+    setTimeout(sweep, Number(process.env.EMPTY_ROOM_GRACE_SECONDS || 10) * 1000 + 5000).unref();
+    setInterval(sweep, Number(process.env.EMPTY_ROOM_SWEEP_MINUTES || 5) * 60_000).unref();
+  }
   if (demo) { demo.start(); console.log(`[demo] DEMO_PROFILE on: free version, ${DEMO.maxPlayers} per room, invite-only, rooms close after ${DEMO.roomMs / 60_000} min`); }
   // Vid omstart (pm2, Render): säg till alla anslutna att servern startar om, så kopplar
   // deras webbläsare upp sig igen av sig själva när den nya servern är igång.

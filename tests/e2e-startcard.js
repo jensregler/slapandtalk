@@ -31,7 +31,11 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const c = await p.evaluate(() => ({ card: !!document.querySelector('#start-card .sc-paper'), bg: getComputedStyle(document.querySelector('.sc-paper')).backgroundImage, rooms: [...document.querySelectorAll('#sc-list .sc-room')].map((x) => x.textContent), main: !!window.klibb }));
     check('?start=1 shows the Priority Mail card (Jens\'s menue.png) – the room does not load behind it', c.card && /start\/card\.webp/.test(c.bg) && !c.main, c);
     check('…"…or Join" lists the open room by name with its facts', c.rooms.length === 1 && /Ullas ateljé/.test(c.rooms[0]) && /free spot/.test(c.rooms[0]), c.rooms);
-    await p.screenshot({ path: path.join(SHOTS, '10-start-card.png') });
+    const art = await p.evaluate(() => [...document.querySelectorAll('#start-card .sc-hand-img')].map((i) => ({ src: i.getAttribute('src'), ok: i.complete && i.naturalWidth > 0, alt: i.alt })));
+    check('Jens\'s hand-drawn "enter" and "…or Join" (cut from his mockup) are shown; "new room" / "…or I have a code:" stay live text',
+      art.length === 2 && art.every((a) => a.ok) && /enter\.png/.test(art[0].src) && /orjoin\.png/.test(art[1].src)
+      && await p.evaluate(() => document.querySelector('#sc-new .sc-sub').textContent === 'new room' && /I have a code/.test(document.getElementById('sc-code').textContent)), art);
+    await p.screenshot({ path: path.join(SHOTS, '10b-start-card.png') });
     await p.click('#sc-code'); await sleep(300); await p.fill('#sc-code-input', 'nope-nope'); await p.click('#sc-code-go'); await sleep(700);
     check('"…or I have a code": a code dialog; an unknown code says so', /no room with that code/i.test(await p.textContent('#sc-code-msg')));
     await p.screenshot({ path: path.join(SHOTS, '11-start-code-dialog.png') });
