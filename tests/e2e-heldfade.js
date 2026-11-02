@@ -66,7 +66,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       check(`${tag}: …keys (Q) and the scroll wheel don't bring it back either`, s3k.opacity === 0 && !s3k.previewVisible && s3k.n === s3.n, s3k);
       await P.mouse.down(); await P.mouse.up(); await sleep(400);
       const s4 = await st();
-      check(`${tag}: the next press only wakes it: back sharp, no slap (like a tap on touch)`, s4.n === s3.n && s4.state === 'timed' && s4.canSlap && s4.previewVisible && s4.previewOpacity === 1, s4);
+      check(`${tag}: the next press only wakes it: back sharp, no slap (faded = View mode; a click on a wall = Slap mode, sharp until the next slap)`, s4.n === s3.n && (s4.state === 'timed' || s4.state === 'holding') && s4.canSlap && s4.previewVisible && s4.previewOpacity === 1, s4);
       await P.mouse.down(); await P.mouse.up(); await sleep(900);
       const s5 = await st();
       check(`${tag}: …and the press after that slaps`, s5.n > s4.n && s5.canSlap && s5.previewOpacity === 1, s5);
@@ -78,6 +78,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       const s6b = await st();
       check(`${tag}: …and it fades 2 s after the last one`, s6b.opacity === 0 && !s6b.previewVisible, s6b);
       // before the fade is complete: any input restarts the 2 s, as before
+      // faded = View mode, where a click on a sticker shows its credit: wake it on a free bit of wall
+      await P.evaluate(() => window.klibb.look(0.7, 0));
       await P.mouse.down(); await P.mouse.up(); await sleep(300); // wake
       const n7 = (await st()).n;
       for (let i = 0; i < 8; i++) { await P.mouse.move(600 + (i % 2 ? 6 : -6), 400); await sleep(450); }

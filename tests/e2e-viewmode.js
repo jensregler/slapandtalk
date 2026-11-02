@@ -52,10 +52,12 @@ const CUSTOM = { patches: { slap: { gain: 0.3, layers: [{ kind: 'osc', wave: 'sq
     await p.evaluate(() => { const k = window.klibb; k.look(0.6, 0.1); }); await sleep(300);
     await p.mouse.click(640, 400); await sleep(500);
     const s2 = await st();
-    check('…a click on a free surface (floor, no sticker, no button) → Slap mode; that click placed nothing', s2.mode === 'slap' && (await p.evaluate(() => window.klibb.stamps.meshes.size)) === n0 && s2.held && s2.held.state === 'timed', s2);
+    check('…a click on a free surface (floor, no sticker, no button) → Slap mode; that click placed nothing', s2.mode === 'slap' && (await p.evaluate(() => window.klibb.stamps.meshes.size)) === n0 && s2.held && s2.held.canSlap && s2.held.opacity === 1, s2);
     await p.screenshot({ path: path.join(SHOTS, '32-slapmode-after-click.png') });
-    // fade → View mode
-    await p.waitForFunction(() => window.klibb.state.mode === 'view', null, { timeout: 8000 }).catch(() => {});
+    // slap once (a sticker not placed yet stays held until placed), then fade → View mode
+    await p.mouse.click(640, 400); await sleep(400);
+    check('…the next click slaps', (await p.evaluate(() => window.klibb.stamps.meshes.size)) === n0 + 1);
+    await p.waitForFunction(() => window.klibb.state.mode === 'view', null, { timeout: 9000 }).catch(() => {});
     const s3 = await st();
     check('…untouched, the held sticker fades out completely (2 s + 1 s) and it is View mode again', s3.mode === 'view' && s3.held.opacity === 0 && /Look mode/.test(s3.hud), s3);
     // 4) personal sound

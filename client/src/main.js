@@ -391,6 +391,9 @@ async function select(img) {
   if (changed) applySizeLimit(); // nature stickers have their own size limits (shared/nature.mjs)
   if (img && changed) startSize(img);
   if (img && changed) deskHeld?.choose(performance.now()); // desktop: a newly chosen sticker is sharp until placed
+  // desktop, View mode (after a fade): picking another sticker (R / F, the wheel, the book) means slapping
+  // again – back to Slap mode. Not the first pick at start: a room starts in View mode.
+  if (img && changed && deskHeld && window.klibb?.ready && state.mode === 'view' && !selfieOn() && !camView) setMode('slap', { quiet: true });
   if (!img) { preview.setTexture(null); return; }
   try {
     const tex = await stamps.texture(img);
@@ -1107,7 +1110,10 @@ function toggleNature() {
 // var: setMode längre ner använder den innan raden här har körts.
 var stackMenu = null; // eslint-disable-line no-var -- touch only: the sticker stack menu + the held sticker's timer (stackmenu.js)
 var camShow = localStorage.getItem('klibb.camShow') !== '0'; // eslint-disable-line no-var
-setMode('view', { quiet: true }); // a room starts in View mode (Jens, 2 Nov 2026): look around first; a click on a free surface = Slap mode
+// A room starts in View mode (Jens, 2 Nov 2026): look around first; a click on a free surface = Slap mode.
+// Touch has no mode switch: there the held timer's idle / faded state already is the view mode (a tap
+// wakes the sticker, a tap on a sticker shows its credit), so a phone starts as before.
+if (!isTouch) setMode('view', { quiet: true });
 $('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); };
 $('mode-slap').onclick = () => { if (state.mode !== 'slap') setMode('slap', { quiet: true }); if (natureMode()) setNatureMode(false, { quiet: true }); toast(S.modeToastSlap(isTouch), 1600); };
 $('mode-nature').onclick = () => { setNatureMode(true); };
@@ -1420,7 +1426,9 @@ function viewClick(ndc = CENTER) {
   if (clickCredit(ndc)) return 'sticker';
   if (!hitSurface(ndc)) return null;
   setMode('slap', { quiet: true }); toast(natureMode() ? S.modeToastNature(isTouch) : S.modeToastSlap(isTouch), 1400);
-  deskHeld?.wake(performance.now());
+  // back in Slap mode: a sticker not placed yet stays held sharp until placed (holding); one that
+  // faded comes back sharp for a fresh 2 s (and fades back to View mode if it is not used)
+  if (deskHeld && deskHeld.state !== 'holding') deskHeld.wake(performance.now());
   return 'slap';
 }
 const linkDlg = $('link-dialog');

@@ -1,3 +1,5 @@
+// Since Jens, 2 Nov 2026 (t470u) the groove scale is a PERSONAL sound setting: never synced, not
+// saved with the room, everyone hears every step on their own grid. The checks below say so.
 // E2E (short): the footstep groove. Own server (port 8846, normal app). A = the room's creator with
 // the full version, B = a free visitor. The slider and [ / ] change the scale for A, it syncs to B,
 // B cannot change it (no UI, keys do nothing), and the footsteps of a walking avatar land on the
@@ -32,7 +34,7 @@ const KEY = 'groove-e2e-full-key';
     await A.waitForFunction(() => window.klibb.groove().canChange, null, { timeout: 10000 }).catch(() => {});
     const gA = () => A.evaluate(() => window.klibb.groove()), gB = () => B.evaluate(() => window.klibb.groove());
     let a = await gA(), b = await gB();
-    check('A (creator + full version) may change it, the Groove row is shown; B (free) sees none of it', a.canChange && !a.ui.hidden && !b.canChange && b.ui.hidden, { a: a.ui, b: b.ui });
+    check('A (full version) may change its own groove, the Groove row is shown', a.canChange && !a.ui.hidden, { a: a.ui, b: b.ui });
     check('both start at the default 1.0× with no readout chip', a.scale === 1 && b.scale === 1 && b.ui.chip === '' && a.ui.value.startsWith('1.00×'), { a: a.ui, b: b.ui });
 
     // ---------- Slider ----------
@@ -42,8 +44,8 @@ const KEY = 'groove-e2e-full-key';
     check(`the slider changes A's scale right away (600 → ${want}×)`, a.scale === want, a.scale);
     await B.waitForFunction((w) => window.klibb.groove().scale === w, want, { timeout: 5000 }).catch(() => {});
     b = await gB();
-    check('…and it syncs to B (same scale, same phase anchor as the server)', b.scale === want && b.at > 0, { b: b.scale, at: b.at });
-    check('B gets the tiny calm readout chip', b.ui.chip === `Groove ${G.grooveLabel(want).scale}`, b.ui.chip);
+    check('…and it is personal: B keeps 1.0× (nothing is synced)', b.scale === 1, { b: b.scale, at: b.at });
+    check('B gets no readout chip (nothing came from A)', b.ui.chip === '', b.ui.chip);
 
     // ---------- Keys ----------
     await A.keyboard.press('BracketRight');
@@ -54,11 +56,12 @@ const KEY = 'groove-e2e-full-key';
     check(`] = a quarter octave looser, Shift+[ = an octave tighter (${want} → ${k1} → ${k2})`, a.scale === k2, a.scale);
     await B.waitForFunction((w) => window.klibb.groove().scale === w, k2, { timeout: 5000 }).catch(() => {});
     b = await gB();
-    check('the keys sync to B too', b.scale === k2, b.scale);
+    check('the keys do not change B either', b.scale === 1, b.scale);
     await B.keyboard.press('BracketRight'); await B.waitForTimeout(400);
-    check('B pressing ] changes nothing (not theirs to change, no nagging)', (await gB()).scale === k2 && (await gA()).scale === k2);
+    const bAfter = (await gB()).scale;
+    check('B pressing ] changes only B\'s own groove (if B may), never A\'s', (await gA()).scale === k2 && (bAfter === 1 || bAfter === G.stepScale(1, 1)), bAfter);
     const srv = await (await fetch(`${S.base}/api/rooms/${R}/stamps`)).json();
-    check('saved with the room', srv.info.groove && srv.info.groove.scale === k2, srv.info.groove);
+    check('not saved with the room (no sound settings in room state)', !srv.info.groove || srv.info.groove.scale === 1, srv.info.groove);
     // settle A and B on the server's state
     await A.waitForFunction((w) => window.klibb.groove().scale === w, k2, { timeout: 3000 }).catch(() => {});
     await B.waitForTimeout(300);
@@ -78,13 +81,12 @@ const KEY = 'groove-e2e-full-key';
     const onGrid = (e, g) => G.eventsBetween(g, e.slot, e.t - 0.5, e.t + 0.5).some((x) => x.tick === e.tick && Math.abs(x.t - e.t) < 0.2);
     const mineA = a.log.filter((e) => e.id === 'me' && e.t >= t0 - 200), mineB = b.log.filter((e) => e.id === 'me' && e.t >= t0 - 200);
     const aFromB = b.log.filter((e) => e.id === aId && e.t >= t0 - 200), bFromA = a.log.filter((e) => e.id === bId && e.t >= t0 - 200);
-    const st = { scale: a.scale, at: a.at, phase: a.phase };
+    const st = { scale: a.scale, at: a.at, phase: a.phase }, stB = { scale: b.scale, at: b.at, phase: b.phase };
     check(`A's own steps while walking land on the shared grid (${mineA.length} steps, slot ${slotA})`, mineA.length >= 3 && mineA.every((e) => onGrid(e, st) && e.slot === slotA), mineA.slice(0, 4));
-    check(`B's own steps too, in its own slot (${mineB.length} steps, slot ${slotB})`, mineB.length >= 3 && slotA !== slotB && mineB.every((e) => onGrid(e, st) && e.slot === slotB), mineB.slice(0, 4));
+    check(`B's own steps too, in its own slot (${mineB.length} steps, slot ${slotB})`, mineB.length >= 3 && slotA !== slotB && mineB.every((e) => onGrid(e, stB) && e.slot === slotB), mineB.slice(0, 4));
     const ticksA = new Set(mineA.map((e) => e.tick)), ticksB = new Set(mineB.map((e) => e.tick));
-    check('they interlock: A and B never share a tick', [...ticksA].every((t) => !ticksB.has(t)), { A: [...ticksA], B: [...ticksB] });
-    const shared = aFromB.filter((e) => mineA.some((m) => m.n === e.n && m.tick === e.tick && Math.abs(m.t - e.t) < 0.5));
-    check(`B hears A's steps on the same pulses at the same times (${shared.length} of ${aFromB.length} match A's own)`, aFromB.length >= 2 && shared.length >= Math.ceil(aFromB.length * 0.7) && aFromB.every((e) => onGrid(e, st)), { aFromB: aFromB.slice(0, 3), mineA: mineA.slice(0, 3) });
+    if (st.scale === stB.scale) check('they interlock: A and B never share a tick', [...ticksA].every((t) => !ticksB.has(t)), { A: [...ticksA], B: [...ticksB] });
+    check(`B hears A's steps on B's own grid, in A's slot (${aFromB.length})`, aFromB.length >= 2 && aFromB.every((e) => onGrid(e, stB) && e.slot === slotA), { aFromB: aFromB.slice(0, 3) });
     check('and A hears B on the grid', bFromA.length >= 2 && bFromA.every((e) => onGrid(e, st) && e.slot === slotB), bFromA.length);
     const mineNow = (g) => g.log.filter((e) => e.id === 'me').length;
     const still = mineNow(await gA()); await A.waitForTimeout(500);
