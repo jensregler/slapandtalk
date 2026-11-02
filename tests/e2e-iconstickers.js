@@ -51,12 +51,13 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     // stand in front of the north wall, slap mode, first person
     await P.evaluate(() => { const k = window.klibb; k.setView('first', { quiet: true }); k.moveTo(0, -1.4); k.look(0, 0.05); k.setMode?.('slap'); });
     await sleep(500);
-    // the icons are the last six of the endless wheel: F (back) from the first sticker reaches them one by one
-    const order = [...ids].reverse(), seen = [];
+    // the wheel starts on d71 with the menu stickers right of it (Jens, 2 Nov 2026): R steps onto them one by one
+    // (character, redio, room, city = the door, exit, camera)
+    const order = [1, 4, 5, 2, 3, 0].map((i) => ids[i]), seen = [];
     const spots = [[-0.2, 0.36], [0.25, 0.36], [0.7, 0.36], [-0.2, -0.28], [0.25, -0.28], [0.7, -0.28]];
     const stamps = [];
     for (let i = 0; i < 6; i++) {
-      await P.keyboard.press('f'); await sleep(700);
+      await P.keyboard.press('r'); await sleep(700);
       const sel = await P.evaluate(() => ({ id: window.klibb.state.selected.id, strip: window.klibb.strip().sel, src: window.klibb.state.selected.source }));
       seen.push(sel);
       if (i === 0) await P.screenshot({ path: path.join(SHOTS, '1-desktop-wheel-icon-held.png') });
@@ -66,7 +67,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       stamps.push(st);
       await sleep(300);
     }
-    check('desktop: F turns the sticker wheel onto each icon in turn (held + marked in the wheel)', seen.every((s, i) => s.id === order[i] && s.strip === order[i]), seen);
+    check('desktop: R turns the sticker wheel onto each icon in turn (held + marked in the wheel)', seen.every((s, i) => s.id === order[i] && s.strip === order[i]), seen);
     check('desktop: each icon slaps onto the wall like any sticker', stamps.every((s, i) => s && s.imageId === order[i] && s.surface), stamps);
     await sleep(1500);
     const srv = (await (await fetch(`${S.base}/api/rooms/${room}/stamps`)).json()).stamps;

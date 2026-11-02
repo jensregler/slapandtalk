@@ -46,7 +46,8 @@ import { boxFaces } from '../../shared/coverage.mjs';
 import { initStackMenu } from './stackmenu.js';
 import { createHeldTimer } from '../../shared/heldtimer.mjs';
 import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
-import { menuOf, runMenuSticker } from './menustickers.js';
+import { menuOf, runMenuSticker, MENU_IDS } from './menustickers.js';
+import { wheelOrder, WHEEL_START } from '../../shared/wheelorder.mjs';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -358,7 +359,8 @@ function wheelDesigns() { return activeWheel() === 'nature' ? natureDesigns() : 
 function stickerDesigns() {
   if (DEMO) return designs();
   const mine = designs(), key = mine.map((d) => d.id).join() + '|' + state.library.length;
-  if (key !== wheelKey) { const have = new Set(mine.map((d) => d.id)); wheelKey = key; wheelCache = [...mine, ...state.library.filter((d) => !have.has(d.id) && !isNat(d))]; }
+  // Jens, 2 Nov 2026: d71 in the middle, d72-d74 to its left, the menu stickers to its right, then the list from the back (shared/wheelorder.mjs)
+  if (key !== wheelKey) { wheelKey = key; wheelCache = wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: MENU_IDS }); }
   return wheelCache;
 }
 // En annan flik ändrade listan: hämta den nya.
@@ -2126,8 +2128,13 @@ const menuActions = {
   room: () => openRoomPanel(),
   camera: () => toggleView(),
   exit: () => openChoice('exit', [{ id: 'exit-menu', text: S.exitToMenu, go: () => { location.href = `${location.origin}/?start=1`; } }, { id: 'back', text: S.choiceBack }]),
+  menu: () => menuActions.exit(),
+  pac: () => menuActions.door(),
+  nametag: () => openNameTag(),
   door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => toast(S.cityComingSoon, 3000) }, { id: 'back', text: S.doorBackToRoom }]),
 };
+// The name-tag roll (editor.png): the drawing tool comes in nametag.js.
+function openNameTag() { toast(S.nameTagSoon, 2600); }
 // ndc: where (the dot when locked, else the finger/cursor). true = a menu opened (the click is used up).
 function menuClick(ndc) {
   if (sp.open || together.busy() || camView || state.adminToken || arrayDrag || !$('room-panel').hidden || !$('sound-panel').hidden || !$('menu-choice').hidden) return false;
@@ -2685,13 +2692,17 @@ function frame() {
 renderTray();
 renderHistory();
 if (!DEMO && state.mine.length) select(last(state.mine));
+const startPick = state.selected; // (replaced by d71 once the library is in, unless I picked something meanwhile)
 // The library (the demo's palette; also loaded outside the demo for later use).
 const LIB_SEL = 'klibb.libSel';
 const libraryReady = fetch('/api/library').then((r) => r.json()).then(({ stickers }) => {
   state.library = Array.isArray(stickers) ? stickers : [];
   renderLibTray();
   if (!DEMO) { // the library is on the wheel for everyone; nothing of my own yet → hold the first library sticker
-    if (!state.selected && state.library.length) select(wheelDesigns()[0]); else renderDesignHud();
+    // from the start the wheel stands on d71 (Jens, 2 Nov 2026) – also when I have uploads of my own
+    const d71 = state.library.find((d) => d.id === WHEEL_START[0]);
+    if (d71 && (!state.selected || state.selected === startPick)) select(d71);
+    else if (!state.selected && state.library.length) select(wheelDesigns()[0]); else renderDesignHud();
     return;
   }
   const keep = localStorage.getItem(LIB_SEL);

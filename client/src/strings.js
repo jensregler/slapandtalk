@@ -218,6 +218,7 @@ export const EN = {
   roomLifeNote: 'lives while someone is here',
   roomHereNow: (n, max) => `${n} of ${max}`,
   menuDoorTodo: 'The door does not open yet.',
+  nameTagSoon: 'The name-tag tool is coming soon.',
   soundLocked: 'Sound settings are part of the full version.',
   exitToMenu: '🚪 Exit to menu', choiceBack: '↩ Back',
   doorEnterCity: '🏙 Enter the city', doorBackToRoom: '↩ Back to the room', cityComingSoon: 'The city is coming soon!',
