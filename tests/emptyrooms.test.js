@@ -17,7 +17,7 @@ const GRACE = 300;
   const server = app.listen(0);
   let rt = null; const keep = new Set();
   let now = Date.now();
-  const reaper = createEmptyRoomReaper({ store, graceMs: GRACE, isOccupied: (id) => rt.occupied(id), keepIds: async () => keep, log: {}, clock: () => now });
+  const reaper = createEmptyRoomReaper({ store, graceMs: GRACE, cityGraceMs: GRACE * 2, isOccupied: (id) => rt.occupied(id), keepIds: async () => keep, log: {}, clock: () => now });
   rt = attachRealtime(server, { maxPlayers: 4, heartbeatMs: 200, onEmpty: reaper.empty, onJoin: reaper.joined });
   const base = `http://127.0.0.1:${server.address().port}`;
   const make = async (body = {}) => (await (await fetch(`${base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json()).room.id;
@@ -48,6 +48,33 @@ const GRACE = 300;
 
     await leave(await join('stad')); await sleep(GRACE + 200);
     assert(!reaper.pending().length, 'the City never gets a timer');
+
+    await leave(await join('stad-1')); await sleep(GRACE + 200);
+    assert(!reaper.pending().length, '…nor its houses (stad-1 … stad-8)');
+
+    // Cities (t479u): a city goes as ONE – outside + houses – when nobody is in any of them
+    const post = async (u, b) => (await fetch(base + u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) })).json();
+    const city = (await post('/api/cities', { name: 'Slapville' })).city.id;
+    const h1 = (await post(`/api/cities/${city}/houses`)).id, h2 = (await post(`/api/cities/${city}/houses`)).id;
+    assert(/^stad-[a-z0-9]{6}$/.test(city) && h1 === city + '-1' && h2 === city + '-2', 'a new city + two houses, started in order');
+    const out = await join(city), in1 = await join(h1);
+    await leave(out);
+    assert(reaper.pending().includes(city), 'leaving the outside: the CITY gets a timer…');
+    await sleep(GRACE * 2 + 250);
+    assert(await store.peek(city) && await store.peek(h1) && await store.peek(h2), '…but someone is in house 1: the whole city stays');
+    await leave(in1); await sleep(GRACE + 50);
+    assert(await store.peek(city), '…the last one leaves: the city waits its own (longer) grace period');
+    await sleep(GRACE + 300);
+    assert(!(await store.peek(city)) && !(await store.peek(h1)) && !(await store.peek(h2)), '…then the city goes, outside and every house');
+    const c2 = (await post('/api/cities', { name: 'Quiet' })).city.id; await post(`/api/cities/${c2}/houses`);
+    assert((await reaper.sweep()).indexOf(c2) < 0 && await store.peek(c2), 'the sweep leaves a city started in the last minute alone');
+    now += 120_000;
+    const sw = await reaper.sweep(); now -= 120_000;
+    assert(sw.includes(c2) && !(await store.peek(c2)) && !(await store.peek(c2 + '-1')), '…an older city nobody is in is swept, houses and all');
+    const back2 = (await post('/api/cities', { name: 'Back' })).city.id;
+    const p1 = await join(back2); await leave(p1); await sleep(GRACE); const p2 = await join(back2 + '-1'); await sleep(GRACE * 2 + 200);
+    assert(!!(await store.peek(back2)), 'walking from the outside into a house (a page load) keeps the city');
+    await leave(p2);
 
     await store.createRoom({ id: 'profil1', type: 'profile' });
     assert(!(await reaper.reap('profil1')) && !!(await store.peek('profil1')), 'a profile room (not quick) is never deleted');

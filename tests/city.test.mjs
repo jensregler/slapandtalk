@@ -1,6 +1,8 @@
-// The City (t476u, 2 Nov 2026): the layout (shared/city.mjs), the Town Hall's packs (server/citypacks.js,
-// a week, hand in → take 2), and the server side (old City stickers put away, houses seeded with a
-// preset, box-only features refused in the City, people may stand all over the city).
+// The cities (t476u, t479u – 2 Nov 2026): the layout and ids (shared/city.mjs), the Town Hall's one pack
+// shop (server/citypacks.js: a week free / for good paid, a description, hand in → take; free carries 3
+// packs and drops what it took on leaving, paid keeps it), and the server side (old City stickers put
+// away, cities started + named, houses started in order – no preset seeding, box-only features refused
+// in a city's outside, the Join list with city names).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,6 +22,15 @@ ok('layout: 96 × 96 × 24, 3 × 3 plots of 32 m, houses 16 × 8 × 16, the Town
     if (!p.hall) assert.ok(p.house.w === 16 && p.house.h === 8 && p.house.d === 16);
   }
   assert.ok(C.isCityRoom('stad') && C.isCityRoom('stad-5') && !C.isCityRoom('stad-9') && !C.isCityRoom('abc'));
+});
+ok('ids: many cities – stad-<code> outside, stad-<code>-<n> its houses; the first City is "stad"', () => {
+  assert.deepEqual(C.parseCityRoom('stad-ab12cd-3'), { city: 'stad-ab12cd', n: 3 }); assert.deepEqual(C.parseCityRoom('stad'), { city: 'stad', n: 0 });
+  assert.deepEqual(C.parseCityRoom('stad-4'), { city: 'stad', n: 4 }); assert.equal(C.parseCityRoom('stad-ab12cd-9'), null); assert.equal(C.parseCityRoom('stadium'), null);
+  assert.ok(C.isCityOutside('stad-ab12cd') && !C.isCityOutside('stad-ab12cd-1') && C.isPlotRoom('stad-ab12cd-1') && C.isFirstCity('stad-2') && !C.isFirstCity('stad-ab12cd'));
+  assert.deepEqual(C.houseIds('stad-ab12cd').slice(0, 2), ['stad-ab12cd-1', 'stad-ab12cd-2']);
+  for (let k = 0; k < 200; k++) { const id = C.newCityId(); assert.ok(C.CITY_CODE_RE.test(id) && C.isCityOutside(id) && !C.isFirstCity(id), id); }
+  assert.equal(C.nextHouse([]), 1); assert.equal(C.nextHouse([1, 2, 4]), 3); assert.equal(C.nextHouse([1, 2, 3, 4, 5, 6, 7, 8]), 0);
+  assert.equal(C.plotOfRoom('stad-ab12cd-2').z, -32); assert.deepEqual({ ...C.roomBox('stad-ab12cd') }, { ...C.CITY }); assert.equal(C.roomBox('stad-ab12cd-2').width, 16);
 });
 ok('walking: slabs raise you, houses push you out, doors are in front of the south wall', () => {
   assert.equal(C.groundAt(0, 20), C.PLOT_SLAB); assert.equal(C.groundAt(16, 20), 0); // (x = 16: the street between two slabs)
@@ -45,7 +56,7 @@ const B = await packs.handIn({ name: 'B', stickers: st('def'), img });
 const D = await packs.handIn({ name: 'D', stickers: st('ghi'), img });
 const E = await packs.handIn({ name: 'E', stickers: st('adg'), img });
 ok('hand in: a token, a week, a clean name, the picture as WebP', () => {
-  assert.ok(A.token.length >= 20 && A.pack.name === 'Jens pack' && Date.parse(A.pack.expiresAt) - now === 7 * 864e5);
+  assert.ok(A.token.length >= 20 && A.pack.name === 'Jens pack' && Date.parse(A.pack.expiresAt) - now === 7 * 864e5 && !A.pack.forever);
   assert.ok(mem.has(`citypacks/${A.pack.id}.webp`) && mem.has(`citypacks/${A.pack.id}.json`) && !JSON.stringify(JSON.parse(mem.get(`citypacks/${A.pack.id}.json`))).includes(A.token));
 });
 const rej = async (p, status) => { try { await p; assert.fail('should throw'); } catch (e) { assert.equal(e.status, status, e.message); } };
@@ -63,14 +74,34 @@ ok('swap: only after handing in, never my own, at most 2 (the same one twice is 
   assert.equal(t1.pack.stickers.length, 3); assert.equal(t1.pack.stickers[0].url, `/u/${'d'.repeat(16)}.webp`);
 });
 const L = await packs.list(A.token);
-ok('list: everyone\'s packs, mine marked, what I took marked', () => {
-  assert.equal(L.packs.length, 4); assert.equal(L.mine.id, A.pack.id); assert.equal(L.mine.left, 0);
+ok('list: everyone\'s packs, mine marked, what I took marked, taken counts', () => {
+  assert.equal(L.packs.length, 4); assert.equal(L.mine.id, A.pack.id); assert.equal(L.mine.left, 0); assert.equal(L.maxPacks, 3);
   assert.ok(L.packs.find((p) => p.id === B.pack.id).taken && L.packs.find((p) => p.id === A.pack.id).mine);
+  assert.equal(L.packs.find((p) => p.id === B.pack.id).takenCount, 1);
+});
+// leaving the city (free): what I took is dropped, my pack stays; then I may take 2 again
+const dropped = await packs.dropTaken(A.token, { paid: false });
+const L1 = await packs.list(A.token);
+ok('free: leaving the city drops what I took (my own pack stays in the shop), and I may take 2 again', () => {
+  assert.deepEqual(dropped.takes, []); assert.equal(L1.mine.id, A.pack.id); assert.equal(L1.mine.left, 2);
+});
+// a description, who made it, Instagram; a paying player: for good, more packs, keeps what they took
+const P = await packs.handIn({ name: 'Forever', stickers: st('ghi'), img, about: 'Hi! I am Jens.\r\n\n\n\nThese are\u0007 my  best.', author: '  Jens  T ', insta: '@JensRegler!', paid: true });
+const P2 = await packs.handIn({ name: 'Forever 2', stickers: st('abc'), img, token: P.token, paid: true });
+await rej(packs.handIn({ name: 'again', stickers: st('abc'), img, token: A.token, paid: false }), 409);
+for (const id of [A.pack.id, B.pack.id, D.pack.id]) await packs.take(id, P.token, { paid: true });
+const keep = await packs.dropTaken(P.token, { paid: true });
+ok('hand in with a description, my name and Instagram (cleaned)', () => {
+  assert.equal(P.pack.about, 'Hi! I am Jens.\n\nThese are my best.'); assert.deepEqual(P.pack.author, { name: 'Jens T', insta: 'jensregler' });
+});
+ok('paid: in the shop for good (expiresAt null), may hand in more, takes more than 2 and keeps them on leaving', () => {
+  assert.ok(P.pack.forever && P.pack.expiresAt === null && P2.pack.forever); assert.equal(keep.takes.length, 3);
 });
 now += 7 * 864e5 + 1000;
 const L2 = await packs.list(A.token);
-ok('after a week: gone from the Town Hall (files deleted), and I may hand in again', () => {
-  assert.equal(L2.packs.length, 0); assert.equal(L2.mine, null); assert.equal([...mem.keys()].length, 0);
+ok('after a week: the free packs are gone from the shop (files deleted), the paid ones stay', () => {
+  assert.equal(L2.mine, null); assert.deepEqual(L2.packs.map((p) => p.name).sort(), ['Forever', 'Forever 2']);
+  assert.ok(![...mem.keys()].some((k) => k.includes(A.pack.id)));
 });
 const A2 = await packs.handIn({ name: 'week 2', stickers: st('abc'), img, token: A.token });
 ok('…a new week: same token, fresh takes', () => { assert.equal(A2.token, A.token); });
@@ -88,8 +119,32 @@ const S = await startServer(Number(process.env.CITY_TEST_PORT || 8993), { DATA_D
 try {
   const city = await (await fetch(`${S.base}/api/rooms/stad/stamps`)).json();
   ok('the City\'s old box-room stickers are not shown (they would float) …', () => { assert.equal(city.stamps.length, 0); });
-  const house = (await (await fetch(`${S.base}/api/rooms/stad-3`)).json()).room;
-  ok('a house (stad-3) is made on first visit: type stad, with a preset as its starting look', () => { assert.equal(house.type, 'stad'); assert.equal(house.preset && house.preset.id, 'abcd1234ef'); });
+  const J = (r) => r.json();
+  const post = (u, b) => fetch(S.base + u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) });
+  const house0 = (await J(await fetch(`${S.base}/api/rooms/stad-3`))).room, first0 = (await J(await fetch(`${S.base}/api/cities/stad`))).city;
+  ok('a house is NOT made by just looking at it (no preset seeding any more – t479u)', () => { assert.ok(!house0.preset); assert.deepEqual(first0.houses, []); assert.equal(first0.next, 1); assert.equal(first0.name, 'The City'); });
+  const first = []; for (let k = 0; k < 3; k++) first.push(await J(await post('/api/cities/stad/houses')));
+  const house = (await J(await fetch(`${S.base}/api/rooms/stad-3`))).room;
+  ok('houses start in order (the next free number): 1, 2, 3 – an empty room of type stad', () => {
+    assert.deepEqual(first.map((r) => r.n), [1, 2, 3]); assert.equal(house.type, 'stad'); assert.ok(!house.preset);
+  });
+  const noName = await post('/api/cities', { name: '   ' });
+  const made = await J(await post('/api/cities', { name: '  Slap\u0000ville  ', by: 'Jens' }));
+  const cid = made.city && made.city.id;
+  const h = []; for (let k = 0; k < 9; k++) h.push(await post(`/api/cities/${cid}/houses`, { by: 'Jens' }));
+  const info = (await J(await fetch(`${S.base}/api/cities/${cid}`))).city;
+  const list = (await J(await fetch(`${S.base}/api/cities`))).cities;
+  const gone = await fetch(`${S.base}/api/cities/stad-zz99zz`);
+  ok('a city: started with a name (required, cleaned), 8 houses in order then 409, listed, a gone one is 404', () => {
+    assert.equal(noName.status, 400); assert.ok(C.CITY_CODE_RE.test(cid)); assert.equal(made.city.name, 'Slapville'); assert.equal(made.city.startedBy, 'Jens');
+    assert.deepEqual(h.map((r) => r.status), [200, 200, 200, 200, 200, 200, 200, 200, 409]);
+    assert.deepEqual(info.houses, [1, 2, 3, 4, 5, 6, 7, 8]); assert.equal(info.next, 0);
+    assert.ok(list.some((c) => c.id === cid && c.name === 'Slapville')); assert.ok(!list.some((c) => c.id === 'stad'), 'the first City is not offered when empty');
+    assert.equal(gone.status, 404);
+  });
+  const camCity = await fetch(`${S.base}/api/rooms/${cid}/cameras`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"p":[0,1.6,0]}' });
+  const style = await post(`/api/rooms/${cid}-1/reset`, { by: 'X' });
+  ok('a new city\'s outside is no box either (cameras 400); its houses are locked like the City (reset 403)', () => { assert.equal(camCity.status, 400); assert.equal(style.status, 403); });
   const lib = (await (await fetch(`${S.base}/api/library`)).json()).stickers.filter((d) => !d.nature);
   const slap = await fetch(`${S.base}/api/rooms/stad/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: lib[0].id, position: [30, 3, 8.01], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.5, surface: 'h5-s' }) });
   await new Promise((r) => setTimeout(r, 600));
@@ -102,7 +157,20 @@ try {
   const cam = await fetch(`${S.base}/api/rooms/stad/cameras`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"p":[0,1.6,0]}' });
   const camHouse = await fetch(`${S.base}/api/rooms/stad-3/cameras`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"p":[0,1.6,0],"yaw":0,"pitch":0}' });
   ok('peels and cameras: not in the City (400); in a house they work as in any room', () => { assert.equal(peels.status, 400); assert.equal(cam.status, 400); assert.equal(camHouse.status, 200); });
-  const recent = await (await fetch(`${S.base}/api/rooms/recent?ids=stad-3`)).json();
-  ok('a house is nobody\'s own room (not in "recent")', () => { assert.deepEqual(recent.missing, ['stad-3']); });
+  const recent = await (await fetch(`${S.base}/api/rooms/recent?ids=stad-3,${cid}-2`)).json();
+  ok('a house is nobody\'s own room (not in "recent")', () => { assert.deepEqual(recent.missing, ['stad-3', `${cid}-2`]); });
+  // the Join list: people in a city room → the city's name with it
+  const { default: WebSocket } = await import('ws');
+  const join = async (id) => { const ws = new WebSocket(`${S.base.replace('http', 'ws')}/ws?room=${id}`); await new Promise((r) => ws.on('open', r)); ws.send(JSON.stringify({ t: 'hello', name: 'A' })); await new Promise((r) => setTimeout(r, 150)); return ws; };
+  const w1 = await join(cid), w2 = await join(`${cid}-4`);
+  const open = (await J(await fetch(`${S.base}/api/rooms/open`))).rooms;
+  const cities2 = (await J(await fetch(`${S.base}/api/cities`))).cities;
+  w1.close(); w2.close();
+  ok('Join list: rooms in a city carry the city\'s name (outside: the city; a house: "House 4" in it)', () => {
+    const o = open.find((r) => r.id === cid), hh = open.find((r) => r.id === `${cid}-4`);
+    assert.deepEqual(o.city, { id: cid, name: 'Slapville', house: 0 }); assert.equal(o.name, 'Slapville');
+    assert.deepEqual(hh.city, { id: cid, name: 'Slapville', house: 4 }); assert.equal(hh.name, 'House 4');
+    assert.equal(cities2.find((c) => c.id === cid).people, 2);
+  });
 } finally { S.child.kill(); }
 console.log(`city: ${n} checks ✓`);
