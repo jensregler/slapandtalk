@@ -59,7 +59,7 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     let back = r1; for (let i = 0; i < 3 && back.sel !== wide.sel; i++) { await p.keyboard.press('KeyR'); await p.waitForTimeout(150); back = await size(); }
     check('…and back on the one that was scaled it is still the scaled size', back.sel === wide.sel && back.size === scaled.size, back);
     const low = await p.evaluate(() => { const k = window.klibb; k.setSize(5); return { size: Math.round(k.state.size * 1000) / 10, min: document.getElementById('size').min, minCm: k.minSizeCm }; });
-    if (OPEN) check('open access: the size goes down to 5 cm (setSize, slider min)', low.size === 5 && low.min === '5' && low.minCm === 5, low);
+    if (OPEN) check('open access: the size goes down to 10 cm (setSize, slider min; t475u)', low.size === 10 && low.min === '10' && low.minCm === 10, low);
     else check('free version: the size never goes below 15 cm (setSize, slider min)', low.size === 15 && low.min === '15' && low.minCm === 15, low);
     // Nature stickers (curated library, name starts with "nature"; shared/nature.mjs): 5 cm – 4 m high, no paper.
     // Since 28 Oct 2026 they are the full version (Nature wheel): the free version cannot hold one (checked
@@ -75,18 +75,18 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     });
     if (OPEN) {
       check('open access: a nature sticker is held (no full version panel)', natFree.sel === 'feedfacecafe0001' && !natFree.paywall, natFree);
-      check('…its rule is still 5 cm – 400 cm; an upload named nature… gets the normal (full) limits (5 cm – no max)', natFree.natLim.minCm === 5 && natFree.natLim.maxCm === 400 && natFree.upload.maxCm === Infinity && natFree.upload.minCm === 5, natFree);
+      check('…its rule is 10 cm – 8 m (the room height); an upload named nature… gets the normal (full) limits (10 cm – 1.5 m)', natFree.natLim.minCm === 10 && natFree.natLim.maxCm === 800 && natFree.upload.maxCm === 150 && natFree.upload.minCm === 10, natFree);
       await p.evaluate((id) => window.klibb.selectDesign(window.klibb.designs().find((d) => d.id === id)), natFree.prev); // back to the upload
     } else {
     check('free version: a nature sticker cannot be held (the full version panel opens instead)', natFree.sel === natFree.prev && natFree.paywall, natFree);
-    check('…its rule is still 5 cm – 400 cm; an upload named nature… keeps the normal free limits (15–100 cm)', natFree.natLim.minCm === 5 && natFree.natLim.maxCm === 400 && natFree.upload.maxCm === 100 && natFree.upload.minCm === 15, natFree);
+    check('…its rule is 10 cm – 8 m; an upload named nature… keeps the normal free limits (15–100 cm)', natFree.natLim.minCm === 10 && natFree.natLim.maxCm === 800 && natFree.upload.maxCm === 100 && natFree.upload.minCm === 15, natFree);
     }
     check('nature stickers drop no backing paper (client: no peel animation); others and uploads do', JSON.stringify(natFree.peel) === '[false,true,true]', natFree.peel);
     await p.mouse.click(700, 330); await p.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
     for (let i = 0; i < 20; i++) await p.mouse.wheel(0, 200);
     await p.waitForTimeout(200);
     const wheelLow = await size();
-    check(OPEN ? 'open access: the wheel goes down to 5 cm' : 'free version: the wheel stops at 15 cm', wheelLow.size === (OPEN ? 5 : 15), wheelLow);
+    check(OPEN ? 'open access: the wheel goes down to 10 cm' : 'free version: the wheel stops at 15 cm', wheelLow.size === (OPEN ? 10 : 15), wheelLow);
     const server = await (await fetch(`${S.base}/api/stickers?ids=${b.sel}`)).json();
     check('the server still stores startCm 17.5 on the B_ image (kept, unused by the app)', server.images[b.sel] && server.images[b.sel].startCm === 17.5, server.images[b.sel]);
     await ctx.close();
@@ -106,8 +106,8 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
       out.real = realNat && k.limitsFor(realNat);
       return out;
     });
-    check('nature sticker (full version): 5 cm – 400 cm, slider 5–400; 900 → 400, 3 → 5 (also a real imported one)', nat.lim.minCm === 5 && nat.lim.maxCm === 400 && nat.sliderMax === '400' && nat.sliderMin === '5' && nat.s350 === 350 && nat.s900 === 400 && nat.s3 === 5 && nat.real && nat.real.maxCm === 400 && nat.real.minCm === 5, nat);
-    check('…back on a normal sticker the normal full limits again (380 cm kept, no 400 cm nature cap)', nat.back === 380 && nat.backLim.maxCm > 400, nat);
+    check('nature sticker (full version): 10 cm – 8 m (room height), slider 10–800; 900 → 800, 3 → 10 (also a real imported one)', nat.lim.minCm === 10 && nat.lim.maxCm === 800 && nat.sliderMax === '800' && nat.sliderMin === '10' && nat.s350 === 350 && nat.s900 === 800 && nat.s3 === 10 && nat.real && nat.real.maxCm >= 800 && nat.real.minCm === 10, nat);
+    check('…back on a normal sticker the normal full limits again (380 cm → 1.5 m, the full max)', nat.back === 150 && nat.backLim.maxCm === 150, nat);
     await fctx.close();
     check('no page errors', !errors.length, errors);
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }

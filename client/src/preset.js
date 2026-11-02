@@ -36,9 +36,9 @@ export class PresetLayer {
     const jobs = this.surfaces.map(async (s) => {
       const face = FACE_OF[s.name], url = face && preset.faces[face];
       if (!url || !planeOf(s)) return 0;
-      // The sheet keeps the size it was baked at (never stretched or tiled): a preset from the old
-      // 10 × 4 × 10 m box (no geo) covers the middle of each bigger surface, bottom-aligned on the walls –
-      // exactly where that box's stickers went (shared/roomgeo.mjs remapStamp).
+      // A preset from the old 10 × 4 × 10 m box (no geo) is scaled up 1.6× uniformly: the whole floor,
+      // ceiling and wall width, walls 6.4 m high bottom-aligned – never stretched one way or tiled
+      // (shared/roomgeo.mjs presetSheet).
       const sheet = presetSheet(face, parseSizeKey(preset.geo) || LEGACY_ROOM, this.room);
       let tex;
       try { tex = await loader.loadAsync(url); } catch { return 0; }

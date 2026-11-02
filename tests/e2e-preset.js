@@ -105,8 +105,8 @@ async function clean(p, file) {
       meta[f] = { w: info.width, h: info.height, cover: +(on / (info.width * info.height)).toFixed(4) };
       fs.writeFileSync(path.join(SHOTS, `face-${f}.webp`), buf);
     }
-    check('the images: floor/ceiling 1600×1600, walls 1600×640 (160 px/m), WebP with transparency', ['floor', 'ceiling'].every((f) => meta[f].w === 1600 && meta[f].h === 1600) && ['north', 'south', 'west', 'east'].every((f) => meta[f].w === 1600 && meta[f].h === 640), meta);
-    check('…each surface that got stickers has them in its image; the rest is transparent', Object.values(meta).every((m) => m.cover > 0.004 && m.cover < 0.6), meta);
+    check('the images: floor/ceiling 2560×2560, walls 2560×1280 (160 px/m, the 16 × 8 × 16 m room), WebP with transparency', ['floor', 'ceiling'].every((f) => meta[f].w === 2560 && meta[f].h === 2560) && ['north', 'south', 'west', 'east'].every((f) => meta[f].w === 2560 && meta[f].h === 1280), meta);
+    check('…each surface that got stickers has them in its image; the rest is transparent', Object.values(meta).every((m) => m.cover > 0.001 && m.cover < 0.6), meta);
     const list = await (await fetch(`${S.base}/api/admin/presets`, { headers: { 'x-admin-token': ADMIN } })).json();
     check('admin: GET /api/admin/presets lists it', list.presets.length === 1 && list.presets[0].id === preset.id);
 

@@ -75,7 +75,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await U.screenshot({ path: path.join(SHOTS, 'desktop-full-nature-mode.png') });
     // slap in Nature mode: a nature sticker, 4 m cap still
     const st = await U.evaluate(async () => { const k = window.klibb; k.moveTo(0, 0); k.look(0, 0.12); k.setSize(900); const s = await k.stampAt(0, 0); return s && { imageId: s.imageId, size: s.size }; });
-    check('full: a slap in Nature mode is the nature sticker (nature rules: ≤ 4 m)', st && st.imageId === u1.sel && st.size <= 4.0001, st);
+    check('full: a slap in Nature mode is the nature sticker (nature rules: ≤ 8 m high, the room height)', st && st.imageId === u1.sel && st.size <= 8 * Math.max(1, (u1.selW || 1) / (u1.selH || 1)) + 0.0001, st);
     await key(U, 'KeyV', 1200);
     const u2 = await info(U);
     check('full: V again → Slap mode, back on the sticker I had (not a nature one), no ambience', u2.mode === 'slap' && !u2.nature && u2.sel === u0.sel && !u2.selNat && !u2.amb.playing && u2.hud === 'Slap mode · V' && !u2.body, u2);

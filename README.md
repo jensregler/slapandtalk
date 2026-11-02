@@ -1080,3 +1080,18 @@ Id:t räknas fram ur bildens innehåll, så laddar två personer upp exakt samma
 Cloudflare, sätt `STORAGE=s3` och S3-variablerna ovan i Render, och starta om. Befintliga
 klibbor på Render-disken flyttas inte automatiskt. En riktig databas för rummen kan senare
 kopplas in genom att bara skriva om funktionerna i `server/store.js`.
+
+## Room size (16 × 8 × 16 m, 2 Nov 2026)
+
+Every room (and the City) is the box in `shared/room.json`: 16 m wide, 16 m deep, 8 m high (was 10 × 4 × 10).
+`shared/roomgeo.mjs` handles what was made in the old box:
+
+- **Old rooms:** each sticker moves out with its surface once, on load (`room.geo` records the box). Size,
+  height on the wall and place along the wall (from its middle) stay; the ceiling's go up to 8 m; the floor's
+  stay. Nothing is stretched or floats. Old recordings get the same move in the replay.
+- **Old presets** (baked in the old box, no `geo`): scenery, so each image is scaled up 1.6× uniformly: the
+  whole floor and ceiling, the full width of every wall, walls 6.4 m high from the floor (the top 1.6 m shows
+  the room's own wall). Never stretched one way, never tiled. Presets made from now on are baked in the new
+  box (2560 × 1280 walls) and cover every surface 1:1.
+- **Sizes:** stickers 10 cm – 1.5 m in the full version (free 15 cm – 1 m); nature stickers 10 cm up to the
+  room's height (8 m) high. Stickers already up keep their size.

@@ -31,7 +31,7 @@ const dist = (a, b) => (a && b ? Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2
     const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push(e.message));
     await P.goto(`${S.base}/?room=${made.room.id}`);
     await P.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.state.selected && document.body.classList.contains('touch'), null, { timeout: 30000 });
-    await P.evaluate(() => { const k = window.klibb; k.moveTo(0, 1); k.look(0, 0); k.stackMenu().chosen(); });
+    await P.evaluate(() => { const k = window.klibb; k.moveTo(0, -2); /* 6 m from the north wall, as in the old 10 m room */ k.look(0, 0); k.stackMenu().chosen(); });
     await sleep(800);
     const cdp = await ctx.newCDPSession(P);
     const T = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y, id = 1]) => ({ x, y, id })) });

@@ -41,8 +41,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await p.evaluate(() => { const k = window.klibb; k.moveTo(0, 4.2); k.look(0, -0.05); });
     await p.evaluate(() => window.klibb.openRoomPanel()); await sleep(700);
     const ui = await p.evaluate(() => ({ vals: ['height', 'width', 'depth'].map((k) => document.getElementById(`rs-${k}-val`).textContent), sum: document.getElementById('rs-sum').textContent, ranges: ['height', 'width', 'depth'].map((k) => { const i = document.getElementById(`rs-${k}`); return [i.min, i.max, i.step]; }) }));
-    check('the room panel: Height / Width / Depth sliders showing 4 m / 10 m / 10 m (the normal size), with their ranges', ui.vals.join() === '4 m,10 m,10 m' && /10 m wide × 10 m deep × 4 m high/.test(ui.sum), ui);
-    await sleep(800); await p.screenshot({ path: path.join(SHOTS, '10-roomsize-normal-10x10x4.png') });
+    check('the room panel: Height / Width / Depth sliders showing 8 m / 16 m / 16 m (the normal size, t475u), with their ranges', ui.vals.join() === '8 m,16 m,16 m' && /16 m wide × 16 m deep × 8 m high/.test(ui.sum), ui);
+    await sleep(800); await p.screenshot({ path: path.join(SHOTS, '10-roomsize-normal-16x16x8.png') });
     // drag the sliders the way a person does (fill + input event)
     const slide = async (k, v) => { await p.evaluate(([k, v]) => { const i = document.getElementById(`rs-${k}`); i.value = String(v); i.dispatchEvent(new Event('input', { bubbles: true })); }, [k, v]); await sleep(150); };
     await slide('height', 6); await slide('width', 16); await slide('depth', 12);
@@ -62,19 +62,19 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     check('at a test size slapping is off (a toast says why), nothing sent', !slap && (await p.evaluate(() => window.klibb.stamps.meshes.size)) === 4);
     const srv = (await (await fetch(`${S.base}/api/rooms/${mk.room.id}`)).json()).room;
     const other = await o.evaluate(() => { const k = window.klibb; return { s: k.roomSize(), w: k.roomSurfaces().find((m) => m.name === 'golv').geometry.parameters.width }; });
-    check('not synced, not saved: the other person still has 10 × 10 × 4, the server room has no size', other.s.normal && other.w === 10 && !('size' in srv) && !JSON.stringify(srv).includes('"width"'), { other, srv });
+    check('not synced, not saved: the other person still has 16 × 16 × 8, the server room has no size', other.s.normal && other.w === 16 && !('size' in srv) && !JSON.stringify(srv).includes('"width"'), { other, srv });
     await slide('height', 3); await slide('width', 7); await slide('depth', 8); await sleep(1500);
     await p.evaluate(() => { const k = window.klibb; k.moveTo(0, 3.6); k.look(0, -0.05); }); await sleep(800);
     await p.screenshot({ path: path.join(SHOTS, '12-roomsize-7x8x3.png') });
     await slide('height', 99); 
-    check('the slider ranges hold (height max 12 m)', (await p.evaluate(() => window.klibb.roomSize().height)) === 12);
+    check('the slider ranges hold (height max 20 m)', (await p.evaluate(() => window.klibb.roomSize().height)) === 20);
     await p.evaluate(() => { const k = window.klibb; k.moveTo(0, 3.6); k.look(0, 0.25); }); await sleep(1200);
-    await p.screenshot({ path: path.join(SHOTS, '13-roomsize-7x8x12.png') });
+    await p.screenshot({ path: path.join(SHOTS, '13-roomsize-7x8x20.png') });
     await p.click('#rs-reset'); await sleep(1200);
     const b2 = hasScene ? await boxes() : [];
     const back = await p.evaluate(() => ({ s: window.klibb.roomSize(), vals: ['height', 'width', 'depth'].map((k) => document.getElementById(`rs-${k}-val`).textContent) }));
     const same = (a, bb) => a && bb && a.every((x, i) => Math.abs(x - bb[i]) < 0.02);
-    check('↺ Reset: back to 10 × 10 × 4, numbers too, the stickers exactly where they were', back.s.normal && back.vals.join() === '4 m,10 m,10 m' && same(n(b2), n(b0)) && same(e(b2), e(b0)) && same(c(b2), c(b0)), { back, b0, b2 });
+    check('↺ Reset: back to 16 × 16 × 8, numbers too, the stickers exactly where they were', back.s.normal && back.vals.join() === '8 m,16 m,16 m' && same(n(b2), n(b0)) && same(e(b2), e(b0)) && same(c(b2), c(b0)), { back, b0, b2 });
     const slap2 = await p.evaluate(async () => { const k = window.klibb; k.moveTo(0, 0); k.look(0.3, 0.1); await new Promise((r) => setTimeout(r, 150)); return !!(await k.stampAt(0, 0)); });
     check('…and slapping works again', slap2);
     // phone

@@ -56,11 +56,11 @@ await ok('an old recording: its stickers (start + stamp:add) move the same way i
   const now = parseRecording([JSON.stringify({ ...head, geo: CURRENT_KEY }), JSON.stringify(ev)].join('\n'));
   assert.deepEqual(now.header.stamps[0].position, [0, 1, -5]); // a new recording: as recorded
 });
-await ok('an old preset sheet keeps its real size (never stretched): middle of each surface, bottom-aligned on the walls', () => {
-  assert.deepEqual(presetSheet('north', LEGACY_ROOM), { w: 10, h: 4, center: [0, 2, -8] });
-  assert.deepEqual(presetSheet('west', LEGACY_ROOM), { w: 10, h: 4, center: [-8, 2, 0] });
-  assert.deepEqual(presetSheet('ceiling', LEGACY_ROOM), { w: 10, h: 10, center: [0, 8, 0] });
-  assert.deepEqual(presetSheet('floor', LEGACY_ROOM), { w: 10, h: 10, center: [0, 0, 0] });
-  assert.deepEqual(presetSheet('south', ROOM), { w: 16, h: 8, center: [0, 4, 8] }); // a new preset: the whole wall
+await ok('an old preset sheet is scaled up 1.6× uniformly (never stretched one way, never tiled): whole floor/ceiling/wall width, walls 6.4 m bottom-aligned', () => {
+  assert.deepEqual(presetSheet('north', LEGACY_ROOM), { w: 16, h: 6.4, center: [0, 3.2, -8], scale: 1.6 });
+  assert.deepEqual(presetSheet('west', LEGACY_ROOM), { w: 16, h: 6.4, center: [-8, 3.2, 0], scale: 1.6 });
+  assert.deepEqual(presetSheet('ceiling', LEGACY_ROOM), { w: 16, h: 16, center: [0, 8, 0], scale: 1.6 });
+  assert.deepEqual(presetSheet('floor', LEGACY_ROOM), { w: 16, h: 16, center: [0, 0, 0], scale: 1.6 });
+  assert.deepEqual(presetSheet('south', ROOM), { w: 16, h: 8, center: [0, 4, 8], scale: 1 }); // a new preset: the whole wall
 });
 console.log(`roomgeo: ${n} passed`);

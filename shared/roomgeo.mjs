@@ -10,7 +10,7 @@
 // (north/south 5 → 8 m from the middle, east/west too), a ceiling sticker goes up with the ceiling (4 →
 // 8 m), the floor stays. So nothing floats in the air, nothing is stretched, and what was at eye
 // height still is – the old room now sits in the middle of each bigger surface, bottom-aligned on the
-// walls. Preset sheets (client/src/preset.js) do exactly the same, so presets and stickers still line up.
+// walls. (Preset sheets are scenery and are scaled up instead, see presetSheet.)
 // A sticker that used to fold round a corner of the old box is flat on its (bigger) wall now.
 //
 // room.geo (store.js) = the size its stickers are in, as sizeKey(); none = LEGACY_ROOM.
@@ -62,19 +62,23 @@ export function remapStamps(stamps, fromKey) {
   return stamps.map((s) => remapStamp(s, from, CURRENT_ROOM));
 }
 // Where a preset's baked sheet for `face` goes, when it was baked in box `baked` (none = legacy) and
-// the room is `room`: { w, h, center: [x, y, z] } in world space – the sheet keeps its real size
-// (never stretched or tiled) and sits where the old surface's stickers went (see remapStamp).
+// the room is `room`: { w, h, center: [x, y, z], scale } in world space. A preset is scenery (a whole
+// landscape baked onto six images), so an old one is scaled UP uniformly to fill the floor, the ceiling
+// and the width of every wall (16 / 10 = 1.6×) – never stretched in one direction only (no distortion)
+// and never tiled. The walls are then 4 × 1.6 = 6.4 m high, bottom-aligned (the scenery stands on the
+// floor; the top 1.6 m of the 8 m wall shows the room's own wall). A preset baked in this box: 1×, whole surface.
 export function presetSheet(face, baked = LEGACY_ROOM, room = CURRENT_ROOM) {
   const B = baked || LEGACY_ROOM, R = room;
+  const k = Math.min(R.width / B.width, R.depth / B.depth);
   const flat = face === 'floor' || face === 'ceiling';
-  const w = face === 'west' || face === 'east' ? B.depth : B.width;
-  const h = flat ? B.depth : B.height;
+  const w = (face === 'west' || face === 'east' ? B.depth : B.width) * k;
+  const h = (flat ? B.depth : B.height) * k;
   let c;
   if (face === 'floor') c = [0, 0, 0];
   else if (face === 'ceiling') c = [0, R.height, 0];
   else {
-    const y = B.height / 2; // bottom-aligned: the wall's stickers keep their height
+    const y = Math.min(h, R.height) / 2; // bottom-aligned
     c = face === 'north' ? [0, y, -R.depth / 2] : face === 'south' ? [0, y, R.depth / 2] : face === 'west' ? [-R.width / 2, y, 0] : [R.width / 2, y, 0];
   }
-  return { w, h, center: c };
+  return { w: +w.toFixed(6), h: +h.toFixed(6), center: c.map((v) => +v.toFixed(6)), scale: k };
 }
