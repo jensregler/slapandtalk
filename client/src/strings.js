@@ -218,6 +218,12 @@ export const EN = {
   roomLifeNote: 'lives while someone is here',
   roomHereNow: (n, max) => `${n} of ${max}`,
   menuDoorTodo: 'The door does not open yet.',
+  // The start card (Priority Mail; Jens, 31 Oct 2026)
+  scEnter: 'enter', scNewRoom: 'new room', scHaveCode: '…or I have a code:', scJoin: '…or Join',
+  scLoading: 'Looking for rooms…', scJoinNone: 'No open rooms with people in them right now – make a new one!', scJoinOffline: 'Could not fetch the rooms.',
+  scRoomFacts: (free, st, vis, age) => `${free} free spot${free === 1 ? '' : 's'} · ${st} sticker${st === 1 ? '' : 's'} · ${vis} visitor${vis === 1 ? '' : 's'} · ${age}`,
+  scName: 'name?', scInsta: 'instagram @:', scRoomName: 'roomname?', scBack: 'back', scSaveEnter: 'save and enter', scMaking: 'Making your room…', scFailed: 'Could not make the room.',
+  scCodeTitle: 'I have a code', scCodePlaceholder: 'the room code (or its link)', scCodeGo: 'enter', scCodeBad: 'A code has letters, digits and dashes.', scCodeUnknown: 'There is no room with that code (any more).',
   nameTagSoon: 'The name-tag tool is coming soon.',
   soundLocked: 'Sound settings are part of the full version.',
   exitToMenu: '🚪 Exit to menu', choiceBack: '↩ Back',

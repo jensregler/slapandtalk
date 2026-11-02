@@ -13,7 +13,14 @@ async function start() {
     const { demoGate } = await import('./demo.js');
     if (!(await demoGate())) return;
   } else {
-    // The plain address: straight into your most recently used room (landing.js), not the City.
+    const q = new URLSearchParams(location.search);
+    if (!q.has('room') && !q.has('admin')) {
+      // The plain address and ?start=1 (the exit sticker's "Exit to menu"): the Priority Mail start
+      // card (startcard.js; Jens, 31 Oct 2026) – it loads the chosen room itself.
+      const { showStartCard } = await import('./startcard.js');
+      await showStartCard();
+      return;
+    }
     const { land } = await import('./landing.js');
     await land();
   }

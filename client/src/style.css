@@ -753,3 +753,37 @@ body.touch #room-panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; m
 #sound-panel .more-head { display: flex; align-items: center; gap: 10px; }
 .music-vol { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 14px; font-weight: 700; }
 .music-vol input { width: 120px; }
+
+/* The start card (Priority Mail; Jens, 31 Oct 2026): his card picture, big red hand-lettering */
+body.start-card-on { overflow: auto; }
+.start-card { position: fixed; inset: 0; z-index: 50; background: #2b2b2b; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 12px; }
+.sc-paper { position: relative; width: min(96vw, calc((100vh - 24px) * 0.768)); aspect-ratio: 1075 / 1400; background: url(/start/card.webp) center / 100% 100% no-repeat; display: flex; flex-direction: column; container-type: inline-size; }
+.sc-body { position: absolute; left: 6%; right: 6%; top: 25%; bottom: 10%; display: flex; flex-direction: column; align-items: center; gap: 1.5cqw; }
+.start-card button { font: inherit; background: none; border: 0; cursor: pointer; color: #c0392b; }
+.sc-hand { font-family: 'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', cursive; font-weight: 900; font-size: 15cqw; line-height: 1; color: #c0453a; letter-spacing: .02em; }
+.sc-enter { display: flex; flex-direction: column; align-items: center; }
+.sc-sub { font-size: 7cqw; color: #fff; font-weight: 700; margin-top: -3cqw; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.sc-mid { font-size: 7cqw !important; color: #fff !important; font-weight: 700; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.sc-join .sc-hand { font-size: 13cqw; }
+.start-card button:hover .sc-hand, .sc-mid:hover { filter: brightness(1.15); text-decoration: underline; }
+.sc-list { list-style: none; margin: 0; padding: 1.5cqw 2cqw; background: #000; border-radius: 1.5cqw; width: 100%; display: flex; flex-direction: column; gap: 1cqw; counter-reset: room; }
+.sc-list li { counter-increment: room; display: flex; align-items: center; gap: 1.5cqw; }
+.sc-list li::before { content: counter(room); color: #ffe600; font-size: 5.5cqw; font-weight: 800; min-width: 4cqw; }
+.sc-list li.sc-empty { color: #ffe600; font-size: 3.6cqw; }
+.sc-list li.sc-empty::before { content: none; }
+.sc-room { color: #ffe600 !important; text-align: left; font-size: 3.6cqw !important; display: flex; flex-direction: column; }
+.sc-room b { font-size: 4.6cqw; }
+.sc-form { top: 27%; align-items: stretch; gap: 3cqw; background: rgba(236,228,214,.92); border-radius: 2cqw; padding: 2cqw 3cqw; bottom: 18%; }
+.sc-field { display: flex; flex-direction: column; gap: .8cqw; color: #c0453a; font-size: 7cqw; }
+.sc-field input { font-size: 6cqw; padding: 1cqw 2cqw; border: 0; border-bottom: .5cqw solid #c0453a; background: rgba(255,255,255,.55); color: #222; border-radius: 1cqw; }
+.sc-msg { min-height: 1em; color: #8b1a1a; font-size: 4cqw; margin: 0; }
+.sc-feet { position: absolute; left: 7%; right: 7%; bottom: 9%; display: flex; justify-content: space-between; }
+.sc-foot { font-size: 7.5cqw !important; color: #c0453a !important; }
+.sc-foot:hover { text-decoration: underline; }
+.sc-dialog { border: 0; border-radius: 16px; padding: 22px 24px; width: min(520px, 90vw); background: #f3ead9; color: #222; }
+.sc-dialog::backdrop { background: rgba(0,0,0,.55); }
+.sc-dialog h2 { margin: 0 0 12px; color: #c0453a; font-size: 30px; }
+.sc-dialog input { width: 100%; box-sizing: border-box; font-size: 26px; padding: 10px 12px; border: 2px solid #c0453a; border-radius: 10px; }
+.sc-dialog .sc-msg { font-size: 18px; margin: 8px 0; }
+.sc-dialog .sc-feet { position: static; margin-top: 10px; }
+.sc-dialog .sc-foot { font-size: 28px !important; }
