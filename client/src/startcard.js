@@ -119,11 +119,12 @@ export function showStartCard() {
     roomBtn.onclick = () => presetDialog(showChoice);
     const fPreset = el('div', { className: 'sc-field sc-field-room', id: 'sc-preset-field' }, [el('span', { textContent: S.scRoomType }), roomBtn]);
     fPreset.hidden = true; // only when there are presets to choose from
-    loadPresets().then((l) => { fPreset.hidden = !l.length; });
+    loadPresets().then((l) => { fPreset.hidden = !l.length; form.classList.toggle('sc-form-4', !!l.length); });
     const msg = el('p', { className: 'sc-msg', id: 'sc-msg' });
     const back = el('button', { type: 'button', className: 'sc-foot', id: 'sc-back', textContent: S.scBack });
     const save = el('button', { type: 'button', className: 'sc-foot sc-go', id: 'sc-save', textContent: S.scSaveEnter });
-    card.append(el('div', { className: 'sc-body sc-form' }, [fName, fInsta, fRoom, fPreset, msg]), el('div', { className: 'sc-feet' }, [back, save]));
+    const form = el('div', { className: 'sc-body sc-form' }, [fName, fInsta, fRoom, fPreset, msg]);
+    card.append(form, el('div', { className: 'sc-feet' }, [back, save]));
     back.onclick = first;
     for (const i of [iName, iInsta, iRoom]) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save.click(); } });
     iName.focus();
