@@ -4,12 +4,14 @@
 // it: a colour picker (saturation/value square + hue bar), brush size, brush type (solid / opaque /
 // dripping). "save" asks which sticker in the wheel the tag replaces, then hands the finished PNG
 // back (main.js uploads it as my sticker); "exit" closes it without saving.
-const W = 800, H = 536; // the blanks are 1623x1085 → 800 wide
+const TW = 800, TH = 536; // the blanks are 1623x1085 → 800 wide
+let W = TW, H = TH; // the canvas size now (the door's Priority Mail pac is portrait: opts.size)
 export const BLANKS = Array.from({ length: 10 }, (_, i) => `/nametags/blank${i + 1}.webp`);
 // The code fallback: Jens's four tag colours and the white ones (used when an image fails to load).
 const FALLBACK = ['#e8262d', '#f57a10', '#a46fe0', '#f2468f', '#ffffff', '#000000'];
 export function drawFallbackBlank(ctx, i) {
   const col = FALLBACK[i % FALLBACK.length], tag = i < 4;
+  const W = TW, H = TH;
   ctx.clearRect(0, 0, W, H);
   const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
   ctx.fillStyle = '#fff'; rr(0, 0, W, H, 36); ctx.fill();
@@ -42,7 +44,7 @@ function build() {
   box.innerHTML = `
     <div class="nt-stage">
       <button type="button" class="nt-arrow" id="nt-prev" aria-label="previous">‹</button>
-      <div class="nt-tag"><canvas id="nt-blank" width="${W}" height="${H}"></canvas><canvas id="nt-ink" width="${W}" height="${H}"></canvas><canvas id="nt-stroke" width="${W}" height="${H}"></canvas></div>
+      <div class="nt-tag"><canvas id="nt-blank"></canvas><canvas id="nt-ink"></canvas><canvas id="nt-stroke"></canvas></div>
       <button type="button" class="nt-arrow" id="nt-next" aria-label="next">›</button>
     </div>
     <div class="nt-dots" id="nt-dots"></div>
@@ -60,19 +62,21 @@ function build() {
   document.body.appendChild(box);
   const $ = (id) => box.querySelector('#' + id);
   const blank = $('nt-blank').getContext('2d'), ink = $('nt-ink').getContext('2d'), stroke = $('nt-stroke').getContext('2d');
-  const st = { i: 0, hue: 0, s: 1, v: 0.9, color: '#e6191f', size: 14, brush: 'solid', imgs: [], drips: [], raf: 0, undo: [], opts: null, fallback: new Set() };
+  const st = { blanks: BLANKS, custom: false, i: 0, hue: 0, s: 1, v: 0.9, color: '#e6191f', size: 14, brush: 'solid', imgs: [], drips: [], raf: 0, undo: [], opts: null, fallback: new Set() };
   let S = {};
 
   // ---- blanks ----
+  const imgCache = new Map(); // url -> Image | null
   function loadBlank(i) {
-    if (st.imgs[i]) return Promise.resolve(st.imgs[i]);
-    return new Promise((res) => { const im = new Image(); im.onload = () => { st.imgs[i] = im; res(im); }; im.onerror = () => res(null); im.src = BLANKS[i]; });
+    const url = st.blanks[i];
+    if (imgCache.has(url)) return Promise.resolve(imgCache.get(url));
+    return new Promise((res) => { const im = new Image(); im.onload = () => { imgCache.set(url, im); res(im); }; im.onerror = () => res(null); im.src = url; });
   }
   async function showBlank(i) {
-    st.i = (i + BLANKS.length) % BLANKS.length;
+    st.i = (i + st.blanks.length) % st.blanks.length;
     const im = await loadBlank(st.i);
     blank.clearRect(0, 0, W, H);
-    if (im) { blank.drawImage(im, 0, 0, W, H); st.fallback.delete(st.i); } else { drawFallbackBlank(blank, st.i); st.fallback.add(st.i); }
+    if (im) { blank.drawImage(im, 0, 0, W, H); st.fallback.delete(st.i); } else if (st.custom) st.fallback.add(st.i); else { drawFallbackBlank(blank, st.i); st.fallback.add(st.i); }
     [...$('nt-dots').children].forEach((d, k) => d.classList.toggle('on', k === st.i));
     box.dataset.blank = String(st.i + 1);
   }
@@ -166,10 +170,14 @@ function build() {
     const x = c.getContext('2d'); x.drawImage($('nt-blank'), 0, 0); x.drawImage($('nt-ink'), 0, 0);
     return new Promise((res) => c.toBlob(res, 'image/png'));
   }
-  function close() { box.hidden = true; $('nt-replace').hidden = true; cancelAnimationFrame(st.raf); st.raf = 0; st.drips = []; }
+  function close() { if (!box.hidden) st.opts?.onClose?.(); box.hidden = true; $('nt-replace').hidden = true; cancelAnimationFrame(st.raf); st.raf = 0; st.drips = []; }
   $('nt-exit').onclick = close;
   $('nt-replace-back').onclick = () => { $('nt-replace').hidden = true; };
-  $('nt-save').onclick = () => {
+  $('nt-save').onclick = async () => {
+    if (st.opts.direct) { // the door's pac: no "replace" – the picture goes straight back
+      try { await st.opts.onSave(await compose(), null); close(); } catch (err) { st.opts.toast?.(err && err.message ? err.message : S.uploadFailed); }
+      return;
+    }
     const grid = $('nt-grid'); grid.textContent = '';
     for (const d of (st.opts.choices?.() || [])) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'nt-pick'; b.dataset.id = d.id;
@@ -205,8 +213,15 @@ function build() {
       $('nt-replace-title').textContent = S.ntReplace; $('nt-replace-back').textContent = S.choiceBack;
       box.querySelectorAll('.nt-brush').forEach((t) => { t.querySelector('.nt-bname').textContent = S['ntBrush_' + t.dataset.brush]; });
       setBrush(st.brush); paintPicker();
+      st.custom = !!opts.blanks; st.blanks = opts.blanks || BLANKS;
+      [W, H] = opts.size || [TW, TH];
+      for (const c of [$('nt-blank'), $('nt-ink'), $('nt-stroke')]) { c.width = W; c.height = H; }
+      tagEl.style.aspectRatio = `${W} / ${H}`; box.classList.toggle('nt-portrait', H > W);
+      const many = st.blanks.length > 1;
+      $('nt-prev').style.visibility = $('nt-next').style.visibility = many ? '' : 'hidden'; $('nt-dots').hidden = !many;
+      if (opts.saveText) $('nt-save').textContent = opts.saveText;
       ink.clearRect(0, 0, W, H); stroke.clearRect(0, 0, W, H); st.undo = [];
-      box.hidden = false; showBlank(st.i);
+      box.hidden = false; showBlank(st.custom ? 0 : st.i);
     },
     close,
     state: () => ({ open: !box.hidden, blank: st.i + 1, brush: st.brush, color: st.color, size: st.size, fallback: [...st.fallback], replacing: !$('nt-replace').hidden, drips: st.drips.length }),

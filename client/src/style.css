@@ -833,3 +833,30 @@ body.start-card-on { overflow: auto; }
   #nametag .nt-label { font-size: 24px; }
   #nametag .nt-side { min-width: 150px; }
 }
+#nametag.nt-portrait .nt-stage { justify-content: center; }
+#nametag.nt-portrait .nt-tag { flex: none; height: min(50vh, 620px); }
+
+/* ---- The door: choose 3 slaps → the Priority Mail pac (door.js; Jens's mockups door-1..5) ---- */
+#door-flow { position: fixed; inset: 0; z-index: 22; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; padding: 12px;
+  font-family: 'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', 'Segoe Print', cursive; color: #fff; }
+#door-flow[hidden], #door-flow [hidden] { display: none !important; }
+#door-flow .df-pick { position: relative; width: min(94vw, 600px); max-height: 92vh; display: flex; flex-direction: column; gap: 10px; }
+#door-flow .df-title { font-size: clamp(26px, 5vw, 40px); text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+#door-flow .df-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; overflow: auto; padding: 10px; background: rgba(20,20,20,.92); border-radius: 10px; min-height: 0; flex: 1; }
+#door-flow .df-g, #door-flow .df-slot { aspect-ratio: 1; padding: 6px; border: 2px solid #444; border-radius: 10px; background: #2b2b2b; cursor: pointer; }
+#door-flow .df-g:hover { border-color: #aaa; }
+#door-flow .df-g.on { border-color: #ffd400; box-shadow: 0 0 0 3px #ffd400 inset; }
+#door-flow .df-g img, #door-flow .df-slot img { width: 100%; height: 100%; object-fit: contain; }
+#door-flow .df-tray { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+#door-flow .df-slots { display: flex; gap: 8px; }
+#door-flow .df-slot { width: 74px; background: #000; border-style: dashed; }
+#door-flow .df-slot.full { border-style: solid; border-color: #ffd400; }
+#door-flow #df-next, #door-flow .df-pac-btns button, #door-flow .df-back { font-family: inherit; font-size: 28px; color: #fff; background: rgba(0,0,0,.7); border: 0; border-radius: 30px; padding: 8px 24px; cursor: pointer; }
+#door-flow #df-next:disabled { opacity: .4; cursor: default; }
+#door-flow .df-x { position: absolute; top: -6px; right: -6px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: #fff; color: #000; font-size: 20px; cursor: pointer; }
+#door-flow .df-pac { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+#door-flow #df-pac-canvas { height: min(62vh, 640px); width: auto; filter: drop-shadow(0 8px 22px rgba(0,0,0,.6)); }
+#door-flow #df-name { font-family: inherit; font-size: 26px; text-align: center; width: min(80vw, 360px); padding: 8px 14px; border-radius: 12px; border: 3px solid #fff; background: rgba(0,0,0,.6); color: #fff; }
+#door-flow #df-name::placeholder { color: rgba(255,255,255,.75); }
+#door-flow .df-pac-btns { display: flex; gap: 18px; }
+#door-flow .df-back { font-size: 20px; background: rgba(0,0,0,.45); }

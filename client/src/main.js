@@ -28,6 +28,7 @@ import { PEEL, peelPlan, onFloor, stampDims } from '../../shared/peels.mjs';
 import { entitlements, loadEntitlements, credentials } from './entitlements.js';
 import { uploadsToReplace, shownUploads } from '../../shared/uploads.mjs';
 import { openNameTag as openNameTagTool, nameTagOpen, nameTagState } from './nametag.js';
+import { openDoorPick, doorOpen, doorState } from './door.js';
 import { seededLook, roomCharacterSeed } from '../../shared/randomlook.mjs';
 import AVATAR_SPEC from '../../shared/avatar.json';
 import { initFullVersion } from './fullversion.js';
@@ -2132,7 +2133,7 @@ const menuActions = {
   menu: () => menuActions.exit(),
   pac: () => menuActions.door(),
   nametag: () => openNameTag(),
-  door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => toast(S.cityComingSoon, 3000) }, { id: 'back', text: S.doorBackToRoom }]),
+  door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => openDoorPick({ S, toast, choices: () => stickerDesigns().filter((d) => !MENU_IDS.includes(d.id)) }) }, { id: 'back', text: S.doorBackToRoom }]),
 };
 // The name-tag roll (knappar/editor.png): the "my name is" drawing tool (nametag.js). The finished tag
 // is uploaded as my sticker and takes the place of the wheel sticker I chose (klibb.swaps, applySwaps).
@@ -2162,7 +2163,7 @@ function openNameTag() {
 }
 // ndc: where (the dot when locked, else the finger/cursor). true = a menu opened (the click is used up).
 function menuClick(ndc) {
-  if (sp.open || together.busy() || camView || state.adminToken || arrayDrag || !$('room-panel').hidden || !$('sound-panel').hidden || !$('menu-choice').hidden || nameTagOpen()) return false;
+  if (sp.open || together.busy() || camView || state.adminToken || arrayDrag || !$('room-panel').hidden || !$('sound-panel').hidden || !$('menu-choice').hidden || nameTagOpen() || doorOpen()) return false;
   const hit = pickStampAt(ndc);
   if (!menuOf(hit)) return false;
   hideCredit();
@@ -2757,7 +2758,7 @@ window.klibb = {
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer, scene,
-  nameTag: nameTagState, openNameTag,
+  nameTag: nameTagState, openNameTag, door: doorState,
   menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: (x = 0, y = 0) => menuOf(pickStampAt(new THREE.Vector2(x, y))), openRoomPanel, askForVisitors, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {

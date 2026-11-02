@@ -229,6 +229,7 @@ export const EN = {
   soundLocked: 'Sound settings are part of the full version.',
   exitToMenu: '🚪 Exit to menu', choiceBack: '↩ Back',
   doorEnterCity: '🏙 Enter the city', doorBackToRoom: '↩ Back to the room', cityComingSoon: 'The city is coming soon!',
+  doorChoose3: 'choose 3 slaps to bring', doorPack: 'pack them →', doorNamePac: 'name your pac', doorDraw: '✏️ draw on it', doorToCity: 'to city →',
   outfit: 'Outfit', hair: 'Hair', shirt: 'Top', pants: 'Trousers', hairColor: 'Hair colour', skin: 'Skin', cap: 'Cap',
   capColour: 'Cap colour',
   avRoomCharacter: 'In this room you are a surprise character, made just for you. Your own avatar is back in your other rooms – your name you can still change here.',
