@@ -1,4 +1,4 @@
-// e2e: the plain address goes to your most recently used room (client/src/landing.js), on its own
+// e2e: ?last=1 (the plain address before the start card, 2 Nov 2026) goes to your most recently used room (client/src/landing.js), on its own
 // server (port 8861; never the shared 8787):
 //   no rooms → a new quick room (?room=<new>, its key saved), one navigation, no reload loop
 //   two rooms → the one with the latest activity; activity in the other → that one
@@ -35,7 +35,7 @@ const ready = (p) => p.waitForFunction(() => window.klibb && window.klibb.ready,
   await start();
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const errors = [];
-  const open = async (ctx, url = '/') => {
+  const open = async (ctx, url = '/?last=1') => {
     const p = await ctx.newPage(); p.on('pageerror', (e) => errors.push(e.message));
     let navs = 0; p.on('load', () => navs++); // real page loads (replaceState is not one)
     await p.goto(base + url); await ready(p); await sleep(300);

@@ -32,7 +32,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       // ---- free version, desktop ----
       const fctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
       const F = await fctx.newPage(); F.on('pageerror', (e) => errors.push(e.message));
-      await F.goto(S.base + '/'); await ready(F, false);
+      await F.goto(S.base + '/?last=1'); await ready(F, false);
       const f0 = await F.evaluate(() => ({ ns: window.klibb.natureStrip(), ss: window.klibb.strip(), sticker: window.klibb.stickerDesigns().map((d) => d.id), natural: window.klibb.natureDesigns().map((d) => d.id), act: window.klibb.activeWheel(), sel: window.klibb.state.selected,
         tray: [...document.querySelectorAll('#libtray .thumb')].map((t) => t.dataset.id), ntray: [...document.querySelectorAll('#naturetray .thumb')].length, nbox: document.getElementById('nature-box').className }));
       check('two wheels: Nature on the LEFT of the sticker wheel, both shown', f0.ns.shown && f0.ss.shown && f0.ns.rect.right <= f0.ss.rect.left + 1, { n: f0.ns.rect, s: f0.ss.rect });
@@ -103,7 +103,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       const mctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
       if (full) await mctx.addInitScript(() => localStorage.setItem('klibb.devUnlock', '1'));
       const M = await mctx.newPage(); M.on('pageerror', (e) => errors.push(e.message));
-      await M.goto(S.base + '/'); await ready(M, full);
+      await M.goto(S.base + '/?last=1'); await ready(M, full);
       await M.evaluate(() => { document.body.classList.add('wheel-up'); window.klibb.wheelApi.render(); window.klibb.natureWheelApi.render(); });
       await sleep(600);
       const m0 = await M.evaluate(() => ({ ns: window.klibb.natureStrip(), ss: window.klibb.strip() }));

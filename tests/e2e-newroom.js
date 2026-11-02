@@ -33,7 +33,7 @@ const PNGS = [path.join(__dirname, 'test-klibba.png'), path.join(__dirname, 'vik
       await P.waitForFunction((n) => window.klibb.state.mine.length > n, n, { timeout: 15000 });
     }
     const a = await info(P);
-    check('three test uploads: in my palette and first on the sticker wheel', a.mine.length === 3 && a.mine.every((id) => a.wheel.slice(0, 3).includes(id)), a);
+    check('three test uploads: in my palette and first on the sticker wheel', a.mine.length === 3 && a.mine.every((id) => a.wheel.slice(-6, -3).includes(id)), a); // left of d74 (shared/wheelorder.mjs)
     // only uploads can be starred
     const starred = await P.evaluate((id) => window.klibb.toggleFav(id), a.mine[0]);
     const libId = await P.evaluate(() => window.klibb.state.library.find((d) => !d.nature)?.id);
@@ -51,7 +51,7 @@ const PNGS = [path.join(__dirname, 'test-klibba.png'), path.join(__dirname, 'vik
     const c = await info(P);
     check('＋ New quick room: a new room', c.room && c.room !== made.room.id, c.room);
     check('…my unstarred test uploads are gone (palette, sticker wheel, localStorage)', !c.mine.includes(a.mine[1]) && !c.mine.includes(a.mine[2]) && !c.wheel.includes(a.mine[1]) && !c.wheel.includes(a.mine[2]) && !c.stored.includes(a.mine[1]), c);
-    check('…the starred upload stays (a star = keep it), still starred', c.mine.length === 1 && c.mine[0] === a.mine[0] && c.favs.includes(a.mine[0]) && c.wheel[0] === a.mine[0], c);
+    check('…the starred upload stays (a star = keep it), still starred', c.mine.length === 1 && c.mine[0] === a.mine[0] && c.favs.includes(a.mine[0]) && c.wheel.at(-4) === a.mine[0], c);
     check('…the library is all still on the wheel', c.wheel.includes(libId), c.wheel.length);
     const blobs = await P.evaluate((ids) => new Promise((ok) => { const r = indexedDB.open('klibb', 1); r.onsuccess = () => { const t = r.result.transaction('blobs', 'readonly'), s = t.objectStore('blobs'); const out = {}; ids.forEach((id) => { const q = s.get(id); q.onsuccess = () => { out[id] = !!q.result; }; }); t.oncomplete = () => ok(out); }; r.onerror = () => ok(null); }), a.mine);
     check('…their local image copies are deleted too (the starred one kept)', blobs && blobs[a.mine[0]] && !blobs[a.mine[1]] && !blobs[a.mine[2]], blobs);
@@ -67,9 +67,9 @@ const PNGS = [path.join(__dirname, 'test-klibba.png'), path.join(__dirname, 'vik
     await P2.goto(`${S.base}/?room=stad`); await ready(P2);
     await P2.setInputFiles('#file', PNGS[0]); await P2.waitForFunction(() => window.klibb.state.mine.length === 1, null, { timeout: 15000 });
     await P2.evaluate(() => { localStorage.removeItem('klibb.rooms'); localStorage.removeItem('klibb.roomKeys'); });
-    await P2.goto(`${S.base}/`); await ready(P2); await sleep(400);
+    await P2.goto(`${S.base}/?last=1`); await ready(P2); await sleep(400);
     const d = await info(P2);
-    check('plain address, no rooms → a new quick room, and the test upload is off the wheel', d.room && d.room !== 'stad' && d.mine.length === 0 && d.stored.length === 0, d);
+    check('?last=1 (the old plain address), no rooms → a new quick room, and the test upload is off the wheel', d.room && d.room !== 'stad' && d.mine.length === 0 && d.stored.length === 0, d);
     await ctx2.close();
     check('no page errors', errors.length === 0, errors);
   } catch (e) { failed++; console.log('  ✗ crashed: ' + (e.stack || e)); }
