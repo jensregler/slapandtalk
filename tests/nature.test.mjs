@@ -1,6 +1,6 @@
 // Nature stickers (Jens, 28 Oct 2026): curated library stickers whose name starts with "nature"
-// (shared/nature.mjs) scale from 5 cm up to 4 m HIGH in every version; every other sticker keeps the
-// normal limits (free 15 cm – 1 m, full 5 cm – no limit). The import tool flags a "nature" folder,
+// (shared/nature.mjs) scale from 10 cm up to 8 m HIGH (the room height, t475u) in every version; every other sticker keeps the
+// normal limits (free 15 cm – 1 m, full 10 cm – 1.5 m, t475u). The import tool flags a "nature" folder,
 // /api/library carries the flag, and the server clamps POST …/stamps. Run: node tests/nature.test.mjs
 // Tests the free/full split, so OPEN ACCESS (shared/openaccess.mjs) is off here unless OPEN_ACCESS is set.
 process.env.OPEN_ACCESS ??= '0';
@@ -23,19 +23,19 @@ let n = 0;
 const ok = async (name, fn) => { try { await fn(); n++; console.log('✔ ' + name); } catch (e) { console.error('✗ ' + name + '\n  ' + e.message); process.exitCode = 1; } };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
 
-await ok('constants: 4 m high at most, 5 cm at least, prefix "nature"', () => {
-  assert.equal(NATURE.maxHeightCm, 400); assert.equal(NATURE.minCm, 5); assert.equal(NATURE.prefix, 'nature');
+await ok('constants: 8 m high at most (the room height), 10 cm at least, prefix "nature"', () => {
+  assert.equal(NATURE.maxHeightCm, 800); assert.equal(NATURE.minCm, 10); assert.equal(NATURE.prefix, 'nature');
 });
 await ok('the name rule: starts with "nature", any case, the file name only', () => {
   for (const y of ['nature.png', 'Nature-tree.png', 'NATURE_x.jpg', 'dir/natureboy.png']) assert.ok(isNatureName(y), y);
   for (const x of ['tree.png', 'my-nature.png', 'nature/tree.png', '', null]) assert.ok(!isNatureName(x), String(x));
   assert.ok(isNature({ nature: true })); assert.ok(isNature({ source: 'nature-a.png' })); assert.ok(!isNature({ source: 'a.png' })); assert.ok(!isNature(null));
 });
-await ok('the height cap as a longest-side cap: square/portrait 400 cm, a 4:1 strip 1600 cm', () => {
-  assert.equal(natureMaxSideCm({ width: 100, height: 100 }), 400); assert.equal(natureMaxSideCm({ width: 50, height: 100 }), 400);
-  assert.equal(natureMaxSideCm({ width: 400, height: 100 }), 1600); assert.equal(natureMaxSideCm({}), 400);
+await ok('the height cap as a longest-side cap: square/portrait 800 cm, a 4:1 strip 3200 cm', () => {
+  assert.equal(natureMaxSideCm({ width: 100, height: 100 }), 800); assert.equal(natureMaxSideCm({ width: 50, height: 100 }), 800);
+  assert.equal(natureMaxSideCm({ width: 400, height: 100 }), 3200); assert.equal(natureMaxSideCm({}), 800);
   const normal = { minCm: 15, maxCm: 100 };
-  assert.deepEqual(sizeLimitsCm({ nature: true, width: 1, height: 1 }, normal), { minCm: 5, maxCm: 400 });
+  assert.deepEqual(sizeLimitsCm({ nature: true, width: 1, height: 1 }, normal), { minCm: 10, maxCm: 800 });
   assert.equal(sizeLimitsCm({ source: 'tree.png' }, normal), normal);
 });
 
@@ -86,17 +86,17 @@ try {
       const room = await (await fetch(`${base}/api/rooms/nature`)).json();
       assert.ok(!JSON.stringify(room).includes(tree), 'no nature stamp saved');
     });
-    await ok('full version, nature (portrait): 3 m and 4 m kept, 9 m → 4 m, 50 m → 4 m, 6 cm kept, 3 cm → 5 cm', async () => {
-      assert.equal(await slap(tree, 3, KEY), 3); assert.equal(await slap(tree, 4, KEY), 4); assert.equal(await slap(tree, 9, KEY), 4); assert.equal(await slap(tree, 50, KEY), 4);
-      assert.equal(await slap(tree, 0.06, KEY), 0.06); assert.equal(await slap(tree, 0.03, KEY), 0.05);
+    await ok('full version, nature (portrait): 3 m and 8 m kept, 9 m → 8 m, 50 m → 8 m, 12 cm kept, 3 cm → 10 cm', async () => {
+      assert.equal(await slap(tree, 3, KEY), 3); assert.equal(await slap(tree, 8, KEY), 8); assert.equal(await slap(tree, 9, KEY), 8); assert.equal(await slap(tree, 50, KEY), 8);
+      assert.equal(await slap(tree, 0.12, KEY), 0.12); assert.equal(await slap(tree, 0.03, KEY), 0.1);
     });
-    await ok('nature, wide 4:1: the cap is 4 m HIGH = 16 m longest side', async () => {
-      assert.equal(await slap(wide, 12, KEY), 12); assert.ok(near(await slap(wide, 30, KEY), 16));
+    await ok('nature, wide 4:1: the cap is 8 m HIGH = 32 m longest side', async () => {
+      assert.equal(await slap(wide, 24, KEY), 24); assert.ok(near(await slap(wide, 60, KEY), 32));
     });
-    await ok('a key with only natureStickers (no bigStickers): nature limits still 5 cm – 4 m high', async () => { assert.equal(await slap(tree, 3, NKEY), 3); assert.equal(await slap(tree, 0.03, NKEY), 0.05); });
-    await ok('other stickers unchanged: free 15 cm – 1 m clamp, full 5 cm & no max, a user upload named "nature…" is NOT nature', async () => {
+    await ok('a key with only natureStickers (no bigStickers): nature limits still 10 cm – 8 m high', async () => { assert.equal(await slap(tree, 3, NKEY), 3); assert.equal(await slap(tree, 0.03, NKEY), 0.1); });
+    await ok('other stickers unchanged: free 15 cm – 1 m clamp, full 10 cm – 1.5 m (t475u), a user upload named "nature…" is NOT nature', async () => {
       assert.equal(await slap(plain, 3), 1); assert.equal(await slap(plain, 0.06), 0.15); assert.equal(await slap(plain, 0.5), 0.5);
-      assert.equal(await slap(plain, 9, KEY), 9); assert.equal(await slap(plain, 0.06, KEY), 0.06);
+      assert.equal(await slap(plain, 9, KEY), 1.5); assert.equal(await slap(plain, 0.06, KEY), 0.1); assert.equal(await slap(plain, 1.2, KEY), 1.2);
       assert.equal(await slap(upload.id, 3), 1);
     });
     await ok('sane guards: NaN / below 2 cm / strings refused, also for nature', async () => {
