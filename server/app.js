@@ -9,7 +9,7 @@ const express = require('express');
 const multer = require('multer');
 const sharp = require('sharp');
 const { contentId } = require('./store');
-const { broadcast, cleanName, playerPosition, roomSeat, cleanFabrics, activeRooms } = require('./realtime');
+const { broadcast: broadcastRaw, cleanName, playerPosition, roomSeat, cleanFabrics, activeRooms } = require('./realtime');
 const { createHidden, autoPruneOn } = require('./hidden');
 const { publicSticker } = require('./library');
 
@@ -55,13 +55,20 @@ const { createMailer } = require('./mail');
 const { createPresets, PRESET_FACES } = require('./presets');
 const { createCityPacks } = require('./citypacks');
 const { createCities } = require('./cities');
+const { createCityPresets } = require('./citypresets');
 const CITY = require('../shared/city.mjs');
 
 // demo: the demo profile (server/demo.js createDemo) or null. library: loadLibrary() list.
-function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), photos = photoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500 } = {}) {
+function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), photos = photoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500, cityAutosaveMs = undefined } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 const presets = createPresets(store.adapter, { log });
+// City presets (t493u, server/citypresets.js): a new city copies the default one; while the build phase
+// is on, every change in the build city is saved into it (broadcast() below sees every change).
+const cityPresets = createCityPresets(store, { clock, log, ...(cityAutosaveMs !== undefined ? { autosaveMs: cityAutosaveMs } : {}) });
+// Every room change goes out through broadcast (stamp:add / stamp:remove / room:reset / room:style …):
+// one in the build city also saves it into the default city preset a moment later.
+function broadcast(roomId, event) { broadcastRaw(roomId, event); if (CITY.isBuildCity(roomId)) cityPresets.autosave(roomId); }
 const cityPacks = createCityPacks(store.adapter, { imageInfo: (id) => imageAvailable(id), clock, log });
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
 // Full-version flags for a request; asks Lemon Squeezy first when the key is a paid key we haven't seen.
@@ -408,7 +415,9 @@ app.post('/api/admin/presets/:id/thumb', (req, res, next) => { if (!isAdmin(req)
 // ('stad', "The City") stays.
 const occupancy = (id) => { for (const a of activeRooms()) if (a.id === id) return a.count; return 0; };
 const maxPlayersNow = () => { const a = activeRooms()[0]; return a ? a.max : 4; };
-const cities = createCities(store, { occupancy, get maxPlayers() { return maxPlayersNow(); }, clock, log });
+const cities = createCities(store, { occupancy, get maxPlayers() { return maxPlayersNow(); }, clock, log, presets: cityPresets });
+// The build city (t493u; shared/city.mjs BUILD_CITY): always there – Jens decorates it, reachable by its URL.
+if (!demo) cities.ensureBuildCity().catch((e) => log.error?.('[city] could not make the build city', e && e.message));
 const who = (req) => { const n = cleanName(req.body?.by); return n || null; };
 app.get('/api/cities', rateLimit(120), wrap(async (req, res) => {
   res.set('Cache-Control', 'no-store').json({ cities: demo ? [] : await cities.list() });
@@ -426,6 +435,40 @@ app.post('/api/cities/:id/houses', rateLimit(20), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
   if (!CITY.isCityOutside(String(req.params.id))) return res.status(404).json({ error: 'That city is gone' });
   try { res.json(await cities.startHouse(String(req.params.id), { by: who(req) })); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+}));
+// City presets (t493u; server/citypresets.js) – admin only (x-admin-token, like the room presets).
+//   GET    /api/admin/citypresets                 the list (sticker counts per part)
+//   POST   /api/admin/citypresets { from?, name?, default? }   snapshot a city (default: the build city) as a NEW preset
+//   POST   /api/admin/citypresets/save-default    the build city into the default preset now (what autosave does)
+//   PATCH  /api/admin/citypresets/:id { name?, default: true }
+//   DELETE /api/admin/citypresets/:id
+const adminOnly = (req, res) => { if (isAdmin(req)) return true; res.status(403).json({ error: 'Not allowed' }); return false; };
+app.get('/api/admin/citypresets', wrap(async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  res.set('Cache-Control', 'no-store').json({ buildCity: CITY.BUILD_CITY, buildPhase: CITY.CITY_BUILD_PHASE, presets: (await cityPresets.list()).map(cityPresets.summary) });
+}));
+app.post('/api/admin/citypresets/save-default', express.json(), wrap(async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  res.json({ preset: cityPresets.summary(await cityPresets.saveDefault()) });
+}));
+app.post('/api/admin/citypresets', express.json(), wrap(async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  const from = String(req.body?.from || CITY.BUILD_CITY).toLowerCase();
+  if (!CITY.isCityOutside(from)) return res.status(400).json({ error: 'from: a city code (stad-xxxxxx)' });
+  try { res.json({ preset: cityPresets.summary(await cityPresets.save({ from, name: req.body?.name, makeDefault: req.body?.default === true })) }); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+}));
+app.patch('/api/admin/citypresets/:id', express.json(), wrap(async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  let p = await cityPresets.get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'No such city preset' });
+  if (typeof req.body?.name === 'string') p = await cityPresets.rename(p.id, req.body.name);
+  if (req.body?.default === true) p = await cityPresets.setDefault(p.id);
+  res.json({ preset: cityPresets.summary(p) });
+}));
+app.delete('/api/admin/citypresets/:id', wrap(async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  res.json({ ok: await cityPresets.remove(req.params.id) });
 }));
 // Not in a city's outside (yet): it isn't a box, and these all work on the room's box (peels fall to its
 // floor, cameras and cameramen walk its walls, hidden stickers are found on its six faces; recording
@@ -516,6 +559,7 @@ app.get('/api/rooms/open', rateLimit(60), wrap(async (req, res) => {
   if (!demo) {
     for (const a of activeRooms()) {
       if (a.count >= a.max) continue;
+      if (CITY.isBuildCity(a.id)) continue; // the build city (t493u): by its URL only
       let r = null; try { r = await store.peek(a.id); } catch { r = null; }
       const c = CITY.parseCityRoom(a.id);
       if (!c && (!r || r.type !== 'quick')) continue;
@@ -1149,6 +1193,7 @@ app.delete('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
 
 // ---------- Finished videos (see videos.js): upload, list, watch page, email the link ----------
 app.locals.hidden = hidden;
+app.locals.cityPresets = cityPresets; // server/index.js: flushed at shutdown
 app.locals.presets = presets; // server/index.js: the rooms presets were made from are never deleted when empty
 app.locals.videos = mountVideos(app, { store, recorder, entitle, fromReq, mailer, rightsTo, roomParam, wrap, isAdmin, settings: videos, clock });
 // ---------- Photos (see photos.js): 📷 / P, live or from the replay; kept like videos, outlive the room ----------

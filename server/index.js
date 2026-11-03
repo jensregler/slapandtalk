@@ -104,7 +104,8 @@ async function cleanup() {
     recorder.close().catch(() => {}).finally(() => {
       realtime.close();
       server.close();
-      flushStore().finally(() => process.exit(0));
+      // the build city's last changes into the default city preset (t493u), then the rooms
+      app.locals.cityPresets.flush().catch((e) => console.error('[citypresets] could not save at shutdown:', e.message)).finally(() => flushStore().finally(() => process.exit(0)));
     });
   };
   process.once('SIGTERM', stop); process.once('SIGINT', stop);

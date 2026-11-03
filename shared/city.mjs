@@ -109,3 +109,22 @@ export function spawnOutside(id) {
   const p = plotOfRoom(id);
   return p ? { x: p.door.x, z: p.door.z + 2.4, yaw: Math.PI } : { ...CITY_SPAWN };
 }
+
+// ---------- The build phase (Jens, t492u + t493u, 3 Nov 2026) ----------
+// "aktivera nature mode i staden tills spelet släpps så jag kan dekorera staden ordentligt" – until
+// release, Jens t492u: the Nature wheel (two wheels, V, the nature list) works in the city's outside
+// and in its houses too (the city wheel itself – my pack's stickers, exit, my pack – stays as it is).
+// t493u: "we build ONE city and it is stored as a preset – everyone gets the same city at first".
+// Jens decorates the BUILD CITY (BUILD_CITY, a fixed city reachable by its URL, never deleted when
+// empty, not on the Join list); while CITY_BUILD_PHASE is on, everything placed in it (outside +
+// houses 1–8) is saved into the DEFAULT city preset by itself (server/citypresets.js), and every NEW
+// city copies the default city preset when it is started (its houses when they are started).
+// Turn this off at release: the Nature wheel leaves the city and the build city stops auto-saving
+// (the presets stay and new cities still copy the default one).
+export const CITY_BUILD_PHASE = true; // until release, Jens t492u
+export const BUILD_CITY = 'stad-byggen'; // the build city (a valid city code: 'stad-' + 6 letters)
+export const BUILD_CITY_NAME = 'Build city';
+export const isBuildCity = (id) => cityOf(id) === BUILD_CITY; // the build city's outside or one of its houses
+// The part of a city a room is: 'outside' or the house number as a string ('1' … '8'); null = not a city room.
+export const cityLayerOf = (id) => { const p = parseCityRoom(id); return p ? (p.n ? String(p.n) : 'outside') : null; };
+export const CITY_LAYERS = Object.freeze(['outside', ...Array.from({ length: HOUSES }, (_, k) => String(k + 1))]);

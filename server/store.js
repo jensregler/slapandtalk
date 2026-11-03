@@ -236,7 +236,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       if (style) extra.style = style;
       if (keyHash) extra.keyHash = keyHash;
       if (more) Object.assign(extra, more);
-      return saveRoom(normalize(id, { type: CITY.isCityRoom(id) ? 'stad' : type, owner, createdAt: now, lastVisitAt: now, ...extra, stamps: [] }));
+      return saveRoom(normalize(id, { type: CITY.isCityRoom(id) ? 'stad' : type, owner, createdAt: now, lastVisitAt: now, ...extra, stamps: Array.isArray(extra.stamps) ? extra.stamps : [] })); // stamps: a city preset's copy (server/citypresets.js)
     });
   }
 

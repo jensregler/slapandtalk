@@ -52,7 +52,7 @@ import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
 import { menuOf, runMenuSticker, MENU_IDS, RETIRED_MENU_IDS } from './menustickers.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
-import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn } from '../../shared/city.mjs';
+import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, isBuildCity } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
 
@@ -86,7 +86,7 @@ const carryReady = IN_CITY ? enterCity(THIS_CITY) : leaveCity();
 const room = CITY_OUTSIDE ? buildCityRoom() : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
 scene.add(room.group);
 if (room.camFar) { camera.far = room.camFar; camera.updateProjectionMatrix(); }
-document.body.classList.toggle('in-city', IN_CITY); document.body.classList.toggle('city-outside', CITY_OUTSIDE);
+document.body.classList.toggle('in-city', IN_CITY); document.body.classList.toggle('city-build', IN_CITY && CITY_BUILD_PHASE); document.body.classList.toggle('build-city', isBuildCity(ROOM)); document.body.classList.toggle('city-outside', CITY_OUTSIDE);
 // A preset room's six baked images (preset.js; Jens, 29 Oct 2026): over the surfaces, under the stickers.
 // var: showRoomInfo may run before this line
 var presetLayer = new PresetLayer(scene, room.surfaces); // eslint-disable-line no-var
@@ -368,7 +368,10 @@ function designs() { return DEMO ? state.library.filter((d) => !isNat(d)) : show
 // is the one the held sticker is from: clicking/tapping/turning a wheel (or picking from its list)
 // makes it active; R/F, the stack's swipes and the stack itself follow the active wheel.
 const isNat = (d) => !!d && d.library === true && isNature(d);
-const natureOpen = () => !DEMO && !IN_CITY && !!entitlements.full.natureStickers; // (in the city: only what you brought)
+// In the city: only what you brought – except in the build phase (CITY_BUILD_PHASE, until release, Jens t492u):
+// then the Nature wheel works in the city's outside and its houses too, so Jens can decorate the city.
+const natureOpen = () => !DEMO && (!IN_CITY || CITY_BUILD_PHASE) && !!entitlements.full.natureStickers;
+const keepSel = (l) => !!state.selected && (l.some((d) => d.id === state.selected.id) || (isNat(state.selected) && natureOpen())); // a nature sticker in hand stays in hand
 let natKey = '', natCache = [];
 function natureDesigns() {
   if (DEMO) return [];
@@ -415,8 +418,8 @@ function cityDesigns() {
 const CITY_EXIT_ID = 'a03b0ba5768979e6'; // exit.png (menustickers.js) – the city's exit button
 var cityPackUrl = ''; // eslint-disable-line no-var
 var cityPaid = false; // eslint-disable-line no-var -- a paying player carries more than 3 packs (the Town Hall says)
-if (IN_CITY) carryReady.then(() => refreshPackPicture()).then((u) => { cityPackUrl = u || ''; cityKey = ''; const l = stickerDesigns(); if (state.selected && !l.some((d) => d.id === state.selected.id)) select(l[0] || null); else renderDesignHud(); });
-function cityWheelChanged() { cityKey = ''; refreshPackPicture().then((u) => { cityPackUrl = u || ''; cityKey = ''; const l = stickerDesigns(); if (!l.some((d) => d.id === state.selected?.id)) select(l[0] || null); else renderDesignHud(); }); }
+if (IN_CITY) carryReady.then(() => refreshPackPicture()).then((u) => { cityPackUrl = u || ''; cityKey = ''; const l = stickerDesigns(); if (state.selected && !keepSel(l)) select(l[0] || null); else renderDesignHud(); });
+function cityWheelChanged() { cityKey = ''; refreshPackPicture().then((u) => { cityPackUrl = u || ''; cityKey = ''; const l = stickerDesigns(); if (!keepSel(l)) select(l[0] || null); else renderDesignHud(); }); }
 // En annan flik ändrade listan: hämta den nya.
 addEventListener('storage', (e) => {
   if (e.key === FAV_KEY) { state.favs = readFavs(); renderTray(); return; }

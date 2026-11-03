@@ -923,8 +923,9 @@ body.front-view:not(.camview) #crosshair, body.front-view:not(.camview) #mode-hu
 body.front-view:not(.camview) #mode-btn { opacity: .35; pointer-events: none; }
 
 /* ---------- The City (t476u, 2 Nov 2026) ---------- */
-/* In the city (and its houses) you only have what you brought: no uploads, no lists, no Nature wheel. */
-body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-city #nature-box, body.in-city #nature-strip, body.in-city #upload-btn, body.in-city .upload-btn { display: none !important; }
+/* In the city (and its houses) you only have what you brought: no uploads, no lists, no Nature wheel –
+   except in the build phase (body.city-build, CITY_BUILD_PHASE in shared/city.mjs; until release, Jens t492u). */
+body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-city:not(.city-build) #nature-box, body.in-city:not(.city-build) #nature-strip, body.in-city #upload-btn, body.in-city .upload-btn { display: none !important; }
 /* The Town Hall's pack shop (t479u) and the city picker: big and clear (Jens has poor eyesight) – big
    text, big pictures, buttons ≥ 56 px; one column on a phone. Both sheets share the .th-* look. */
 #townhall, #citypick { position: fixed; inset: 0; z-index: 60; background: rgba(10, 30, 16, .6); display: flex; align-items: center; justify-content: center; padding: 2vmin; font-family: system-ui, sans-serif; }

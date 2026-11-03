@@ -13,6 +13,14 @@
 //                 shows: a view of the room it was made from, taken headless)
 // A new preset gets its picture right away (--no-thumb: not).
 //
+// CITY presets (t493u; server/citypresets.js) – a snapshot of a whole city (outside + houses 1–8):
+//   … make-preset.js --city list                          the city presets (* = the default; stickers per part)
+//   … make-preset.js --city save-default                  the build city (stad-byggen) into the default preset NOW
+//                                                         (in the build phase this also happens by itself)
+//   … make-preset.js --city save --name "Malmö" [--from stad-xxxxxx] [--default]   a NEW named city preset
+//   … make-preset.js --city default <id>                  new cities copy this one from now on
+//   … make-preset.js --city rename <id> "Name"   |   --city delete <id>
+//
 // The token is read from the environment (or ADMIN_TOKEN_FILE) and never printed.
 const fs = require('fs');
 const args = process.argv.slice(2);
@@ -23,6 +31,7 @@ const PX = Number(opt('--px', '')) || undefined;
 const DEL = opt('--delete', null);
 const RENAME = opt('--rename', null);
 const THUMB = opt('--thumb', null);
+const CITY_CMD = opt('--city', null), FROM = opt('--from', null), MAKE_DEFAULT = args.includes('--default') && (args.splice(args.indexOf('--default'), 1), true);
 const NO_THUMB = args.includes('--no-thumb') && (args.splice(args.indexOf('--no-thumb'), 1), true);
 const LIST = args.includes('--list') && (args.splice(args.indexOf('--list'), 1), true);
 const TOKEN = process.env.ADMIN_TOKEN || (process.env.ADMIN_TOKEN_FILE ? fs.readFileSync(process.env.ADMIN_TOKEN_FILE, 'utf8').trim() : '');
@@ -55,6 +64,19 @@ async function thumbOf(browser, p) {
 const allPresets = async () => { const r = await fetch(`${BASE}/api/admin/presets`, { headers: H }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j.presets; };
 
 (async () => {
+  if (CITY_CMD) {
+    const J = { ...H, 'Content-Type': 'application/json' }, call = async (m, u, b) => { const r = await fetch(BASE + u, { method: m, headers: J, ...(b ? { body: JSON.stringify(b) } : {}) }); const j = await r.json().catch(() => ({})); if (!r.ok) { console.error(j.error || r.status); process.exit(1); } return j; };
+    const show = (p) => console.log(`${p.default ? '*' : ' '} ${p.id}  "${p.name}"  from ${p.source || '-'}  updated ${p.updatedAt}  stickers ${Object.entries(p.stickers || {}).map(([k, v]) => `${k === 'outside' ? 'outside' : 'house ' + k}: ${v}`).join(', ') || '-'}`);
+    if (CITY_CMD === 'list') { const j = await call('GET', '/api/admin/citypresets'); console.log(`build city: ${BASE}/?room=${j.buildCity}  (build phase ${j.buildPhase ? 'on: it saves into the default by itself' : 'off'})`); j.presets.forEach(show); if (!j.presets.length) console.log('(no city presets yet)'); return; }
+    if (CITY_CMD === 'save-default') { show((await call('POST', '/api/admin/citypresets/save-default')).preset); return; }
+    if (CITY_CMD === 'save') { show((await call('POST', '/api/admin/citypresets', { name: NAME, ...(FROM ? { from: FROM } : {}), default: MAKE_DEFAULT })).preset); return; }
+    const id = args[0];
+    if (!id) { console.error('usage: --city list | save-default | save --name N [--from city] [--default] | default <id> | rename <id> "Name" | delete <id>'); process.exit(2); }
+    if (CITY_CMD === 'default') { show((await call('PATCH', `/api/admin/citypresets/${id}`, { default: true })).preset); return; }
+    if (CITY_CMD === 'rename') { show((await call('PATCH', `/api/admin/citypresets/${id}`, { name: args[1] || '' })).preset); return; }
+    if (CITY_CMD === 'delete') { console.log((await call('DELETE', `/api/admin/citypresets/${id}`)).ok ? 'deleted' : 'not found'); return; }
+    console.error(`unknown --city ${CITY_CMD}`); process.exit(2);
+  }
   if (RENAME != null) {
     const title = args[0] ?? '';
     const r = await fetch(`${BASE}/api/admin/presets/${encodeURIComponent(RENAME)}`, { method: 'PATCH', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) });
