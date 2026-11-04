@@ -17,7 +17,7 @@ const CHAT_FADE_MS = 15_000;
 // onPeople(ids): the players in the room changed (voice.js builds its connections from it).
 // onSignal(from, data): WebRTC signalling for voice chat.
 export function initTogether({ room, scene, camera, controls, isTouch, toast, artist, onEvent, onReconnect, onWelcome = () => {}, onBusyChange = () => {}, onSound = () => {},
-  pass = () => null, ready = null, onDenied = () => {}, onInvite = () => {}, onPeople = () => {}, onSignal = () => {} }) {
+  pass = () => null, ready = null, onDenied = () => {}, onInvite = () => {}, onPeople = () => {}, onSignal = () => {}, onSit = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const me = loadMyAvatar();
   if (!me.saved) saveMyAvatar(me.name, me.look); // en slumpad gubbe ska se likadan ut nästa gång
@@ -59,6 +59,8 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       players.remove(id); if (id === '*') talking.clear(); else talking.delete(id); renderPeople(); onPeople(ids());
     },
     onDenied, onInvite, onSignal,
+    // 3D props: someone sat down on a chair / stood up (mine comes back too: taken = the chair was someone else's)
+    onSit(m) { if (m.id !== net.id) players.sit(m.id, m.chair, m.draw); onSit(m); },
     onMove: (id, p, y) => players.move(id, p, y),
     onLook(id, name, look) {
       const pl = players.map.get(id);
@@ -278,7 +280,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
 
   // ---------- Min egen gubbe (bara i tredjepersonsvy, se main.js) ----------
   // Ingen namnskylt: det är ju jag. Byggs först när den behövs.
-  const self = { avatar: null, want: false, last: null, speed: 0 };
+  const self = { avatar: null, want: false, last: null, speed: 0, seat: null }; // seat: { x, y0, z, yaw, draw } while I sit on a chair
   let building = null;
   function buildSelf() {
     if (self.avatar) return Promise.resolve(self.avatar);
@@ -311,6 +313,8 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       return;
     }
     a.root.rotation.y = controls.yaw + Math.PI;
+    if (self.seat) { a.root.position.set(self.seat.x, self.seat.y0 || 0, self.seat.z); a.root.rotation.y = self.seat.yaw; a.setSeated(true, self.seat.draw); }
+    else if (a.seated) a.setSeated(false);
     a.root.visible = self.want && !hide;
     if (self.want) a.update(dt, self.speed);
   }
@@ -344,6 +348,9 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     },
     update(dt, eye = camera.position, { hideSelf = false } = {}) { sendMove(dt); players.update(dt, eye); updateSelf(dt, { hide: hideSelf }); },
     showSelf,
+    // 3D props: I sit on a chair (seat = { x, y0, z, yaw, draw }) or stand up (null); my avatar shows it.
+    setSelfSeat(seat) { self.seat = seat ? { ...seat } : null; if (!seat && self.avatar?.seated) self.avatar.setSeated(false); },
+    selfSeat: () => (self.seat ? { ...self.seat } : null),
     // Min gubbe slappar/peelar (syns bara i tredjepersonsvy). De andra får veta via servern (by = net.id).
     // The drag pose (sticker arrays) on my own avatar: point = where the row ends, null = let go.
     selfHold: (point, normal) => { const a = self.avatar; if (!a) return false; if (point) return a.hold(point, normal); a.release(); return true; },
@@ -351,7 +358,8 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     freezeGestures(ms) { if (self.avatar) self.avatar.gesture.freeze = ms; for (const p of players.map.values()) if (p.avatar) p.avatar.gesture.freeze = ms; },
     handPos: () => { const a = self.avatar; if (!a) return null; const w = a.gesture.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray()); return w; },
     selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0, fabrics: self.avatar ? self.avatar.fabricInfo() : {},
-      face: self.avatar ? self.avatar.faceInfo() : null, look: self.avatar ? { ...self.avatar.look } : null, gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null }),
+      face: self.avatar ? self.avatar.faceInfo() : null, look: self.avatar ? { ...self.avatar.look } : null, gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null,
+      seated: !!self.avatar?.seated, capWorld: self.avatar?.cap.visible ? self.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null }),
     busy: () => av.open,
     // The room's character (null = my own avatar): shown on me, sent to the room, the panel locked.
     setRoomLook(look) {

@@ -169,6 +169,41 @@ function makeSprite(text, opts, mpp) {
   return s;
 }
 
+// ---------- Sitting (3D props) ----------
+// The seated pose on the Quaternius rig, as bone turns about axes in the avatar's own frame (x = its
+// right side, y = up, z = forward), whatever the rig's local bone axes are. (props-proto, 3 Nov 2026.)
+export const SIT = Object.freeze({ leg: -1.5, knee: 1.5, lean: 0.3, armX: -0.9, armZ: 0.3, fore: -0.7, head: 0.25, drop: 0.4, back: 0 });
+function turnBone(av, name, axis, angle) {
+  const bone = av.model.getObjectByName(name); if (!bone) return;
+  av.root.updateMatrixWorld(true);
+  const rootQ = av.root.getWorldQuaternion(new THREE.Quaternion());
+  const wAxis = new THREE.Vector3(...axis).applyQuaternion(rootQ).normalize();
+  const parentQ = bone.parent.getWorldQuaternion(new THREE.Quaternion());
+  const qw = new THREE.Quaternion().setFromAxisAngle(wAxis, angle);
+  bone.quaternion.premultiply(parentQ.clone().invert().multiply(qw).multiply(parentQ));
+}
+function sitTurns(av, S) {
+  const X = [1, 0, 0], Z = [0, 0, 1];
+  turnBone(av, 'UpperLegL', X, S.leg); turnBone(av, 'UpperLegR', X, S.leg);   // thighs forward (level)
+  turnBone(av, 'LowerLegL', X, S.knee); turnBone(av, 'LowerLegR', X, S.knee); // shins back down
+  turnBone(av, 'Torso', X, S.lean);                                          // lean over the table
+  turnBone(av, 'UpperArmR', X, S.armX); turnBone(av, 'UpperArmL', X, S.armX * 0.85);
+  turnBone(av, 'UpperArmR', Z, S.armZ); turnBone(av, 'UpperArmL', Z, -S.armZ);
+  turnBone(av, 'LowerArmR', X, S.fore); turnBone(av, 'LowerArmL', X, SIT.fore * 0.85);
+  turnBone(av, 'Head', X, S.head);
+}
+// "✏️ drawing…" above someone sitting and drawing (one texture for everyone).
+let drawTex = null;
+function drawTexture() {
+  if (drawTex) return drawTex;
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128; const g = c.getContext('2d');
+  g.fillStyle = 'rgba(255,255,255,.95)'; g.strokeStyle = '#15130f'; g.lineWidth = 8; g.beginPath(); g.roundRect(6, 6, 244, 116, 40); g.fill(); g.stroke();
+  const t = '✏️ drawing…'; let px = 60; g.font = `700 ${px}px system-ui, sans-serif`; const w = g.measureText(t).width; if (w > 216) { px = Math.floor(px * 216 / w); g.font = `700 ${px}px system-ui, sans-serif`; }
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#15130f'; g.fillText(t, 128, 68);
+  drawTex = new THREE.CanvasTexture(c); drawTex.colorSpace = THREE.SRGBColorSpace;
+  return drawTex;
+}
+
 export class Avatar {
   constructor(model, look, name = '') {
     this.root = new THREE.Group();
@@ -198,7 +233,17 @@ export class Avatar {
     const capMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, flatShading: true });
     this.cap = new THREE.Group(); this.capMat = capMat;
     for (const g of capGeo) { const m = new THREE.Mesh(g, capMat); m.raycast = () => {}; this.cap.add(m); }
-    this.root.add(this.cap);
+    // The cap sits ON the head bone (t509u: it used to be placed from the head once a frame in update(),
+    // so a pose set after that – sitting down – left it floating at standing height): a child of the
+    // bone, scaled back to real size, so it follows every pose by itself.
+    if (this.head) {
+      this.root.updateMatrixWorld(true);
+      const hs = this.head.getWorldScale(new THREE.Vector3()).x || 1;
+      this.cap.scale.setScalar(1 / hs); this.cap.position.set(0, 0.205 / hs, 0.012 / hs);
+      this.head.add(this.cap);
+    } else this.root.add(this.cap);
+    this._rest = new Map(); this.model.traverse((o) => { if (o.isBone) this._rest.set(o, o.quaternion.clone()); });
+    this.seated = null; // { draw } while sitting on a chair (setSeated)
     // The talking mouth (mouth.js): follows the head bone like the cap, hidden while silent.
     this.mouth = new Mouth(name || Math.random()); this.root.add(this.mouth.group); this.mouthT = null;
     // Tyger: varje färgplats kan bära en upprepad bild (fabrics.js). Huden har två material (mörkare skugga).
@@ -324,18 +369,10 @@ export class Avatar {
     if (this.actions.Walk) this.actions.Walk.timeScale = THREE.MathUtils.clamp(speed / 1.6, 0.6, 1.8);
     this.actions.Idle?.setEffectiveWeight(1 - this.walk);
     this.mixer.update(dt);
+    if (this.seated) this.applySeat(dt); // the seated pose replaces the animation (before the arm gesture)
     this.gesture.apply(this.root);
     const now = Date.now();
     for (const [slot, e] of Object.entries(this.fab)) if (e.tex) this.slotMats[slot].forEach((m) => tickFabric(m, now));
-    if (this.cap.visible && this.head) {
-      this.root.updateMatrixWorld(true);
-      // Kepsen följer huvudbenet (i gubbens eget koordinatsystem).
-      const m = new THREE.Matrix4().copy(this.root.matrixWorld).invert().multiply(this.head.matrixWorld);
-      const pos = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
-      m.decompose(pos, q, sc);
-      this.cap.position.copy(new THREE.Vector3(0, 0.205, 0.012).applyQuaternion(q).add(pos));
-      this.cap.quaternion.copy(q);
-    }
     if (this.mouth && this.head) {
       this.mouth.update(dt, this.mouthT);
       if (this.mouth.group.visible) {
@@ -349,7 +386,39 @@ export class Avatar {
     }
     if (this.bubble && performance.now() > this.bubbleUntil) this.unsay();
   }
+  // Sitting on a chair (3D props, shared/props.mjs seatOf; Jens t491u): the legs bent forward, leaning
+  // over the table; draw = the hand moves a pencil (and a small "drawing" mark above the head). The
+  // caller places the root on the seat (its x/z, facing the table). off = standing again.
+  setSeated(on, draw = false) {
+    const was = !!this.seated;
+    this.seated = on ? { draw: !!draw, t: this.seated ? this.seated.t : 0 } : null;
+    if (!on && was) { for (const [b, q] of this._rest) b.quaternion.copy(q); this.model.position.set(0, 0, 0); }
+    if (on && !this.drawMark) { this.drawMark = new THREE.Sprite(new THREE.SpriteMaterial({ map: drawTexture(), depthWrite: false, transparent: true })); this.drawMark.scale.set(0.5, 0.25, 1); this.drawMark.renderOrder = 11; this.drawMark.name = 'drawing'; this.root.add(this.drawMark); }
+    if (this.drawMark) { this.drawMark.visible = !!(on && draw); this.drawMark.position.set(0, TOP - SIT.drop + 0.45 + (this.tag ? 0.2 : 0), 0); }
+    if (this.tag) this.tag.position.y = TOP + 0.22 + (this.insta ? 0.09 : 0) - (on ? SIT.drop : 0);
+    if (this.instaTag) this.instaTag.position.y = TOP + 0.2 - (on ? SIT.drop : 0);
+  }
+  // The seated pose (two of them while drawing: the hand goes to and fro), worked out once per avatar.
+  sitPoses() {
+    if (this._sit) return this._sit;
+    const make = (S) => {
+      for (const [b, q] of this._rest) b.quaternion.copy(q);
+      sitTurns(this, S);
+      const out = new Map(); for (const b of this._rest.keys()) out.set(b, b.quaternion.clone());
+      return out;
+    };
+    this._sit = { a: make(SIT), b: make({ ...SIT, fore: SIT.fore - 0.25, armZ: SIT.armZ + 0.12 }) };
+    return this._sit;
+  }
+  applySeat(dt) {
+    const P = this.sitPoses(), st = this.seated;
+    st.t += dt;
+    const k = st.draw ? 0.5 + 0.5 * Math.sin(st.t * 7) : 0;
+    for (const [b, qa] of P.a) { if (k) b.quaternion.slerpQuaternions(qa, P.b.get(b), k); else b.quaternion.copy(qa); }
+    this.model.position.set(0, -SIT.drop, SIT.back);
+  }
   dispose() {
+    if (this.drawMark) { this.root.remove(this.drawMark); this.drawMark.material.dispose(); this.drawMark = null; }
     this.mouth?.dispose();
     this.unsay(); this.setName(''); if (this.talk) { this.root.remove(this.talk); this.talk.material.dispose(); this.talk = null; }
     this.disposed = true;
@@ -367,6 +436,7 @@ const DELAY = 150;
 export class Players {
   constructor(scene) {
     this.scene = scene; this.map = new Map(); this.model = null;
+    this.seatOf = () => null; // (chair prop id) → { x, y, z, yaw } | null: where a seated player sits (main.js: the props layer)
     loadAvatarModel().then((m) => { this.model = m; for (const p of this.map.values()) this.build(p); }).catch(() => {});
   }
   build(p) {
@@ -375,9 +445,10 @@ export class Players {
     this.scene.add(p.avatar.root);
     this.place(p, performance.now());
   }
-  upsert({ id, name, look, p, y, slot }) {
+  upsert({ id, name, look, p, y, slot, sit }) {
     let pl = this.map.get(id);
-    if (!pl) { pl = { id, name, look, snaps: [], pos: new THREE.Vector3(), yaw: 0, speed: 0, slot: 0 }; this.map.set(id, pl); }
+    if (!pl) { pl = { id, name, look, snaps: [], pos: new THREE.Vector3(), yaw: 0, speed: 0, slot: 0, sit: null }; this.map.set(id, pl); }
+    if (sit !== undefined) pl.sit = sit && typeof sit.chair === 'string' ? { chair: sit.chair, draw: !!sit.draw } : null;
     pl.name = name; pl.look = look; if (Number.isInteger(slot)) pl.slot = slot;
     if (p) this.move(id, p, y, true);
     this.build(pl);
@@ -391,6 +462,10 @@ export class Players {
     pl.snaps.push({ t, x: p[0], z: p[2], y: Number(y) || 0 });
     if (pl.snaps.length > 30) pl.snaps.shift();
   }
+  // Someone sat down on a chair (chair = its prop id; draw = drawing) or stood up (chair null).
+  sit(id, chair, draw = false) { const pl = this.map.get(id); if (!pl) return false; pl.sit = chair ? { chair, draw: !!draw } : null; if (!chair) pl.avatar?.setSeated(false); return true; }
+  seatedOn(chair) { for (const p of this.map.values()) if (p.sit && p.sit.chair === chair) return p.id; return null; }
+  takenSeats() { const s = new Set(); for (const p of this.map.values()) if (p.sit) s.add(p.sit.chair); return s; }
   look(id, name, look) { const pl = this.map.get(id); if (pl) this.upsert({ id, name, look }); }
   remove(id) {
     const ids = id === '*' ? [...this.map.keys()] : [id];
@@ -413,6 +488,13 @@ export class Players {
     const x = a.x + (b.x - a.x) * k, z = a.z + (b.z - a.z) * k;
     let dy = b.y - a.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); // kortaste vägen runt
     pl.pos.set(x, 0, z); pl.yaw = a.y + dy * k;
+    const seat = pl.sit ? this.seatOf(pl.sit.chair) : null;
+    if (seat) { // on a chair: there, facing the table (the props layer knows where the chair is)
+      pl.pos.set(seat.x, 0, seat.z);
+      if (pl.avatar) { pl.avatar.root.position.set(seat.x, seat.y0 || 0, seat.z); pl.avatar.root.rotation.y = seat.yaw; pl.avatar.setSeated(true, pl.sit.draw); }
+      return;
+    }
+    if (pl.avatar?.seated) pl.avatar.setSeated(false);
     if (pl.avatar) { pl.avatar.root.position.copy(pl.pos); pl.avatar.root.rotation.y = pl.yaw + Math.PI; }
   }
   update(dt, eye = null) {
@@ -430,6 +512,6 @@ export class Players {
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
       walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false,
-      gestures: p.gestures || 0, slot: p.slot, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
+      gestures: p.gestures || 0, slot: p.slot, sit: p.sit ? { ...p.sit } : null, seated: !!p.avatar?.seated, capWorld: p.avatar?.cap.visible ? p.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
   }
 }

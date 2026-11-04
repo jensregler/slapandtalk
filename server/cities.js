@@ -17,7 +17,7 @@ const FIRST_NAME = 'The City';
 // house n is started; t493u). The build city (CITY.BUILD_CITY) is always there and is not on the Join list.
 function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () => Date.now(), log = console, presets = null } = {}) {
   const fromPreset = async (layer) => (presets ? presets.layerFor(layer) : null);
-  const presetExtra = (l) => (l ? { stamps: l.stamps, cityPreset: l.preset, ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: l.style } : {}) } : {});
+  const presetExtra = (l) => (l ? { stamps: l.stamps, cityPreset: l.preset, ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: l.style } : {}), ...(Array.isArray(l.props) ? { props: l.props } : {}) } : {});
   const always = (city) => city === CITY.CITY_ROOM || city === CITY.BUILD_CITY;
   const peopleIn = (city) => [city, ...CITY.houseIds(city)].reduce((n, id) => n + (occupancy(id) || 0), 0);
   async function started(city) {

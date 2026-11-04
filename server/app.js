@@ -57,6 +57,7 @@ const { createCityPacks } = require('./citypacks');
 const { createCities } = require('./cities');
 const { createCityPresets } = require('./citypresets');
 const CITY = require('../shared/city.mjs');
+const PROPS = require('../shared/props.mjs'); // 3D props (t491u/t509u): tables, chairs, street furniture
 
 // demo: the demo profile (server/demo.js createDemo) or null. library: loadLibrary() list.
 function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), photos = photoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500, cityAutosaveMs = undefined } = {}) {
@@ -343,7 +344,8 @@ app.post('/api/rooms', rateLimit(10), wrap(async (req, res) => {
     if (preset) style = cleanStyle(preset.style, { fabric: true }) || style;
   }
   const roomKey = crypto.randomBytes(24).toString('base64url');
-  let extra = demo ? demo.newRoomFields() : preset ? { preset: presets.forRoom(preset) } : null;
+  // a preset's props (made from a room that had some) come along; none = the default table set (shared/props.mjs)
+  let extra = demo ? demo.newRoomFields() : preset ? { preset: presets.forRoom(preset), ...(Array.isArray(preset.props) ? { props: PROPS.cleanProps(preset.props) } : {}) } : null;
   const name = cleanRoomName(req.body && req.body.name);
   if (name) extra = { ...(extra || {}), name };
   const room = await store.createRoom({ type: 'quick', style, keyHash: hashToken(roomKey), extra });
@@ -386,7 +388,7 @@ app.post('/api/admin/presets', (req, res, next) => { if (!isAdmin(req)) return r
     if (!room) return res.status(404).json({ error: 'That room does not exist' });
     const files = Object.fromEntries(PRESET_FACES.map((f) => [f, req.files && req.files[f] && req.files[f][0] && req.files[f][0].buffer]));
     const thumb = req.files && req.files.thumb && req.files.thumb[0] && req.files.thumb[0].buffer; // (optional) the picture for the picker
-    try { res.json({ preset: await presets.create({ name: b.name, title: b.title, sourceRoom: src, style: styleOf(room), files, thumb }) }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+    try { res.json({ preset: await presets.create({ name: b.name, title: b.title, sourceRoom: src, style: styleOf(room), files, thumb, props: Array.isArray(room.props) ? PROPS.cleanProps(room.props) : null }) }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   }));
 app.delete('/api/admin/presets/:id', wrap(async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
@@ -643,7 +645,7 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
     pIds.forEach((i, n) => ok.set(i, pMetas[n]));
     peels = room.peels.filter((p) => { const m = ok.get(p.imageId); if (m) images[p.imageId] = m; return !!m; });
   }
-  res.json({ room: id, info: roomPublic(room), stamps, peels, images, cameras: room.cameras || [], ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });
+  res.json({ room: id, info: roomPublic(room), stamps, peels, images, cameras: room.cameras || [], props: PROPS.propsOf(room, CITY.isCityOutside(id)), ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });
 }));
 
 const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
@@ -1189,6 +1191,57 @@ app.delete('/api/rooms/:room/recordings/:rec', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id || !needRecorder(res)) return;
   if (!(await rightsTo(req, res, id))) return;
   res.json({ ok: await recorder.remove(id, String(req.params.rec)) });
+}));
+
+// ---------- 3D props (shared/props.mjs; Jens t491u/t509u) ----------
+// The Props wheel (the build phase only, admin / the full version; client/src/propsmode.js) places,
+// moves and removes them. PUT = place or change one (body { prop }), DELETE = remove it. A room that
+// never had props starts from its default set (the table with 4 chairs) at its first change.
+// Everyone in the room gets prop:set { prop } / prop:remove { id }; a change in the build city also
+// saves the build city into the default city preset (broadcast → cityPresets.autosave).
+const propsLimit = rateLimit(240);
+async function propsGate(req, res) {
+  const id = roomParam(req, res); if (!id) return null;
+  if (demoBlocks(req, res)) return null;
+  const admin = isAdmin(req), ent = admin ? {} : await entOf(req), key = String(req.get('x-room-key') || '');
+  const room = await store.peek(id).catch(() => null);
+  const owner = !!room && room.type !== 'stad' && tokenMatches(key, room.keyHash);
+  const ok = PROPS.canEditProps({ buildPhase: CITY.CITY_BUILD_PHASE, admin, full: !!ent.natureStickers, cityRoom: CITY.isCityRoom(id), buildCity: CITY.isBuildCity(id), owner });
+  if (!ok) { res.status(403).json({ error: CITY.CITY_BUILD_PHASE ? 'Only the build phase’s builders can place props here.' : 'Props are placed in the build phase only.' }); return null; }
+  if (!room && !CITY.isCityRoom(id)) { res.status(404).json({ error: 'That room does not exist' }); return null; }
+  return id;
+}
+app.put('/api/rooms/:room/props/:pid', propsLimit, wrap(async (req, res) => {
+  const id = await propsGate(req, res); if (!id) return;
+  const outside = CITY.isCityOutside(id);
+  const prop = PROPS.cleanProp({ ...(req.body && req.body.prop), id: String(req.params.pid || '') }, CITY.roomBox(id));
+  if (!prop) return res.status(400).json({ error: 'Not a prop' });
+  if (!(await store.peek(id).catch(() => null)) && CITY.isCityRoom(id)) await store.createRoom({ id, type: 'stad' }).catch((e) => { if (e.code !== 'EXISTS') throw e; });
+  const r = await store.editRoom(id, (room) => {
+    const list = PROPS.propsOf(room, outside).filter((p) => p.id !== prop.id);
+    if (list.length >= PROPS.MAX_PROPS) return { full: true, save: false };
+    room.props = [...list, prop];
+    return { ok: true };
+  });
+  if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
+  if (r.full) return res.status(409).json({ error: `At most ${PROPS.MAX_PROPS} props here.` });
+  broadcast(id, { type: 'prop:set', prop, ...(playerId(req.body && req.body.by) ? { by: req.body.by } : {}) });
+  res.json({ ok: true, prop });
+}));
+app.delete('/api/rooms/:room/props/:pid', propsLimit, wrap(async (req, res) => {
+  const id = await propsGate(req, res); if (!id) return;
+  const pid = String(req.params.pid || '');
+  if (!PROPS.isPropId(pid)) return res.status(400).json({ error: 'Not a prop' });
+  const outside = CITY.isCityOutside(id);
+  const r = await store.editRoom(id, (room) => {
+    const list = PROPS.propsOf(room, outside);
+    if (!list.some((p) => p.id === pid)) return { gone: false, save: false };
+    room.props = list.filter((p) => p.id !== pid);
+    return { gone: true };
+  });
+  if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
+  if (r.gone) broadcast(id, { type: 'prop:remove', id: pid });
+  res.json({ ok: true, removed: !!r.gone });
 }));
 
 // ---------- Finished videos (see videos.js): upload, list, watch page, email the link ----------

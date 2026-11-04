@@ -44,7 +44,7 @@ function createPresets(adapter, { log = console } = {}) {
   // A random preset (rand = () => [0, 1)), or null when there are none.
   async function pick(rand = Math.random) { const all = await list().catch(() => []); return all.length ? all[Math.floor(rand() * all.length) % all.length] : null; }
   // files: { floor: Buffer, … } – all six. Each is re-encoded (WebP, alpha kept) and checked.
-  async function create({ name = '', title = '', sourceRoom = null, style = null, files, thumb = null }) {
+  async function create({ name = '', title = '', sourceRoom = null, style = null, files, thumb = null, props = null }) {
     const missing = FACES.filter((f) => !files || !files[f]);
     if (missing.length) throw Object.assign(new Error(`Missing images: ${missing.join(', ')}`), { status: 400 });
     const id = crypto.randomBytes(5).toString('hex');
@@ -61,7 +61,9 @@ function createPresets(adapter, { log = console } = {}) {
     const v = Date.now().toString(36);
     const preset = { id, name: String(name || '').slice(0, 60), sourceRoom: sourceRoom ? String(sourceRoom).slice(0, 40) : null, style: style || null,
       // geo: the box it was baked in (shared/roomgeo.mjs; none = the old 10 × 4 × 10 m one)
-      faces: Object.fromEntries(FACES.map((f) => [f, faceUrl(id, f, v)])), px, geo: GEO.CURRENT_KEY, createdAt: new Date().toISOString(), ...(cleanTitle(title) ? { title: cleanTitle(title) } : {}) };
+      faces: Object.fromEntries(FACES.map((f) => [f, faceUrl(id, f, v)])), px, geo: GEO.CURRENT_KEY, createdAt: new Date().toISOString(), ...(cleanTitle(title) ? { title: cleanTitle(title) } : {}),
+      // the 3D props of the room it was made from (shared/props.mjs); a preset without = the default table set
+      ...(Array.isArray(props) ? { props } : {}) };
     await adapter.put(`presets/${id}.json`, Buffer.from(JSON.stringify(preset)), 'application/json');
     (await load()).set(id, preset);
     if (thumb) { try { return await setThumb(id, thumb); } catch (e) { log.error?.('[presets] picture failed', e && e.message); } }

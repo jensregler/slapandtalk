@@ -55,6 +55,9 @@ import { buildCityRoom, markDoors } from './city.js';
 import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, isBuildCity } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
+import { initProps } from './propsmode.js';
+import { canEditProps } from '../../shared/props.mjs';
+import { unlockHeaders } from './entitlements.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -1056,7 +1059,7 @@ async function savePreset({ name = '', title = '', thumb = false, pxPerM = PRESE
   let shot = null;
   // (in a frame callback queued after the render loop's: the frame just drawn, before it is shown and cleared)
   if (thumb) shot = await new Promise((ok) => requestAnimationFrame(() => renderer.domElement.toBlob(ok, 'image/jpeg', 0.88)));
-  const { faces, count } = await bakeFaces(renderer, scene, room.surfaces, { pxPerM });
+  const { faces, count } = await bakeFaces(renderer, scene, room.surfaces.filter((x) => !x.userData.prop), { pxPerM });
   const fd = new FormData();
   fd.append('sourceRoom', ROOM); fd.append('name', name || ROOM); if (title) fd.append('title', title);
   if (shot) fd.append('thumb', shot, 'thumb.jpg');
@@ -1067,7 +1070,7 @@ async function savePreset({ name = '', title = '', thumb = false, pxPerM = PRESE
   return { ...j.preset, stickers: count };
 }
 async function bakePresetUrls(opts) { // (tests / a look before saving) the six images as blob: URLs
-  const { faces, count } = await bakeFaces(renderer, scene, room.surfaces, opts);
+  const { faces, count } = await bakeFaces(renderer, scene, room.surfaces.filter((x) => !x.userData.prop), opts);
   return { count, faces: Object.fromEntries(Object.entries(faces).map(([f, b]) => [f, URL.createObjectURL(b)])) };
 }
 document.getElementById('save-preset')?.addEventListener('click', async (e) => {
@@ -1109,7 +1112,7 @@ function action(ndc, opts) {
 // R byter fortfarande design (man stannar i Tittläge), så man kan förbereda nästa klibba.
 function setMode(mode, { quiet = false } = {}) {
   state.mode = mode === 'view' ? 'view' : 'slap';
-  if (state.mode === 'view') cancelArray();
+  if (state.mode === 'view') { cancelArray(); if (propsMode()) propsUi.setActive(false); }
   const view = state.mode === 'view';
   document.body.classList.toggle('view-mode', view);
   if (view) preview.hide(); else hideCredit();
@@ -1131,13 +1134,14 @@ const toggleMode = () => setMode(state.mode === 'view' ? 'slap' : 'view');
 // you stay in Slap mode. The demo has no nature stickers: there V stays Look mode.
 function natureMode() { return state.mode === 'slap' && activeWheel() === 'nature'; }
 function syncNatureMode() {
-  const on = natureMode(), m = state.mode === 'view' ? 'look' : on ? 'nature' : 'slap';
+  const on = natureMode() && !propsMode(), m = state.mode === 'view' ? 'look' : propsMode() ? 'props' : on ? 'nature' : 'slap';
   document.body.classList.toggle('nature-mode', on);
   $('mode-hud').textContent = S.modeHud(m, isTouch, DEMO);
   $('mode-slap').setAttribute('aria-pressed', String(m === 'slap'));
   $('mode-look').setAttribute('aria-pressed', String(m === 'look'));
   const nb = $('mode-nature');
   if (nb) { nb.setAttribute('aria-pressed', String(m === 'nature')); nb.classList.toggle('locked', !natureOpen()); nb.hidden = DEMO || !natureDesigns().length; }
+  const pb = $('mode-props'); if (pb) { pb.setAttribute('aria-pressed', String(m === 'props')); pb.hidden = !(propsUi && propsUi.open()); }
 }
 function setNatureMode(on, { quiet = false } = {}) {
   // free: the upgrade panel instead – plus a toast that SAYS why, so V never looks dead (Jens, 28 Oct 2026:
@@ -1157,11 +1161,23 @@ function setNatureMode(on, { quiet = false } = {}) {
   return natureMode();
 }
 // V: Look mode → back to slapping (the wheel you were on); else Slap ⇄ Nature.
+// In the build phase (the Props wheel open to me): Slap → Nature → Props → Slap (no Nature: Slap ⇄ Props).
 function toggleNature() {
   if (DEMO) return toggleMode();
-  if (state.mode === 'view') { setMode('slap'); return natureMode() ? 'nature' : 'slap'; }
+  if (state.mode === 'view') { setMode('slap'); return propsMode() ? 'props' : natureMode() ? 'nature' : 'slap'; }
+  if (propsMode()) { propsUi.setActive(false); setNatureMode(false, { quiet: true }); syncNatureMode(); toast(S.modeToastSlap(isTouch), 1600); return 'slap'; }
+  const canProps = propsUi && propsUi.open();
+  if (canProps && (natureMode() || !natureOpen() || !natureDesigns().length)) { setProps(true); return 'props'; }
   setNatureMode(!natureMode());
   return natureMode() ? 'nature' : 'slap';
+}
+// Props mode on/off (the third wheel; propsmode.js). On: the sticker wheels step aside.
+function setProps(on) {
+  if (on && !(propsUi && propsUi.open())) { toast(S.propsLocked || 'Props: the build phase’s builders only.', 2400); return false; }
+  if (state.mode === 'view') setMode('slap', { quiet: true });
+  propsUi.setActive(on); syncNatureMode();
+  if (on) toast(isTouch ? '🪑 Props: pick one on the wheel, tap the floor to place it, tap a prop to change it.' : '🪑 Props: pick one on the wheel (R/F), click to place it, click a prop to change it. Q/E turn · wheel = size · V = slap mode.', 3200);
+  return propsMode();
 }
 // var: setMode längre ner använder den innan raden här har körts.
 var stackMenu = null; // eslint-disable-line no-var -- touch only: the sticker stack menu + the held sticker's timer (stackmenu.js)
@@ -1171,8 +1187,9 @@ var camShow = localStorage.getItem('klibb.camShow') !== '0'; // eslint-disable-l
 // wakes the sticker, a tap on a sticker shows its credit), so a phone starts as before.
 if (!isTouch) setMode('view', { quiet: true });
 $('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); };
-$('mode-slap').onclick = () => { if (state.mode !== 'slap') setMode('slap', { quiet: true }); if (natureMode()) setNatureMode(false, { quiet: true }); toast(S.modeToastSlap(isTouch), 1600); };
-$('mode-nature').onclick = () => { setNatureMode(true); };
+$('mode-slap').onclick = () => { if (propsMode()) propsUi.setActive(false); if (state.mode !== 'slap') setMode('slap', { quiet: true }); if (natureMode()) setNatureMode(false, { quiet: true }); toast(S.modeToastSlap(isTouch), 1600); };
+$('mode-nature').onclick = () => { if (propsMode()) propsUi.setActive(false); setNatureMode(true); };
+$('mode-props').onclick = () => { setProps(!propsMode()); };
 $('mode-look').onclick = () => { if (state.mode !== 'view') setMode('view'); };
 
 // ---------- Peel (ångra) och historik ----------
@@ -1606,6 +1623,7 @@ if (!isTouch) {
     else if (placingCam) placeCamAt(CENTER); // ＋ Add cameraman: this click sets where it starts
     else if (menuClick(CENTER)) { /* a menu sticker: its menu opened (menustickers.js) */ }
     else if (state.mode === 'view') viewClick(); // View mode: a sticker = who made it? (never slaps); a free surface = Slap mode
+    else if (propsMode()) propsUi.click(CENTER); // Props mode: place the held prop / select one
     else if (deskPress()) { /* faded: this press only brings the held sticker back – no slap (point 10) */ }
     else {
       // Hold the button and look/drag away: the sticker repeats toward the crosshair (sticker arrays).
@@ -1639,7 +1657,7 @@ if (!isTouch) {
   addEventListener('mousemove', (e) => { if (e.movementX || e.movementY) deskActive(); }, true);
   addEventListener('keydown', () => deskActive(), true);
   addEventListener('wheel', () => deskActive(), { capture: true, passive: true });
-  addEventListener('wheel', (e) => { if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
+  addEventListener('wheel', (e) => { if (propsMode()) { if (controls.locked || propsUi.selected()) propsUi.scaleBy(e.deltaY > 0 ? 1 / 1.08 : 1.08); return; } if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
   addEventListener('keydown', (e) => {
     if (isTyping(e)) return; // inte medan man skriver
     if (endDlg.open || linkDlg.open) return; // rutan "End of slap history" eller länkfrågan är öppen
@@ -1656,6 +1674,15 @@ if (!isTouch) {
     if (e.code === 'KeyP' && !e.repeat) snapPhoto(); // 📷 Photo
     if (e.code === 'KeyC' && !e.repeat) toggleView();
     if (e.code === 'KeyL' && !e.repeat && credit.shown?.link) openLink(credit.shown.link);
+    if (propsMode()) { // the Props wheel: Q/E turn, R/F the next/previous prop, Delete removes the selected one, Esc lets go
+      if (e.code === 'KeyQ') propsUi.turn(1);
+      if (e.code === 'KeyE') propsUi.turn(-1);
+      if (e.code === 'KeyR' && !e.repeat) propsUi.step(1);
+      if (e.code === 'KeyF' && !e.repeat) propsUi.step(-1);
+      if ((e.code === 'Delete' || e.code === 'Backspace') && propsUi.selected()) propsUi.removeSelected();
+      if (e.code === 'Escape' && propsUi.selected()) propsUi.deselect();
+      return;
+    }
     if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
     if (state.mode === 'slap' && e.code === 'KeyE') setRot(state.rotation + 15);
     if (e.code === 'KeyR' && !e.repeat && !e.ctrlKey && !e.metaKey) nextDesign();
@@ -1675,7 +1702,7 @@ if (!isTouch) {
   // before). Walking: the joystick (its own element, works alongside an aiming finger).
   const touches = new Map();
   const ndcOf = (x, y) => new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
-  const canAim = () => !!(stackMenu && state.selected && state.mode === 'slap' && !camView && !placingCam && !state.adminToken
+  const canAim = () => !!(stackMenu && state.selected && state.mode === 'slap' && !propsMode() && !camView && !placingCam && !state.adminToken
     && !stackMenu.isOpen() && !stackMenu.bookOpen() && !sp.open && !together.busy() && stackMenu.held.canSlap(performance.now()));
   const endAim = () => { touchAim = null; document.body.classList.remove('aiming'); preview.hide(); };
   // Any touch on the screen (Jens, 29 Oct 2026) counts as working with the held sticker: while it is
@@ -1778,6 +1805,7 @@ if (!isTouch) {
     if (p && !p.drag && performance.now() - p.t < 400 && e.type === 'pointerup') {
       const ndc = ndcOf(e.clientX, e.clientY);
       if (placingCam) placeCamAt(ndc);
+      else if (propsMode()) propsUi.click(ndc); // the Props wheel: tap = place / select
       else if (menuClick(ndc)) { /* a menu sticker (menustickers.js) */ }
       else if (stackMenu && !camView && !state.adminToken) heldTap(ndc, e.clientX, e.clientY);
       else if (state.mode === 'view' && !camView) {
@@ -2011,7 +2039,9 @@ noteVisit(ROOM); // one of my rooms now (the City is not): the plain address bri
 // ---------- Ladda rummet ----------
 async function loadRoom() {
   try {
-    const { stamps: list, images, info, cameras, peels } = await api.loadRoom(ROOM);
+    const { stamps: list, images, info, cameras, peels, props } = await api.loadRoom(ROOM);
+    await propsUi.setAll(props || []).catch((e) => console.warn('[props]', e)); // before the stickers: some sit on a cuboid's face
+    window.klibb.propsReady = true;
     showRoomInfo(info); roomInfoKnown();
     applyGroove(info?.groove);
     peelLayer.setOn(!!info?.peels);
@@ -2030,6 +2060,7 @@ async function loadRoom() {
 // Händelser från servern: det andra gör i rummet syns direkt, utan att ladda om.
 function onRoomEvent(e) {
   if (!e || typeof e.type !== 'string') return;
+  if (propsUi && propsUi.onEvent(e)) return; // prop:set / prop:remove
   if (e.type === 'stamp:add' && e.stamp && e.image) {
     // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
     if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); if (e.peel) peelLayer.confirm('tmp-' + e.nonce, e.peel); return; } // min egen, redan synlig
@@ -2081,7 +2112,8 @@ function syncPeels(info, peels = [], images = {}) {
 }
 async function resyncRoom() {
   try {
-    const { stamps: list, images, info, cameras, peels } = await api.loadRoom(ROOM);
+    const { stamps: list, images, info, cameras, peels, props } = await api.loadRoom(ROOM);
+    if (props) await propsUi.setAll(props).catch(() => {});
     cams.set(cameras || []); renderCams();
     syncPeels(info, peels, images);
     applyGroove(info?.groove);
@@ -2106,7 +2138,23 @@ const together = initTogether({
   onInvite: (m) => onInviteMsg(m),
   onPeople: (ids) => { if (voice) voice.setPeople(ids); },
   onSignal: (from, data) => { if (voice) voice.onSignal(from, data); },
+  onSit: (m) => propsUi?.onSit(m),
 });
+// ---------- 3D props (propsmode.js, shared/props.mjs; Jens t491u/t509u) ----------
+// The room's props (a table with 4 chairs by default), sitting down to draw, and – in the build phase –
+// the Props wheel (V: Slap → Nature → Props) for admin / the full version where canEditProps allows.
+var propsUi = initProps({ // eslint-disable-line no-var
+  scene, renderer, camera, controls, room, faces: stamps.faces, roomId: ROOM, outside: CITY_OUTSIDE, isTouch, toast,
+  aim: (ndc) => aimRay(ndc),
+  canEdit: () => !DEMO && canEditProps({ buildPhase: CITY_BUILD_PHASE, admin: !!state.adminToken, full: !!entitlements.full.natureStickers, cityRoom: IN_CITY, buildCity: isBuildCity(ROOM), owner: !!roomKeys()[ROOM] }),
+  headers: () => ({ ...unlockHeaders(), ...(roomKeys()[ROOM] ? { 'x-room-key': roomKeys()[ROOM] } : {}), ...(state.adminToken ? { 'x-admin-token': state.adminToken } : {}) }),
+  netId: () => together.net.id, sendSit: (chair, draw) => together.net.sendSit(chair, draw), takenSeats: () => together.players.takenSeats(),
+  setSelfSeat: (seat) => together.setSelfSeat(seat),
+  onModeChange: () => { preview.hide(); renderStrip(); },
+  wheelUp: () => wheelUp(),
+});
+together.players.seatOf = (chair) => propsUi.seatPose(chair);
+function propsMode() { return !!propsUi && propsUi.active(); } // hoisted: setMode/syncNatureMode run before propsUi exists
 // Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
 const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); fullUi.ready(); });
 // Point 8 (Jens, 29 Oct 2026): in a preset room the free version gives me a random character for that
@@ -2334,8 +2382,11 @@ const SWAP_KEY = 'klibb.swaps';
 function readSwaps() { try { const o = JSON.parse(localStorage.getItem(SWAP_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; } catch { return {}; } }
 function openNameTag() {
   closeMore(); closeRoomMenu(); controls.unlock?.();
+  // a free chair close by (3D props): I sit down at the table and draw – the others see it
+  propsUi.sitToDraw();
   openNameTagTool({
     S, toast,
+    onClose: () => propsUi.standUp(),
     choices: () => stickerDesigns().filter((d) => !MENU_IDS.includes(d.id)),
     onSave: async (blob, replaceId) => {
       toast(S.uploading, 10000);
@@ -2859,6 +2910,7 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (holdSharpForTests && deskHeld && deskHeld.state === 'timed') { const t = performance.now(); if (deskHeld.canSlap(t)) deskHeld.keepAlive(t); else deskHeld.wake(t); }
   if (!camView) controls.update(dt);
+  propsUi.tick(dt); // props: far ones without ink, my chair, the Props wheel's ghost
   tickCityDoors();
   tickRoomFabric(room.surfaces); if (sp.open) { fargUi.tick(); for (const k of SURF_KINDS) ownUi[k].tick(); } // Färg: the room image spins / cycles / scrolls
   for (const ac of autoCamsOf(cams.list())) { const q = liveAutoPose(ac); if (q) cams.place(ac.id, q); }
@@ -2892,9 +2944,10 @@ function frame() {
   const rowEnd = dragging ? arrayDrag.items[arrayDrag.items.length - 1] : null;
   together.selfHold(rowEnd ? rowEnd.position : null, rowEnd ? (rowEnd.normal || arrayDrag.a.normal.toArray()) : null);
   // The held sticker has faded out completely (2 s untouched + 1 s): View mode (Jens, 2 Nov 2026: the old way).
-  if (deskHeld && state.mode === 'slap' && deskHeld.state === 'timed' && deskHeld.faded(performance.now()) && !mouseHeld && !arrayDrag && !arrayRec) setMode('view', { quiet: true });
+  if (deskHeld && state.mode === 'slap' && !propsMode() && deskHeld.state === 'timed' && deskHeld.faded(performance.now()) && !mouseHeld && !arrayDrag && !arrayRec) setMode('view', { quiet: true });
   if (dragging) { preview.hide(); heldNow = { row: arrayDrag }; } // dragging a row: the ghosts are the preview
   else if (arrayRec) { preview.hide(); heldNow = { msg: arrayRec.msg }; } // released: until the server has the copies
+  else if (propsMode()) preview.hide(); // Props mode: the prop's ghost is the preview (propsmode.js)
   else if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap' && deskHeld && deskHeld.opacity(performance.now()) > 0) {
     if (mouseHeld) deskHeld.keepAlive(performance.now()); // the button held (arrays): no fade meanwhile
     preview.setFade(deskHeld.opacity(performance.now())); // the desktop fade (2 s untouched → 1 s out)
@@ -2964,6 +3017,7 @@ if ('serviceWorker' in navigator) {
 
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 window.klibb = {
+  props: propsUi, propsMode, setProps,
   demo: DEMO, config, voice: () => voice.info(), voiceObj: () => voice, toggleMic: () => voice.toggle(), library: () => state.library.slice(),
   demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
     closedText: $('demo-closed-text').textContent, invite: inviteState, inviteNote: $('invite-note').hidden ? '' : $('invite-note').textContent, left: demoTimer && demoTimer.left ? demoTimer.left() : null }),

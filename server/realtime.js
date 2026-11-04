@@ -12,9 +12,13 @@
 //                    unlock {unlock: {key, dev}}  (new full-version key in an open tab)
 //                    ping · signal {to, data}  (signal = för röstchatt via WebRTC, se nedan)
 //                    talk {l} · held {h}  (recording only: my voice level / the sticker I aim with, never relayed)
+//                    sit {chair: prop id | null, draw}  (3D props, shared/props.mjs: I sit down on a chair – drawing –
+//                    or stand up; one person per chair, the server keeps who sits where)
 //   server → klient: welcome {id, you, players, chat, max, full, rec, now (server ms: the shared clock for the footstep groove)} · join {player} · leave {id}
 //                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
 //                    event {e} · signal {from, data} · pong · error {error}
+//                    sit {id, chair, draw}  (someone sat down / stood up; to the sender with taken: id when that chair was taken)
+//   a player (welcome.players, join) carries sit: { chair, draw } while seated.
 //   p = ögats position [x, y, z], y = vridning (yaw), pi = blicken upp/ner (pitch), i radianer.
 //   rec = pågående inspelning { recId, startedAt } eller null (event rec:start / rec:stop när det ändras).
 //
@@ -204,7 +208,7 @@ function attachRealtime(server, {
   const perIp = new Map();
 
   const room = (id) => {
-    if (!rooms.has(id)) rooms.set(id, { id, players: new Map(), watchers: [], chat: [] });
+    if (!rooms.has(id)) rooms.set(id, { id, players: new Map(), watchers: [], chat: [], seats: new Map() }); // seats: chair prop id -> client id
     return rooms.get(id);
   };
   // Flags from a paid key arrive asynchronously (server/licenses.js); only ever replaces c.ent.
@@ -214,7 +218,7 @@ function attachRealtime(server, {
     if (!entitle.check || !creds || typeof creds.key !== 'string') return;
     entitle.check(creds).then((ent) => { if (replace || Object.values(ent).some(Boolean)) c.ent = ent; }).catch(() => {});
   };
-  const pub = (c) => ({ id: c.id, name: c.name, look: c.look, p: c.p, y: c.y, pi: c.pi || 0, slot: c.slot ?? 0 });
+  const pub = (c) => ({ id: c.id, name: c.name, look: c.look, p: c.p, y: c.y, pi: c.pi || 0, slot: c.slot ?? 0, ...(c.sit ? { sit: { ...c.sit } } : {}) });
   // The lowest slot no other player in the room has.
   function takeSlot(c, r) {
     const used = new Set([...r.players.values()].filter((o) => o !== c).map((o) => o.slot));
@@ -274,6 +278,8 @@ function attachRealtime(server, {
   }
   function leave(c) {
     const r = rooms.get(c.room); if (!r) return;
+    if (c.sit && r.seats.get(c.sit.chair) === c.id) r.seats.delete(c.sit.chair);
+    c.sit = null;
     if (r.players.get(c.id) === c) { r.players.delete(c.id); rec(r.id, 'leave', { id: c.id }); toRoom(r, { t: 'leave', id: c.id, ...(c.replaced ? { rejoin: true } : {}) }); if (!c.replaced) promote(r); }
     r.watchers = r.watchers.filter((w) => w !== c);
     if (!r.players.size && !r.watchers.length) { rooms.delete(c.room); if (onEmpty) onEmpty(c.room); } // chatten glöms när rummet är tomt; tomma rum tas bort (server/emptyrooms.js)
@@ -385,6 +391,18 @@ function attachRealtime(server, {
       const h = cleanHeld(m.h, boundsOf(c)); if (h === undefined) return;
       return rec(r.id, 'held', { id: c.id, h });
     }
+    if (m.t === 'sit') {
+      // Sitting down on a chair (3D props): the chair is a prop id; one person per chair. null = stand up.
+      if (!c.player || !c.sitLimit()) return;
+      const chair = m.chair === null || m.chair === undefined ? null : (typeof m.chair === 'string' && /^[a-f0-9]{10}$/.test(m.chair) ? m.chair : undefined);
+      if (chair === undefined) return;
+      const draw = m.draw === true;
+      if (chair && r.seats.has(chair) && r.seats.get(chair) !== c.id) return send(c, { t: 'sit', id: c.id, chair: null, draw: false, taken: chair });
+      if (c.sit && c.sit.chair !== chair && r.seats.get(c.sit.chair) === c.id) r.seats.delete(c.sit.chair);
+      c.sit = chair ? { chair, draw } : null;
+      if (chair) r.seats.set(chair, c.id);
+      return toRoom(r, { t: 'sit', id: c.id, chair, draw: chair ? draw : false });
+    }
     if (m.t === 'signal') {
       // För röstchatt (WebRTC): skickas bara vidare till en spelare i samma rum.
       if (!c.player || !c.signalLimit() || typeof m.to !== 'string') return;
@@ -397,7 +415,7 @@ function attachRealtime(server, {
   wss.on('connection', (ws, req, roomId, ip) => {
     const c = {
       id: crypto.randomBytes(5).toString('hex'), ws, room: roomId, ip, joined: false, player: false, strikes: 0,
-      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10), talkLimit: bucket(15, 20), heldLimit: bucket(12, 20),
+      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10), talkLimit: bucket(15, 20), heldLimit: bucket(12, 20), sitLimit: bucket(2, 8),
     };
     perIp.set(ip, (perIp.get(ip) || 0) + 1);
     ws.on('pong', () => { ws.klibbDead = false; });

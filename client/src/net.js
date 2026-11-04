@@ -8,6 +8,7 @@
 //   onJoin(player), onLeave(id), onMove(id, p, y), onLook(id, name, look)
 //   onChat(msg), onEvent(e)  (stamp:add, stamp:remove, image:remove, room:style)
 //   onSignal(from, data)     (för röstchatt, nästa steg)
+//   onSit({ id, chair, draw, taken? })  someone sat down on a chair / stood up (3D props)
 //   onStatus(status)   → 'connecting' | 'online' | 'full' | 'offline'
 //   onReconnect()      → anslutningen kom tillbaka efter ett avbrott (hämta det vi missat)
 //   onError(text)
@@ -15,7 +16,7 @@
 export function connect(roomId, handlers) {
   const h = { hello: () => ({}), ...handlers };
   const noop = () => {};
-  for (const k of ['onDenied', 'onInvite', 'onYou', 'onWelcome', 'onJoin', 'onLeave', 'onMove', 'onLook', 'onChat', 'onEvent', 'onSignal', 'onStatus', 'onReconnect', 'onError']) h[k] = h[k] || noop;
+  for (const k of ['onSit', 'onDenied', 'onInvite', 'onYou', 'onWelcome', 'onJoin', 'onLeave', 'onMove', 'onLook', 'onChat', 'onEvent', 'onSignal', 'onStatus', 'onReconnect', 'onError']) h[k] = h[k] || noop;
   // Slumpas per sidladdning: kopplar samma flik upp sig igen vet servern att den gamla
   // anslutningen är död och tar bort den direkt (annars kunde man synas två gånger en stund).
   const sid = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -59,6 +60,7 @@ export function connect(roomId, handlers) {
         case 'chat': h.onChat(m.msg); break;
         case 'event': h.onEvent(m.e); break;
         case 'signal': h.onSignal(m.from, m.data); break;
+        case 'sit': h.onSit(m); break; // someone sat down / stood up (3D props); taken = my chair was someone else's
         case 'error': h.onError(m.error); break;
         case 'denied': deniedCode = m.code || 'invite'; h.onDenied(m); break; // demo: not let in (no retry)
         case 'invite': h.onInvite(m); break;
@@ -113,6 +115,7 @@ export function connect(roomId, handlers) {
     sendSignal: (to, data) => send({ t: 'signal', to, data }), // voice chat (voice.js)
     sendTalk: (l) => send({ t: 'talk', l }), // my own voice level 0…15 while I talk (recordings only)
     sendHeld: (h) => send({ t: 'held', h }), // the sticker I hold and aim with, or null (recordings only)
+    sendSit: (chair, draw = false) => send({ t: 'sit', chair: chair || null, draw: !!draw }), // I sit down on a chair (prop id) / stand up (null)
     sendInvite: (action = 'create') => send({ t: 'invite', action }), // demo: my single-use invite link
     get denied() { return deniedCode; },
     reconnectNow: now,

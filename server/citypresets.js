@@ -4,7 +4,8 @@
 // sticker records (not baked images), so a new city gets real stickers in the same places.
 //
 //   "citypresets/<id>.json"  { id, name, default: true|false, source, createdAt, updatedAt,
-//                              layers: { outside: { stamps, geo, style? }, '1': { … }, … '8': { … } } }
+//                              layers: { outside: { stamps, geo, style?, props? }, '1': { … }, … '8': { … } } }
+//   props = the part's 3D props (shared/props.mjs; missing = it had none of its own: the default set)
 //
 // One preset is the DEFAULT: every new city (server/cities.js) copies its outside when the city is
 // started and its house n when house n is started. A copy: what players do in their city never
@@ -42,7 +43,8 @@ function createCityPresets(store, { clock = () => Date.now(), autosaveMs = 2000,
     cache = next; return cache;
   }
   const summary = (p) => ({ id: p.id, name: p.name, default: !!p.default, source: p.source || null, createdAt: p.createdAt, updatedAt: p.updatedAt,
-    stickers: Object.fromEntries(Object.entries(p.layers || {}).map(([l, v]) => [l, (v.stamps || []).length])) });
+    stickers: Object.fromEntries(Object.entries(p.layers || {}).map(([l, v]) => [l, (v.stamps || []).length])),
+    props: Object.fromEntries(Object.entries(p.layers || {}).filter(([, v]) => Array.isArray(v.props)).map(([l, v]) => [l, v.props.length])) }); // 3D props per part (own ones only)
   const list = async () => [...(await load()).values()].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
   const get = async (id) => (ID_RE.test(String(id)) ? (await load()).get(id) || null : null);
   const getDefault = async () => (await list()).find((p) => p.default) || null;
@@ -57,7 +59,7 @@ function createCityPresets(store, { clock = () => Date.now(), autosaveMs = 2000,
       const r = await store.peek(id); // a storage error throws: never save a half-read city over the preset
       if (!r) continue;
       // geo: the box the stickers are in (normalize() in store.js would otherwise put them away / move them)
-      layers[layer] = { stamps: (r.stamps || []).map(cleanStamp), ...(r.geo ? { geo: r.geo } : {}), ...(r.style ? { style: r.style } : {}) };
+      layers[layer] = { stamps: (r.stamps || []).map(cleanStamp), ...(r.geo ? { geo: r.geo } : {}), ...(r.style ? { style: r.style } : {}), ...(Array.isArray(r.props) ? { props: r.props } : {}) }; // props: the 3D props (shared/props.mjs)
     }
     return layers;
   }
@@ -109,7 +111,7 @@ function createCityPresets(store, { clock = () => Date.now(), autosaveMs = 2000,
     try { d = await getDefault(); } catch (e) { log.error?.('[citypresets] could not read the presets', e && e.message); return null; }
     const l = d && d.layers && d.layers[layer];
     if (!l) return null;
-    return { preset: d.id, stamps: structuredClone((l.stamps || []).map(cleanStamp)), ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: structuredClone(l.style) } : {}) };
+    return { preset: d.id, stamps: structuredClone((l.stamps || []).map(cleanStamp)), ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: structuredClone(l.style) } : {}), ...(Array.isArray(l.props) ? { props: structuredClone(l.props) } : {}) };
   }
   return { list, get, getDefault, summary, snapshot, save, saveDefault, autosave, flush, setDefault, rename, remove, layerFor, pending: () => dirty };
 }

@@ -1039,3 +1039,46 @@ body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-ci
   #citypick .cp-body { padding: 12px; }
 }
 .sc-room-city b { color: #a8f0b4; }
+
+/* ---------- 3D props: the Props wheel (build phase; propsmode.js, Jens t491u/t509u) ----------
+   Props mode: the two sticker wheels step aside and the Props wheel takes the bottom middle. The
+   selected prop's panel: big and clear (Jens has poor eyesight) – big text, buttons ≥ 56 px. */
+body.props-mode #design-strip, body.props-mode #nature-strip { display: none !important; }
+#props-strip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 4; --wheel-item: 110px;
+  width: min(900px, calc(100vw - 40px)); height: calc(var(--wheel-item) * 2.3 + 46px); pointer-events: none; }
+#props-strip[hidden] { display: none !important; }
+#props-num { position: absolute; left: 50%; bottom: calc(var(--wheel-item) * 2.3 + 28px); transform: translateX(-50%); z-index: 2000; pointer-events: none; white-space: nowrap;
+  font: 800 20px/1.1 system-ui, sans-serif; color: #ffd400; padding: 6px 14px; border-radius: 12px; background: rgba(0,0,0,.6); }
+#props-row { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--wheel-item) * 2.3 + 26px); pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+body.props-mode:not(.touch) #mode-hud { bottom: calc(110px * 2.3 + 90px); }
+body.touch #props-strip { left: calc(6px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); width: auto; transform: none; z-index: 6;
+  bottom: calc(150px + env(safe-area-inset-bottom)); --wheel-item: 60px; height: calc(var(--wheel-item) * 2.3 + 16px); border-radius: 16px; overflow: hidden;
+  background: radial-gradient(closest-side, rgba(0,0,0,.30), rgba(0,0,0,.12)); }
+body.touch #props-num { bottom: auto; top: 4px; font-size: 15px; }
+body.camview #props-strip, body.replay #props-strip { display: none !important; }
+#props-panel { position: fixed; right: 16px; top: 50%; transform: translateY(-50%); z-index: 40; width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto;
+  background: rgba(20, 19, 15, .92); color: #fff; border: 3px solid #ffd400; border-radius: 20px; padding: 16px 18px; font: 600 20px/1.3 system-ui, sans-serif; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+#props-panel[hidden] { display: none !important; }
+#props-panel .pp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+#props-panel .pp-head b { font-size: 28px; color: #ffd400; }
+#props-panel button { min-width: 56px; min-height: 56px; border-radius: 14px; border: 2px solid #fff; background: #2b2b2e; color: #fff; font: 800 24px/1 system-ui, sans-serif; cursor: pointer; padding: 0 12px; }
+#props-panel button:hover { background: #3d3d42; }
+#props-panel .pp-x { border-color: #ffd400; color: #ffd400; }
+#props-panel .pp-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
+#props-panel .pp-lab { min-width: 84px; font-size: 20px; }
+#props-panel .pp-out { min-width: 72px; text-align: center; font-size: 22px; color: #ffd400; font-variant-numeric: tabular-nums; }
+#props-panel input[type=range] { flex: 1; min-width: 120px; height: 36px; accent-color: #ffd400; }
+#props-panel input[type=number] { width: 86px; height: 48px; font: 700 20px system-ui, sans-serif; border-radius: 10px; border: 2px solid #fff; background: #111; color: #fff; padding: 0 6px; }
+#props-panel .pp-unit { font-size: 18px; opacity: .8; }
+#props-panel .pp-colours button { width: 52px; height: 52px; min-width: 52px; min-height: 52px; border: 3px solid #15130f; padding: 0; }
+#props-panel .pp-colours button.on { outline: 4px solid #ffd400; outline-offset: 2px; }
+#props-panel .pp-actions button { flex: 1; font-size: 20px; }
+#props-panel #pp-del { border-color: #ff6b5b; color: #ffb3aa; }
+#props-panel .pp-note { margin: 8px 0 0; font-size: 15px; opacity: .7; }
+body.touch #props-panel { right: 8px; left: 8px; width: auto; top: 8px; transform: none; max-height: 52vh; font-size: 17px; padding: 10px 12px; }
+#mode-props[aria-pressed="true"] { background: #ffd400; color: #15130f; }
+/* four mode buttons (Slap · Nature · Props · Look): two rows of two, full-size words */
+#mode-switch:has(#mode-props:not([hidden])) { flex-wrap: wrap; }
+#mode-switch:has(#mode-props:not([hidden])) button { flex: 1 1 45%; }
+#mode-switch:has(#mode-props:not([hidden])) button:nth-child(3) { border-left: 0; }
+#mode-switch:has(#mode-props:not([hidden])) button:nth-child(n+3) { border-top: 1px solid #555; }

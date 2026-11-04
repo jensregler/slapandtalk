@@ -101,9 +101,10 @@ export const EN = {
   linkOpen: 'Open', linkCancel: 'Cancel',
 
   // ---------- Modes ----------
+  propsLocked: 'Props: only the build phase’s builders can place them here.',
   slapMode: 'Slap mode', lookMode: 'Look mode', natureMode: '🌿 Nature',
   // m = 'slap' | 'nature' | 'look'. V = Slap ⇄ Nature, G = Look mode (the demo, no nature: V = Look mode).
-  modeHud: (m, touch, demo) => ({ slap: 'Slap mode', nature: '🌿 Nature mode', look: 'Look mode' }[m] || 'Slap mode') + (touch ? '' : m === 'look' && !demo ? ' · G' : ' · V'),
+  modeHud: (m, touch, demo) => ({ slap: 'Slap mode', nature: '🌿 Nature mode', look: 'Look mode', props: '🪑 Props mode (build phase)' }[m] || 'Slap mode') + (touch ? '' : m === 'look' && !demo ? ' · G' : ' · V'),
   modeBtnToSlap: 'Back to slap mode', modeBtnToLook: 'Look mode: hide the pointer and just look',
   modeToastLook: (touch, demo) => (touch ? 'Look mode: just look around.' : `Look mode: just look around. ${demo ? 'V' : 'G'} = slap again.`),
   modeToastNature: (touch) => (touch ? 'Nature mode: slapping nature stickers.' : 'Nature mode: slapping nature stickers. V = slap mode.'),
