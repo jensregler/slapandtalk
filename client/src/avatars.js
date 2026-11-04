@@ -14,6 +14,7 @@ import { Mouth, MOUTH } from './mouth.js';
 import { FACE, isFaceTriangle, effectiveFabrics } from './face.js';
 import { cleanInsta } from '../../shared/insta.mjs';
 export { cleanInsta };
+import { rollLookOnRestart } from './restartlook.js';
 export { FACE, effectiveFabrics };
 const MOUTH_AT = MOUTH.at;
 import { quantLevel, openOf } from '../../shared/director.mjs';
@@ -54,6 +55,7 @@ export const cleanName = (s) => Array.from(String(s ?? '').normalize('NFC').repl
   .slice(0, AV.maxName).join('').trim();
 // Min gubbe sparas bara på den här enheten.
 export function loadMyAvatar() {
+  rollLookOnRestart();
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(LOOK_KEY) || '{}') || {}; } catch { /* trasig, börja om */ }
   return { name: cleanName(saved.name), look: normalizeLook(saved.look || (saved.outfit ? saved : randomLook())), saved: !!saved.look };
 }
