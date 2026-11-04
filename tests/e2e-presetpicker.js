@@ -19,7 +19,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
 const script = (base, ...a) => new Promise((ok) => execFile(process.execPath, [path.join(__dirname, '..', 'scripts', 'make-preset.js'), ...a, '--base', base], { env: { ...process.env, ADMIN_TOKEN: ADMIN }, timeout: 240000 }, (err, so, se) => ok({ err, so, se })));
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
-  const S = await startServer(PORT, { DEMO_PROFILE: '0', OPEN_ACCESS: '1', ADMIN_TOKEN: ADMIN, EMPTY_ROOM_GRACE_SECONDS: '2' });
+  const S = await startServer(PORT, { DEMO_PROFILE: '0', OPEN_ACCESS: '1', ADMIN_TOKEN: ADMIN, EMPTY_ROOM_GRACE_SECONDS: '15' });
   const b = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const errs = [];
   let ip = 0;
