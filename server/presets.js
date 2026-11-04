@@ -39,7 +39,12 @@ function createPresets(adapter, { log = console } = {}) {
     }
     cache = next; return cache;
   }
-  const list = async () => [...(await load()).values()].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  // Order (Jens, 4 Nov 2026: "preset 1"): a preset with a numeric `order` comes first (lowest first,
+  // ties by date); every preset without one follows by creation date, exactly as before. Display only:
+  // pick() is random over all of them and city presets (server/citypresets.js) are separate.
+  const hasOrder = (p) => Number.isFinite(p.order);
+  const byOrder = (a, b) => (hasOrder(a) !== hasOrder(b) ? (hasOrder(a) ? -1 : 1) : hasOrder(a) && a.order !== b.order ? a.order - b.order : String(a.createdAt).localeCompare(String(b.createdAt)));
+  const list = async () => [...(await load()).values()].sort(byOrder);
   const get = async (id) => (ID_RE.test(String(id)) ? (await load()).get(id) || null : null);
   // A random preset (rand = () => [0, 1)), or null when there are none.
   async function pick(rand = Math.random) { const all = await list().catch(() => []); return all.length ? all[Math.floor(rand() * all.length) % all.length] : null; }
@@ -86,6 +91,14 @@ function createPresets(adapter, { log = console } = {}) {
     const next = { ...p }; if (t) next.title = t; else delete next.title;
     return save(next);
   }
+  // The place in the list: a whole number 1–999 (lower = earlier), or null = none (by date, as before).
+  async function setOrder(idOrCode, order) {
+    const p = await find(idOrCode); if (!p) return null;
+    const next = { ...p };
+    if (order === null || order === '' || order === undefined) delete next.order;
+    else { const n = Number(order); if (!Number.isInteger(n) || n < 1 || n > 999) throw Object.assign(new Error('order: a whole number 1–999 or null'), { status: 400 }); next.order = n; }
+    return save(next);
+  }
   // The room's picture for the picker (any image; stored as a WebP ≤ 960 px wide).
   async function setThumb(idOrCode, buf) {
     const p = await find(idOrCode); if (!p) return null;
@@ -99,7 +112,7 @@ function createPresets(adapter, { log = console } = {}) {
   const publicList = async () => (await list().catch(() => [])).map((p) => ({ id: p.id, title: p.title || '', code: p.sourceRoom || p.id, thumb: p.thumb || null, wall: (p.faces && p.faces.north) || null }));
   // What a room carries (self-contained, so the room shows even if the preset list is not loaded).
   const forRoom = (p) => ({ id: p.id, faces: { ...p.faces }, ...(p.geo ? { geo: p.geo } : {}) });
-  return { FACES, list, get, find, pick, create, remove, image, forRoom, rename, setThumb, publicList };
+  return { FACES, list, get, find, pick, create, remove, image, forRoom, rename, setOrder, setThumb, publicList };
 }
 
 module.exports = { createPresets, PRESET_FACES: FACES };

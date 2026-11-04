@@ -398,9 +398,14 @@ app.delete('/api/admin/presets/:id', wrap(async (req, res) => {
 app.patch('/api/admin/presets/:id', wrap(async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
   const b = req.body || {};
-  if (typeof b.title !== 'string') return res.status(400).json({ error: 'title: a string' });
-  const p = await presets.rename(req.params.id, b.title);
+  // { title } and/or { order: 1–999 | null } (the place in the list; null = by date)
+  const hasT = 'title' in b, hasO = 'order' in b;
+  if (!hasT && !hasO) return res.status(400).json({ error: 'title: a string' });
+  if (hasT && typeof b.title !== 'string') return res.status(400).json({ error: 'title: a string' });
+  if (hasO && b.order !== null && typeof b.order !== 'number') return res.status(400).json({ error: 'order: a number or null' });
+  let p = await presets.find(req.params.id);
   if (!p) return res.status(404).json({ error: 'No such preset' });
+  try { if (hasO) p = await presets.setOrder(p.id, b.order); if (hasT) p = await presets.rename(p.id, b.title); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
   res.json({ preset: p });
 }));
 // The room's picture for the start card's picker (field "thumb": PNG/JPEG/WebP; scripts/make-preset.js --thumb).

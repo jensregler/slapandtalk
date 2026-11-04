@@ -27,6 +27,20 @@ const quiet = { error: () => {}, log: () => {}, warn: () => {} };
   assert(meta.format === 'webp' && meta.width === 160 && meta.height === 64 && meta.hasAlpha, 'stored as WebP, size and alpha kept');
   const P2 = createPresets(adapter, { log: quiet }); // a restart: read back from storage
   assert((await P2.list()).map((p) => p.id).join() === p1.id && (await P2.get(p1.id)).style.wall === 'tegel', 'survives a restart (presets/<id>.json)');
+  { // order (Jens, 4 Nov 2026): numbered ones first (lowest first), the rest by date as before
+    const T = createPresets(new LocalAdapter(fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-presets-ord-'))), { log: quiet });
+    const a = await T.create({ sourceRoom: 'aaa', files }), b = await T.create({ sourceRoom: 'bbb', files }), c = await T.create({ sourceRoom: 'ccc', files }), d = await T.create({ sourceRoom: 'ddd', files });
+    const ids = async () => (await T.list()).map((p) => p.sourceRoom).join();
+    assert((await ids()) === 'aaa,bbb,ccc,ddd', 'order: none set → by date, as before');
+    await T.setOrder(d.id, 1); await T.setOrder('ccc', 2);
+    assert((await ids()) === 'ddd,ccc,aaa,bbb' && (await T.publicList())[0].code === 'ddd', 'order 1, 2 first (by id or room code), the rest by date; the picker list too');
+    await T.setOrder(c.id, 1);
+    assert((await ids()) === 'ccc,ddd,aaa,bbb', 'same order number: by date');
+    let e2 = null; try { await T.setOrder(a.id, 0); } catch (e) { e2 = e; } assert(e2 && e2.status === 400, 'order 0 / not whole → 400');
+    await T.setOrder(d.id, null); await T.setOrder(c.id, null);
+    assert((await ids()) === 'aaa,bbb,ccc,ddd' && !('order' in (await T.get(d.id))), 'order null → removed, back to by date');
+    await T.setOrder(b.id, 3);
+  }
   assert((await P.get('../x')) === null && (await P.image(p1.id, 'evil')) === null, 'bad ids / faces are refused');
 
   // the routes
@@ -74,6 +88,9 @@ const quiet = { error: () => {}, log: () => {}, warn: () => {} };
     const pub1 = (await (await fetch(`${base}/api/presets`)).json()).presets[0];
     assert(pub1.title === 'Skogen' && pub1.thumb === tj.preset.thumb, '…the picker gets the name and the picture');
     assert(((await (await patch(preset.id, { title: '' })).json()).preset.title || '') === '', 'PATCH title "" → back to the room code');
+    const po = await (await patch(preset.id, { order: 1 })).json();
+    assert(po.preset.order === 1 && (po.preset.title || '') === '' && (await patch(preset.id, { order: 'x' })).status === 400 && (await patch(preset.id, { order: 0 })).status === 400, 'PATCH { order: 1 } sets the place (title kept); bad → 400');
+    assert(!('order' in (await (await patch(preset.id, { order: null })).json()).preset), 'PATCH { order: null } → by date again');
     // the 24 h cleanup keeps the rooms presets were made from (before 2 Nov 2026 it did not)
     const st2 = createStore(new LocalAdapter(fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-presets-keep-'))), { writeDelayMs: 0, log: quiet, clock: () => Date.now() });
     const ra = await st2.createRoom({ type: 'quick' }), rb = await st2.createRoom({ type: 'quick' }); await st2.flush();

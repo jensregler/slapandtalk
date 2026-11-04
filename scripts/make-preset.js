@@ -11,6 +11,8 @@
 //                 shows; --rename <id> "" = back to the room code)
 //   ADMIN_TOKEN=… node scripts/make-preset.js --thumb <id or room code | all>   (the picture the start card
 //                 shows: a view of the room it was made from, taken headless)
+//   … make-preset.js <room-code> --name N --order 1  a new preset, first in the list/picker (lower = earlier)
+//   … make-preset.js --set-order <id or room code> 2  move an existing one (none = back to by date)
 // A new preset gets its picture right away (--no-thumb: not).
 //
 // CITY presets (t493u; server/citypresets.js) – a snapshot of a whole city (outside + houses 1–8):
@@ -31,6 +33,8 @@ const PX = Number(opt('--px', '')) || undefined;
 const DEL = opt('--delete', null);
 const RENAME = opt('--rename', null);
 const THUMB = opt('--thumb', null);
+const SET_ORDER = opt('--set-order', null); // --set-order <id or room code> <1–999 | none>: an existing preset's place (lower first; none = by date)
+const NEW_ORDER = opt('--order', null);      // <room-code> --order N: the new preset's place right away
 const CITY_CMD = opt('--city', null), FROM = opt('--from', null), MAKE_DEFAULT = args.includes('--default') && (args.splice(args.indexOf('--default'), 1), true);
 const NO_THUMB = args.includes('--no-thumb') && (args.splice(args.indexOf('--no-thumb'), 1), true);
 const LIST = args.includes('--list') && (args.splice(args.indexOf('--list'), 1), true);
@@ -77,6 +81,14 @@ const allPresets = async () => { const r = await fetch(`${BASE}/api/admin/preset
     if (CITY_CMD === 'delete') { console.log((await call('DELETE', `/api/admin/citypresets/${id}`)).ok ? 'deleted' : 'not found'); return; }
     console.error(`unknown --city ${CITY_CMD}`); process.exit(2);
   }
+  if (SET_ORDER != null) {
+    const v = args[0]; if (v == null) { console.error('usage: --set-order <id or room code> <1-999 | none>'); process.exit(2); }
+    const order = /^(none|null|-)$/i.test(v) ? null : Number(v);
+    const r = await fetch(`${BASE}/api/admin/presets/${encodeURIComponent(SET_ORDER)}`, { method: 'PATCH', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify({ order }) });
+    const j = await r.json().catch(() => ({})); if (!r.ok) { console.error(j.error || r.status); process.exit(1); }
+    console.log(`${j.preset.id} (${j.preset.title || j.preset.sourceRoom}) order: ${j.preset.order ?? 'none (by date)'}`);
+    return;
+  }
   if (RENAME != null) {
     const title = args[0] ?? '';
     const r = await fetch(`${BASE}/api/admin/presets/${encodeURIComponent(RENAME)}`, { method: 'PATCH', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) });
@@ -96,7 +108,7 @@ const allPresets = async () => { const r = await fetch(`${BASE}/api/admin/preset
     const r = DEL ? await fetch(`${BASE}/api/admin/presets/${DEL}`, { method: 'DELETE', headers: H }) : await fetch(`${BASE}/api/admin/presets`, { headers: H });
     const j = await r.json(); if (!r.ok) { console.error(j.error || r.status); process.exit(1); }
     if (DEL) console.log(j.ok ? `deleted ${DEL}` : `no preset ${DEL}`);
-    else for (const p of j.presets) console.log(`${p.id}  ${p.title ? '"' + p.title + '"' : '(no name: shown as ' + p.sourceRoom + ')'}  from room ${p.sourceRoom}  ${p.thumb ? 'picture ✓' : 'no picture'}  ${p.createdAt}`);
+    else for (const p of j.presets) console.log(`${p.order != null ? '#' + p.order + ' ' : ''}${p.id}  ${p.title ? '"' + p.title + '"' : '(no name: shown as ' + p.sourceRoom + ')'}  from room ${p.sourceRoom}  ${p.thumb ? 'picture ✓' : 'no picture'}  ${p.createdAt}`);
     return;
   }
   const code = String(args[0] || '').toLowerCase();
@@ -118,6 +130,7 @@ const allPresets = async () => { const r = await fetch(`${BASE}/api/admin/preset
     console.log(`preset ${p.id} from room ${code}: ${p.stickers} stickers baked into 6 images (${p.px} px max side)`);
     for (const [f, u] of Object.entries(p.faces)) console.log(`  ${f.padEnd(7)} ${BASE}${u}`);
     if (NAME) console.log(`  shown on the start card as: ${p.title || NAME}`);
+    if (NEW_ORDER != null) { const r = await fetch(`${BASE}/api/admin/presets/${p.id}`, { method: 'PATCH', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify({ order: Number(NEW_ORDER) }) }); const j = await r.json().catch(() => ({})); console.log(r.ok ? `  order: ${j.preset.order}` : `  order not set: ${j.error || r.status}`); }
     if (!NO_THUMB) await thumbOf(browser, { id: p.id }).catch((e) => console.error(e.message));
   } finally { await browser.close(); }
 })().catch((e) => { console.error(e.message || e); process.exit(1); });
