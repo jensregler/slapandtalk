@@ -1,0 +1,21 @@
+// Unit: a new random character on restart (Jens t514u), kept across room navigations.
+import assert from 'node:assert/strict';
+import { rollLookOnRestart, freshLook, sameLook, _resetForTest } from '../client/src/restartlook.js';
+const store = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) }; };
+const win = (type, ls, ss) => ({ localStorage: ls, sessionStorage: ss, navigator: {}, performance: { getEntriesByType: () => [{ type }] } });
+const OWN = { outfit: 'tshirt', hair: 'kort', shirt: '#3a86ff', pants: '#2b4c7e', hairColor: '#4a2c17', skin: '#e0ac69', hat: false, hatColor: '#e63946', insta: 'jens', fabric: { shirt: { id: 'x' } } };
+const ls = store(); ls.setItem('klibb.avatar', JSON.stringify({ name: 'Jens', look: OWN }));
+let ss = store();
+_resetForTest(); assert.equal(rollLookOnRestart(win('navigate', ls, ss)), true, 'first page in a tab rolls');
+const a = JSON.parse(ls.getItem('klibb.avatar'));
+assert.equal(a.name, 'Jens'); assert.equal(a.look.insta, 'jens'); assert.deepEqual(a.look.fabric, OWN.fabric);
+assert.ok(!sameLook(a.look, OWN), 'differs from last');
+_resetForTest(); assert.equal(rollLookOnRestart(win('navigate', ls, ss)), false, 'room navigation keeps');
+assert.deepEqual(JSON.parse(ls.getItem('klibb.avatar')), a);
+_resetForTest(); assert.equal(rollLookOnRestart(win('reload', ls, ss)), true, 'reload rolls');
+assert.ok(!sameLook(JSON.parse(ls.getItem('klibb.avatar')).look, a.look));
+ss = store(); const w = win('navigate', ls, ss); w.navigator.webdriver = true;
+_resetForTest(); assert.equal(rollLookOnRestart(w), false, 'automation keeps by default');
+_resetForTest(); assert.equal(rollLookOnRestart(win('navigate', store(), store())), true, 'no saved avatar still fine');
+for (let i = 0; i < 200; i++) assert.ok(!sameLook(freshLook(OWN), OWN));
+console.log('restartlook: ok');

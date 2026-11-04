@@ -17,6 +17,7 @@ import { S } from './strings.js';
 import { resetPersonalSound } from './soundui.js';
 import { leaveCity } from './cityleave.js';
 import { isCityRoom } from '../../shared/city.mjs';
+import { rollLookOnRestart } from './restartlook.js';
 
 const ROOM_RE = /^[a-z0-9-]{1,40}$/;
 const LOOK_KEY = 'klibb.avatar', ROOM_KEYS = 'klibb.roomKeys';
@@ -113,6 +114,7 @@ export function showStartCard() {
   function second() {
     card.textContent = '';
     chosen = null; // Blank room by default
+    rollLookOnRestart();
     const saved = read(LOOK_KEY) || {};
     const field = (id, label, value, max, extra = {}) => {
       const inp = el('input', { id, type: 'text', maxLength: max, value: value || '', autocomplete: 'off', spellcheck: false, ...extra });
