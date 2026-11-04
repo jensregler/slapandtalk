@@ -102,7 +102,10 @@ const startServer = (port, extra) => startWith(port, { ADMIN_TOKEN: ADMIN, ...ex
     await jp.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 8000 }).catch(() => {});
     const stampsJ = await (await fetch(`${A.base}/api/rooms/${R1}/stamps`)).json();
     const st = (stampsJ.stamps || stampsJ)[0] || {};
-    check('a slapped library sticker is saved with its artist ("Placeholder")', !!slapped && st.imageId === chosen && st.artist === 'Placeholder', { st, chosen });
+    // Since the 4 Nov 2026 refresh (Dropbox "Teammapp för Ulla o co") the library has no placeholders and
+    // no artist names in the file names, so the credit is checked against what /api/library says.
+    const libArtist = ((await (await fetch(`${A.base}/api/library`)).json()).stickers || []).find((d) => d.id === chosen)?.artist || '';
+    check(`a slapped library sticker is saved with its library artist (${JSON.stringify(libArtist)}, not my name)`, !!slapped && st.imageId === chosen && (st.artist || '') === libArtist, { st, chosen, libArtist });
     // As in e2e.js: lock the pointer, V = Look mode, then a click dispatched on the canvas (aimed by the dot).
     await jp.mouse.click(900, 400); await jp.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 }).catch(() => {});
     await jp.keyboard.press('v');
@@ -111,7 +114,8 @@ const startServer = (port, extra) => startWith(port, { ADMIN_TOKEN: ADMIN, ...ex
     await jp.evaluate(() => { const c = document.getElementById('scene'); for (const t of ['mousedown', 'mouseup', 'click']) c.dispatchEvent(new MouseEvent(t, { bubbles: true, button: 0 })); });
     await jp.waitForFunction(() => window.klibb.credit().shown, null, { timeout: 3000 }).catch(() => {});
     const cr = await jp.evaluate(() => ({ ...window.klibb.credit(), count: window.klibb.stamps.count }));
-    check('Look mode: a click on the sticker shows the library artist (and does not slap)', cr.shown && /Placeholder/.test(cr.name) && cr.count === 1, cr);
+    if (libArtist) check('Look mode: a click on the sticker shows the library artist (and does not slap)', cr.shown && cr.name.includes(libArtist) && cr.count === 1, cr);
+    else check('Look mode: a click on a library sticker without an artist shows no credit (and does not slap)', !cr.shown && cr.count === 1, cr);
     await jp.screenshot({ path: path.join(SHOTS, '62-demo-credit.png') });
     await jp.keyboard.press('v'); await jp.keyboard.press('Escape');
     await jp.evaluate(() => window.klibb.setMode('slap'));

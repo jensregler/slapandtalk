@@ -1,5 +1,5 @@
-// E2E: the menu stickers (Jens, 31 Oct + 2 Nov 2026). The sticker wheel starts on d71 (d72-d74 to
-// its left, the menu stickers to its right, then the list from the back); a click on a placed menu
+// E2E: the menu stickers (Jens, 31 Oct + 2 Nov 2026). The sticker wheel starts on 98 (26, d74, e14 to
+// its left – t507u, 4 Nov, the menu stickers to its right, then the list from the back); a click on a placed menu
 // sticker opens its menu: character → My avatar (+ Instagram name, seen by the others), redio →
 // Sound settings (+ Music vol), room → the room info panel (clear your stickers), exit → Exit to
 // menu / Back, door → Enter the city / Back. Own server (STICKERMENU_E2E_PORT, default 8899).
@@ -13,7 +13,7 @@ const PORT = Number(process.env.STICKERMENU_E2E_PORT || 8899);
 const SHOTS = process.env.STICKERMENU_SHOTS || '/workspace/stickermenu-shots';
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
-const ID = { d71: '6705c0bb226e755f', d72: '637af7039ccbc251', d73: '63101930ca537cf2', d74: 'cdc47e9da5787154',
+const ID = { s98: '2e30991b8436f21a', s26: 'b06481ab68dcc02a', d74: 'cdc47e9da5787154', e14: 'ea4e51d173e634b5',
   character: '697fceb275175f0c', radio: '14ea2304625a5827', room: 'e8a93272e6311b69', door: 'fe62d4b007728d63', exit: 'a03b0ba5768979e6', nametag: 'f79189b79546d64a',
   camera: '910d8ca0408dcec8', menue: 'c70d4436a5b53efc', pac: '20c9aed10d5a98e8' }; // the last three: retired (Jens, t471u)
 
@@ -37,17 +37,17 @@ const ID = { d71: '6705c0bb226e755f', d72: '637af7039ccbc251', d73: '63101930ca5
       const list = window.klibb.stickerDesigns().map((d) => d.id), n = list.length, at = (k) => list[((k % n) + n) % n];
       const btn = (id) => { const b = document.querySelector(`#strip-row .strip-th[data-id="${id}"]`); if (!b || b.style.display === 'none') return null; const r = b.getBoundingClientRect(); return r.x + r.width / 2; };
       return { sel: window.klibb.state.selected.id, strip: window.klibb.strip().sel, left: [-1, -2, -3].map(at), right: [1, 2, 3, 4, 5, 6].map(at), list,
-        x: Object.fromEntries(['d71', 'd72', 'd73', 'd74'].map((k) => [k, null])), ids: list.slice(0, 3), btnX: (id) => 0, n };
+        x: Object.fromEntries(['s98', 's26', 'd74', 'e14'].map((k) => [k, null])), ids: list.slice(0, 3), btnX: (id) => 0, n };
     });
-    check('the wheel starts on d71 (held, in the middle)', w.sel === ID.d71 && w.strip === ID.d71, { sel: w.sel, strip: w.strip });
-    check('…d72, d73, d74 to its left', JSON.stringify(w.left) === JSON.stringify([ID.d72, ID.d73, ID.d74]), w.left);
+    check('the wheel starts on 98 (held, in the middle)', w.sel === ID.s98 && w.strip === ID.s98, { sel: w.sel, strip: w.strip });
+    check('…26, d74, e14 to its left', JSON.stringify(w.left) === JSON.stringify([ID.s26, ID.d74, ID.e14]), w.left);
     check('…the six menu stickers to its right: character, redio, room, city (door), exit, editor (name-tag roll)', JSON.stringify(w.right) === JSON.stringify([ID.character, ID.radio, ID.room, ID.door, ID.exit, ID.nametag]), w.right);
     const lib0 = await P.evaluate(() => window.klibb.state.library.filter((d) => !d.nature).map((d) => d.id));
-    const restBack = lib0.filter((id) => ![ID.d71, ID.d72, ID.d73, ID.d74, ID.character, ID.radio, ID.room, ID.door, ID.exit, ID.nametag, ID.camera, ID.menue, ID.pac].includes(id)).reverse();
+    const restBack = lib0.filter((id) => ![ID.s98, ID.s26, ID.d74, ID.e14, ID.character, ID.radio, ID.room, ID.door, ID.exit, ID.nametag, ID.camera, ID.menue, ID.pac].includes(id)).reverse();
     check('…then the rest of the list from the back', JSON.stringify(w.list.slice(7, 10)) === JSON.stringify(restBack.slice(0, 3)), { got: w.list.slice(7, 10), want: restBack.slice(0, 3) });
-    check('camera, menue and stickerpac are not on the wheel any more (t471u; still in the library)', [ID.camera, ID.menue, ID.pac].every((id) => !w.list.includes(id) && lib0.includes(id)), [ID.camera, ID.menue, ID.pac].map((id) => [w.list.includes(id), lib0.includes(id)]));
+    check('camera, menue and stickerpac are not on the wheel (t471u; menue still in the library, camera + stickerpac out since 4 Nov)', [ID.camera, ID.menue, ID.pac].every((id) => !w.list.includes(id)) && lib0.includes(ID.menue) && !lib0.includes(ID.camera) && !lib0.includes(ID.pac), [ID.camera, ID.menue, ID.pac].map((id) => [w.list.includes(id), lib0.includes(id)]));
     const xs = await P.evaluate((ids) => Object.fromEntries(Object.entries(ids).map(([k, id]) => { const b = document.querySelector(`#strip-row .strip-th[data-id="${id}"]`); const r = b && b.style.display !== 'none' ? b.getBoundingClientRect() : null; return [k, r && r.width ? Math.round(r.x + r.width / 2) : null]; })), ID);
-    check('…on screen too: d72 left of d71, character right of it', xs.d71 && xs.d72 && xs.character && xs.d72 < xs.d71 && xs.character > xs.d71, xs);
+    check('…on screen too: 26 left of 98, character right of it', xs.s98 && xs.s26 && xs.character && xs.s26 < xs.s98 && xs.character > xs.s98, xs);
     await P.screenshot({ path: path.join(SHOTS, '1-wheel-at-start.png'), clip: { x: 0, y: 1000 - 300, width: 1600, height: 300 } });
     await P.screenshot({ path: path.join(SHOTS, '1-wheel-at-start-full.png') });
 
@@ -65,8 +65,9 @@ const ID = { d71: '6705c0bb226e755f', d72: '637af7039ccbc251', d73: '63101930ca5
     await sleep(800);
     const srv = (await (await fetch(`${S.base}/api/rooms/${R}/stamps`)).json()).stamps;
     check('five menu stickers slapped (like any sticker)', srv.length === 5, srv.map((s) => s.imageId));
-    // An old room may still have the retired ones up (camera, menue, stickerpac): they are plain stickers now
-    const old = { camera: [-0.55, -0.85], menue: [0, -0.85], pac: [0.55, -0.85] };
+    // An old room may still have the retired ones up (camera, menue, stickerpac): they are plain stickers now.
+    // Since 4 Nov only menue is still in the library (camera + stickerpac live on only in storage), so menue stands in.
+    const old = { menue: [0, -0.85] };
     const all = await P.evaluate(() => window.klibb.state.library);
     for (const [k, [x, y]] of Object.entries(old)) {
       await P.evaluate((d) => window.klibb.selectDesign(d), all.find((d) => d.id === ID[k])); await sleep(400);
@@ -79,7 +80,7 @@ const ID = { d71: '6705c0bb226e755f', d72: '637af7039ccbc251', d73: '63101930ca5
     check('retired stickers already up in a room: no menu, a click is not used up, nothing opens (inert, plain stickers)', Object.values(oldSt).every((o) => o.menu === null && o.used === false && !o.choice && o.view === 'first'), oldSt);
     await P.screenshot({ path: path.join(SHOTS, '2b-retired-stickers-plain.png') });
     const srv2 = (await (await fetch(`${S.base}/api/rooms/${R}/stamps`)).json()).stamps;
-    check('…and they are still saved as ordinary stickers (8 up now)', srv2.length === 8, srv2.length);
+    check('…and they are still saved as ordinary stickers (6 up now)', srv2.length === 6, srv2.length);
     const menus = await P.evaluate((spots) => Object.fromEntries(Object.entries(spots).map(([k, [x, y]]) => [k, window.klibb.menuAt(x, y)])), spots);
     check('each one is recognised as its menu sticker where it hangs', menus.character === 'character' && menus.radio === 'radio' && menus.room === 'room' && menus.exit === 'exit' && menus.door === 'door', menus);
     await P.screenshot({ path: path.join(SHOTS, '2-menu-stickers-on-the-wall.png') });
@@ -122,7 +123,7 @@ const ID = { d71: '6705c0bb226e755f', d72: '637af7039ccbc251', d73: '63101930ca5
     await P.evaluate(([x, y]) => window.klibb.menuClick(x, y), spots.room); await sleep(1200);
     const rp = await P.evaluate(() => ({ open: window.klibb.roomPanel().open, name: document.getElementById('rpi-name').textContent, life: document.getElementById('rpi-life').textContent,
       visitors: document.getElementById('rpi-visitors').textContent, here: document.getElementById('rpi-here').textContent, stickers: document.getElementById('rpi-stickers').textContent }));
-    check('room sticker → the room panel: name, lifetime, people visited, here now, sticker count', rp.open && rp.name === R && rp.life && rp.visitors === '2' && rp.stickers === '8' && /^2/.test(rp.here), rp);
+    check('room sticker → the room panel: name, lifetime, people visited, here now, sticker count', rp.open && rp.name === R && rp.life && rp.visitors === '2' && rp.stickers === '6' && /^2/.test(rp.here), rp);
     await P.screenshot({ path: path.join(SHOTS, '6-room-info-panel.png') });
 
     // ---- 8) exit → Exit to menu / Back; door → Enter the city / Back ----

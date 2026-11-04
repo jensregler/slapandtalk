@@ -11,7 +11,8 @@ const { startServer, sleep } = require('./demo-helpers');
 
 const PORT = Number(process.env.ICONS_E2E_PORT || 8895);
 const SHOTS = process.env.ICON_SHOTS || '/workspace/icon-shots';
-const ICONS = ['camera.png', 'character.png', 'city.png', 'exit.png', 'redio.png', 'room.png'];
+const ICONS = ['editor.png', // (was camera.png – retired t471u, out of the library 4 Nov)
+  'character.png', 'city.png', 'exit.png', 'redio.png', 'room.png'];
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 600) : '')); } };
 
@@ -51,8 +52,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     // stand in front of the north wall, slap mode, first person
     await P.evaluate(() => { const k = window.klibb; k.setView('first', { quiet: true }); k.moveTo(0, -1.4); k.look(0, 0.05); k.setMode?.('slap'); });
     await sleep(500);
-    // the wheel starts on d71 with the menu stickers right of it (Jens, 2 Nov 2026): R steps onto them one by one
-    // (character, redio, room, city = the door, exit, camera)
+    // the wheel starts on 98 (t507u; was d71) with the menu stickers right of it (Jens, 2 Nov 2026): R steps onto them one by one
+    // (character, redio, room, city = the door, exit, editor)
     const order = [1, 4, 5, 2, 3, 0].map((i) => ids[i]), seen = [];
     const spots = [[-0.2, 0.36], [0.25, 0.36], [0.7, 0.36], [-0.2, -0.28], [0.25, -0.28], [0.7, -0.28]];
     const stamps = [];

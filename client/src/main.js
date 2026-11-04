@@ -394,7 +394,7 @@ function stickerDesigns() {
 // name tags), or added at the end; never more than DECK_MAX (228) stickers (menu stickers not counted).
 function deckDesigns() {
   const mine = designs(), swaps = readSwaps(), kept = readKept(), key = mine.map((d) => d.id).join() + '|' + state.library.length + '|' + JSON.stringify(swaps) + '|' + kept.map((d) => d.id).join();
-  // Jens, 2 Nov 2026: d71 in the middle, d72-d74 to its left, the menu stickers to its right, then the list from the back (shared/wheelorder.mjs)
+  // Jens, 2 Nov 2026 / 4 Nov (t507u): 98 in the middle, 26, d74, e14 to its left, the menu stickers to its right, then the list from the back (shared/wheelorder.mjs)
   if (key !== wheelKey) {
     wheelKey = key;
     const order = wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: MENU_IDS, exclude: RETIRED_MENU_IDS });
@@ -2935,17 +2935,17 @@ function frame() {
 renderTray();
 renderHistory();
 if (!DEMO && !IN_CITY && state.mine.length) select(last(state.mine));
-const startPick = state.selected; // (replaced by d71 once the library is in, unless I picked something meanwhile)
+const startPick = state.selected; // (replaced by the start sticker (98) once the library is in, unless I picked something meanwhile)
 // The library (the demo's palette; also loaded outside the demo for later use).
 const LIB_SEL = 'klibb.libSel';
 const libraryReady = fetch('/api/library').then((r) => r.json()).then(({ stickers }) => {
   state.library = Array.isArray(stickers) ? stickers : [];
   renderLibTray();
   if (!DEMO) { // the library is on the wheel for everyone; nothing of my own yet → hold the first library sticker
-    // from the start the wheel stands on d71 (Jens, 2 Nov 2026) – also when I have uploads of my own
-    const d71 = IN_CITY ? null : state.library.find((d) => d.id === WHEEL_START[0]); // the city: my pack's first sticker
+    // from the start the wheel stands on WHEEL_START[0] (98; Jens, 4 Nov 2026) – also when I have uploads of my own
+    const first = IN_CITY ? null : state.library.find((d) => d.id === WHEEL_START[0]); // the city: my pack's first sticker
     if (IN_CITY && (!state.selected || state.selected === startPick || !stickerDesigns().some((d) => d.id === state.selected.id))) { select(stickerDesigns()[0] || null); return; }
-    if (d71 && (!state.selected || state.selected === startPick)) select(d71);
+    if (first && (!state.selected || state.selected === startPick)) select(first);
     else if (!state.selected && state.library.length) select(wheelDesigns()[0]); else renderDesignHud();
     return;
   }

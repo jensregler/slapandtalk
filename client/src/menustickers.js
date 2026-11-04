@@ -23,7 +23,10 @@ export const MENU_STICKERS = Object.freeze({
   'fe62d4b007728d63': 'door',      // city.png (the door "TO THE CITY"; replaced door.png 3260f7449c2321d0)
   'f79189b79546d64a': 'nametag',   // editor.png (the roll of "my name is" tags)
 });
-// Off the wheel and inert (t471u). rita.png is not in the library (library/manifest.json, 2 Nov
+// Off the wheel and inert (t471u). Since the 4 Nov 2026 refresh (Dropbox "Teammapp för Ulla o co")
+// camera.png and stickerpac.png are no longer in the library at all (the knappar folder has only the
+// seven others; the bag designs are client/public/stickerpacks, door.js); their ids stay here so an
+// old room's placed ones (still in storage) are never treated as menu stickers or put on the wheel. rita.png is not in the library (library/manifest.json, 2 Nov
 // 2026), so it has no id here; if it is ever imported, add its image id to this list.
 export const RETIRED_MENU_IDS = Object.freeze([
   '910d8ca0408dcec8', // camera.png

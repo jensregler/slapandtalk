@@ -9,7 +9,7 @@ const { chromium } = require('playwright');
 const { startServer, sleep } = require('./demo-helpers');
 const PORT = Number(process.env.NAMETAG_E2E_PORT || 8902);
 const SHOTS = process.env.STICKERMENU_SHOTS || '/workspace/stickermenu-shots';
-const NAMETAG = 'f79189b79546d64a', D71 = '6705c0bb226e755f';
+const NAMETAG = 'f79189b79546d64a', D71 = '2e30991b8436f21a' /* 98.png: the wheel's middle since 4 Nov (t507u) */;
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
 (async () => {
@@ -70,7 +70,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await P.click(`#nt-grid .nt-pick[data-id="${D71}"]`);
     await P.waitForFunction(() => !window.klibb.nameTag().open, null, { timeout: 15000 }); await sleep(800);
     const after = await P.evaluate((d71) => { const w = window.klibb.stickerDesigns(); const sel = window.klibb.state.selected; return { sel: sel.id, at0: w[0].id, has71: w.some((d) => d.id === d71), once: w.filter((d) => d.id === sel.id).length, mine: JSON.parse(localStorage.getItem('klibb.mine') || '[]').map((m) => m.id), swaps: JSON.parse(localStorage.getItem('klibb.swaps') || '{}') }; }, D71);
-    check('…choosing d71: the tag is uploaded as my sticker, in my hand, in d71\'s place (the middle), once; d71 is out', after.at0 === after.sel && !after.has71 && after.once === 1 && after.mine.includes(after.sel) && after.swaps[D71] === after.sel, after);
+    check('…choosing 98 (the middle): the tag is uploaded as my sticker, in my hand, in 98\'s place, once; 98 is out', after.at0 === after.sel && !after.has71 && after.once === 1 && after.mine.includes(after.sel) && after.swaps[D71] === after.sel, after);
     const img = await (await fetch(`${S.base}/api/stickers/${after.sel}.webp`).catch(() => null))?.status;
     await P.evaluate(() => { window.klibb.controls.locked = true; window.klibb.setSize(40); window.klibb.stampAt(-0.5, -0.25); window.klibb.controls.locked = false; }); await sleep(1200);
     await P.screenshot({ path: path.join(SHOTS, '24-nametag-slapped.png') });

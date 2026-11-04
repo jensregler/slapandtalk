@@ -9,7 +9,8 @@ const { chromium } = require('playwright');
 const { startServer, sleep } = require('./demo-helpers');
 const PORT = Number(process.env.DOOR_E2E_PORT || 8903);
 const SHOTS = process.env.STICKERMENU_SHOTS || '/workspace/stickermenu-shots';
-const DOOR = 'fe62d4b007728d63', PAC = '20c9aed10d5a98e8';
+const DOOR = 'fe62d4b007728d63', PAC = 'c70d4436a5b53efc'; // PAC: a retired menu sticker still in the library (menue.png; stickerpac.png itself is out since 4 Nov)
+const BAG_SHOTS = process.env.LIB_TEAM_SHOTS || '/workspace/lib-team-shots';
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
 (async () => {
@@ -52,7 +53,24 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await P.click('#df-next'); await sleep(1200);
     st = await P.evaluate(() => window.klibb.door());
     const px = await P.evaluate(() => { const d = document.getElementById('df-pac-canvas').getContext('2d').getImageData(0, 0, 563, 802).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) n++; return n / (563 * 802); });
-    check('…the Priority Mail pac with the 3 stickers inside', st.step === 'pac' && px > 0.35, { st, px });
+    check('…the Priority Mail pac with the 3 stickers inside', st.step === 'pac' && px > 0.35 && st.bag === 1, { st, px });
+    // t507u (4 Nov 2026): the bag's design is chosen like the name tag's blanks – ‹ › / dots / ← →
+    fs.mkdirSync(BAG_SHOTS, { recursive: true });
+    const bagPx = () => P.evaluate(() => { const d = document.getElementById('df-pac-canvas').getContext('2d').getImageData(150, 100, 1, 1).data; return [d[0], d[1], d[2]].join(); });
+    const seen = [await bagPx()];
+    check('…7 dots for the 7 bags, the first one on', await P.evaluate(() => document.querySelectorAll('#df-dots span').length === 7 && document.querySelector('#df-dots span:nth-child(1)').classList.contains('on')));
+    await P.screenshot({ path: path.join(BAG_SHOTS, 'pack-1-priority-mail.png') });
+    for (let k = 2; k <= 7; k++) { await P.click('#df-bag-next'); await sleep(500); seen.push(await bagPx()); if (k === 4 || k === 7) await P.screenshot({ path: path.join(BAG_SHOTS, `pack-${k}.png`) }); }
+    st = await P.evaluate(() => window.klibb.door());
+    check('…› steps through the 7 bags (each label a different colour)', st.bag === 7 && new Set(seen).size === 7, { bag: st.bag, seen });
+    await P.click('#df-bag-next'); await sleep(400);
+    check('…and round to the first again', (await P.evaluate(() => window.klibb.door())).bag === 1);
+    await P.click('#df-bag-prev'); await sleep(400); await P.keyboard.press('ArrowLeft'); await sleep(400);
+    check('…‹ and ← go back (7, 6)', (await P.evaluate(() => window.klibb.door())).bag === 6);
+    await P.click('#df-dots span:nth-child(4)'); await sleep(500);
+    st = await P.evaluate(() => window.klibb.door());
+    const px4 = await P.evaluate(() => { const d = document.getElementById('df-pac-canvas').getContext('2d').getImageData(0, 0, 563, 802).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) n++; return n / (563 * 802); });
+    check('…a dot picks a bag (4), the 3 stickers still inside', st.bag === 4 && px4 > 0.35, { st, px4 });
     await P.fill('#df-name', 'Malmö pac');
     await P.screenshot({ path: path.join(SHOTS, '32-door-pac.png') });
     await P.click('#df-draw'); await sleep(800);
@@ -77,9 +95,9 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await P.click('#cp-new'); await P.fill('#cp-name', 'Door town');
     await Promise.all([P.waitForURL(/room=stad-[a-z0-9]{6}$/, { timeout: 20000 }).catch(() => {}), P.click('#cp-go')]);
     await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }).catch(() => {}); await sleep(1500);
-    const pac = await P.evaluate(() => { const p = JSON.parse(localStorage.getItem('klibb.pac')); return { name: p.name, n: p.stickers.length, img: (p.img || '').slice(0, 15) }; });
+    const pac = await P.evaluate(() => { const p = JSON.parse(localStorage.getItem('klibb.pac')); return { name: p.name, n: p.stickers.length, bag: p.bag, img: (p.img || '').slice(0, 15) }; });
     const city = await P.evaluate(() => window.klibb.city());
-    check('…started and named → out into the new city, the pac kept (name, 3 stickers, picture)', city.outside && pac.name === 'Malmö pac' && pac.n === 3 && pac.img.startsWith('data:image/'), { city, pac });
+    check('…started and named → out into the new city, the pac kept (name, 3 stickers, bag 4, picture)', city.outside && pac.name === 'Malmö pac' && pac.n === 3 && pac.bag === 4 && pac.img.startsWith('data:image/'), { city, pac });
     await P.screenshot({ path: path.join(SHOTS, '34-door-to-city.png') });
     check('no page errors', errors.length === 0, errors);
   } catch (e) { failed++; console.log('  ✗ crashed: ' + (e.stack || e)); }

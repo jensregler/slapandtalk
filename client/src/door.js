@@ -3,8 +3,16 @@
 // bag, the stickers inside), "name your pac", draw on it (the name-tag tool's brushes) → "to city".
 // "to city" keeps the pac on this device (klibb.pac) and walks you out into the City (opts.toCity;
 // t476u – the city: shared/city.mjs, city.js, citymode.js).
+// The bag's design (Jens, 4 Nov 2026, t507u: "jag har lagt till stickerpacks så man kan välja på samma
+// sätt som man väljer blanks"): swipe (or ‹ ›, or the dots) through Jens's seven bags – Dropbox
+// "Teammapp för Ulla o co"/stickerpacks, client/public/stickerpacks/pac1..7.webp (pac1 = the Priority
+// Mail bag, also /start/pac.webp). All seven are 563 × 802 with the label and the pouch in the same
+// place, so PAC_LABEL / PAC_POUCH hold for every one. The choice is kept with the pac (bag: 1..7).
 import { openNameTag } from './nametag.js';
 const PAC = '/start/pac.webp', PW = 563, PH = 802;
+export const PACKS = Array.from({ length: 7 }, (_, i) => `/stickerpacks/pac${i + 1}.webp`);
+// The bag picture for a kept pac (bag 1..7; an old pac without one, or a bad number: the first).
+export const bagUrl = (bag) => PACKS[((bag | 0) >= 1 && (bag | 0) <= PACKS.length ? bag | 0 : 1) - 1];
 const PAC_KEY = 'klibb.pac';
 export const readPac = () => { try { return JSON.parse(localStorage.getItem(PAC_KEY) || 'null'); } catch { return null; } };
 
@@ -55,7 +63,7 @@ export async function composePac(urls, { pac = PAC, ink = null } = {}) {
 export async function pacPicture(pac) {
   if (!pac) return null;
   if (!pac.urls || pac.urls.length !== 3) return pac.img ? loadImg(pac.img) : null;
-  return composePac(pac.urls, { ink: pac.img || null });
+  return composePac(pac.urls, { ink: pac.img || null, pac: pac.bag ? bagUrl(pac.bag) : PAC });
 }
 
 function build() {
@@ -68,14 +76,15 @@ function build() {
       <button type="button" class="df-x" id="df-cancel">✕</button>
     </div>
     <div class="df-pac" id="df-pac" hidden>
-      <canvas id="df-pac-canvas" width="${PW}" height="${PH}"></canvas>
+      <div class="df-bag"><button type="button" class="df-arrow" id="df-bag-prev" aria-label="previous bag">‹</button><canvas id="df-pac-canvas" width="${PW}" height="${PH}"></canvas><button type="button" class="df-arrow" id="df-bag-next" aria-label="next bag">›</button></div>
+      <div class="df-dots" id="df-dots"></div>
       <input id="df-name" maxlength="30" autocomplete="off" spellcheck="false">
       <div class="df-pac-btns"><button type="button" id="df-draw"></button><button type="button" id="df-city"></button></div>
       <button type="button" class="df-back" id="df-back"></button>
     </div>`;
   document.body.appendChild(box);
   const $ = (id) => box.querySelector('#' + id);
-  const st = { picked: [], opts: null, pacImg: null, drawn: false };
+  const st = { picked: [], opts: null, pacImg: null, drawn: false, bag: 1, ink: null };
   let S = {};
   function renderSlots() {
     const slots = $('df-slots'); slots.textContent = '';
@@ -89,23 +98,36 @@ function build() {
   }
   async function showPac() {
     $('df-pick').hidden = true; $('df-pac').hidden = false;
-    const c = st.pacImg || await composePac(st.picked.map((d) => d.url));
+    const bag = st.bag;
+    const c = st.pacImg || await composePac(st.picked.map((d) => d.url), { pac: bagUrl(bag), ink: st.ink });
+    if (bag !== st.bag) return; // swiped on meanwhile: that one draws
     const out = $('df-pac-canvas').getContext('2d'); out.clearRect(0, 0, PW, PH); out.drawImage(c, 0, 0);
     st.pacImg = c;
+    [...$('df-dots').children].forEach((d, k) => d.classList.toggle('on', k === st.bag - 1));
+    box.dataset.bag = String(st.bag);
   }
-  $('df-next').onclick = () => { st.pacImg = null; st.drawn = false; showPac(); };
+  // Choosing the bag, like the name tag's blanks: ‹ › / the dots / a swipe on the bag / ← →. A drawing
+  // on the label stays (it is only ever the label part, PAC_LABEL).
+  function setBag(n) { st.bag = ((n - 1 + PACKS.length) % PACKS.length) + 1; st.pacImg = null; showPac(); }
+  for (let k = 0; k < PACKS.length; k++) { const d = document.createElement('span'); d.onclick = () => setBag(k + 1); $('df-dots').appendChild(d); }
+  $('df-bag-prev').onclick = () => setBag(st.bag - 1);
+  $('df-bag-next').onclick = () => setBag(st.bag + 1);
+  { let sx = null; const cv = $('df-pac-canvas');
+    cv.addEventListener('pointerdown', (e) => { sx = e.clientX; });
+    cv.addEventListener('pointerup', (e) => { if (sx == null) return; const dx = e.clientX - sx; sx = null; if (Math.abs(dx) > 40) setBag(st.bag + (dx < 0 ? 1 : -1)); }); }
+  $('df-next').onclick = () => { st.pacImg = null; st.drawn = false; st.ink = null; showPac(); };
   $('df-cancel').onclick = () => close();
   $('df-back').onclick = () => { $('df-pac').hidden = true; $('df-pick').hidden = false; };
   $('df-draw').onclick = () => {
     box.hidden = true;
     openNameTag({
       S, toast: st.opts.toast, blanks: [st.pacImg.toDataURL('image/png')], size: [PW, PH], direct: true, saveText: S.ntSave, clip: PAC_LABEL,
-      onSave: async (blob) => { const im = await loadImg(URL.createObjectURL(blob)); st.pacImg = await composePac(st.picked.map((d) => d.url), { ink: im }); st.drawn = true; },
+      onSave: async (blob) => { const im = await loadImg(URL.createObjectURL(blob)); st.ink = im; st.pacImg = await composePac(st.picked.map((d) => d.url), { ink: im, pac: bagUrl(st.bag) }); st.drawn = true; },
       onClose: () => { box.hidden = false; showPac(); },
     });
   };
   $('df-city').onclick = () => {
-    const pac = { name: $('df-name').value.trim().slice(0, 30), stickers: st.picked.map((d) => d.id), urls: st.picked.map((d) => d.url), designs: st.picked.map((d) => ({ id: d.id, url: d.url, ...(d.width ? { width: d.width, height: d.height } : {}) })), at: new Date().toISOString() };
+    const pac = { name: $('df-name').value.trim().slice(0, 30), stickers: st.picked.map((d) => d.id), urls: st.picked.map((d) => d.url), designs: st.picked.map((d) => ({ id: d.id, url: d.url, ...(d.width ? { width: d.width, height: d.height } : {}) })), bag: st.bag, at: new Date().toISOString() };
     try { localStorage.setItem(PAC_KEY, JSON.stringify({ ...pac, img: st.pacImg.toDataURL('image/webp', 0.85) })); } catch { try { localStorage.setItem(PAC_KEY, JSON.stringify(pac)); } catch { /* full */ } }
     close(); if (st.opts.toCity) st.opts.toCity(); else st.opts.toast?.(S.cityComingSoon, 3500); // the City (t476u): main.js goes there
   };
@@ -114,13 +136,14 @@ function build() {
     if (box.hidden) return;
     if (e.target.id === 'df-name') { if (e.key !== 'Escape') { e.stopImmediatePropagation(); return; } }
     if (e.key === 'Escape') { if (!$('df-pac').hidden) $('df-back').click(); else close(); }
+    else if (!$('df-pac').hidden && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) setBag(st.bag + (e.key === 'ArrowRight' ? 1 : -1));
     e.stopImmediatePropagation();
   }, true);
   addEventListener('keyup', (e) => { if (!box.hidden) e.stopImmediatePropagation(); }, true);
   return {
     box,
     open(opts) {
-      st.opts = opts; S = opts.S || {}; st.picked = []; st.pacImg = null;
+      st.opts = opts; S = opts.S || {}; st.picked = []; st.pacImg = null; st.ink = null; { const b = (readPac()?.bag) | 0; st.bag = b >= 1 && b <= PACKS.length ? b : 1; } // the last bag I chose
       $('df-title').textContent = S.doorChoose3; $('df-next').textContent = S.doorPack; $('df-draw').textContent = S.doorDraw; $('df-city').textContent = S.doorToCity;
       $('df-back').textContent = S.choiceBack; $('df-name').placeholder = S.doorNamePac; $('df-name').value = '';
       const grid = $('df-grid'); grid.textContent = '';
@@ -133,6 +156,7 @@ function build() {
       $('df-pick').hidden = false; $('df-pac').hidden = true; box.hidden = false; renderSlots();
     },
     close,
-    state: () => ({ open: !box.hidden, step: box.hidden ? null : $('df-pac').hidden ? 'pick' : 'pac', picked: st.picked.map((d) => d.id), drawn: st.drawn }),
+    state: () => ({ open: !box.hidden, step: box.hidden ? null : $('df-pac').hidden ? 'pick' : 'pac', picked: st.picked.map((d) => d.id), drawn: st.drawn, bag: st.bag }),
+    setBag,
   };
 }
