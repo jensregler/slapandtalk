@@ -31,6 +31,8 @@ export function toonGradient() {
 }
 const toonCache = new Map();
 export function toon(color) { const k = typeof color === 'number' ? color : String(color); if (!toonCache.has(k)) toonCache.set(k, new THREE.MeshToonMaterial({ color, gradientMap: toonGradient() })); return toonCache.get(k); }
+// Jens (t516u, 4 Nov 2026): no black ink outlines. Flip to true to bring the inverted hulls back.
+export const INK_OUTLINES = false;
 const outlineCache = new Map();
 export function outlineMat(thick, color = INK) {
   const k = Math.round(thick * 1e5) + ':' + color;
@@ -46,7 +48,7 @@ export function outlineMat(thick, color = INK) {
 }
 // The same ink, thicker and yellow (the selected prop in the Props wheel).
 export const highlightOf = (m) => outlineMat((m.userData.thick || 0.015) * 2.2, 0xffd400);
-const hullOf = (g, thick) => { const h = new THREE.Mesh(g, outlineMat(thick)); h.raycast = () => {}; h.name = 'ink'; h.userData.ink = true; return h; };
+const hullOf = (g, thick) => { if (!INK_OUTLINES) return null; const h = new THREE.Mesh(g, outlineMat(thick)); h.raycast = () => {}; h.name = 'ink'; h.userData.ink = true; return h; };
 // A model's meshes: toon materials + a welded hull each (one normal per corner: no cracks on flat-shaded models).
 function stylize(root, line) {
   root.updateMatrixWorld(true);
@@ -56,6 +58,7 @@ function stylize(root, line) {
     const src = Array.isArray(o.material) ? o.material : [o.material];
     const mats = src.map((m) => new THREE.MeshToonMaterial({ color: m.color ? m.color.clone() : 0xffffff, map: m.map || null, gradientMap: toonGradient(), transparent: false }));
     o.material = Array.isArray(o.material) ? mats : mats[0];
+    if (!INK_OUTLINES) continue; // no hull: skip building its geometry
     // positions only, as plain floats: the meshopt GLB's are interleaved/quantised, which mergeVertices can't write
     const sp = o.geometry.attributes.position, pos = new Float32Array(sp.count * 3);
     for (let i = 0; i < sp.count; i++) { pos[i * 3] = sp.getX(i); pos[i * 3 + 1] = sp.getY(i); pos[i * 3 + 2] = sp.getZ(i); }
@@ -96,7 +99,7 @@ const ink = new THREE.MeshBasicMaterial({ color: INK });
 // a part: geometry + material at (x, y, z) with a hull (line m); returns the mesh
 function part(g, geo, mat, x, y, z, line = 0.02, rot = null) {
   const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); if (rot) m.rotation.set(...rot);
-  if (line) m.add(hullOf(geo, line)); g.add(m); return m;
+  if (line && INK_OUTLINES) m.add(hullOf(geo, line)); g.add(m); return m;
 }
 function canvasTex(w, h, draw) {
   const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
@@ -237,7 +240,7 @@ function sign(kind) {
   const face = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: signTex.get(kind), transparent: true, alphaTest: 0.5 }));
   face.position.set(0, top, 0.03); g.add(face);
   const back = new THREE.Mesh(geo, toon(0xb9bec4)); back.position.set(0, top, 0.025); back.rotation.y = Math.PI; g.add(back);
-  back.add(hullOf(geo, 0.012));
+  if (INK_OUTLINES) back.add(hullOf(geo, 0.012));
   return g;
 }
 // The cuboid (the build primitive, Jens 4 Nov 2026): six faces you can put stickers on, any size on each
@@ -253,7 +256,7 @@ export function buildBox(sx, sy, sz, color) {
     m.userData.propFace = name; g.add(m);
   }
   const t = Math.min(0.03, 0.01 + Math.min(sx, sy, sz) * 0.02);
-  const hull = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), outlineMat(t)); hull.position.y = sy / 2; hull.raycast = () => {}; hull.name = 'ink'; hull.userData.ink = true; g.add(hull);
+  if (INK_OUTLINES) { const hull = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), outlineMat(t)); hull.position.y = sy / 2; hull.raycast = () => {}; hull.name = 'ink'; hull.userData.ink = true; g.add(hull); }
   g.userData.dims = dims; return g;
 }
 

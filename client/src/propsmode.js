@@ -260,13 +260,21 @@ export function initProps(o) {
   }
 
   // ---------- the selected prop's panel ----------
-  function highlight(it, on) { for (const m of it.inks) { if (on) { m.userData.mat = m.userData.mat || m.material; m.material = highlightOf(m.userData.mat); m.visible = true; } else if (m.userData.mat) m.material = m.userData.mat; } }
+  // no ink hulls (INK_OUTLINES off): the selected prop glows yellow instead
+  function highlight(it, on) { if (!it.inks.length) return glow(it, on); for (const m of it.inks) { if (on) { m.userData.mat = m.userData.mat || m.material; m.material = highlightOf(m.userData.mat); m.visible = true; } else if (m.userData.mat) m.material = m.userData.mat; } }
   function select(id) {
     const it = items.get(id); if (!it) return;
     if (sel) { const o2 = items.get(sel.id); if (o2) highlight(o2, false); }
     sel = { id }; highlight(it, true); clearGhost();
     controls.unlock?.(); // the mouse is free for the panel
     renderPanel();
+  }
+  function glow(it, on) {
+    it.obj.traverse((m) => {
+      if (!m.isMesh) return;
+      if (on && !m.userData.glowMat) { const mk = (x) => { if (!x.emissive) return x; const c = x.clone(); c.emissive.setHex(0x806a00); return c; }; m.userData.glowMat = m.material; m.material = Array.isArray(m.material) ? m.material.map(mk) : mk(m.material); }
+      else if (!on && m.userData.glowMat) { m.material = m.userData.glowMat; delete m.userData.glowMat; }
+    });
   }
   function deselect() { if (sel) { const it = items.get(sel.id); if (it) highlight(it, false); } sel = null; ui.panel.hidden = true; }
   const selected = () => (sel ? items.get(sel.id)?.p || null : null);

@@ -9,6 +9,8 @@ import { CITY, PLOTS, PLOT, PLOT_GAP, PLOT_SLAB, HOUSE, HALL_BLOCKS, CITY_SPAWN,
 
 const STONE = 0xd2c9ba, SLAB = 0xc9bfae, HALL_GREEN = 0x9fd0a8, SKY = 0xbfe2f6, STREET = 0x8f8a82, INK = 0x15130f;
 const PATH = 0xb5ab9a; // the painted streets: a little darker than the plots, never a dark "ditch"
+// Jens (t516u, 4 Nov 2026): no black edge lines on the houses. Flip to true to bring them back.
+const CITY_EDGE_LINES = false;
 const LINE = 0.14; // outline thickness (m): reads well from across the city and on a phone
 
 // A soft paper/stone grain (canvas), tiled per metre, so big flat walls aren't plastic-flat.
@@ -59,6 +61,7 @@ export function buildCityRoom() {
     const b = new THREE.Mesh(new THREE.BoxGeometry(...s), ink); b.position.set(...at); group.add(b);
   };
   const outlineBox = (x, y0, z, w, h, d, { top = true, bottom = true, verticals = true } = {}) => {
+    if (!CITY_EDGE_LINES) return;
     const hw = w / 2, hd = d / 2;
     for (const yy of [bottom && y0, top && y0 + h].filter((v) => v !== false)) {
       bar(w, 'x', [x, yy, z - hd]); bar(w, 'x', [x, yy, z + hd]); bar(d, 'z', [x - hw, yy, z]); bar(d, 'z', [x + hw, yy, z]);
@@ -90,7 +93,7 @@ export function buildCityRoom() {
     add(`${tag}-roof`, w, d, material(base, w, d, 40 + p.k), [x, y0 + h, z], [-Math.PI / 2, 0, 0]);
     outlineBox(x, y0, z, w, h, d);
     if (p.hall) { // the three blocks: a black seam (a slight lip) at every block line
-      for (let b = 1; b < HALL_BLOCKS; b++) {
+      if (CITY_EDGE_LINES) for (let b = 1; b < HALL_BLOCKS; b++) {
         const yy = y0 + b * HOUSE.height;
         bar(w + 0.3, 'x', [x, yy, z - d / 2 - 0.05]); bar(w + 0.3, 'x', [x, yy, z + d / 2 + 0.05]);
         bar(d + 0.3, 'z', [x - w / 2 - 0.05, yy, z]); bar(d + 0.3, 'z', [x + w / 2 + 0.05, yy, z]);
