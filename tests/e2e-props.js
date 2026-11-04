@@ -73,6 +73,32 @@ const ARGS = ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-g
     check('closing the drawing tool: I stand up, the chair is free', !bs2 && seen2 && !seen2.seated, { bs2, seen2 });
     await B.close();
 
+    // ---------- collision (Jens t521u): walking into the table set stops at a chair; the drawing tool still sits me down
+    await A.evaluate(() => window.klibb.setView('first', { quiet: true }));
+    const walk = (Q, x, z, yaw, ms) => Q.evaluate(async ([x, z, yaw, ms]) => {
+      const k = window.klibb; k.camera.position.set(x, 1.6, z); k.controls.yaw = yaw; k.controls.pitch = 0; k.controls.apply();
+      k.controls.keys.add('KeyW'); await new Promise((r) => setTimeout(r, ms)); k.controls.keys.delete('KeyW');
+      return [k.camera.position.x, k.camera.position.z];
+    }, [x, z, yaw, ms]);
+    const w1 = await walk(A, -0.45, -1.2, Math.PI, 1600); // south (+z) straight at chair a1 (z 0.78)
+    check('collision: walking at the table set, I stop at the chair (not through it)', w1[1] > -0.6 && w1[1] < 0.78 - 0.15 && Math.abs(w1[0] + 0.45) < 0.4, w1);
+    check('…the chair\'s box is there (prop colliders)', /^d0000000a[0-4]$/.test(await A.evaluate(() => window.klibb.props.collider.blocked(-0.45, 0.78)) || ''));
+    const w2 = await walk(A, 3, -1.2, Math.PI, 1600); // the same walk beside it: free
+    check('…beside the table nothing stops me', w2[1] > 2, w2);
+    await A.evaluate(() => { const k = window.klibb; k.camera.position.set(-0.45, 1.6, 0.78); }); // spawned inside a chair
+    const w3 = await walk(A, -0.45, 0.78, 0, 900); // walk out north
+    check('…standing inside a prop (placed on me / spawned in it): I can walk out, not stuck', w3[1] < 0.3, w3);
+    await A.evaluate(() => { window.klibb.camera.position.set(-1.3, 1.6, 0.2); window.klibb.controls.yaw = 0; }); await sleep(200);
+    await A.evaluate(() => window.klibb.props.sitToDraw()); await sleep(600);
+    const sat = await A.evaluate(() => ({ s: window.klibb.props.seated(), p: window.klibb.camera.position.toArray() }));
+    check('…sitting via the drawing tool still puts me in the chair', sat.s && /^d0000000a/.test(sat.s.id) && Math.hypot(sat.p[0] - sat.s.x, sat.p[2] - sat.s.z) < 0.3, sat);
+    await A.evaluate(() => window.klibb.props.standUp()); await sleep(300);
+    await A.evaluate(() => { const k = window.klibb; k.camera.position.set(-0.45, 1.6, -0.1); k.controls.yaw = Math.PI; k.controls.pitch = 0; k.controls.apply(); });
+    await walk(A, -0.45, -1.2, Math.PI, 1600);
+    await A.evaluate(() => window.klibb.setView('third', { quiet: true })); await sleep(1200);
+    await shot(A, '20-room-player-stopped-at-chair-3rd.png');
+    await A.evaluate(() => window.klibb.setView('first', { quiet: true }));
+
     // ---------- the Props wheel in my own room: a cuboid
     await A.evaluate(() => window.klibb.setProps(true)); await sleep(1200);
     const inf = await A.evaluate(() => window.klibb.props.info());
@@ -133,11 +159,50 @@ const ARGS = ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-g
     await C.evaluate(() => window.klibb.setProps(true)); await sleep(1500);
     await pose(C, 16, 1.75, 41, 0, -0.1); await sleep(1000);
     await shot(C, '05-city-props-wheel.png');
+    await C.evaluate(() => window.klibb.setProps(false)); await sleep(500);
+
+    // ---------- collision in the city: walking at the kiosk stops at its counter
+    const kiosk = (await C.evaluate(() => window.klibb.props.list())).find((p) => p.kind === 'kiosk');
+    await C.evaluate(() => { const k = window.klibb; k.controls.ground = null; k.controls.collide = null; });
+    const wk = await walk(C, 19.2, 30, -Math.PI / 2, 2200); // east (+x) at the kiosk's front (x 21, its counter 20.6; past the street light at x 18.2)
+    check('the city: walking at the kiosk, I stop in front of it', wk[0] > 19.5 && wk[0] < 20.75 && Math.abs(wk[1] - 30) < 0.3, { wk, lamp: await C.evaluate(() => { const l = window.klibb.props.list().find((p) => p.kind === 'lamp' && p.z === 30); return l && window.klibb.props.collider.boxes(l.id).map((b) => [b.cx, b.cz, b.hx, b.hz]); }) });
+    const lampP = (await C.evaluate(() => window.klibb.props.list())).find((p) => p.kind === 'lamp');
+    const lampBoxes = await C.evaluate((id) => window.klibb.props.collider.boxes(id).map((b) => [b.hx, b.hz]), lampP.id);
+    check('…a street light blocks only at its pole (not its arm)', lampBoxes.length >= 1 && lampBoxes.every(([a, b]) => a < 0.4 && b < 0.4), { lampBoxes });
+    await C.evaluate(() => { const k = window.klibb; k.controls.yaw = -Math.PI / 2 + 0.5; k.controls.pitch = -0.1; k.controls.apply(); k.setView('third', { quiet: true }); }); await sleep(1500);
+    await shot(C, '21-city-player-stopped-at-kiosk-3rd.png');
+    await C.evaluate(() => window.klibb.setView('first', { quiet: true }));
+
+    // ---------- stickers on any prop (Jens t521u): on the kiosk (not a cuboid), saved, there after a reload
+    const design = plain[0].id;
+    await C.evaluate((id) => window.klibb.selectDesign(window.klibb.stickerDesigns().find((d) => d.id === id) || window.klibb.stickerDesigns()[0]), design); await sleep(500);
+    await C.evaluate(() => window.klibb.setSize(90)); // big: it wraps over the kiosk's counter
+    await pose(C, 18.2, 1.6, 30.2, -Math.PI / 2, -0.08); await sleep(800);
+    const ks = await C.evaluate(() => window.klibb.stampAt(0, 0).then((s) => s && { id: s.id, surface: s.surface, position: s.position }));
+    check('a sticker slapped on the kiosk sticks to the kiosk\'s mesh (prop-<id>-m<k>)', ks && new RegExp(`^prop-${kiosk.id}-m\\d+$`).test(ks.surface), ks);
+    await sleep(1200);
+    const drawn = (Q, id) => Q.evaluate((id) => { const m = window.klibb.stamps.meshes.get(id); return !!m && (m.baked || (m.geometry && m.geometry.attributes.position.count > 0)); }, id);
+    check('…and is drawn on it', ks && await drawn(C, ks.id));
+    const saved2 = (await api('GET', `/api/rooms/${CITY}/stamps`)).stamps.find((x) => ks && x.id === ks.id);
+    check('…saved by the server like any sticker (world-space, its surface)', !!saved2 && saved2.surface === ks.surface, saved2);
+    await C.reload(); await C.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.propsReady, null, { timeout: 60000 }); await sleep(2500);
+    check('…still there after a reload', ks && await drawn(C, ks.id));
+    await C.evaluate(() => window.klibb.setView('first', { quiet: true }));
+    await pose(C, 17.6, 1.9, 31.4, -Math.PI / 2 + 0.35, -0.12); await sleep(1500);
+    await shot(C, '22-city-sticker-on-kiosk-before-move.png');
+    // moving the kiosk: the sticker stays where it was slapped (Jens: build first, texture afterwards)
+    const mv = await api('PUT', `/api/rooms/${CITY}/props/${kiosk.id}`, { prop: { ...kiosk, z: 33.5 } }, { 'x-admin-token': ADM });
+    check('moving the kiosk is saved', mv.status === 200, mv);
+    await sleep(1500);
+    await shot(C, '23-city-sticker-on-kiosk-after-move.png');
+    check('…the sticker stays (world-space): not lost', ks && (await C.evaluate((id) => window.klibb.stamps.meshes.has(id), ks.id)));
+    await api('PUT', `/api/rooms/${CITY}/props/${kiosk.id}`, { prop: kiosk }, { 'x-admin-token': ADM });
     await C.close();
     await sleep(3500);
     const pre = await api('GET', '/api/admin/citypresets', null, { 'x-admin-token': ADM });
     const dp = pre.presets && pre.presets.find((p) => p.default);
     check('the build city\'s props go into the default city preset', !!dp && dp.props && dp.props.outside === street.length, dp);
+    check('…and the sticker on the kiosk with them (same prop ids: a new city gets both)', !!dp && dp.stickers && dp.stickers.outside >= 1, dp && dp.stickers);
 
     // ---------- phone
     const ph = await newCtx('Ada', '#d64b3a', true, { ...devices['iPhone 13'], viewport: { width: 390, height: 844 } });

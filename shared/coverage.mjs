@@ -52,6 +52,9 @@ function faceOf(faces, stamp, n) {
 // A sticker ready for the math, or null (bad data / unknown image / no face).
 export function prepareStamp(stamp, image, mask, { faces = boxFaces() } = {}) {
   if (!stamp || !image || !isVec(stamp.position, 3) || !isVec(stamp.quaternion, 4) || !isNum(stamp.size)) return null;
+  // on a 3D prop (a cuboid's face, any prop's mesh: surface prop-<id>-…): not part of the room's box –
+  // never counted as hidden, never hides a wall's sticker
+  if (/^prop-/.test(String(stamp.surface || ''))) return null;
   const q = stamp.quaternion, n = qApply(q, [0, 0, 1]);
   const F = faceOf(faces, stamp, n);
   if (!F) return null;

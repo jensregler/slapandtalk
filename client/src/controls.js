@@ -80,13 +80,19 @@ export class FirstPersonControls {
     const sp = this.speed * (this.keys.has('ShiftLeft') ? 1.8 : 1) * dt;
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-    const p = this.camera.position;
+    const p = this.camera.position, px = p.x, pz = p.z;
     p.addScaledVector(fwd, f * sp).addScaledVector(right, s * sp);
     p.x = THREE.MathUtils.clamp(p.x, this.bounds.min.x, this.bounds.max.x);
     p.z = THREE.MathUtils.clamp(p.z, this.bounds.min.z, this.bounds.max.z);
     // The City (city.js): houses you can't walk through (collide → pushed out to the nearest side)
     // and slabs you step up onto (ground: the eye stays 1.6 m above the ground under you).
     if (this.collide) { const [x, z] = this.collide(p.x, p.z); p.x = x; p.z = z; }
+    // 3D props (propsmode.js, shared/propcollide.mjs; Jens t521u): tables, chairs, street furniture block
+    // you too – in a room, a house and the city. Only when I moved (a pose set from outside isn't undone).
+    if (this.propCollide && (p.x !== px || p.z !== pz)) {
+      const clamp = (x, z) => { x = THREE.MathUtils.clamp(x, this.bounds.min.x, this.bounds.max.x); z = THREE.MathUtils.clamp(z, this.bounds.min.z, this.bounds.max.z); return this.collide ? this.collide(x, z) : [x, z]; };
+      const [x, z] = this.propCollide(px, pz, p.x, p.z, p.y, clamp); p.x = x; p.z = z;
+    }
     if (this.ground) { const want = 1.6 + this.ground(p.x, p.z); p.y += (want - p.y) * Math.min(1, dt * 12); }
   }
 }

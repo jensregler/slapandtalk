@@ -145,3 +145,9 @@ export function canEditProps({ buildPhase, admin = false, full = false, cityRoom
 }
 // A new prop id (10 hex).
 export function newPropId(rnd = Math.random) { let s = ''; for (let k = 0; k < 10; k++) s += Math.floor(rnd() * 16).toString(16); return s; }
+// Stickers on any prop (Jens t521u): a prop's meshes are sticker surfaces named prop-<id>-m<k> (the k-th
+// mesh of the prop, in its model's fixed order); the cuboid's / affischpelare's flat faces keep their
+// prop-<id>-<face> names (room surfaces, folded over edges). Stickers are world-space like on a wall.
+const MESH_SURFACE = /^prop-([a-f0-9]{10})-m\d{1,3}$/;
+export const propMeshSurface = (s) => { const m = MESH_SURFACE.exec(String(s || '')); return m ? m[1] : null; };
+export const onProp = (s) => /^prop-[a-f0-9]{10}-/.test(String(s || ''));

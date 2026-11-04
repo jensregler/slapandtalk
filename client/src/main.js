@@ -56,7 +56,7 @@ import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plo
 import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
 import { initProps } from './propsmode.js';
-import { canEditProps } from '../../shared/props.mjs';
+import { canEditProps, propMeshSurface } from '../../shared/props.mjs';
 import { unlockHeaders } from './entitlements.js';
 
 const $ = (id) => document.getElementById(id);
@@ -759,7 +759,9 @@ function aimRay(ndc) {
 }
 function hitSurface(ndc) {
   aimRay(ndc);
-  const hit = raycaster.intersectObjects(room.surfaces, false)[0];
+  // the room's surfaces and every 3D prop's meshes (Jens t521u: stickers on any prop)
+  const props = propsUi ? propsUi.stickerMeshes() : [];
+  const hit = raycaster.intersectObjects(props.length ? [...room.surfaces, ...props] : room.surfaces, false).find((x) => x.face) || null;
   if (!hit) return null;
   const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
   if (normal.dot(raycaster.ray.direction) > 0) normal.negate();
@@ -924,6 +926,7 @@ function arrayFailed(where, err) {
 function startArray(a) {
   if (arraysOff) return;
   if (arrayFaults.start) throw new Error('test: array start unavailable');
+  if (propMeshSurface(a.surface)) return; // a 3D prop's mesh (not a flat face): no rows there – one sticker
   const [w, h] = StampLayer.dims(a.design, a.size);
   arrayDrag = { a, w, h, face: faceFor(ARRAY_FACES, a.surface, a.point.toArray(), a.normal.toArray()), to: null, items: [] };
   arrayPlane.setFromNormalAndCoplanarPoint(a.normal, a.point);
@@ -2151,9 +2154,13 @@ var propsUi = initProps({ // eslint-disable-line no-var
   netId: () => together.net.id, sendSit: (chair, draw) => together.net.sendSit(chair, draw), takenSeats: () => together.players.takenSeats(),
   setSelfSeat: (seat) => together.setSelfSeat(seat),
   onModeChange: () => { preview.hide(); renderStrip(); },
+  onPropBuilt: (id) => stamps.propBuilt(id),
   wheelUp: () => wheelUp(),
 });
 together.players.seatOf = (chair) => propsUi.seatPose(chair);
+// props block walking (shared/propcollide.mjs) and carry stickers (stamps.js projects them onto a prop's meshes)
+controls.propCollide = (px, pz, x, z, eyeY, clamp) => propsUi.collideStep(px, pz, x, z, eyeY, clamp);
+stamps.propMeshes = (id) => propsUi.meshesOf(id);
 function propsMode() { return !!propsUi && propsUi.active(); } // hoisted: setMode/syncNatureMode run before propsUi exists
 // Full version (entitlements.js): free = calm default UI; the deep menus appear when unlocked.
 const entitlementsReady = loadEntitlements().then(() => { together.entitlementsChanged(); onEntitlements(); fullUi.ready(); });

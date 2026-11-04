@@ -809,6 +809,8 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
   if (!image) return res.status(410).json({ error: 'That design is no longer on the server.', gone: true });
   // Nature stickers are the full version's (natureStickers): no row either.
   if (isNatureImage(await natureMod, image) && !isAdmin(req) && !(await entOf(req)).natureStickers) return res.status(403).json({ error: 'Nature stickers are part of the full version.', full: true, feature: 'natureStickers' });
+  // a 3D prop's mesh (shared/props.mjs propMeshSurface; not a flat face): no rows there (the web app doesn't ask)
+  if (PROPS.propMeshSurface(anchor.surface)) return res.status(400).json({ error: 'Nothing to repeat', empty: true });
   const A = await arrayMod, P = await peelsMod;
   const [w, h] = P.stampDims(image, anchor.size);
   let items = A.arrayPlan(anchor, w, h, b.to).items.filter((x) => x.i > 0);

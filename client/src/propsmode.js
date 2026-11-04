@@ -2,6 +2,8 @@
 //   - the props LAYER: every prop of the space drawn (props3d.js), kept in step with the server
 //     (prop:set / prop:remove), far ones lose their ink outline and very far ones are hidden (iPhone);
 //     the cuboid's and the affischpelare's faces join the room's surfaces, so stickers go on them.
+//   - COLLISION (Jens t521u): every prop is a few boxes (shared/propcollide.mjs) you can't walk through;
+//     STICKERS on any prop's mesh too (prop-<id>-m<k>, world-space: they stay put if the prop moves).
 //   - SITTING: the drawing tool opened near a free chair = I sit down on it and draw (the server keeps
 //     one person per chair, everyone sees me sitting with a "drawing" mark); closing it = I stand up.
 //   - the PROPS WHEEL (the build phase only – shared/city.mjs CITY_BUILD_PHASE – for admin / the full
@@ -12,7 +14,8 @@
 //     (0.1 m up to 32 m wide/deep, 24 m high) and a colour. Q/E turn, the mouse wheel scales, Delete
 //     removes the selected one, Esc lets go. Every change is saved at once (PUT/DELETE …/props/:id).
 import * as THREE from 'three';
-import { makeProp, preloadProps, highlightOf } from './props3d.js';
+import { makeProp, preloadProps, highlightOf, collisionBoxes } from './props3d.js';
+import { createPropCollider, cuboidBoxes } from '../../shared/propcollide.mjs';
 import { facesFromSurfaces } from './fold.js';
 import { createWheel } from './wheel.js';
 import { PROP_KINDS, KIND_IDS, cleanProp, newPropId, seatOf, nearestSeat, PROP_SCALE, BOX_LIMITS, BOX_COLOURS, MAX_PROPS } from '../../shared/props.mjs';
@@ -31,6 +34,14 @@ export function initProps(o) {
   const items = new Map(); // id -> { p, obj, inks: [], faces: [] }
   const pending = new Map(); // id -> token (a newer build of the same prop wins)
   const bounds = o.outside ? { width: 96, height: 24, depth: 96 } : { width: 16, height: 8, depth: 16 };
+  // You can't walk through props (shared/propcollide.mjs; Jens t521u): a few boxes per prop.
+  const collider = createPropCollider();
+  const collide = (it) => { const local = PROP_KINDS[it.p.kind].box ? cuboidBoxes(it.p) : collisionBoxes(it.p, it.obj); collider.set(it.p, local || []); };
+  // Stickers on any prop (Jens t521u): every mesh of a prop (not the cuboid's / affischpelare's faces,
+  // which are room surfaces) is a sticker target named prop-<id>-m<k>; stickers on it are world-space like
+  // on a wall (stamps.js projects them onto the prop's meshes), so they stay where they were slapped if
+  // the prop is moved later (Jens: build first, texture afterwards).
+  const meshName = (id, k) => `prop-${id}-m${k}`;
 
   // ---------- the layer ----------
   const faceName = (id, f) => `prop-${id}-${f}`;
@@ -50,22 +61,25 @@ export function initProps(o) {
   async function upsert(p, { refresh = true } = {}) {
     p = cleanProp(p, bounds); if (!p) return null;
     const cur = items.get(p.id);
-    if (cur && sameShape(cur.p, p)) { cur.p = p; place(cur.obj, p); if (refresh && cur.faces.length) refreshFaces(); return cur; }
+    if (cur && sameShape(cur.p, p)) { cur.p = p; place(cur.obj, p); collide(cur); if (refresh && cur.faces.length) refreshFaces(); return cur; }
     const token = {}; pending.set(p.id, token);
     let obj; try { obj = await makeProp(p); } catch (e) { console.warn('[props]', p.kind, e && (e.stack || e.message)); return null; }
     if (pending.get(p.id) !== token) return null; // a newer one (or a removal) came meanwhile
     pending.delete(p.id);
     const old = items.get(p.id); if (old) { group.remove(old.obj); dropFaces(p.id); }
     place(obj, p); obj.userData.propId = p.id;
-    const inks = [], faces = [];
+    const inks = [], faces = [], meshes = [];
     obj.traverse((m) => {
       if (m.userData.ink) inks.push(m);
       else if (m.isMesh) m.userData.propId = p.id;
       if (m.isMesh && m.userData.propFace) { m.name = faceName(p.id, m.userData.propFace); m.userData.prop = p.id; faces.push(m); }
+      else if (m.isMesh && !m.userData.ink) { m.name = meshName(p.id, meshes.length); m.userData.propMesh = p.id; meshes.push(m); }
     });
     group.add(obj);
     for (const f of faces) room.surfaces.push(f);
-    const it = { p, obj, inks, faces }; items.set(p.id, it);
+    const it = { p, obj, inks, faces, meshes }; items.set(p.id, it);
+    collide(it);
+    o.onPropBuilt?.(p.id);
     if (refresh && faces.length) refreshFaces();
     if (sel && sel.id === p.id) highlight(it, true);
     return it;
@@ -73,7 +87,7 @@ export function initProps(o) {
   function remove(id) {
     pending.delete(id);
     const it = items.get(id); if (!it) return false;
-    group.remove(it.obj); items.delete(id);
+    group.remove(it.obj); items.delete(id); collider.remove(id);
     if (it.faces.length) { dropFaces(id); refreshFaces(); }
     if (sel && sel.id === id) deselect();
     return true;
@@ -393,7 +407,13 @@ export function initProps(o) {
     return thumbing;
   }
 
+  // controls.js, every step: from (px, pz) to (x, z) → where I may be. Sitting: the chair doesn't push me off.
+  function collideStep(px, pz, x, z, eyeY, clamp) { return collider.move(px, pz, x, z, eyeY, mySeat ? mySeat.id : null, clamp); }
+  // the sticker targets: every prop mesh (raycast for a slap), and one prop's meshes (stamps.js)
+  function stickerMeshes() { const out = []; for (const it of items.values()) if (it.obj.visible) for (const m of it.meshes) if (m.visible !== false) out.push(m); return out; }
+  const meshesOf = (id) => items.get(id)?.meshes || null;
   return {
+    collideStep, collider, stickerMeshes, meshesOf,
     group, upsert, remove, setAll, list, items, refreshFaces,
     onEvent(e) {
       if (!e) return false;

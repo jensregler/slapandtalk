@@ -14,6 +14,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PROP_KINDS } from '../../shared/props.mjs';
+import { BODY_TOP } from '../../shared/propcollide.mjs';
 
 // The scenes of props.glb, in order (tools/build-props.sh ORDER).
 export const GLB_ORDER = ['table', 'chair', 'sofa', 'plant', 'bookcase', 'floorlamp', 'lamp', 'bin', 'bin2', 'bench', 'market', 'hydrant', 'dumpster', 'statue',
@@ -284,4 +285,34 @@ export async function makeProp(p) {
   return root;
 }
 export const preloadProps = () => loadGlb();
+
+// Collision (shared/propcollide.mjs; Jens t521u): a prop's boxes in its own frame at scale s – per part
+// (mesh), the footprint of its vertices up to BODY_TOP over the foot (so a street light is its pole, a
+// tree its trunk, a bus stop its posts, glass and bench), from its lowest to its highest point. Parts
+// entirely above that (a roof, a sign's face, a lamp's arm) don't block. Cached per kind and scale: every
+// prop of a kind shares its template. The cuboid is its own W × H × D (cuboidBoxes).
+const collideCache = new Map();
+const _v = new THREE.Vector3(), _inv = new THREE.Matrix4(), _m = new THREE.Matrix4();
+export function collisionBoxes(p, root) {
+  const K = PROP_KINDS[p.kind]; if (!K || K.box) return null;
+  const s = p.s || 1, key = p.kind + '@' + s;
+  if (collideCache.has(key)) return collideCache.get(key);
+  root.updateMatrixWorld(true); _inv.copy(root.matrixWorld).invert();
+  const top = BODY_TOP, out = [];
+  root.traverse((m) => {
+    if (!m.isMesh || m.userData.ink || !m.geometry?.attributes?.position) return;
+    _m.multiplyMatrices(_inv, m.matrixWorld);
+    const pos = m.geometry.attributes.position;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, y0 = Infinity, y1 = -Infinity, any = false;
+    for (let i = 0; i < pos.count; i++) {
+      _v.fromBufferAttribute(pos, i).applyMatrix4(_m).multiplyScalar(s);
+      if (_v.y < y0) y0 = _v.y; if (_v.y > y1) y1 = _v.y;
+      if (_v.y > top) continue;
+      any = true; if (_v.x < x0) x0 = _v.x; if (_v.x > x1) x1 = _v.x; if (_v.z < z0) z0 = _v.z; if (_v.z > z1) z1 = _v.z;
+    }
+    if (any && y0 < top) out.push({ x0, x1, y0: Math.max(0, y0), y1, z0, z1 });
+  });
+  collideCache.set(key, out);
+  return out;
+}
 export { SIGNS, PILLAR };

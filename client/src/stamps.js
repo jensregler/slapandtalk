@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
 import { facesFromSurfaces, foldStamp, foldGeometry } from './fold.js';
+import { propMeshSurface } from '../../shared/props.mjs';
 
 const loader = new THREE.TextureLoader();
 const DEPTH = 0.25; // hur "djup" projektionen är (meter)
@@ -96,6 +97,43 @@ class StampPage {
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _p = new THREE.Vector3();
 
+// A sticker on a 3D prop's mesh (Jens t521u): projected (DecalGeometry) onto every mesh of that prop, so
+// it wraps a chair's seat or a kiosk's corner; only the triangles facing the sticker's way (not the back of
+// a thin part), a hair off the surface. World-space (like a wall's sticker): the result bakes like any other.
+const PROP_DEPTH = 0.25, PROP_LIFT = 0.0015;
+export function propDecalGeometry(meshes, pos, quat, w, h) {
+  const n = new THREE.Vector3(0, 0, 1).applyQuaternion(quat), euler = new THREE.Euler().setFromQuaternion(quat);
+  const P = [], N = [], U = [];
+  const size = new THREE.Vector3(w, h, Math.max(PROP_DEPTH, Math.min(w, h) * 0.5));
+  for (const m of meshes) {
+    const g0 = m.geometry; if (!g0 || !g0.attributes.position) continue;
+    if (!g0.attributes.normal) { g0.computeVertexNormals(); }
+    m.updateMatrixWorld(true);
+    let d; try { d = new DecalGeometry(m, pos, euler, size); } catch { continue; }
+    const p = d.attributes.position, nr = d.attributes.normal, uv = d.attributes.uv;
+    for (let i = 0; i + 2 < p.count; i += 3) {
+      _a.fromBufferAttribute(p, i); _b.fromBufferAttribute(p, i + 1); _c.fromBufferAttribute(p, i + 2);
+      _p.subVectors(_b, _a).cross(_c.clone().sub(_a));
+      const l = _p.length(); if (l < 1e-12) continue;
+      if (_p.dot(n) / l < 0.15) continue; // facing away: the back of a thin part
+      for (let k = 0; k < 3; k++) {
+        const v = k === 0 ? _a : k === 1 ? _b : _c;
+        P.push(v.x + n.x * PROP_LIFT, v.y + n.y * PROP_LIFT, v.z + n.z * PROP_LIFT);
+        N.push(nr.getX(i + k), nr.getY(i + k), nr.getZ(i + k)); U.push(uv.getX(i + k), uv.getY(i + k));
+      }
+    }
+    d.dispose();
+  }
+  if (!P.length) return null;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  g.setIndex(Array.from({ length: P.length / 3 }, (_, i) => i));
+  g.computeBoundingSphere();
+  return g;
+}
+
 export class StampLayer {
   constructor(scene, surfaces) {
     this.scene = scene;
@@ -116,6 +154,14 @@ export class StampLayer {
     this.keepLive = null; // () => stampId[] som ska förbli levande (t.ex. mina peel-bara)
     this.bakeEnabled = true;
     this.bakeTimer = 0; this.bakeSince = 0; this.animating = 0;
+    // Stickers on props' meshes (propMeshSurface): propMeshes(id) → that prop's meshes, or null while it
+    // isn't built (yet: a sticker waits for it in `waiting`, propBuilt(id) adds it; or any more: it was
+    // removed – the sticker stays saved but isn't drawn).
+    this.propMeshes = null;
+    this.waiting = new Map(); // stampId -> { stamp, image }
+  }
+  propBuilt(propId) {
+    for (const [id, w] of [...this.waiting]) if (propMeshSurface(w.stamp.surface) === propId) { this.waiting.delete(id); this.add(w.stamp, w.image); }
   }
 
   // Designens textur (förhandsvisningen använder samma). De senast efterfrågade släpps inte.
@@ -183,6 +229,12 @@ export class StampLayer {
     const pos = new THREE.Vector3(...stamp.position);
     const quat = new THREE.Quaternion(...stamp.quaternion);
     const [w, h] = StampLayer.dims(image, stamp.size);
+    const pid = propMeshSurface(stamp.surface);
+    if (pid) { // a 3D prop's mesh
+      const ms = this.propMeshes ? this.propMeshes(pid) : null;
+      if (!ms || !ms.length) return null;
+      return propDecalGeometry(ms, pos, quat, w, h);
+    }
     if (this.faces) {
       const pieces = foldStamp(this.faces, { center: pos, quaternion: quat, w, h, surface: stamp.surface });
       return pieces.length ? foldGeometry(pieces) : null;
@@ -207,7 +259,12 @@ export class StampLayer {
       return;
     }
     const geom = this.geometry(stamp, image);
-    if (!geom) return;
+    if (!geom) {
+      const pid = propMeshSurface(stamp.surface);
+      if (pid && !this.gone.has(stamp.id) && !(this.propMeshes && this.propMeshes(pid))) this.waiting.set(stamp.id, { stamp, image }); // its prop isn't built (yet)
+      return;
+    }
+    this.waiting.delete(stamp.id);
     if (this.meshes.has(stamp.id) || this.gone.has(stamp.id)) { geom.dispose(); return; } // redan där, eller borttagen medan bilden laddades
     const mesh = new THREE.Mesh(geom, mat);
     mesh.renderOrder = 10 + stamp.order;
@@ -243,7 +300,7 @@ export class StampLayer {
   }
 
   remove(stampId) {
-    this.gone.add(stampId);
+    this.gone.add(stampId); this.waiting.delete(stampId);
     const m = this.meshes.get(stampId);
     if (!m) return;
     if (m.baked) { this.unbake(stampId); return; }
@@ -559,8 +616,12 @@ export class StampPreview {
     this.mesh.visible = !!this.mat.map;
     const si = this.shadowInfo; this.shadow.visible = this.mesh.visible && !!si;
     const shift = this.shadowShift(normal, w, h);
-    if (!this.faces) {
-      if (this.key !== 'plane') { this.mesh.geometry.dispose(); this.mesh.geometry = new THREE.PlaneGeometry(1, 1); this.key = 'plane'; }
+    // a 3D prop's mesh (not a flat face): a flat preview just off the point you aim at
+    if (!this.faces || propMeshSurface(surface)) {
+      if (this.key !== 'plane') {
+        this.mesh.geometry.dispose(); this.mesh.geometry = new THREE.PlaneGeometry(1, 1); this.key = 'plane';
+        this.shadow.geometry.dispose(); this.shadow.geometry = new THREE.PlaneGeometry(1, 1); this.skey = 'plane';
+      }
       this.mesh.position.copy(point).addScaledVector(normal, 0.003);
       this.mesh.quaternion.copy(quaternion);
       this.mesh.scale.set(w, h, 1);
@@ -570,6 +631,10 @@ export class StampPreview {
         this.shadow.scale.set(w * si.kx, h * si.ky, 1);
       }
       return;
+    }
+    if (this.key === 'plane') { // back from a prop's mesh: the folded geometry is world-space
+      for (const m of [this.mesh, this.shadow]) { m.position.set(0, 0, 0); m.quaternion.identity(); m.scale.set(1, 1, 1); }
+      this.skey = '';
     }
     // Bygg bara om geometrin när något har ändrats.
     const key = [...point.toArray(), ...quaternion.toArray(), w, h, surface].map((v) => (typeof v === 'number' ? v.toFixed(4) : v)).join();
