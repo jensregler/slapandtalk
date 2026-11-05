@@ -34,7 +34,9 @@ import AVATAR_SPEC from '../../shared/avatar.json';
 import { initFullVersion } from './fullversion.js';
 import { GrooveSteps } from './groove.js';
 import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, grooveLabel } from '../../shared/groove.mjs';
-import { loadSoundLook, initSoundUI, resetPersonalSound, personalGet, personalSet, setSoundRoom, soundKey } from './soundui.js';
+import { loadSoundLook, initSoundUI, resetPersonalSound, personalGet, personalSet, setSoundRoom, soundKey, loadRunMode } from './soundui.js';
+import { runRate, pitchRatio } from '../../shared/runmode.mjs';
+import { setDanceClock } from './avatars.js';
 import { Radio, radioBlock, fetchRoomPreset, putRoomPreset } from './radio.js';
 import * as synthShared from '../../shared/synth.mjs';
 import { config } from './config.js';
@@ -2789,6 +2791,7 @@ async function startDance() {
   const ok = await together.startDance();
   if (!ok) { if (dancePrevView) setView(dancePrevView, { quiet: true }); dancePrevView = null; toast('Could not start the dance just now.', 1800); return false; }
   toast(isTouch ? '💃 Dance!' : '💃 Dance! (X)', 1600);
+  controls.keys.clear(); controls.joy.set(0, 0); // a key/stick already held when it started doesn't cancel it
   clearInterval(danceWatch);
   danceWatch = setInterval(() => {
     if (together.dancing()) return;
@@ -2797,6 +2800,21 @@ async function startDance() {
   }, 200);
   return true;
 }
+// Cancel the dance (Jens t544u): W/A/S/D (and the arrows) or the phone joystick stop it at once;
+// the view goes back like when it ends by itself, and the room is told (dance { stop }).
+function cancelDance() {
+  if (!together.dancing()) return false;
+  together.stopDance();
+  clearInterval(danceWatch); danceWatch = 0;
+  if (dancePrevView) { setView(dancePrevView, { quiet: true }); dancePrevView = null; }
+  return true;
+}
+const DANCE_CANCEL_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+addEventListener('keydown', (e) => { if (!e.repeat && DANCE_CANCEL_KEYS.has(e.code) && !isTyping(e) && together.dancing()) cancelDance(); });
+// The dance's beat locks to MY master clock in this room (radio.tempo(): 90 BPM + the room's nudge),
+// on the server-corrected wall clock. 4 bars, starting on the next beat (dance.mjs danceGrid); the start
+// message carries when + that clock, so everyone sees the same beats at the same moment.
+setDanceClock(() => ({ nowMs: groove.now(), tempo: radio.tempo() }));
 
 $('view-first').onclick = () => { if (view !== 'first') setView('first'); };
 $('view-third').onclick = () => { if (view !== 'third') setView('third'); };
@@ -2836,6 +2854,9 @@ function walkSounds() {
   // onPeel: feet on backing paper on the floor = the muffled "paper" step (shared/peelstep.mjs)
   const walkers = [{ id: 'me', x: camera.position.x, z: camera.position.z, at: null, onPeel: peelLayer.under(camera.position.x, camera.position.z) }];
   for (const pl of together.players.map.values()) walkers.push({ id: pl.id, x: pl.pos.x, z: pl.pos.z, at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id), onPeel: peelLayer.under(pl.pos.x, pl.pos.z) }); // their seed + slot colour
+  // Run mode (Jens t544u): Shift + moving = my steps on the run tempo/pitch (shared/runmode.mjs).
+  const running = !camView && !together.dancing() && !!controls.running;
+  if (running) { const rc = loadRunMode(), rr = runRate(rc); groove.setRun({ rate: rr.rate, tune: pitchRatio(rc.pitch) }); } else groove.setRun(null);
   groove.update(walkers);
 }
 
@@ -2987,7 +3008,10 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (holdSharpForTests && deskHeld && deskHeld.state === 'timed') { const t = performance.now(); if (deskHeld.canSlap(t)) deskHeld.keepAlive(t); else deskHeld.wake(t); }
   if (!camView && !together.dancing()) controls.update(dt);
-  else if (together.dancing()) { controls.keys.clear(); controls.joy.set(0, 0); } // dance owns the body – no WASD/joystick fight
+  else if (together.dancing()) {
+    if (controls.joy.lengthSq() > 0.04) cancelDance(); // the phone joystick moved: stop dancing, walk
+    else { controls.keys.clear(); controls.joy.set(0, 0); } // dance owns the body – no WASD/joystick fight
+  }
   propsUi.tick(dt); // props: far ones without ink, my chair, the Props wheel's ghost
   tickCityDoors();
   tickRoomFabric(room.surfaces); if (sp.open) { fargUi.tick(); for (const k of SURF_KINDS) ownUi[k].tick(); } // Färg: the room image spins / cycles / scrolls
@@ -3159,7 +3183,7 @@ window.klibb = {
     };
     return { ...st, view, screen: st.visible ? { sticker: px(preview.mesh), shadow: px(preview.shadow) } : null };
   },
-  setView, toggleView, startDance, dancing: () => together.dancing(), view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
+  setView, toggleView, startDance, cancelDance, dancing: () => together.dancing(), runMode: () => ({ ...loadRunMode(), running: !!controls.running, run: groove.run ? { ...groove.run } : null }), view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, toggleNature, setNatureMode, natureMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, dropsPeel, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };

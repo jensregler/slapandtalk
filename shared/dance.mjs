@@ -5,10 +5,52 @@
 // Pure maths – no Three.js – so unit tests can sample every phase without a GLB.
 
 export const DANCE = Object.freeze({
-  duration: 19,          // seconds, matches the reference clip
-  key: 'KeyX',           // desktop: X
-  beat: 0.5,             // ~120 BPM
+  bars: 4, beatsPerBar: 4, // the whole routine = 4 bars of 4/4 on the master clock (16 beats)
+  beats: 16,
+  key: 'KeyX',             // desktop: X
+  bpm: 90,                 // fallback tempo when no clock is given (the master clock's default)
+  minBpm: 60, maxBpm: 180, // outside this band the clock is used in double / half time
+  maxMs: 19000,            // the longest it can take (lead-in ≤ 1 beat + 16 beats at 60 BPM ≈ 17 s)
 });
+// (Before Jens t546u: a fixed 19 s timeline at 120 BPM.) Sections, in beats from the first beat:
+//   strut 0–2 · chest pops 2–4 · knee drop 4–6 · kneel hold 6–7 · no-hands pop-up 7–9 ·
+//   arm flair + shimmy 9–11 · squat bounce 11–15 · rise 15–16.  At 90 BPM: 10.7 s.
+export const SECTIONS = Object.freeze([
+  ['approach', 0, 2], ['pops', 2, 4], ['kneel', 4, 6], ['kneel-pause', 6, 7], ['popup', 7, 9],
+  ['flair', 9, 11], ['squat', 11, 15], ['rise', 15, 16],
+]);
+// The keyframes below were authored on the old 19 s timeline; each section's beats map linearly
+// onto its old seconds (pose shapes only). Everything rhythmic – stride, bop, pops, shimmy, hip
+// bounces – is driven by the beat count itself, so it lands ON the clock's beats.
+const OLD = [0, 3, 5, 9, 11, 13, 15, 18, 19];
+function oldTime(b) {
+  for (let i = 0; i < SECTIONS.length; i++) {
+    const [, a, z] = SECTIONS[i];
+    if (b < z || i === SECTIONS.length - 1) return OLD[i] + (OLD[i + 1] - OLD[i]) * Math.min(1, Math.max(0, (b - a) / (z - a)));
+  }
+  return OLD[OLD.length - 1];
+}
+
+// Tempo (Jens t544u/t546u): the dance follows the master clock (shared/clock.mjs: 90 BPM + the
+// room's nudge and phase, on the server-corrected wall clock). It starts on the clock's NEXT beat
+// (lead = up to one beat of standing), so every beat of the routine is a clock beat. Above 180 /
+// below 60 BPM it runs in half / double time (folded by octaves) so it stays human.
+// grid = { bpm, beat (s), lead (s from the press to the first beat), duration (s, lead incl.) }.
+export function danceGrid(nowMs, tempo) {
+  let bpm = tempo && tempo.bpm > 0 && Number.isFinite(tempo.bpm) ? tempo.bpm : 0;
+  if (!bpm || !Number.isFinite(nowMs)) { const beat = 60 / DANCE.bpm; return { bpm: DANCE.bpm, beat, lead: 0, duration: DANCE.beats * beat }; }
+  let guard = 0;
+  while (bpm > DANCE.maxBpm && guard++ < 40) bpm /= 2;
+  while (bpm < DANCE.minBpm && guard++ < 80) bpm *= 2;
+  const beatMs = 60000 / bpm, into = ((nowMs - (tempo.phaseMs || 0)) % beatMs + beatMs) % beatMs;
+  const leadMs = into < 1e-6 || beatMs - into < 1e-6 ? 0 : beatMs - into;
+  return { bpm: +bpm.toFixed(4), beat: beatMs / 1000, lead: leadMs / 1000, duration: (leadMs + DANCE.beats * beatMs) / 1000 };
+}
+const cleanGrid = (g) => (g && g.beat > 0 && Number.isFinite(g.beat) ? { beat: g.beat, lead: Number.isFinite(g.lead) && g.lead > 0 ? g.lead : 0 } : { beat: 60 / DANCE.bpm, lead: 0 });
+/** Total length (s) for a grid (null = the 90 BPM fallback). */
+export const danceDuration = (grid = null) => { const g = cleanGrid(grid); return g.lead + DANCE.beats * g.beat; };
+/** Beats since the dance's first (clock) beat at dance time t (s); negative during the lead-in. */
+export const danceBeats = (t, grid = null) => { const g = cleanGrid(grid); return (t - g.lead) / g.beat; };
 
 const clamp01 = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -94,34 +136,31 @@ const SQUAT = Object.freeze({ // deep wide sumo squat, arms down/out, palms towa
   head: 0.15, drop: 0.38, back: 0.02,
 });
 
-/** Phase name at time t (seconds). Useful for tests and debugging. */
-export function dancePhase(t) {
+/** Phase name at dance time t (seconds; grid as danceGrid, null = 90 BPM). */
+export function dancePhase(t, grid = null) {
   if (t < 0) return 'idle';
-  if (t < 3) return 'approach';
-  if (t < 5) return 'pops';
-  if (t < 9) return 'kneel';
-  if (t < 11) return 'kneel-pause';
-  if (t < 13) return 'popup';
-  if (t < 15) return 'flair';
-  if (t < 18) return 'squat';
-  if (t < DANCE.duration) return 'rise';
+  const b = danceBeats(t, grid);
+  if (b < 0) return 'lead-in';
+  for (const [name, , z] of SECTIONS) if (b < z) return name;
   return 'done';
 }
 
 /**
- * Sample the dance pose at time t (seconds from the start).
- * Returns a plain pose object (see STAND). After DANCE.duration the last rise pose is held;
- * callers should stop the dance at duration.
+ * Sample the dance pose at dance time tSec (seconds since the press; grid from danceGrid, null =
+ * 90 BPM, no lead-in). Standing during the lead-in and after the last beat; callers stop the
+ * dance at danceDuration(grid).
  */
-export function dancePoseAt(t) {
-  if (!(t > 0)) return { ...STAND };
-  if (t >= DANCE.duration) return { ...STAND };
+export function dancePoseAt(tSec, grid = null) {
+  if (!(tSec > 0)) return { ...STAND };
+  const B = danceBeats(tSec, grid); // beats on the clock (0 = the dance's first beat)
+  if (B <= 0 || B >= DANCE.beats) return { ...STAND };
+  const t = oldTime(B); // where the keyframes sit on their authored (old 19 s) timeline
 
   // 0–3: approach strut (walk-in-place, alternating legs + shoulder bop)
   if (t < 3) {
     const u = t / 3;
-    const step = Math.sin(t * Math.PI * 2); // ~1 Hz stride
-    const bop = Math.sin(t * Math.PI * 4) * 0.08; // shoulder bop on the beat
+    const step = Math.sin(B * Math.PI); // one stride = 2 beats
+    const bop = Math.sin(B * Math.PI * 2) * 0.08; // shoulder bop on the beat
     const base = mix(STAND, STRUT, Math.min(1, u * 2));
     return {
       ...base,
@@ -131,7 +170,7 @@ export function dancePoseAt(t) {
       kneeR: base.kneeR + Math.max(0, -step) * 0.35,
       chest: base.chest + bop,
       abdomen: base.abdomen + bop * 0.6,
-      armRX: base.armRX + Math.sin(t * Math.PI * 2 + 0.4) * 0.08,
+      armRX: base.armRX + Math.sin(B * Math.PI + 0.4) * 0.08,
       drop: base.drop + Math.abs(step) * 0.015,
     };
   }
@@ -140,8 +179,8 @@ export function dancePoseAt(t) {
   if (t < 5) {
     const u = (t - 3) / 2;
     const base = mix(STRUT, WIDE, Math.min(1, u * 2.5));
-    const beat = Math.floor((t - 3) / DANCE.beat);
-    const local = ((t - 3) % DANCE.beat) / DANCE.beat;
+    const beat = Math.floor(B);
+    const local = B - beat; // 0 = on the clock's beat
     // sharp isolation: quick out, quick back
     const pop = local < 0.18 ? smooth(local / 0.18) : local < 0.45 ? 1 - smooth((local - 0.18) / 0.27) : 0;
     const side = beat % 2 === 0 ? 1 : -1;
@@ -196,7 +235,7 @@ export function dancePoseAt(t) {
     if (u < 0.35) return mix(STAND_WIDE, FLAIR, u / 0.35);
     if (u < 0.55) return mix(FLAIR, SHIMMY, (u - 0.35) / 0.2);
     // shimmy: rapid shoulder/chest roll
-    const sh = Math.sin((t - 13.9) * Math.PI * 10);
+    const sh = Math.sin(B * Math.PI * 4); // two shoulder rolls per beat
     const base = SHIMMY;
     return {
       ...base,
@@ -212,7 +251,7 @@ export function dancePoseAt(t) {
   if (t < 18) {
     const u = (t - 15) / 3;
     const base = u < 0.35 ? mix(SHIMMY, SQUAT, u / 0.35) : { ...SQUAT };
-    const local = ((t - 15) % DANCE.beat) / DANCE.beat;
+    const local = B - Math.floor(B);
     const bounce = local < 0.5 ? smooth(local / 0.5) : 1 - smooth((local - 0.5) / 0.5);
     return {
       ...base,

@@ -80,6 +80,25 @@ export function eventsBetween(g, slot, from, to, { max = 256 } = {}) {
   }
   return out;
 }
+// Run mode (shared/runmode.mjs): the same slot's pulses at `rate` × the walk pulse rate, on the SAME
+// grid: pulse m sits at bar position off + m / (pulses × rate). With a clean ratio num:den the run
+// pulses meet a walk pulse every num run steps (= den walk steps), so runners and walkers form a
+// polyrhythm; rate 1 = exactly eventsBetween. Each: { t, n, tick, slot } like eventsBetween.
+export function runEventsBetween(g, slot, from, to, rate = 1, { max = 256 } = {}) {
+  if (!(rate > 0) || !Number.isFinite(rate)) rate = 1;
+  const st = cleanGroove(g), pat = patternOf(slot), B = barMs(st.scale), off = pat.offset / GROOVE.ticks, per = pat.pulses * rate;
+  const out = []; if (!(to > from)) return out;
+  const first = Math.ceil((barsAt(st, from) - off) * per - 1e-9);
+  for (let n = first; out.length < max; n++) {
+    const x = off + n / per;
+    const t = st.at + (x - st.phase) * B;
+    if (t >= to) break;
+    if (t < from) continue;
+    const tick = ((Math.round(x * GROOVE.ticks) % GROOVE.ticks) + GROOVE.ticks) % GROOVE.ticks;
+    out.push({ t, n, tick, slot: Number(slot) | 0 });
+  }
+  return out;
+}
 // The ticks a slot plays in one bar (for tests and the readout).
 export const ticksOf = (slot) => { const p = patternOf(slot); return Array.from({ length: p.pulses }, (_, i) => (p.offset + i * GROOVE.ticks / p.pulses) % GROOVE.ticks); };
 // ms between one slot's pulses at this scale.

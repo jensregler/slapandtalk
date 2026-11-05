@@ -196,10 +196,22 @@ function client(base, room, hello = {}) {
     // ---------- Runway dance (shared/dance.mjs) ----------
     const da = join('dans1', { name: 'Dansare' }); await da.ready; const dwa = await da.wait((m) => m.t === 'welcome');
     const db = join('dans1', { name: 'Tittare2' }); await db.ready; await db.wait((m) => m.t === 'welcome');
-    da.send({ t: 'dance' });
+    const dAt = Date.now();
+    da.send({ t: 'dance', at: dAt, bpm: 90.12, phaseMs: 4.5 });
     const dmsg = await db.wait((m) => m.t === 'dance');
     assert(dmsg && dmsg.id === dwa.id && !da.msgs.some((m) => m.t === 'dance'),
       'dance: others see who started it; the dancer does not get their own echo');
+    assert(dmsg.at === dAt && dmsg.bpm === 90.12 && dmsg.phaseMs === 4.5, 'dance: when + which clock is relayed (in sync on every screen)');
+    // stopped early (W/A/S/D, joystick): relayed while the dance is on, ignored otherwise
+    da.send({ t: 'dance', stop: true });
+    const dstop = await db.wait((m) => m.t === 'dance' && m.stop === true);
+    assert(dstop && dstop.id === dwa.id, 'dance stop: others see it end early');
+    const before = db.msgs.filter((m) => m.t === 'dance' && m.stop).length;
+    da.send({ t: 'dance', stop: true }); // no dance on any more: not relayed
+    const dc = join('dans1', { name: 'Ingen' }); await dc.ready; await dc.wait((m) => m.t === 'welcome');
+    dc.send({ t: 'dance', stop: true }); // never danced
+    await sleep(200);
+    assert(db.msgs.filter((m) => m.t === 'dance' && m.stop).length === before, 'dance stop without a dance on is not relayed');
 
     rt.close();
     await sleep(150);

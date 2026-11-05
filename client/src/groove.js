@@ -4,8 +4,8 @@
 // The wall clock is corrected by the server's clock (welcome.now), so all clients agree.
 // When a walker's pulses come closer than GROOVE.buzzMs, the steps become one looping "buzz"
 // voice (one grain of their step sound per pulse) instead of a flood of one-shot voices.
-import { GROOVE, DEFAULT_GROOVE, cleanGroove, eventsBetween, pulseMs, buzzes, barMs } from '../../shared/groove.mjs';
-import { patchLength } from '../../shared/synth.mjs';
+import { GROOVE, DEFAULT_GROOVE, cleanGroove, eventsBetween, runEventsBetween, pulseMs, barMs } from '../../shared/groove.mjs';
+import { patchLength, retune } from '../../shared/synth.mjs';
 
 const WALK = { speed: 0.35, holdMs: 140, jump: 0.8, jumpSpeed: 9, maxPerFrame: 48, buzzGain: 0.45, maxAheadMs: 400 };
 
@@ -17,6 +17,9 @@ export class GrooveSteps {
     this.anchor = null;       // { wall, audio }: wall-clock ms ↔ AudioContext seconds
     this.log = [];            // the last step events (tests, curious people): { id, slot, t, tick, n, scale }
     this.events = 0; this.buzzing = 0;
+    // Run mode (shared/runmode.mjs, Jens t544u): while I hold Shift and move, MY steps use
+    // { rate (× the walk pulse rate, on the same grid), tune (pitch ratio) }; null = walking.
+    this.run = null;
     // Watchdog: no frames (a hidden tab, a stall) = nobody is walking as far as we know: the buzz
     // must not loop on by itself.
     this.watch = setInterval(() => { if (this.lastFrame && this.now() - this.lastFrame > WALK.maxAheadMs) { this.stopAll(); for (const t of this.track.values()) t.walkUntil = 0; this.buzzing = 0; } }, 250);
@@ -32,6 +35,16 @@ export class GrooveSteps {
     return true;
   }
   get scale() { return this.groove.scale; }
+  // run = { rate, tune } or null. A change re-plans my steps from now (the gap guard below stops a
+  // doubled step where the walk grid and the run grid meet), so Shift up/down is heard at once.
+  setRun(run) {
+    const n = run && run.rate > 0 ? { rate: +run.rate, tune: run.tune > 0 ? +run.tune : 1 } : null;
+    const same = (!n && !this.run) || (n && this.run && n.rate === this.run.rate && n.tune === this.run.tune);
+    if (same) return false;
+    this.run = n;
+    const me = this.track.get('me'); if (me) { me.until = Math.min(me.until, this.now()); this.stopBuzz(me); }
+    return true;
+  }
 
   // Wall-clock ms → AudioContext seconds (null: no audio yet).
   audioTime(ms) {
@@ -60,21 +73,25 @@ export class GrooveSteps {
       const voice = w.voice === undefined ? this.sound.mine : w.voice;
       const slot = voice && Number.isInteger(voice.colour) ? voice.colour : 0;
       if (!walking) { t.until = nowMs; this.stopBuzz(t); continue; }
-      if (buzzes(this.groove.scale, slot)) { this.buzz(t, w, voice, slot, nowMs); t.until = horizon; continue; }
+      const run = w.id === 'me' && this.run ? this.run : null; // run mode: my own steps only
+      const rate = run ? run.rate : 1, period = pulseMs(this.groove.scale, slot) / rate;
+      if (period < GROOVE.buzzMs) { this.buzz(t, w, voice, slot, nowMs, run); t.until = horizon; continue; }
       this.stopBuzz(t);
       const from = Math.max(t.until, nowMs);
       if (horizon <= from) continue;
-      const evs = eventsBetween(this.groove, slot, from, horizon, { max: budget });
+      const evs = run ? runEventsBetween(this.groove, slot, from, horizon, rate, { max: budget }) : eventsBetween(this.groove, slot, from, horizon, { max: budget });
       t.until = evs.length >= budget && evs.length ? evs[evs.length - 1].t + 0.001 : horizon;
       for (const e of evs) {
+        if (t.last != null && e.t > t.last - 0.5 && e.t - t.last < period * 0.45) continue; // walk ↔ run switch: no doubled step
+        t.last = e.t;
         budget--;
         this.events++;
-        this.log.push({ id: w.id, slot, t: Math.round(e.t * 10) / 10, tick: e.tick, n: e.n, scale: this.groove.scale });
+        this.log.push({ id: w.id, slot, t: Math.round(e.t * 10) / 10, tick: e.tick, n: e.n, scale: this.groove.scale, ...(run ? { run: +rate.toFixed(4), tune: +run.tune.toFixed(4) } : {}) });
         if (this.log.length > 200) this.log.splice(0, this.log.length - 200);
         const time = this.audioTime(e.t);
         if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up
         // left/right foot: a hair lower on every other pulse
-        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), time, tune: e.n % 2 ? 0.97 : 1.02, onPeel: !!w.onPeel, speed: t.v });
+        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), time, tune: (e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v });
       }
       if (budget <= 0) break;
     }
@@ -83,17 +100,18 @@ export class GrooveSteps {
   }
 
   // ---------- The buzz: a looping grain at the pulse rate ----------
-  buzz(t, w, voice, slot, nowMs) {
+  buzz(t, w, voice, slot, nowMs, run = null) {
     const eng = this.sound.engine;
     if (!eng || this.sound.muted) { this.stopBuzz(t); return; }
-    const key = `${this.groove.scale}:${this.groove.at}:${slot}:${voice?.seed || ''}:${voice?.patches?.step ? 'c' : ''}`;
+    const key = `${this.groove.scale}:${this.groove.at}:${slot}:${voice?.seed || ''}:${voice?.patches?.step ? 'c' : ''}:${run ? run.rate + '/' + run.tune : ''}`;
     if (t.buzz && t.buzzKey === key) { if (w.at) t.buzz.setPos(w.at); return; }
     this.stopBuzz(t);
-    const period = pulseMs(this.groove.scale, slot) / 1000;
-    const { patch } = this.sound.patchFor('step', voice);
+    const period = pulseMs(this.groove.scale, slot) / (run ? run.rate : 1) / 1000;
+    let { patch } = this.sound.patchFor('step', voice);
+    if (run && run.tune !== 1) patch = retune(patch, run.tune);
     const buf = grainBuffer(this.sound.ctx, patch, period);
     // start on a pulse of the shared grid, so the buzz has the groove's phase
-    const next = eventsBetween(this.groove, slot, nowMs + 20, nowMs + 20 + barMs(this.groove.scale) + 1, { max: 2 }).find((e) => e.n % 2 === 0); // (the buffer starts with the left foot)
+    const next = (run ? runEventsBetween(this.groove, slot, nowMs + 20, nowMs + 20 + barMs(this.groove.scale) + 1, run.rate, { max: 2 }) : eventsBetween(this.groove, slot, nowMs + 20, nowMs + 20 + barMs(this.groove.scale) + 1, { max: 2 })).find((e) => e.n % 2 === 0); // (the buffer starts with the left foot)
     const time = next ? this.audioTime(next.t) : null;
     t.buzz = eng.loop(buf, { gain: WALK.buzzGain * (w.at ? 0.9 : 1), pos: w.at || null, fx: voice?.fx || null, time });
     t.buzzKey = key;

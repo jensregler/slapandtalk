@@ -8,8 +8,12 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import AV from '../../shared/avatar.json';
 import { ArmGesture } from './slapanim.js';
-import { DANCE, dancePoseAt, dancePhase } from '../../shared/dance.mjs';
+import { DANCE, dancePoseAt, dancePhase, danceGrid, danceDuration } from '../../shared/dance.mjs';
 export { DANCE, dancePoseAt, dancePhase };
+// The master clock the dance's beats lock to (main.js: () => ({ nowMs, tempo })); null = the fixed 120 BPM.
+let danceClock = null;
+export function setDanceClock(fn) { danceClock = typeof fn === 'function' ? fn : null; }
+function clockNow() { try { const c = danceClock && danceClock(); return c && Number.isFinite(c.nowMs) ? c : null; } catch { return null; } }
 import { cleanFabrics } from '../../shared/fabric.mjs';
 import { acquireFabric, releaseFabric, makeFabricable, setFabric, tickFabric } from './fabrics.js';
 import { Mouth, MOUTH } from './mouth.js';
@@ -443,14 +447,24 @@ export class Avatar {
     for (const [b, qa] of P.a) { if (k) b.quaternion.slerpQuaternions(qa, P.b.get(b), k); else b.quaternion.copy(qa); }
     this.model.position.set(0, -SIT.drop, SIT.back);
   }
-  // Runway dance (Jens t540u): one-shot keyframe routine on this avatar. Refuses while seated.
-  // Returns false if it did not start (already dancing, or sitting).
-  startDance() {
+  // Runway dance (Jens t540u/t546u): one-shot keyframe routine on this avatar, 4 bars on the master
+  // clock. Refuses while seated. from = { at (server-clock ms of the press), bpm, phaseMs } – someone
+  // else's dance as they sent it, so it plays on THEIR clock grid at the same moment on every screen
+  // (joined late: picks up mid-dance). Without it: mine, now, on my clock. Returns false if it did
+  // not start, else { at, bpm, phaseMs } (what to send to the room).
+  startDance(from = null) {
     if (this.seated || this.dance) return false;
+    const c = clockNow();
+    let at, tempo;
+    if (from && Number.isFinite(from.at) && from.bpm > 0) { at = from.at; tempo = { bpm: from.bpm, phaseMs: Number.isFinite(from.phaseMs) ? from.phaseMs : 0 }; }
+    else { at = c ? Math.round(c.nowMs) : null; tempo = c && c.tempo ? { bpm: Math.round(c.tempo.bpm * 1000) / 1000, phaseMs: Math.round((c.tempo.phaseMs || 0) * 1000) / 1000 } : null; } // rounded like the server relays it: the same grid everywhere
+    const grid = at != null && tempo ? danceGrid(at, tempo) : null;
+    const t0 = at != null && c ? Math.max(0, (c.nowMs - at) / 1000) : 0;
+    if (t0 >= danceDuration(grid)) return false; // it is already over
     this.waveUntil = 0; this.actions.Wave?.stop();
     this.gesture.h = null; this.gesture.g = null; // no slap/hold fighting the arms
-    this.dance = { t: 0 };
-    return true;
+    this.dance = { t: t0, at, grid, end: danceDuration(grid) };
+    return { at, bpm: tempo ? tempo.bpm : null, phaseMs: tempo ? tempo.phaseMs || 0 : 0 };
   }
   stopDance() {
     if (!this.dance) return;
@@ -460,13 +474,16 @@ export class Avatar {
   }
   get dancing() { return !!this.dance; }
   get danceTime() { return this.dance ? this.dance.t : 0; }
-  get dancePhase() { return this.dance ? dancePhase(this.dance.t) : null; }
+  get dancePhase() { return this.dance ? dancePhase(this.dance.t, this.dance.grid) : null; }
+  get danceAt() { return this.dance && this.dance.at != null ? this.dance.at : null; }
+  get danceGrid() { return this.dance && this.dance.grid ? { ...this.dance.grid } : null; }
   applyDance(dt) {
     const d = this.dance; if (!d) return;
-    d.t += dt;
-    if (d.t >= DANCE.duration) { this.stopDance(); return; }
+    const c = d.at != null ? clockNow() : null;
+    d.t = c ? Math.max(0, (c.nowMs - d.at) / 1000) : d.t + dt; // on the clock: no drift, same moment everywhere
+    if (d.t >= d.end) { this.stopDance(); return; }
     for (const [b, q] of this._rest) b.quaternion.copy(q);
-    const S = dancePoseAt(d.t);
+    const S = dancePoseAt(d.t, d.grid);
     danceTurns(this, S);
     this.model.position.set(0, -S.drop, S.back || 0);
   }
@@ -520,7 +537,9 @@ export class Players {
   // Someone sat down on a chair (chair = its prop id; draw = drawing) or stood up (chair null).
   sit(id, chair, draw = false) { const pl = this.map.get(id); if (!pl) return false; pl.sit = chair ? { chair, draw: !!draw } : null; if (!chair) pl.avatar?.setSeated(false); return true; }
   // Someone started the runway dance (others see it on their avatar).
-  dance(id) { const pl = this.map.get(id); if (!pl?.avatar) return false; if (pl.sit) { pl.sit = null; pl.avatar.setSeated(false); } return pl.avatar.startDance(); }
+  dance(id, from = null) { const pl = this.map.get(id); if (!pl?.avatar) return false; if (pl.sit) { pl.sit = null; pl.avatar.setSeated(false); } return !!pl.avatar.startDance(from); }
+  // They stopped it early (walked off: W/A/S/D or the joystick).
+  stopDance(id) { const pl = this.map.get(id); if (!pl?.avatar?.dancing) return false; pl.avatar.stopDance(); return true; }
   seatedOn(chair) { for (const p of this.map.values()) if (p.sit && p.sit.chair === chair) return p.id; return null; }
   takenSeats() { const s = new Set(); for (const p of this.map.values()) if (p.sit) s.add(p.sit.chair); return s; }
   look(id, name, look) { const pl = this.map.get(id); if (pl) this.upsert({ id, name, look }); }
@@ -569,6 +588,6 @@ export class Players {
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
       walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false,
-      gestures: p.gestures || 0, slot: p.slot, sit: p.sit ? { ...p.sit } : null, seated: !!p.avatar?.seated, dancing: !!p.avatar?.dancing, dancePhase: p.avatar?.dancePhase || null, danceTime: p.avatar ? +p.avatar.danceTime.toFixed(2) : 0, capWorld: p.avatar?.cap.visible ? p.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
+      gestures: p.gestures || 0, slot: p.slot, sit: p.sit ? { ...p.sit } : null, seated: !!p.avatar?.seated, dancing: !!p.avatar?.dancing, dancePhase: p.avatar?.dancePhase || null, danceTime: p.avatar ? +p.avatar.danceTime.toFixed(2) : 0, danceAt: p.avatar?.danceAt ?? null, danceBpm: p.avatar?.danceGrid?.bpm ?? null, capWorld: p.avatar?.cap.visible ? p.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
   }
 }

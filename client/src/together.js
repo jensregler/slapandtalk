@@ -61,7 +61,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     onDenied, onInvite, onSignal,
     // 3D props: someone sat down on a chair / stood up (mine comes back too: taken = the chair was someone else's)
     onSit(m) { if (m.id !== net.id) players.sit(m.id, m.chair, m.draw); onSit(m); },
-    onDance(m) { if (m.id !== net.id) players.dance(m.id); },
+    onDance(m) { if (m.id === net.id) return; if (m.stop) players.stopDance(m.id); else players.dance(m.id, Number.isFinite(m.at) ? { at: m.at, bpm: m.bpm, phaseMs: m.phaseMs } : null); },
     onMove: (id, p, y) => players.move(id, p, y),
     onLook(id, name, look) {
       const pl = players.map.get(id);
@@ -359,12 +359,13 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       if (self.seat) { self.seat = null; self.avatar?.setSeated(false); if (net.status === 'online') net.sendSit(null); }
       const ensure = self.avatar ? Promise.resolve(self.avatar) : buildSelf();
       return ensure.then((a) => {
-        if (!a.startDance()) return false;
-        if (net.status === 'online') net.sendDance();
+        const d = a.startDance(); if (!d) return false;
+        if (net.status === 'online') net.sendDance(false, d); // when + which clock, so it is in sync on every screen
         return true;
       }).catch(() => false);
     },
-    stopDance() { self.avatar?.stopDance(); },
+    // Stopped early (W/A/S/D, the joystick – main.js cancelDance): tell the room so mine stops for them too.
+    stopDance() { if (!self.avatar?.dancing) return false; self.avatar.stopDance(); if (net.status === 'online') net.sendDance(true); return true; },
     dancing: () => !!self.avatar?.dancing,
     // Min gubbe slappar/peelar (syns bara i tredjepersonsvy). De andra får veta via servern (by = net.id).
     // The drag pose (sticker arrays) on my own avatar: point = where the row ends, null = let go.
@@ -374,7 +375,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     handPos: () => { const a = self.avatar; if (!a) return null; const w = a.gesture.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray()); return w; },
     selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0, fabrics: self.avatar ? self.avatar.fabricInfo() : {},
       face: self.avatar ? self.avatar.faceInfo() : null, look: self.avatar ? { ...self.avatar.look } : null, gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null,
-      seated: !!self.avatar?.seated, dancing: !!self.avatar?.dancing, dancePhase: self.avatar?.dancePhase || null, danceTime: self.avatar ? +self.avatar.danceTime.toFixed(2) : 0,
+      seated: !!self.avatar?.seated, dancing: !!self.avatar?.dancing, dancePhase: self.avatar?.dancePhase || null, danceTime: self.avatar ? +self.avatar.danceTime.toFixed(2) : 0, danceAt: self.avatar?.danceAt ?? null, danceBpm: self.avatar?.danceGrid?.bpm ?? null,
       capWorld: self.avatar?.cap.visible ? self.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null }),
     busy: () => av.open,
     // The room's character (null = my own avatar): shown on me, sent to the room, the panel locked.

@@ -12,13 +12,15 @@
 //                    unlock {unlock: {key, dev}}  (new full-version key in an open tab)
 //                    ping · signal {to, data}  (signal = för röstchatt via WebRTC, se nedan)
 //                    talk {l} · held {h}  (recording only: my voice level / the sticker I aim with, never relayed)
-//                    dance {}  (runway dance, shared/dance.mjs: I start the one-shot dance; others see it)
+//                    dance {at?, bpm?, phaseMs?, stop?}  (runway dance, shared/dance.mjs: I start the one-shot dance; others see it.
+//                    stop: true = I stopped it early – only relayed while my dance is on, so it needs no limiter of its own)
 //                    sit {chair: prop id | null, draw}  (3D props, shared/props.mjs: I sit down on a chair – drawing –
 //                    or stand up; one person per chair, the server keeps who sits where)
 //   server → klient: welcome {id, you, players, chat, max, full, rec, now (server ms: the shared clock for the footstep groove)} · join {player} · leave {id}
 //                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
 //                    event {e} · signal {from, data} · pong · error {error}
-//                    dance {id}  (someone started the runway dance)
+//                    dance {id, at?, bpm?, phaseMs?, stop?}  (someone started the runway dance – at = server ms of the press, on that
+//                    clock – or stopped it early)
 //                    sit {id, chair, draw}  (someone sat down / stood up; to the sender with taken: id when that chair was taken)
 //   a player (welcome.players, join) carries sit: { chair, draw } while seated.
 //   p = ögats position [x, y, z], y = vridning (yaw), pi = blicken upp/ner (pitch), i radianer.
@@ -80,6 +82,7 @@ const CHAT_MAX = 300;
 const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
 const clampN = (n, a, b) => Math.min(b, Math.max(a, n));
 const round = (n) => Math.round(n * 1000) / 1000;
+const DANCE_MS = 19500; // the runway dance's longest length (shared/dance.mjs DANCE.maxMs) + a little slack
 
 // Namn: inga kontroll- eller osynliga tecken (t.ex. tecken som vänder textriktningen), inga
 // dubbla mellanslag, högst 24 tecken (räknat i tecken, så en emoji inte klipps itu).
@@ -395,14 +398,24 @@ function attachRealtime(server, {
     }
     if (m.t === 'dance') {
       // Runway dance (shared/dance.mjs): one-shot; broadcast so others play it on this player's avatar.
-      if (!c.player || !c.danceLimit()) return;
+      if (!c.player) return;
+      if (m.stop === true) { // stopped early: only while a dance of theirs is on (bounded by the start limiter)
+        if (!(c.danceUntil > Date.now())) return;
+        c.danceUntil = 0;
+        return toRoom(r, { t: 'dance', id: c.id, stop: true }, c);
+      }
+      if (!c.danceLimit()) return;
+      c.danceUntil = Date.now() + DANCE_MS;
       // Standing up if they were seated – the dance needs the floor.
       if (c.sit) {
         if (r.seats.get(c.sit.chair) === c.id) r.seats.delete(c.sit.chair);
         c.sit = null;
         toRoom(r, { t: 'sit', id: c.id, chair: null, draw: false });
       }
-      return toRoom(r, { t: 'dance', id: c.id }, c);
+      // when (server-clock ms) + the clock it runs on, so every screen plays the same beats (shared/dance.mjs)
+      const now = Date.now(), at = isNum(m.at) && Math.abs(m.at - now) < 5000 ? Math.round(m.at) : null;
+      const sync = at !== null && isNum(m.bpm) && m.bpm >= 1 && m.bpm <= 120000 ? { at, bpm: round(m.bpm), phaseMs: isNum(m.phaseMs) ? round(clampN(m.phaseMs, -60000, 60000)) : 0 } : {};
+      return toRoom(r, { t: 'dance', id: c.id, ...sync }, c);
     }
     if (m.t === 'sit') {
       // Sitting down on a chair (3D props): the chair is a prop id; one person per chair. null = stand up.

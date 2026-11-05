@@ -180,6 +180,13 @@ export const EN = {
   grooveReset: '1×', grooveResetTitle: 'Back to the normal walking groove',
   grooveHint: 'Everyone’s footsteps share one beat. Left = faster, until the steps buzz; right = slower, until they breathe. Keys [ and ] (Shift: bigger jumps).',
   grooveValue: (scale, bar) => `${scale} · bar ${bar}`, grooveChip: (scale) => `Groove ${scale}`,
+  // Run mode (Sound settings → Steps tab; shared/runmode.mjs)
+  runModeTitle: '🏃 Run mode (hold Shift)',
+  runModeHint: 'Hold Shift while you walk to run. These change how your footsteps sound while you run; let go of Shift and the walk sound is back on the next step.',
+  runTempo: 'Step tempo', runTempoTitle: 'Steps per second while running, compared with walking. 0% = the same, +100% = twice as many, −100% = half as many',
+  runPitch: 'Pitch', runPitchTitle: 'Steps up or down a major-pentatonic scale, so running stays in key',
+  runLock: 'Lock to clock', runLockTitle: 'Snap the run tempo to a clean ratio against the walk beat (1:2, 2:3, 1:1, 3:2, 2:1, 3:1) – runners and walkers make a polyrhythm',
+  runPreview: '▶ Walk → run', runPreviewTitle: 'Hear one bar of walking, then one bar of running',
   aslapLabel: 'Auto-slap', aslapModeTitle: 'On the beat: the steps share the room’s Groove bar. Free rate: your own speed.',
   aslapModeBar: 'On the beat', aslapModeFree: 'Free rate', aslapBarsTitle: 'How long the sequence loop is, in Groove bars',
   aslapBars: (b) => (b === 1 ? '1 bar' : b < 1 ? `1/${Math.round(1 / b)} bar` : `${b} bars`),

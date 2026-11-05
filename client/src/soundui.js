@@ -6,11 +6,12 @@
 // menu" (the start card) puts every one of them back to default (resetPersonalSound). Free players
 // never see the panel; they get their own variation of the default sounds from 'klibb.soundSeed'.
 import { SOUNDS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, DEFAULT_PATCHES, FX_DEFAULTS,
-  cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx, noteName, diffPatch, snapFreq } from '../../shared/synth.mjs';
+  cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx, noteName, diffPatch, snapFreq, retune as retuneP } from '../../shared/synth.mjs';
 import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseTarget, modOrder, snapRate, selfLoop, targetSpec, LAYER_TARGETS, PATCH_TARGETS, MOD_TARGETS } from '../../shared/lfo.mjs';
 import { loadSampleFile, clearSamples, pruneSamples, ensureSamples } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
+import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, pitchMin, pitchMax, runRate, pitchRatio, pitchLabel, tempoLabel } from '../../shared/runmode.mjs';
 
 // Per room (Jens, 5 Nov 2026, shared/radio.mjs): my sound settings are this room's preset – the copy
 // for this visit lives under 'klibb.sound@<room>' (the server keeps it for good, radio.js).
@@ -24,7 +25,7 @@ const write = (k, v) => { try { if (v == null) localStorage.removeItem(k); else 
 const sread = (k) => { try { return sessionStorage.getItem(k); } catch { return null; } };
 const swrite = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch { /* private */ } };
 // Every personal sound setting (patches + effects, Music vol, the footstep groove's scale).
-export const PERSONAL_SOUND_KEYS = [SOUND_KEY, 'klibb.musicVol', 'klibb.grooveScale'];
+export const PERSONAL_SOUND_KEYS = [SOUND_KEY, 'klibb.musicVol', 'klibb.grooveScale', RUN.key];
 // (before 2 Nov 2026 they lived in localStorage for good: gone, so nobody starts with old ones)
 try { for (const k of PERSONAL_SOUND_KEYS) localStorage.removeItem(k); } catch { /* private */ }
 // "Exit to menu" (the start card): all of them back to default.
@@ -32,8 +33,20 @@ export function resetPersonalSound() {
   for (const k of PERSONAL_SOUND_KEYS) swrite(k, null);
   try { for (const k of Object.keys(sessionStorage)) if (/^klibb\.(sound|radio)@/.test(k)) sessionStorage.removeItem(k); } catch { /* private */ }
   clearSamples().catch(() => {});
+  runCache = null;
 }
 export const personalGet = sread, personalSet = swrite;
+// Run mode (shared/runmode.mjs, Jens t544u): { tempo %, pitch step, lock } – personal, this visit.
+let runCache = null;
+export function loadRunMode() {
+  if (!runCache) { try { runCache = cleanRun(JSON.parse(sread(RUN.key) || 'null')); } catch { runCache = cleanRun(null); } }
+  return runCache;
+}
+export function saveRunMode(r) {
+  const c = cleanRun(r); runCache = c;
+  swrite(RUN.key, JSON.stringify(c) === JSON.stringify(cleanRun(RUN_DEFAULTS)) ? null : JSON.stringify(c));
+  return c;
+}
 
 export function mySeed() {
   let s = read(SEED_KEY);
@@ -136,6 +149,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     st.custom = new Set(Object.keys(cur.patches || {}));
     st.fx = cleanFx(cur.fx) || cleanFx(FX_DEFAULTS);
     st.vol0 = musicVol ? musicVol.get() : null; st.volReset = false;
+    st.run = { ...loadRunMode() };
     st.open = true; $('sound-panel').hidden = false; render(); onOpenChange(true);
   }
   // Closed without saving (✕ / Cancel): a Music vol that only Reset changed goes back too.
@@ -437,6 +451,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     body.appendChild(el('p', 'snd-diff', changed ? `${changed} setting${changed === 1 ? '' : 's'} changed from the original – the radio knob morphs between them (and past them: Next)` : 'The original sound (nothing changed yet)'));
     body.appendChild(slider('level', SYNTH.gain, p.gain, (v) => { p.gain = v; edited(k); }, { patch: p, to: 'G.gain', sound: k }));
     body.lastChild.querySelector('span').textContent = 'Volume';
+    if (k === 'step') body.appendChild(runBlock());
     p.layers.forEach((_, i) => body.appendChild(layerBlock(p, i, k)));
     if (p.layers.length < SYNTH.maxLayers) {
       const adds = el('div', 'snd-adds');
@@ -459,6 +474,39 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     if (p.fx) body.appendChild(fxBlock(p.fx, () => edited(k)));
   }
 
+  // ---------- Run mode (Steps tab; shared/runmode.mjs) ----------
+  function runBlock() {
+    const r = st.run;
+    const box = el('fieldset', 'snd-run'); box.id = 'snd-run';
+    box.appendChild(el('legend', null, S.runModeTitle));
+    box.appendChild(el('p', 'hint', S.runModeHint));
+    const row = (id, label, title, min, max, step, value, show, onInput) => {
+      const d = el('div', 'snd-sl'); d.dataset.param = id; d.title = title;
+      const inp = el('input'); inp.type = 'range'; inp.id = id; inp.min = min; inp.max = max; inp.step = step; inp.value = value; inp.setAttribute('aria-label', label);
+      const out = el('output', null, show()); out.id = id + '-val';
+      inp.oninput = () => { onInput(Number(inp.value)); out.textContent = show(); };
+      d.append(el('span', null, label), inp, out); return d;
+    };
+    box.appendChild(row('run-tempo', S.runTempo, S.runTempoTitle, RUN.tempoMin, RUN.tempoMax, RUN.tempoStep, r.tempo, () => tempoLabel(r), (v) => { r.tempo = cleanTempo(v); }));
+    box.appendChild(row('run-pitch', S.runPitch, S.runPitchTitle, pitchMin, pitchMax, 1, r.pitch, () => pitchLabel(r.pitch), (v) => { r.pitch = cleanPitch(v); }));
+    const lab = el('label', 'check'); lab.title = S.runLockTitle; const cb = el('input'); cb.type = 'checkbox'; cb.id = 'run-lock'; cb.checked = !!r.lock;
+    cb.onchange = () => { r.lock = cb.checked; const o = $('run-tempo-val'); if (o) o.textContent = tempoLabel(r); };
+    lab.append(cb, document.createTextNode(' ' + S.runLock));
+    const pv = el('button', 'snd-add', S.runPreview); pv.type = 'button'; pv.id = 'run-preview'; pv.title = S.runPreviewTitle; pv.onclick = () => previewRun();
+    const sel = el('div', 'snd-sel'); sel.append(lab, pv); box.appendChild(sel);
+    return box;
+  }
+  // One bar of walking (4 steps), then one bar of running, with the step patch being edited.
+  function previewRun() {
+    const ctx = sound.ensure(); const eng = sound.engine; if (!ctx || !eng) { sound.ready?.then(() => previewRun()); return; }
+    const p = cleanPatch(st.patches.step); if (!p) return;
+    const fx = p.fx ? cleanFx(p.fx) : cleanFx(st.fx);
+    const bar = 4 / 3, walkPulse = bar / 4, rr = runRate(st.run), tune = pitchRatio(st.run.pitch);
+    const t0 = ctx.currentTime + 0.08;
+    for (let i = 0; i < 4; i++) eng.play(retuneP(p, i % 2 ? 0.97 : 1.02), { gain: 1, fx, time: t0 + i * walkPulse, pool: 'step' });
+    const runPulse = walkPulse / rr.rate, n = Math.max(1, Math.min(24, Math.round(bar / runPulse)));
+    for (let i = 0; i < n; i++) eng.play(retuneP(p, (i % 2 ? 0.97 : 1.02) * tune), { gain: 1, fx, time: t0 + bar + i * runPulse, pool: 'step' });
+  }
   function preview() {
     const k = st.tab === 'fx' ? 'slap' : st.tab;
     const p = cleanPatch(st.patches[k]);
@@ -480,6 +528,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     st.custom = new Set();
     st.fx = cleanFx(FX_DEFAULTS);
     if (musicVol) { musicVol.set(musicVol.def); st.volReset = true; }
+    st.run = { ...RUN_DEFAULTS };
     render(); preview();
     toast(S.soundReset || 'All sounds, effects and Music vol back to default – Save to keep it', 2600);
   }
@@ -488,6 +537,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const fx = JSON.stringify(cleanFx(st.fx)) === JSON.stringify(cleanFx(FX_DEFAULTS)) ? undefined : st.fx;
     const clean = saveSoundLook({ patches, fx });
     if (Object.keys(patches).length && !clean.patches) { toast(S.soundTooBig || 'Too much sound data – remove a layer or two.', 3000); return; }
+    saveRunMode(st.run);
     onSave(clean); st.volReset = false; close(true); toast(S.soundSaved || 'Sound settings saved', 1800);
   }
 

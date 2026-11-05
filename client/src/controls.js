@@ -2,6 +2,7 @@
 // Dator: klicka -> musen låses (pointer lock), WASD för att gå, musen för att titta.
 // Mobil: styrspak nere till vänster för att gå, dra med fingret för att titta.
 import * as THREE from 'three';
+import { RUN } from '../../shared/runmode.mjs';
 
 // Skriver man i ett textfält (artistnamn, rumskod …)? Då ska tangenterna inte styra spelet.
 export function isTyping(e) {
@@ -21,6 +22,7 @@ export class FirstPersonControls {
     this.keys = new Set();
     this.joy = new THREE.Vector2(); // -1..1
     this.speed = 2.6; // m/s
+    this.moving = false; this.running = false;
     this.locked = false;
     this.onLockChange = () => {};
 
@@ -77,7 +79,11 @@ export class FirstPersonControls {
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) s -= 1;
     f -= this.joy.y; s += this.joy.x;
     const len = Math.hypot(f, s); if (len > 1) { f /= len; s /= len; }
-    const sp = this.speed * (this.keys.has('ShiftLeft') ? 1.8 : 1) * dt;
+    // Run mode (shared/runmode.mjs, Jens t544u): Shift (either one) + moving = running – faster, and
+    // my footsteps switch to the run tempo/pitch (main.js walkSounds → groove.setRun).
+    this.moving = len > 0.05;
+    this.running = this.moving && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'));
+    const sp = this.speed * (this.running ? RUN.speed : 1) * dt;
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     const p = this.camera.position, px = p.x, pz = p.z;
