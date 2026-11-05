@@ -19,6 +19,7 @@ const artistLinkMod = import('../shared/artistlink.mjs');
 const peelsMod = import('../shared/peels.mjs');
 // The footstep groove (one shared bar for everyone's footsteps, shared/groove.mjs).
 const grooveMod = import('../shared/groove.mjs');
+const radioMod = import('../shared/radio.mjs');
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
@@ -930,6 +931,33 @@ app.put('/api/rooms/:room/groove', rateLimit(600), wrap(async (req, res) => {
   if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can change this' });
   broadcast(id, { type: 'room:groove', groove: r });
   res.json({ ok: true, groove: r });
+}));
+// My sound preset for THIS room (Jens, 5 Nov 2026, shared/radio.mjs): my patches + effects + my radio
+// (on/off, the knob = morph original ↔ mine, bird, wind, four voices). Per player: the header
+// X-Sound-Owner is a private random key from the browser (stored hashed); nobody else can read or
+// change it and nothing is broadcast – the other players keep their own sound. Every room starts
+// from the original (no preset). PUT with {} or null removes it.
+async function soundOwner(req, res) {
+  const R = await radioMod; const key = String(req.get('x-sound-owner') || '');
+  if (!R.OWNER_RE.test(key)) { res.status(400).json({ error: 'Missing sound owner key' }); return null; }
+  return require('crypto').createHash('sha256').update('klibb-sound:' + key).digest('hex').slice(0, 32);
+}
+app.get('/api/rooms/:room/sound', rateLimit(120), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  const owner = await soundOwner(req, res); if (!owner) return;
+  res.json({ preset: (await store.getSoundPreset(id, owner)) || null });
+}));
+app.put('/api/rooms/:room/sound', rateLimit(60), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
+  const id = roomParam(req, res); if (!id) return;
+  const owner = await soundOwner(req, res); if (!owner) return;
+  const R = await radioMod;
+  const room = await store.peek(id);
+  if (!room && !CITY.isCityRoom(id)) return res.status(404).json({ error: 'That room does not exist' });
+  const preset = R.cleanPreset(req.body);
+  if (preset && JSON.stringify(preset).length > R.RADIO.maxPresetBytes) return res.status(413).json({ error: 'Too much sound data' });
+  await store.putSoundPreset(id, owner, preset ? { ...preset, at: new Date(clock()).toISOString() } : null);
+  res.json({ ok: true, preset });
 }));
 // Sopa golvet: allt baksidespapper bort. Samma rättighet.
 app.post('/api/rooms/:room/peels/clear', rateLimit(20), wrap(async (req, res) => {

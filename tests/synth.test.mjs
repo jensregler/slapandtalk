@@ -36,7 +36,7 @@ const fx = cleanFx({ reverb: { decay: 99, wet: -1 }, delay: { time: 5, sync: '1/
 assert(fx.reverb.decay === 12 && fx.reverb.wet === 0 && fx.delay.time === 1.5 && fx.delay.sync === 'free' && fx.delay.feedback === 0.95 && fx.delay.pingPong === false
   && fx.crush.bits === 1 && fx.dist.amount === 1 && fx.filter.type === 'lowpass' && fx.filter.cutoff === 20 && !('chorus' in fx) && cleanFx(null) === null,
   'effects: reverb/delay/crush/distortion/filter params clamped (feedback ≤ 0.95, so the delay can never run away), bad sync/type → defaults');
-assert(delaySeconds({ sync: '1/8', time: 0.3 }) === 0.25 && delaySeconds({ sync: '1/4' }) === 0.5 && delaySeconds({ sync: 'free', time: 0.3 }) === 0.3, 'delay sync: 1/4 = 0.5 s and 1/8 = 0.25 s at 120 BPM, free = time');
+assert(Math.abs(delaySeconds({ sync: '1/8', time: 0.3 }) - 1 / 3) < 1e-9 && Math.abs(delaySeconds({ sync: '1/4' }) - 2 / 3) < 1e-9 && delaySeconds({ sync: 'free', time: 0.3 }) === 0.3, 'delay sync: 1/4 = 667 ms and 1/8 = 333 ms at the 90 BPM master clock, free = time');
 const big = { seed: 'abcd1234', patches: Object.fromEntries(SOUNDS.map((k) => [k, { layers: Array.from({ length: 4 }, () => ({ kind: 'osc', freq: 123.456789, cutoff: 4567.891 })), fx: FX_DEFAULTS }])), fx: FX_DEFAULTS };
 const freeS = cleanSound(big), paidS = cleanSound(big, { custom: true });
 assert(same(freeS, { seed: 'abcd1234' }) && paidS.seed === 'abcd1234' && JSON.stringify(paidS).length <= SYNTH.maxSoundBytes && cleanSound({ seed: 'bad seed!' }) === null,

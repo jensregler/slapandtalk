@@ -61,9 +61,9 @@ ok('clamp range 1/64 … 8, 4 significant digits; junk is rejected; the default 
   for (const bad of [NaN, Infinity, -1, 0, null, undefined, 'x', {}, []]) assert.equal(G.cleanScale(bad), null, String(bad));
   assert.deepEqual(G.cleanGroove(null), { scale: 1, at: 0, phase: 0 }); assert.deepEqual(G.cleanGroove({ scale: 99, at: 'x', phase: 1.25 }), { scale: 8, at: 0, phase: 0.25 });
 });
-ok('extremes: at 1/64 a 4-pulse walker steps every ~6 ms (a buzz); at 8 a 3-pulse walker every 4 s', () => {
-  assert.ok(G.pulseMs(G.GROOVE.min, 0) > 5 && G.pulseMs(G.GROOVE.min, 0) < 7 && G.buzzes(G.GROOVE.min, 0));
-  assert.equal(G.pulseMs(G.GROOVE.max, 1), 4000); assert.ok(!G.buzzes(1, 4) && !G.buzzes(G.GROOVE.max, 4));
+ok('extremes: at 1/64 a 4-pulse walker steps every ~5 ms (a buzz); at 8 a 3-pulse walker every 3.6 s (bar = 2 beats at 90 BPM)', () => {
+  assert.ok(G.pulseMs(G.GROOVE.min, 0) > 4 && G.pulseMs(G.GROOVE.min, 0) < 7 && G.buzzes(G.GROOVE.min, 0));
+  assert.ok(Math.abs(G.pulseMs(G.GROOVE.max, 1) - 32000 / 9) < 1e-6); assert.ok(!G.buzzes(1, 4) && !G.buzzes(G.GROOVE.max, 4));
   assert.ok(G.buzzes(0.1, 4) && !G.buzzes(0.2, 0), 'buzz threshold 40 ms');
 });
 ok('slider is log: 0 = 1/64, 1000 = 8, 1.0× in between; round trip; keys a quarter octave (Shift a whole one)', () => {
@@ -72,6 +72,6 @@ ok('slider is log: 0 = 1/64, 1000 = 8, 1.0× in between; round trip; keys a quar
   assert.ok(near(G.sliderToScale(500) / G.sliderToScale(400), G.sliderToScale(900) / G.sliderToScale(800), 1e-3), 'equal slider steps = equal ratios');
   assert.equal(G.stepScale(1, 1, true), 2); assert.equal(G.stepScale(1, -1, true), 0.5); assert.equal(G.stepScale(1, 1), 1.189);
   assert.equal(G.stepScale(8, 1), 8); assert.equal(G.stepScale(G.GROOVE.min, -1), G.cleanScale(G.GROOVE.min));
-  assert.deepEqual(G.grooveLabel(1), { scale: '1.00×', bar: '1.5 s' }); assert.equal(G.grooveLabel(1 / 64).bar, '23 ms'); assert.equal(G.grooveLabel(8).bar, '12 s');
+  assert.deepEqual(G.grooveLabel(1), { scale: '1.00×', bar: '1.3 s' }); assert.equal(G.grooveLabel(1 / 64).bar, '21 ms'); assert.equal(G.grooveLabel(8).bar, '11 s');
 });
 console.log(`groove: ${n} checks ok`);

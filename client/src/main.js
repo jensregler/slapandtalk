@@ -33,15 +33,14 @@ import { seededLook, roomCharacterSeed } from '../../shared/randomlook.mjs';
 import AVATAR_SPEC from '../../shared/avatar.json';
 import { initFullVersion } from './fullversion.js';
 import { GrooveSteps } from './groove.js';
-import { initAutoSlap } from './autoslap.js';
-import { AUTO, movedEnough } from '../../shared/autoslap.mjs';
 import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, grooveLabel } from '../../shared/groove.mjs';
-import { loadSoundLook, initSoundUI, resetPersonalSound, personalGet, personalSet } from './soundui.js';
+import { loadSoundLook, initSoundUI, resetPersonalSound, personalGet, personalSet, setSoundRoom, soundKey } from './soundui.js';
+import { Radio, radioBlock, fetchRoomPreset, putRoomPreset } from './radio.js';
 import * as synthShared from '../../shared/synth.mjs';
 import { config } from './config.js';
 import * as demo from './demo.js';
 import { noteVisit } from './landing.js';
-import { Voice } from './voice.js';
+import { Voice, VOICE_FX, cleanVoiceFx } from './voice.js';
 import { ArrayGhosts } from './arraydrag.js';
 import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
@@ -52,6 +51,7 @@ import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
 import { menuOf, runMenuSticker, MENU_IDS, RETIRED_MENU_IDS } from './menustickers.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
+import { CITY_FX, cityFxAt, placeNeutral, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
 import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, isBuildCity } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
@@ -206,6 +206,7 @@ const state = {
 
 // ---------- Ljud (sound.js) ----------
 const sound = new Sounds();
+setSoundRoom(ROOM); // my sound settings = this room's preset (radio.js, shared/radio.mjs)
 sound.setMine({ seed: loadSoundLook().seed }); // custom patches only once the full version is confirmed
 const myNonces = new Set(); // mina egna stämplar på väg till servern (så ljudet inte spelas två gånger)
 const myPeels = new Set(); // stämplar som jag själv peelar
@@ -880,7 +881,7 @@ async function slapAt(ndc, info, onStart, auto = null) {
   } catch (err) {
     dropPending(nonce); peelLayer.remove([tempPeel]);
     if (firstOfBurst) { burst.resolve(null); burst.ended = true; }
-    if (auto) { if (err.status === 429) { autoSlap.setOn(false); toast(S.slowDown); } } // quiet otherwise: the next step tries again
+    if (auto) { if (err.status === 429) { autoSlap?.setOn(false); toast(S.slowDown); } } // quiet otherwise: the next step tries again
     else if (err.nope) nope(); else toast(err.message);
     return null;
   } finally { settle(); }
@@ -2220,54 +2221,62 @@ addEventListener('keydown', (e) => {
   setGrooveScale(stepScale(groove.scale, e.code === 'BracketLeft' ? -1 : 1, e.shiftKey)); // [ = tighter (faster), ] = looser (slower)
 });
 
-// ---------- Auto-slap (autoslap.js + shared/autoslap.mjs) ----------
-// The held sticker slaps by itself at the crosshair on a step sequence (on the Groove bar by default).
-// Full version (soundDesign), like the Groove scale: a deep control. Desktop only (like arrays).
-// Every auto slap goes the normal way (slapAt: optimistic, peels, sizes, room cap, cleanup,
-// recording); a burst (from switching on / resuming until a pause, Z or 200 stickers) is ONE undo step.
-let autoBurst = null, autoPrev = null, autoInFlight = 0;
-function newBurst() { let resolve; const first = new Promise((r) => { resolve = r; }); return { first, resolve, count: 0, ended: false, peeled: false }; }
-function autoCanFire() {
-  if (!controls.locked) return 'unlocked';
-  if (state.mode !== 'slap') return 'look';
-  if (document.visibilityState !== 'visible') return 'hidden';
-  if (sp.open || together.busy() || together.chatOpen() || !$('more-panel').hidden || endDlg.open || linkDlg.open) return 'menu';
-  if (camView || placingCam) return 'camera';
-  if (arrayDrag || mouseHeld) return 'drag';
-  if (!state.selected || state.adminToken) return 'nodesign';
-  return true;
-}
-function autoFire(step) {
-  if (autoInFlight >= AUTO.maxInFlight) return 'busy';
-  const h = hitSurface(CENTER); if (!h) return 'nosurface';
-  if (!movedEnough(autoPrev, h.point.toArray(), h.surface, state.size)) return 'still'; // no pile in one spot
-  if (!autoBurst || autoBurst.ended || autoBurst.count >= AUTO.maxBurst) autoBurst = newBurst();
-  const b = autoBurst, first = b.count === 0; b.count++;
-  let started = false; autoInFlight++;
-  const auto = { burst: b, first, volume: step.vol / 100, started: (hh) => { started = true; autoPrev = { point: hh.point.toArray(), surface: hh.surface }; } };
-  Promise.resolve(stampAt(CENTER, { auto })).finally(() => {
-    autoInFlight--;
-    if (first && !started) { b.resolve(null); b.ended = true; } // refused before it showed: nothing to join
-  });
-  return true;
-}
-var autoSlap = initAutoSlap({ $, S, groove, // eslint-disable-line no-var
-  canUse: () => !DEMO && !isTouch && !!entitlements.full.soundDesign,
-  canFire: autoCanFire, fire: autoFire,
-  onPause: () => { if (autoBurst) autoBurst.ended = true; autoPrev = null; },
-});
-addEventListener('keydown', (e) => {
-  if (isTouch || e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTyping(e) || together.chatOpen()) return;
-  if (!['KeyH', 'Comma', 'Period'].includes(e.code)) return;
-  if (autoSlap.key(e.code)) { e.preventDefault(); if (e.code === 'KeyH') toast(autoSlap.on ? S.aslapOnToast : S.aslapOffToast, 1500); }
-});
-addEventListener('pagehide', () => autoSlap.setOn(false)); // leaving the room
+// ---------- Auto-slap: removed (Jens, 5 Nov 2026 – "remove the auto-drop, keep the sequencer") ----------
+// The held sticker no longer slaps by itself (no H / , / . keys, no editor). Its step sequencer
+// (shared/autoslap.mjs: the step schema, lengths, clock) lives on as the Sound settings' sequencer
+// layers (shared/synth.mjs seq, run by the radio on the master clock). Old saved auto-slap settings
+// ('klibb.autoslap') are simply ignored and dropped.
+try { localStorage.removeItem('klibb.autoslap'); } catch { /* private */ }
+var autoSlap = null; // eslint-disable-line no-var
 
 // Sound settings (soundui.js): only reachable with entitlements.full.soundDesign.
 // Music vol (Jens, 31 Oct 2026): in the Sound settings header – how loud the room's sounds are for me.
 const MUSIC_VOL_DEFAULT = 1;
 const musicVol = { def: MUSIC_VOL_DEFAULT, get: () => sound.volume, set: (v) => { sound.setVolume(v); $('music-vol').value = String(Math.round(sound.volume * 100)); } };
-const soundUi = initSoundUI({ $, sound, toast, musicVol, onSave: () => together.soundChanged(), onOpenChange: (o) => { if (o) controls.unlock?.(); } });
+// ---------- The radio (radio.js): my sound for this room, per player, never broadcast ----------
+// Every room starts from the original sound; Save = this room's preset (on the server, under a private
+// key in this browser). The radio's knob morphs original → preset → beyond (seek; not a volume); tempo, bird, wind, four voices.
+const RADIO_KEY = `klibb.radio@${ROOM}`;
+let presetTimer = null;
+function saveRoomPreset() {
+  personalSet(RADIO_KEY, JSON.stringify(radio.state));
+  if (DEMO) return;
+  clearTimeout(presetTimer);
+  presetTimer = setTimeout(() => { const cur = loadSoundLook(); putRoomPreset(ROOM, { patches: cur.patches, fx: cur.fx, radio: radio.state }); }, 500);
+}
+const radio = new Radio({ sound, room: ROOM, clock: () => (groove ? groove.now() : Date.now()), onChange: saveRoomPreset });
+// The city's place effect (Jens, 5 Nov 2026; shared/cityfx.mjs): the master bus follows where I
+// stand – only outside in the city, and only for me (per listener). Houses / other rooms: neutral
+// (their own room reverb stays). Every PLACE_EVERY_MS, plain params, slewed (PLACE_SLEW).
+let placeCfg = CITY_FX, placeAt = 0, placeNow = null;
+function placeTick() {
+  const eng = sound.engine; if (!eng) return;
+  const now = performance.now(); if (now - placeAt < PLACE_EVERY_MS) return; placeAt = now;
+  const v = CITY_OUTSIDE ? cityFxAt(camera.position.x, camera.position.z, placeCfg) : placeNeutral();
+  if (eng.setPlace(v, { slew: PLACE_SLEW, neutral: !CITY_OUTSIDE })) placeNow = v;
+  radio.amb?.setPlaceMix?.(v.bird, v.wind, PLACE_SLEW);
+  if (CITY_OUTSIDE) placeChip(v);
+}
+// A big, plain label of where I am (sound-wise): the strongest zone, else "Street".
+let placeEl = null;
+function placeChip(v) {
+  if (!placeEl) { placeEl = document.createElement('div'); placeEl.id = 'place-chip'; placeEl.setAttribute('aria-live', 'polite'); document.body.appendChild(placeEl); }
+  let best = null, w = 0.5; for (const zn of placeCfg.zones || []) { const x = v.zones?.[zn.id] || 0; if (x >= w) { w = x; best = zn; } }
+  const text = `🎛 ${best ? best.name || best.id : 'Street'}`; if (placeEl.textContent !== text) placeEl.textContent = text;
+}
+try { const r = JSON.parse(personalGet(RADIO_KEY) || 'null'); if (r) radio.set(r, { save: false }); } catch { /* none */ }
+const radioReady = DEMO ? Promise.resolve() : fetchRoomPreset(ROOM).then((p) => {
+  if (!p) return; // (undefined: offline – keep this visit's copy; null: nothing saved yet – the original)
+  if (p.patches || p.fx) personalSet(soundKey(), JSON.stringify({ patches: p.patches, fx: p.fx }));
+  radio.set(p.radio || {}, { save: false }); personalSet(RADIO_KEY, JSON.stringify(radio.state));
+  together.soundChanged();
+});
+const radioImg = () => (state.library || []).find((d) => d.id === '14ea2304625a5827')?.url || '';
+const elx = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const soundUi = initSoundUI({ $, sound, toast, musicVol,
+  onSave: () => { together.soundChanged(); radio.set({ on: true, knob: 0.5 }, { save: false }); saveRoomPreset(); }, // hear what I saved: knob on 'Mine'
+  radioBlock: () => radioBlock({ radio, imgUrl: radioImg(), el: elx }),
+  onOpenChange: (o) => { if (o) controls.unlock?.(); } });
 $('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { closeMore(); soundUi.open(); } };
 {
   const mv = $('music-vol');
@@ -2858,6 +2867,18 @@ voice.reset = () => { for (const id of [...voice.peers.keys()]) voice.drop(id); 
 voice.near = localStorage.getItem('klibb.voiceNear') !== '0';
 $('voice-near').checked = voice.near;
 $('voice-near').onchange = (e) => { voice.near = e.target.checked; localStorage.setItem('klibb.voiceNear', voice.near ? '1' : '0'); };
+// voice effect (voice.js): mine, kept in this browser, off by default
+{
+  let vf = null; try { vf = JSON.parse(localStorage.getItem('klibb.voiceFx') || 'null'); } catch { /* none */ }
+  voice.setFx(cleanVoiceFx(vf));
+  const on = $('voice-fx-on'), kind = $('voice-fx-kind'), amt = $('voice-fx-amt'), out = $('voice-fx-out');
+  for (const k of VOICE_FX.kinds.filter((x) => x !== 'dry')) { const o = document.createElement('option'); o.value = k; o.textContent = VOICE_FX.names[k]; kind.appendChild(o); }
+  const show = () => { const f = voice.fx; on.checked = f.on; kind.value = f.kind; amt.value = String(Math.round(f.amount * 100)); out.textContent = `${Math.round(f.amount * 100)} %`; kind.disabled = amt.disabled = !f.on; };
+  const save = (f) => { voice.setFx(f); localStorage.setItem('klibb.voiceFx', JSON.stringify(voice.fx)); show(); };
+  on.onchange = () => save({ on: on.checked }); kind.onchange = () => save({ kind: kind.value });
+  amt.oninput = () => { out.textContent = `${amt.value} %`; }; amt.onchange = () => save({ amount: Number(amt.value) / 100 });
+  show();
+}
 function micBtns() { return [$('mic-btn'), $('mic-touch'), $('sm-mic')]; }
 function renderMic(st = voice.state) {
   for (const b of micBtns()) {
@@ -2940,7 +2961,8 @@ function frame() {
   cams.update(cv ? null : eyeCam.position);
   peelLayer.update();
   walkSounds();
-  autoSlap.tick();
+  radio.tick();
+  placeTick();
   voice.update();
   updateCredit();
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
@@ -3029,10 +3051,10 @@ window.klibb = {
   demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
     closedText: $('demo-closed-text').textContent, invite: inviteState, inviteNote: $('invite-note').hidden ? '' : $('invite-note').textContent, left: demoTimer && demoTimer.left ? demoTimer.left() : null }),
   inviteFriend, mySlot: () => together.mySlot(), talking: () => together.talking(),
-  soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
+  soundUi: () => soundUi, place: () => ({ now: placeNow, bus: !!sound.engine?.place, worklet: !!sound.engine?.place?.node, sets: sound.engine?.place?.sets || 0, cfg: placeCfg }), setCityFx: (cfg) => { placeCfg = cfg ? (cleanCityFx(cfg) || CITY_FX) : CITY_FX; placeAt = 0; return placeCfg; }, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
   groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
   setGrooveScale, grooveObj: () => groove,
-  autoSlap: () => autoSlap.info(), autoSlapObj: () => autoSlap, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
+  autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,

@@ -219,7 +219,13 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   async function removeRoom(id) {
     markDirty(id, null);
     await writeRoom(id);
+    try { for (const k of await adapter.list(`roomsounds/${id}/`)) await adapter.delete(k); } catch { /* none / no list */ }
   }
+  // Per-room, per-player sound presets (Jens, 5 Nov 2026; shared/radio.mjs): roomsounds/<room>/<owner>.json.
+  // Never in the room file (that goes to everyone); only the owner (who knows the key) reads it back.
+  const soundKey = (room, owner) => `roomsounds/${room}/${owner}.json`;
+  const getSoundPreset = (room, owner) => readJson(soundKey(room, owner));
+  const putSoundPreset = (room, owner, data) => (data ? writeJson(soundKey(room, owner), data) : adapter.delete(soundKey(room, owner)));
   const roomTaken = async (c) => { const e = cache.get(c); if (e) return e.room !== null; return adapter.exists(roomKey(c)); };
 
   async function createRoom({ id, type = 'quick', owner = null, style = null, keyHash = null, extra: more = null } = {}) {
@@ -569,7 +575,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   return {
     adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, addStamps, deleteStamp, peelStamps, resetStamps, clearMine, noteVisitor, listRooms, deleteRoom, lastActivity,
     deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, setGroove, addPeel, peelState, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
-    deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle,
+    deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle, getSoundPreset, putSoundPreset,
   };
 }
 

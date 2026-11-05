@@ -6,12 +6,20 @@
 //   FX chain = filter → bitcrush → distortion → delay → reverb (paid "Sound settings")
 // FX chains and the room reverb are cached and shared; voices are short-lived and disposed
 // after they ring out, and at most MAX_VOICES play at once (phones stay fine).
-import { cleanPatch, cleanFx, delaySeconds, patchLength, FX_DEFAULTS } from '../../shared/synth.mjs';
+import { cleanPatch, cleanFx, delaySeconds, patchLength, samplerRate, FX_DEFAULTS, SYNTH } from '../../shared/synth.mjs';
+import { evalMods, compileMods, MOD } from '../../shared/lfo.mjs';
+import { ensureDecimator, makeDecimator, makeMods, makePlace } from './decimator.js';
+import { getMic, micStream } from './mic.js';
 import { peelCurve } from '../../shared/peelstep.mjs';
 
 export const MAX_VOICES = 12;
 // Footsteps have their own, smaller budget (pool 'step'), so a fast groove never starves the slaps.
 export const MAX_STEP_VOICES = 10;
+// The radio's running loops (sequencer layers, four voices) have their own budget too (pool 'seq').
+export const MAX_SEQ_VOICES = 16;
+// Sampler layers (Jens, 5 Nov 2026): decoded audio by sha-256 (filled by client/src/samples.js).
+// A sampler layer whose sample isn't here (yet) is silent; the rest of the patch still plays.
+export const SAMPLE_BUFFERS = new Map();
 let tonePromise = null;
 export const loadTone = () => (tonePromise ||= import('tone'));
 
@@ -22,7 +30,12 @@ export class SynthEngine {
   constructor(Tone, { output = null } = {}) {
     this.Tone = Tone;
     this.out = new Tone.Gain(1);
-    this.out.connect(output || Tone.getDestination());
+    // ears + speakers guard (audio-rate LFOs, many voices): a fast limiter, then a gentle tanh soft clip
+    const raw = Tone.getContext().rawContext;
+    const lim = raw.createDynamicsCompressor(); lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.1;
+    const clip = raw.createWaveShaper(); clip.curve = softClipCurve(); clip.oversample = '2x';
+    this.out.connect(lim); lim.connect(clip); Tone.connect(clip, output || Tone.getDestination());
+    this.guard = { lim, clip };
     this.roomIn = new Tone.Gain(1);
     this.roomDry = new Tone.Gain(1).connect(this.out);
     this.roomVerb = null; this.roomWet = 0; this.roomKey = '';
@@ -30,6 +43,54 @@ export class SynthEngine {
     this.chains = new Map(); // JSON(fx) -> { input, nodes, used }
     this.voices = [];        // end times (context seconds)
     this.stepVoices = [];    // the same for footsteps (pool 'step', MAX_STEP_VOICES)
+    this.polys = new Map();  // sampler polyphony: sample hash → ringing voices [{ env, src, end }]
+    this.ready = ensureDecimator(Tone.getContext()); // the decimation worklet (decimator.js)
+    this.ready.then((ok) => { this.workletOk = !!ok; });
+    this.place = null; // the city's place bus (setPlace), built on first use
+  }
+
+  // ---------- The live mic (mic layers, 'mic' followers) ----------
+  // useMic() asks for the page's one mic (mic.js) – only when a mic layer is made / switched on.
+  async useMic() { const s = await getMic('layers'); this.micNode = null; return !!(s && this.micSource()); }
+  micSource() {
+    const s = micStream(); if (!s) return null;
+    if (!this.micNode || this.micNode.__stream !== s) { try { this.micNode = this.raw.createMediaStreamSource(s); this.micNode.__stream = s; } catch { this.micNode = null; } }
+    return this.micNode;
+  }
+
+  // ---------- The place bus (city: shared/cityfx.mjs) ----------
+  // Built ONCE (the first time a non-neutral place is set), between my master and the guard:
+  //   out → low-pass → place worklet (flanger/chorus, decimate+bits, stutter/chop) → mix
+  //   mix → guard (dry) · mix → delay A (fb) → guard · mix → delay B (fb) → guard
+  //   mix → small reverb (0.9 s) → guard · mix → big reverb (5.5 s) → guard
+  // After that only plain AudioParams move (setTargetAtTime, PLACE_SLEW): no graph rebuilds.
+  placeBus() {
+    if (this.place) return this.place;
+    const T = this.Tone, ctx = this.raw, { lim } = this.guard;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.5; lp.frequency.value = Math.min(20000, ctx.sampleRate / 2 - 100);
+    const node = this.workletOk ? makePlace(T.getContext()) : null;
+    const mix = ctx.createGain();
+    const tap = (max) => { const d = ctx.createDelay(max), fb = ctx.createGain(), send = ctx.createGain(); fb.gain.value = 0; send.gain.value = 0; mix.connect(send); send.connect(d); d.connect(fb); fb.connect(d); d.connect(lim); return { d, fb, send }; };
+    const verb = (decay, pre) => { const v = new T.Reverb({ decay, preDelay: pre, wet: 1 }), send = ctx.createGain(); send.gain.value = 0; mix.connect(send); T.connect(send, v); v.connect(lim); return { v, send }; };
+    try { this.out.disconnect(); } catch { /* ok */ }
+    T.connect(this.out, lp);
+    if (node) { lp.connect(node); node.connect(mix); } else lp.connect(mix);
+    mix.connect(lim);
+    this.place = { lp, node, mix, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), last: null, sets: 0 };
+    return this.place;
+  }
+  // v: the values from cityFxAt (or PLACE_NEUTRAL). Neutral before the bus exists = nothing to do.
+  setPlace(v, { slew = 0.25, neutral = false } = {}) {
+    if (!v) return false;
+    if (!this.place && (neutral || this.workletOk === undefined)) return false; // neutral and no bus yet: stay untouched; worklet still loading: next tick
+    const P = this.placeBus(), t = this.raw.currentTime, to = (param, x) => { if (Number.isFinite(x)) param.setTargetAtTime(x, t, slew); };
+    to(P.lp.frequency, Math.min(v.cutoff, this.raw.sampleRate / 2 - 100));
+    to(P.a.d.delayTime, v.delayTime); to(P.a.fb.gain, v.delayFb); to(P.a.send.gain, v.delayWet);
+    to(P.b.d.delayTime, v.delay2Time); to(P.b.fb.gain, v.delay2Fb); to(P.b.send.gain, v.delay2Wet);
+    to(P.small.send.gain, v.verbWet * (1 - v.verbSize)); to(P.big.send.gain, v.verbWet * v.verbSize);
+    if (P.node) for (const k of ['modMix', 'modBase', 'modDepth', 'modRate', 'modFb', 'decim', 'bits', 'decimMix', 'stutter', 'stutterLen', 'chop']) { const prm = P.node.parameters.get(k); if (prm) to(prm, v[k]); }
+    P.last = v; P.sets++;
+    return true;
   }
   get now() { return this.Tone.now(); }
 
@@ -84,13 +145,16 @@ export class SynthEngine {
   // Returns false when the polyphony cap skipped it.
   // Voices are plain Web Audio nodes made on Tone's context (see the note at the bottom);
   // they plug into the Tone FX chain / room bus and disconnect themselves when done.
-  play(patch, { gain = 1, rate = 1, fx = null, pos = null, time = null, keep = false, pool = 'main', paper = null } = {}) {
+  // gate: { pattern: [0…1 per step], rate (loops/s), phase, decay } – the fast sequencer (radio.js): an
+  //   internal per-sample gate on the patch volume, so steps faster than the scheduler become a tone.
+  play(patch, { gain = 1, rate = 1, fx = null, pos = null, time = null, keep = false, pool = 'main', paper = null, gate = null, length = null, layer = null } = {}) {
     const p = cleanPatch(patch); if (!p) return false;
-    const ctx = this.raw, t0 = Math.max(time ?? 0, ctx.currentTime) + 0.005, len = patchLength(p);
-    const step = pool === 'step', key = step ? 'stepVoices' : 'voices';
-    this[key] = this[key].filter((end) => end > ctx.currentTime);
+    const ctx = this.raw, t0 = Math.max(time ?? 0, ctx.currentTime) + 0.005, len = length ?? patchLength(p);
+    if (gate) p.mods = [...(p.mods || []), { id: 'gate', to: 'G.gain', wave: 'gate', rate: gate.rate, depth: 1, phase: gate.phase || 0, pattern: gate.pattern, decay: gate.decay || 0 }];
+    const step = pool === 'step', key = step ? 'stepVoices' : pool === 'seq' ? 'seqVoices' : 'voices';
+    this[key] = (this[key] || []).filter((end) => end > ctx.currentTime);
     // (scheduled-ahead voices count from when they are scheduled: a cap on what is queued, too)
-    if (this[key].length >= (step ? MAX_STEP_VOICES : MAX_VOICES)) return false;
+    if (this[key].length >= (step ? MAX_STEP_VOICES : pool === 'seq' ? MAX_SEQ_VOICES : MAX_VOICES)) return false;
     this[key].push(t0 + len);
     const nodes = [];
     const dest = this.chain(p.fx || fx);
@@ -103,10 +167,75 @@ export class SynthEngine {
     }
     if (paper) out = this.paper(ctx, paper, out, nodes);
     const vgain = ctx.createGain(); vgain.gain.value = p.gain * gain; vgain.connect(out); nodes.push(vgain);
-    let last = null;
-    for (const l of p.layers) { const r = this.layer(ctx, l, vgain, t0 + l.delay, rate); nodes.push(...r.nodes); if (!last || r.end > last.end) last = r; }
-    if (!keep && last) last.src.onended = () => { for (const n of nodes) { try { n.disconnect(); } catch { /* ok */ } } };
+    let last = null; const made = [];
+    this.modTargets = new Set((p.mods || []).map((m) => m.to)); // (a layer whose decim/pan an LFO drives needs its node)
+    // sequencer layers (l.seq) run on the master clock (radio.js plays them one by one with `layer`), not on the trigger
+    for (const [i, l] of p.layers.entries()) { if (layer == null ? !!l.seq : i !== layer) { made.push(null); continue; } const r = this.layer(ctx, l, vgain, t0 + l.delay, rate, i); made.push(r); if (!r) continue; nodes.push(...r.nodes); if (!last || r.end > last.end) last = r; }
+    if (p.mods && p.mods.length) { const mn = this.modulate(ctx, p, made, vgain, p.gain * gain, t0, len); if (mn) nodes.push(mn); }
+    if (!last) { for (const n of nodes) { try { n.disconnect(); } catch { /* ok */ } } return true; } // (only an empty sampler)
+    if (!keep) last.src.onended = () => { for (const n of nodes) { try { n.disconnect(); } catch { /* ok */ } } };
     return true;
+  }
+  // The patch's LFOs (shared/lfo.mjs): all of them evaluated once per control block (128 samples)
+  // in dependency order, then ONE setValueCurveAtTime per modulated parameter – no LFO nodes.
+  modulate(ctx, p, made, vgain, gain0, t0, len) {
+    const t = performance.now();
+    // 1) the worklet: every LFO per sample (audio rate OK), one output per parameter
+    const bases = { 'G.gain': gain0 };
+    made.forEach((r, i) => { if (r) Object.assign(bases, { [`L${i}.q`]: r.q, [`L${i}.level`]: r.levelBase, [`L${i}.decim`]: r.decimBase }); });
+    const prog = compileMods(p.mods, p.layers, { bases });
+    const node = makeMods(this.Tone.getContext(), prog, t0, t0 + len + 0.1);
+    if (node) {
+      let params = 0;
+      prog.outs.forEach((o, k) => {
+        const m = /^L(\d)\.(\w+)$/.exec(o.to), r = m ? made[Number(m[1])] : null;
+        const targets = o.to === 'G.gain' ? [vgain.gain] : !r ? [] : m[2] === 'pitch' ? r.pitch.map((x) => x.param) : m[2] === 'cutoff' ? [r.filter.detune]
+          : m[2] === 'q' ? [r.filter.Q] : m[2] === 'level' ? [r.level.gain] : m[2] === 'decim' && r.decim ? [r.decim.parameters.get('factor')] : m[2] === 'pan' && r.panner ? [r.panner.pan] : [];
+        for (const prm of targets) { try { node.connect(prm, k); params++; } catch (e) { this.modErrors = (this.modErrors || 0) + 1; } }
+      });
+      // envelope followers: their source signals into the node's inputs (shared/lfo.mjs)
+      const ins = prog.inputs || [], wired = [];
+      ins.forEach((src, k) => {
+        let from = null;
+        if (/^L\d$/.test(src)) from = made[Number(src[1])]?.level || null;
+        else if (src === 'mic') from = this.micSource();
+        else if (src === 'bus') from = this.place ? this.place.mix : this.out;
+        else if (src === 'master') from = this.out;
+        if (!from) return;
+        try { this.Tone.connect(from, node, 0, k); wired.push(from); } catch (e) { this.modErrors = (this.modErrors || 0) + 1; }
+      });
+      if (wired.length) {
+        node.port.onmessage = (e) => { this.follow = { ...(this.follow || {}), ...e.data }; this.followAt = performance.now(); };
+        setTimeout(() => { for (const f of wired) { try { this.Tone.disconnect(f, node); } catch { /* gone */ } } }, (t0 - ctx.currentTime + len + 0.4) * 1000);
+      }
+      this.followInputs = ins;
+      this.modStats = { lfos: p.mods.length, worklet: true, outputs: prog.outs.length, params, ms: +(performance.now() - t).toFixed(3) };
+      return node;
+    }
+    // 2) fallback while the worklet loads: control-rate curves
+    const { curves, blocks, dt } = evalMods(p.mods, { seconds: len, blockRate: ctx.sampleRate / MOD.block });
+    if (!blocks) return;
+    const dur = (blocks - 1) * dt;
+    const write = (param, f) => { try { param.cancelScheduledValues(t0); param.setValueCurveAtTime(f, t0, dur); } catch (e) { this.modErrors = (this.modErrors || 0) + 1; } };
+    const scaled = (a, base) => { const o = new Float32Array(a.length); for (let i = 0; i < a.length; i++) o[i] = base * a[i]; return o; };
+    const cents = (a, base) => { const o = new Float32Array(a.length); for (let i = 0; i < a.length; i++) o[i] = base + 1200 * Math.log2(a[i]); return o; };
+    let params = 0;
+    if (curves['G.gain']) { write(vgain.gain, scaled(curves['G.gain'], gain0)); params++; }
+    made.forEach((r, i) => {
+      if (!r) return;
+      const pitch = ['freq', 'note', 'detune'].map((k) => curves[`L${i}.${k}`]).filter(Boolean);
+      if (pitch.length) {
+        const f = new Float32Array(blocks).fill(1); for (const c of pitch) for (let j = 0; j < blocks; j++) f[j] *= c[j];
+        for (const { param, base } of r.pitch) { write(param, cents(f, base)); params++; }
+      }
+      if (curves[`L${i}.cutoff`]) { write(r.filter.detune, cents(curves[`L${i}.cutoff`], 0)); params++; }
+      if (curves[`L${i}.q`]) { write(r.filter.Q, scaled(curves[`L${i}.q`], r.q)); params++; }
+      if (curves[`L${i}.level`]) { write(r.level.gain, scaled(curves[`L${i}.level`], r.levelBase)); params++; }
+      if (curves[`L${i}.decim`] && r.decim) { write(r.decim.parameters.get('factor'), scaled(curves[`L${i}.decim`], r.decimBase)); params++; }
+      if (curves[`L${i}.pan`] && r.panner) { const c = curves[`L${i}.pan`], o = new Float32Array(c.length); for (let j = 0; j < c.length; j++) o[j] = Math.max(-1, Math.min(1, r.panBase + c[j] - 1)); write(r.panner.pan, o); params++; }
+    });
+    this.modStats = { lfos: p.mods.length, worklet: false, blocks, params, ms: +(performance.now() - t).toFixed(3) };
+    return null;
   }
   get raw() { return this.Tone.getContext().rawContext; }
   // The peel-step insert: → low-pass (muffled) → pre gain → tanh soft clip → post gain → out.
@@ -178,12 +307,40 @@ export class SynthEngine {
   }
 
   // One layer = source(s) → [drive] → filter → amp envelope → [tremolo] → level → out.
-  layer(ctx, l, out, t, rate) {
+  layer(ctx, l, out, t, rate, idx = -1) {
+    const modOn = (k) => !!this.modTargets?.has(`L${idx}.${k}`);
     const nodes = [], srcs = [];
     const freq = Math.min(8000, l.freq * rate), cutoff = Math.min(18000, l.cutoff * rate);
-    const peakAt = t + l.a, decEnd = peakAt + l.d, gateEnd = decEnd + l.hold, end = gateEnd + l.r, stop = end + 0.02;
+    let end2 = 0;
+    let peakAt = t + l.a, decEnd = peakAt + l.d, gateEnd = decEnd + l.hold, end = gateEnd + l.r, stop = end + 0.02;
+    let sus = Math.max(0.0001, l.s);
+    const pitch = []; // the detune params the pitch LFOs drive: { param, base (cents) }
+    let samplerSrc = null;
+    let poly = null;
+    if (l.kind === 'sampler') {
+      const raw0 = l.sample && SAMPLE_BUFFERS.get(l.sample); if (!raw0) return null;
+      const { buf, start, end: endPt, loopStart, loopEnd } = this.samplerBuffer(ctx, raw0, l);
+      const ratio = samplerRate(l) * rate, dur = buf.duration;
+      const gate = l.whole && !l.loop ? Math.min(SYNTH.maxSampleSeconds, ((endPt - start) * dur) / ratio) : null;
+      if (gate != null) { // one-shot: attack → full level → released so it ends exactly at the end point
+        decEnd = peakAt; sus = 1; end2 = t + gate; gateEnd = Math.max(peakAt, end2 - l.r); end = Math.max(gateEnd + 0.002, end2); stop = end + 0.02;
+      }
+      samplerSrc = ctx.createBufferSource(); samplerSrc.buffer = buf;
+      if (l.loop) { samplerSrc.loop = true; samplerSrc.loopStart = loopStart * dur; samplerSrc.loopEnd = loopEnd * dur; }
+      if (l.pitchAmt) { samplerSrc.playbackRate.setValueAtTime(ratio * Math.pow(2, l.pitchAmt / 12), t); samplerSrc.playbackRate.exponentialRampToValueAtTime(ratio, t + l.pitchTime); }
+      else samplerSrc.playbackRate.value = ratio;
+      samplerSrc.detune.value = l.detune; pitch.push({ param: samplerSrc.detune, base: l.detune });
+      samplerSrc.__offset = start * dur;
+      poly = { key: l.sample, max: l.poly || 4 };
+    }
     const head = ctx.createGain(); nodes.push(head);
-    if (l.kind === 'noise') {
+    if (samplerSrc) { samplerSrc.connect(head); srcs.push({ node: samplerSrc, offset: samplerSrc.__offset }); }
+    else if (l.kind === 'mic') { // live mic (mic.js): this voice's envelope/filter/… open a gate on it
+      const mic = this.micSource(); if (!mic) return null; // no permission yet: silent (never asks here)
+      const tap = ctx.createGain(); mic.connect(tap); tap.connect(head); nodes.push(tap);
+      const clock = ctx.createConstantSource(); clock.offset.value = 0; clock.connect(head); srcs.push({ node: clock }); // silent: gives the voice its start/stop/onended
+      setTimeout(() => { try { mic.disconnect(tap); } catch { /* gone */ } }, Math.max(0, stop - ctx.currentTime) * 1000 + 200);
+    } else if (l.kind === 'noise') {
       const n = ctx.createBufferSource(); n.buffer = this.noiseBuffer(ctx, l.noise); n.loop = true; n.playbackRate.value = rate;
       n.connect(head); srcs.push({ node: n, offset: Math.random() * 0.5 });
     } else {
@@ -192,26 +349,32 @@ export class SynthEngine {
       for (let u = 0; u < voices; u++) {
         const o = ctx.createOscillator(); o.type = l.wave;
         const spread = voices > 1 ? (u / (voices - 1) - 0.5) * 2 * l.spread : 0;
-        o.detune.value = l.detune + spread;
+        o.detune.value = l.detune + spread; pitch.push({ param: o.detune, base: l.detune + spread });
         o.frequency.setValueAtTime(start, t);
         if (l.pitchAmt) o.frequency.exponentialRampToValueAtTime(Math.max(20, freq), t + l.pitchTime);
         const g = ctx.createGain(); g.gain.value = 1 / Math.sqrt(voices); o.connect(g); g.connect(head); nodes.push(g);
         srcs.push({ node: o });
       }
       if (l.sub > 0) {
-        const s = ctx.createOscillator(); s.type = 'sine';
+        const s = ctx.createOscillator(); s.type = 'sine'; pitch.push({ param: s.detune, base: 0 });
         s.frequency.setValueAtTime(start / 2, t); if (l.pitchAmt) s.frequency.exponentialRampToValueAtTime(Math.max(10, freq / 2), t + l.pitchTime);
         const g = ctx.createGain(); g.gain.value = l.sub; s.connect(g); g.connect(head); nodes.push(g); srcs.push({ node: s });
       }
     }
     let into = head;
     if (l.drive > 0) { const ws = ctx.createWaveShaper(); ws.curve = this.driveCurve(l.drive); head.connect(ws); into = ws; nodes.push(ws); }
+    // decimation (sample-and-hold + bits, decimator.js): one worklet node, only when the layer uses it
+    let decim = null;
+    if (l.decim > 1 || l.crush > 0 || modOn('decim')) {
+      decim = makeDecimator(this.Tone.getContext(), l.decim || 1, l.crush || 0);
+      if (decim) { into.connect(decim); into = decim; nodes.push(decim); }
+    }
     const filter = ctx.createBiquadFilter(); filter.type = l.filter; filter.Q.value = l.q;
     filter.frequency.setValueAtTime(cutoff, t);
     if (l.fEnv) filter.frequency.exponentialRampToValueAtTime(Math.min(18000, Math.max(20, cutoff * Math.pow(2, l.fEnv))), t + l.fTime);
     into.connect(filter); nodes.push(filter);
     // ADSR with exponential decay/release (like the original hand-made sounds)
-    const env = ctx.createGain(), g = env.gain, sus = Math.max(0.0001, l.s);
+    const env = ctx.createGain(), g = env.gain;
     g.setValueAtTime(0.0001, t); g.linearRampToValueAtTime(1, peakAt);
     g.exponentialRampToValueAtTime(sus, decEnd);
     if (gateEnd > decEnd) g.setValueAtTime(sus, gateEnd);
@@ -233,12 +396,58 @@ export class SynthEngine {
       }
       srcs.push({ node: lfo });
     } else env.connect(level);
-    level.connect(out);
+    let panner = null;
+    if (l.kind === 'sampler' && (l.pan || modOn('pan')) && ctx.createStereoPanner) { panner = ctx.createStereoPanner(); panner.pan.value = l.pan; level.connect(panner); panner.connect(out); nodes.push(panner); }
+    else level.connect(out);
     for (const s of srcs) { s.node.start(t, s.offset); s.node.stop(stop); nodes.push(s.node); }
-    return { nodes, end: stop, src: srcs[0].node };
+    if (poly) this.voiceLimit(ctx, poly, env, srcs[0].node, t, stop);
+    return { nodes, end: stop, src: srcs[0].node, pitch, filter, q: l.q, level, levelBase: l.level, decim, decimBase: l.decim || 1, panner, panBase: l.pan || 0 };
+  }
+  // Sampler polyphony: at most `max` voices of one sample ring at once; the oldest is faded out (8 ms).
+  voiceLimit(ctx, { key, max }, env, src, t, stop) {
+    const now = ctx.currentTime;
+    const list = (this.polys.get(key) || []).filter((v) => v.end > now);
+    while (list.length >= max) {
+      const v = list.shift();
+      try { v.env.gain.cancelScheduledValues(t); v.env.gain.setTargetAtTime(0, t, 0.008); v.src.stop(t + 0.05); } catch { /* ended */ }
+      this.stolen = (this.stolen || 0) + 1;
+    }
+    list.push({ env, src, end: stop }); this.polys.set(key, list);
+  }
+  // The buffer a sampler layer plays: reversed and/or with a crossfaded loop seam when asked (cached).
+  // Returns { buf, start, end, loopStart, loopEnd } with positions (0–1) in that buffer.
+  samplerBuffer(ctx, raw, l) {
+    let start = l.start ?? 0, end = l.end ?? 1, ls = l.loopStart ?? start, le = l.loopEnd ?? end;
+    if (l.reverse) { [start, end, ls, le] = [1 - end, 1 - start, 1 - le, 1 - ls]; }
+    const xf = l.loop ? l.xfade || 0 : 0;
+    if (!l.reverse && !xf) return { buf: raw, start, end, loopStart: ls, loopEnd: le };
+    this.sbufs ||= new Map();
+    const key = `${l.sample}|${l.reverse ? 1 : 0}|${xf ? `${ls}:${le}:${xf}` : ''}|${raw.length}`;
+    let buf = this.sbufs.get(key);
+    if (!buf) {
+      const n = raw.length; buf = ctx.createBuffer(raw.numberOfChannels, n, raw.sampleRate);
+      for (let c = 0; c < raw.numberOfChannels; c++) {
+        const src = raw.getChannelData(c), d = buf.getChannelData(c);
+        if (l.reverse) for (let i = 0; i < n; i++) d[i] = src[n - 1 - i]; else d.set(src);
+        if (xf) { // the last X samples before loopEnd fade into the X samples before loopStart → no click at the seam
+          const a = Math.round(ls * n), b = Math.round(le * n), X = Math.min(Math.round(xf * raw.sampleRate), a, b - a);
+          const copy = d.slice(a - X, a);
+          for (let i = 0; i < X; i++) { const w = i / X; d[b - X + i] = d[b - X + i] * (1 - w) + copy[i] * w; }
+        }
+      }
+      if (this.sbufs.size > 24) this.sbufs.clear();
+      this.sbufs.set(key, buf);
+    }
+    return { buf, start, end, loopStart: ls, loopEnd: le };
   }
 }
 
+// tanh soft clip: unity for small signals, never above ±1.
+function softClipCurve() {
+  const n = 2048, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.abs(x) < 0.5 ? x : Math.sign(x) * (0.5 + 0.5 * Math.tanh((Math.abs(x) - 0.5) / 0.5)); }
+  return c;
+}
 // Why the voices are plain Web Audio and not Tone instruments: every Tone node wraps its params
 // in Signal objects, so building one short one-shot voice cost 3–7 ms of main-thread time
 // (measured in Chromium), too much for rapid slaps, several players' footsteps and phones.

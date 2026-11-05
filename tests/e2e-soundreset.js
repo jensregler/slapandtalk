@@ -22,7 +22,7 @@ const CUSTOM = {
     const made = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preset: false }) })).json();
     const R = made.room.id;
     const actx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
-    await actx.addInitScript((c) => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('klibb.sound', JSON.stringify(c)); sessionStorage.setItem('klibb.musicVol', '0.35'); sessionStorage.setItem('seeded', '1'); } }, CUSTOM);
+    await actx.addInitScript(([c, R]) => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem(`klibb.sound@${R}`, JSON.stringify(c)); sessionStorage.setItem('klibb.musicVol', '0.35'); sessionStorage.setItem('seeded', '1'); } }, [CUSTOM, R]);
     const A = await actx.newPage(); A.on('pageerror', (e) => errors.push('A: ' + e.message));
     const B = await (await browser.newContext({ viewport: { width: 900, height: 700 } })).newPage(); B.on('pageerror', (e) => errors.push('B: ' + e.message));
     await A.goto(`${S.base}/?room=${R}`); await B.goto(`${S.base}/?room=${R}`);
@@ -53,10 +53,10 @@ const CUSTOM = {
     await A.screenshot({ path: path.join(SHOTS, '40-sound-reset.png') });
     // Cancel after Reset: nothing saved, Music vol back to 35
     await A.click('#snd-cancel'); await sleep(200);
-    check('Cancel after Reset: nothing saved, Music vol back where it was', await A.evaluate(() => !!sessionStorage.getItem('klibb.sound') && sessionStorage.getItem('klibb.musicVol') === '0.35' && document.getElementById('music-vol').value === '35'));
+    check('Cancel after Reset: nothing saved, Music vol back where it was', await A.evaluate((R) => !!sessionStorage.getItem(`klibb.sound@${R}`) && sessionStorage.getItem('klibb.musicVol') === '0.35' && document.getElementById('music-vol').value === '35', R));
     // Reset + Save
     await A.evaluate(() => window.klibb.soundUi().open()); await A.click('#snd-reset'); await sleep(200); await A.click('#snd-save'); await sleep(1200);
-    const saved = await A.evaluate(() => ({ ls: sessionStorage.getItem('klibb.sound'), vol: sessionStorage.getItem('klibb.musicVol'), mine: window.klibb.soundMine() }));
+    const saved = await A.evaluate((R) => ({ ls: sessionStorage.getItem(`klibb.sound@${R}`), vol: sessionStorage.getItem('klibb.musicVol'), mine: window.klibb.soundMine() }), R);
     const bSees = await B.evaluate(() => window.klibb.players()[0].look.sound);
     check('Save: the defaults are kept on this device (no custom sound stored, Music vol 1) and my own engine plays the defaults', saved.ls === null && saved.vol === '1' && saved.mine && !saved.mine.patches && !saved.mine.fx, saved);
     check('…and B still gets only A\'s seed (no patches, no effects – nothing is sent)', bSees && !bSees.patches && !bSees.fx && bSees.seed === before.seed, bSees);

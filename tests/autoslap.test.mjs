@@ -61,7 +61,7 @@ ok('beat lock: N steps divide the Groove bar (× bars) – odd lengths are polyr
     assert.equal(A.stepAt(s, { t: tb + 0.01, bars: G.barsAt(g, tb + 0.01) }) % len, 0);
     assert.equal(((A.stepAt(s, { t: tb - 0.01, bars: G.barsAt(g, tb - 0.01) }) % len) + len) % len, len - 1);
   }
-  assert.ok(near(A.stepMs({ mode: 'bar', bars: 2, seq: { len: 8 } }, bar), 375), '2 bars of 8 steps'); assert.ok(near(A.stepMs({ mode: 'bar', seq: { len: 5 } }, G.barMs(0.5)), 150), 'follows the Groove scale');
+  assert.ok(near(A.stepMs({ mode: 'bar', bars: 2, seq: { len: 8 } }, bar), bar / 4), '2 bars of 8 steps'); assert.ok(near(A.stepMs({ mode: 'bar', seq: { len: 5 } }, G.barMs(0.5)), G.barMs(0.5) / 5), 'follows the Groove scale (bar = 2 beats at 90 BPM since 5 Nov 2026)');
   // a 5-step loop against the 4-step walker: they coincide only on the downbeat (5 and 4 are coprime)
   const five = [0, 1, 2, 3, 4].map((i) => i / 5), four = [0, 1, 2, 3].map((i) => i / 4);
   assert.deepEqual(five.filter((x) => four.some((y) => near(x, y))), [0]);

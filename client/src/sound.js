@@ -8,9 +8,11 @@
 // Paid "Sound settings" can replace a patch and add an FX chain (look.sound.patches / .fx).
 // Other people's sounds are spatial (HRTF panner, quieter with distance). The room's materials
 // add a subtle, automatic reverb (roomAcoustics). Mute is remembered ('klibb.muted').
-import { DEFAULT_PATCHES, variant, cleanPatch, cleanFx, duffScale, retune, roomAcoustics, colourPatch } from '../../shared/synth.mjs';
+import { DEFAULT_PATCHES, variant, morphPatch, cleanPatch, cleanFx, duffScale, retune, roomAcoustics, colourPatch } from '../../shared/synth.mjs';
 import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
 import { peelStepParams } from '../../shared/peelstep.mjs';
+import { ensureSamples } from './samples.js';
+import { knobToMorph } from '../../shared/radio.mjs';
 
 const MUTE_KEY = 'klibb.muted';
 const VOL_KEY = 'klibb.musicVol';
@@ -55,8 +57,11 @@ export class Sounds {
     this.volume = Math.min(1, Math.max(0, Number(v) || 0)); try { sessionStorage.setItem(VOL_KEY, String(this.volume)); } catch { /* private */ }
     if (this.engine) this.engine.out.gain.value = 0.9 * this.volume;
   }
+  setRadio(r) { this.radio = r ? { on: r.on !== false, knob: Number.isFinite(r.knob) ? r.knob : 0.5 } : null; this.morphCache = null; }
   setMuted(m) { this.muted = !!m; localStorage.setItem(MUTE_KEY, this.muted ? '1' : '0'); }
-  setMine(sound) { this.mine = sound || null; }
+  // a mic layer was made / switched on: ask for the mic (mic.js). → true when it is on
+  async useMic() { this.ensure(); await this.ready; return this.engine ? this.engine.useMic() : false; }
+  setMine(sound) { this.mine = sound || null; if (sound?.patches && this.ensure()) ensureSamples(sound.patches, this.ctx); } // (sampler layers' audio from this device)
   // Room style ({ floor, wall, ceiling }) → automatic acoustics.
   setRoom(style) { this.room = roomAcoustics(style); if (this.engine) this.engine.setRoom(this.room); }
   // Where am I and which way am I looking (call every frame with the camera).
@@ -78,7 +83,22 @@ export class Sounds {
   // The patch a player's sound uses: their custom one, else their variation of the default.
   patchFor(kind, sound) {
     const custom = sound && sound.patches && cleanPatch(sound.patches[kind]);
-    if (custom) return { patch: custom, custom: true };
+    // The radio (shared/radio.mjs, mine only): off = the original sounds; the knob morphs from the
+    // original (that player's default variation, knob 0) to the custom patch (knob ½) and on past it
+    // (knob 1 = the difference twice over: seek, morphPatch t = 2). Not a volume.
+    const radio = this.radio || { on: true, knob: 0.5 };
+    const t = knobToMorph(radio.knob);
+    if (custom && radio.on) {
+      if (t !== 1 && DEFAULT_PATCHES[kind]) {
+        const base = sound.seed ? variant(DEFAULT_PATCHES[kind], sound.seed, kind) : cleanPatch(DEFAULT_PATCHES[kind]);
+        const key = `${kind}:${sound.seed}:${radio.knob}`;
+        this.morphCache ||= new Map();
+        let hit = this.morphCache.get(key);
+        if (!hit || hit.src !== JSON.stringify(custom)) { if (this.morphCache.size > 60) this.morphCache.clear(); hit = { src: JSON.stringify(custom), patch: morphPatch(base, custom, t) }; this.morphCache.set(key, hit); }
+        return { patch: hit.patch, custom: true, morph: t };
+      }
+      return { patch: custom, custom: true };
+    }
     const seed = sound && sound.seed || '';
     const colour = sound && Number.isInteger(sound.colour) ? sound.colour : 0; // the player's slot colour (shared/synth.mjs)
     const key = seed + ':' + colour + ':' + kind;
@@ -90,10 +110,10 @@ export class Sounds {
   // area: m² (duff), volume }.
   // time: when (AudioContext seconds, the footstep groove schedules ahead); tune: extra pitch ratio.
   // onPeel + speed (m/s, footsteps only): the step lands on backing paper – the paper variant.
-  play(kind, at = null, { sound, area, volume = 1, time = null, tune = 1, onPeel = false, speed = 0 } = {}) {
+  play(kind, at = null, { sound, area, volume = 1, time = null, tune = 1, onPeel = false, speed = 0, exact = false } = {}) {
     const remote = !!at;
     const who = sound === undefined ? this.mine : sound;
-    const wobble = kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06; // tiny per-play life
+    const wobble = exact ? 1 : kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06; // tiny per-play life
     let rate = wobble * tune, gain = volume * (VOLUME[kind] || [1, 1])[remote ? 1 : 0];
     if (kind === 'duff') { const s = duffScale(area); gain *= s.gain; rate *= s.rate; }
     const distance = remote ? Math.hypot(at[0] - this.listener.p[0], at[1] - this.listener.p[1], at[2] - this.listener.p[2]) : 0;
@@ -117,7 +137,14 @@ export class Sounds {
     else if (time == null) { const t = Date.now(); this.ready.then((eng) => { if (Date.now() - t < 400) go(eng); }); } // the very first sound waits for Tone.js
     return entry;
   }
+  // The radio's loops (radio.js): a patch (or one layer of it) at an AudioContext time, with my effects.
+  playPatch(patch, { time = null, layer = null, gain = 1, gate = null, length = null } = {}) {
+    if (this.muted || !this.engine || !patch) return false;
+    const fx = this.mine && this.mine.fx ? cleanFx(this.mine.fx) : null;
+    return this.engine.play(patch, { gain: gain * this.volumeOf(), fx, time, layer, gate, length, pool: 'seq' });
+  }
+  volumeOf() { return 1; }
   // Preview a patch (the Sound settings editor), dry, at my position.
-  preview(patch, fx = null) { if (!this.ensure()) return Promise.resolve(false); return this.ready.then((eng) => eng ? eng.play(patch, { fx }) : false); }
+  preview(patch, fx = null) { if (!this.ensure()) return Promise.resolve(false); return this.ready.then(async (eng) => { if (!eng) return false; await ensureSamples({ p: patch }, this.ctx); return eng.play(patch, { fx }); }); }
   get maxVoices() { return MAX_VOICES; }
 }

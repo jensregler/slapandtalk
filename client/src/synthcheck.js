@@ -17,6 +17,7 @@ export async function offlineCheck(patches = null) {
     const len = patchLength(p) + tail;
     const buf = await Tone.Offline(async () => {
       const eng = new SynthEngine(Tone);
+      await eng.ready; // (the decimator / LFO worklet)
       if (spec.room) await eng.setRoom(roomAcoustics(spec.room));
       if (fx || p.fx) { const c = eng.chain(p.fx || fx); await Promise.all((eng.chains.get(JSON.stringify(cleanFx(p.fx || fx)))?.nodes || []).map((n) => n.ready).filter(Boolean)); void c; }
       eng.play(retune(p, spec.rate || 1), { gain: spec.gain ?? 1, fx, time: 0.01, keep: true });

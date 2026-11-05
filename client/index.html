@@ -129,6 +129,12 @@
       <h3 data-t="secSound">Sound</h3>
       <label class="check"><input id="sound-on" type="checkbox" checked /> <span data-t="sound">Sounds</span></label>
       <label class="check"><input id="voice-near" type="checkbox" checked /> <span data-t="voiceNear">Voices fade with distance</span></label>
+      <!-- Voice effect (voice.js VOICE_FX): mine only, OFF = dry; everyone hears what I send -->
+      <div id="voice-fx-box" class="voice-fx">
+        <label class="check"><input id="voice-fx-on" type="checkbox" /> <span>🎙 Voice effect</span></label>
+        <select id="voice-fx-kind" aria-label="Voice effect"></select>
+        <label class="voice-fx-amt"><span>Amount</span> <input id="voice-fx-amt" type="range" min="0" max="100" step="1" value="60" aria-label="Voice effect amount" /> <output id="voice-fx-out">60 %</output></label>
+      </div>
       <button id="sound-design-btn" type="button" class="no-demo" hidden data-t="soundDesign" data-t-title="soundDesignTitle">Sound settings…</button>
       <!-- Footstep groove (shared/groove.mjs): the room's creator with the full version. Keys [ and ]. -->
       <div id="groove-box" class="no-demo" hidden>
@@ -138,22 +144,6 @@
           <button id="groove-reset" type="button" class="icon-btn" data-t="grooveReset" data-t-title="grooveResetTitle">1×</button>
         </div>
         <p class="hint" data-t="grooveHint"></p>
-      </div>
-      <!-- Auto-slap (shared/autoslap.mjs, client/src/autoslap.js): full version. Keys H, , and . -->
-      <div id="auto-box" class="no-demo" hidden>
-        <label class="check"><input id="auto-on" type="checkbox" /> <span data-t="aslapLabel">Auto-slap</span> <span id="auto-eff" class="auto-dim"></span></label>
-        <div class="auto-row">
-          <select id="auto-mode" data-t-title="aslapModeTitle"><option value="bar" data-t="aslapModeBar">On the beat</option><option value="free" data-t="aslapModeFree">Free rate</option></select>
-          <span id="auto-bars-row"><select id="auto-bars" data-t-title="aslapBarsTitle"></select></span>
-          <span id="auto-rate-row" hidden><input id="auto-rate" type="range" min="0" max="1000" step="1" data-t-title="aslapRateTitle" /> <span id="auto-rate-val" class="auto-dim"></span></span>
-        </div>
-        <div class="auto-row auto-seq-head">
-          <b data-t="aslapSeq">Sequence</b>
-          <span class="auto-len" data-t-title="aslapLenTitle"><button id="auto-len-dn" type="button" class="icon-btn">−</button><input id="auto-len" type="number" min="1" max="32" step="1" value="8" /><button id="auto-len-up" type="button" class="icon-btn">+</button></span>
-        </div>
-        <div id="auto-steps" role="group" data-t-aria="aslapSeq"></div>
-        <div id="auto-step" class="auto-row"></div>
-        <p class="hint" data-t="aslapHint"></p>
       </div>
     </section>
 
@@ -305,6 +295,7 @@
       <!-- Music vol (Jens, 31 Oct 2026): how loud all the room's sounds are for me (this device only). -->
       <label id="music-vol-row" class="music-vol"><span data-t="musicVol">Music vol</span><input id="music-vol" type="range" min="0" max="100" step="1" value="100" /></label>
       <button id="snd-close" type="button" class="icon-btn" data-t-aria="close">✕</button></div>
+    <div id="snd-radio"></div>
     <div id="snd-tabs" class="seg" role="group" aria-label="Sound"></div>
     <div id="snd-body"></div>
     <div class="sp-btns">
@@ -431,7 +422,6 @@
   </dialog>
   <div id="toast" role="status" aria-live="polite"></div>
   <div id="groove-chip" hidden aria-hidden="true"></div>
-  <div id="auto-chip" hidden aria-hidden="true"></div>
   <!-- Demo profile: a quiet timer, the name question, and the card when the room has closed. -->
   <div id="demo-timer" hidden role="timer" aria-live="off"></div>
   <dialog id="name-dialog" aria-labelledby="name-title">

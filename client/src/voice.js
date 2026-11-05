@@ -13,6 +13,63 @@
 // Perfect negotiation (https://w3c.github.io/webrtc-pc/#perfect-negotiation-example): either side
 // may (re)offer at any time; on a clash the "polite" side (the larger id) gives way.
 import { quantLevel } from '../../shared/director.mjs';
+import { getMic, releaseMic } from './mic.js';
+import { makeDecimator } from './decimator.js';
+
+// ---------- Voice effect (Jens, 5 Nov 2026) ----------
+// Optional, per player, OFF by default (= the dry voice, exactly as before). Applied on the
+// SENDER: my mic → Web Audio effect → a MediaStreamDestination track, which replaces the track my
+// peers get (RTCRtpSender.replaceTrack – no renegotiation). Why the sender: it is MY voice, like my
+// sound (and everyone hears the same thing), it costs one chain per player instead of one per pair,
+// and nobody needs to know about effects to hear it. Echo cancellation still works: it runs at
+// capture, before the effect. Off = replaceTrack back to the original mic track and the chain is torn down.
+// Kinds: radio (band-pass 300–3000 Hz + saturation + hiss + light decimation), echo (delay on the
+// 90 BPM clock: an 8th = 0.333 s, feedback), hall (reverb), robot (bit crush + a metallic comb).
+// amount 0–1: how much (wet for echo/hall, intensity for radio/robot).
+export const VOICE_FX = { kinds: ['dry', 'radio', 'echo', 'hall', 'robot'], names: { dry: 'Dry', radio: '📻 Radio', echo: '🔁 Echo', hall: '⛪ Hall', robot: '🤖 Robot / crush' }, beat: 60 / 90 };
+export function cleanVoiceFx(f) {
+  const o = f && typeof f === 'object' ? f : {};
+  const a = Number(o.amount);
+  return { on: o.on === true, kind: VOICE_FX.kinds.includes(o.kind) ? o.kind : 'radio', amount: Number.isFinite(a) ? Math.min(1, Math.max(0, a)) : 0.6 };
+}
+function hallIR(ctx, sec = 2.4) {
+  const n = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(2, n, ctx.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3); }
+  return b;
+}
+// Build the chain: src (MediaStreamSource) → … → dest. Returns { nodes, stop() }.
+export function buildVoiceFx(ctx, src, dest, { kind, amount: a }, tctx = null) {
+  const nodes = [], mk = (n) => { nodes.push(n); return n; }, gain = (v) => { const g = mk(ctx.createGain()); g.gain.value = v; return g; };
+  const extra = [];
+  if (kind === 'radio' || kind === 'robot') {
+    let x = src;
+    if (kind === 'radio') {
+      const hp = mk(ctx.createBiquadFilter()); hp.type = 'highpass'; hp.frequency.value = 300; hp.Q.value = 0.7;
+      const lp = mk(ctx.createBiquadFilter()); lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = 0.7;
+      const sh = mk(ctx.createWaveShaper()); const k = 1 + 8 * a, c = new Float32Array(1024); for (let i = 0; i < c.length; i++) { const v = (i / 511.5) - 1; c[i] = Math.tanh(k * v) / Math.tanh(k); } sh.curve = c;
+      x.connect(hp); hp.connect(lp); lp.connect(sh); x = sh;
+      const hiss = mk(ctx.createBufferSource()); const nb = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate); const d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      hiss.buffer = nb; hiss.loop = true; const hg = gain(0.004 + 0.012 * a); const hbp = mk(ctx.createBiquadFilter()); hbp.type = 'bandpass'; hbp.frequency.value = 2000;
+      hiss.connect(hbp); hbp.connect(hg); hg.connect(dest); hiss.start(); extra.push(() => { try { hiss.stop(); } catch { /* ok */ } });
+    }
+    const dec = tctx ? makeDecimator(tctx, kind === 'robot' ? 3 + 14 * a : 1 + 2 * a, kind === 'robot' ? 10 - 6 * a : 0) : null;
+    if (dec) { nodes.push(dec); x.connect(dec); x = dec; }
+    if (kind === 'robot') { // metallic comb: 9 ms with feedback
+      const dl = mk(ctx.createDelay(0.05)); dl.delayTime.value = 0.009; const fb = gain(0.35 + 0.4 * a), cw = gain(0.6);
+      x.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(cw); cw.connect(dest);
+    }
+    const out = gain(kind === 'radio' ? 0.9 : 0.8); x.connect(out); out.connect(dest);
+  } else if (kind === 'echo') {
+    const dry = gain(1); src.connect(dry); dry.connect(dest);
+    const dl = mk(ctx.createDelay(2)); dl.delayTime.value = VOICE_FX.beat / 2; const fb = gain(0.2 + 0.35 * a), wet = gain(0.65 * a);
+    src.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(dest);
+  } else if (kind === 'hall') {
+    const dry = gain(1); src.connect(dry); dry.connect(dest);
+    const cv = mk(ctx.createConvolver()); cv.buffer = hallIR(ctx); const wet = gain(0.8 * a);
+    src.connect(cv); cv.connect(wet); wet.connect(dest);
+  } else { src.connect(dest); }
+  return { nodes, stop() { for (const f of extra) f(); for (const n of nodes) { try { n.disconnect(); } catch { /* ok */ } } try { src.disconnect(); } catch { /* ok */ } } };
+}
 
 export const VOICE = { ice: [{ urls: 'stun:stun.l.google.com:19302' }], near: 1.8, floor: 0.3, talkOn: 0.012, talkOff: 0.006, holdMs: 350, statsMs: 200, sendMs: 80 };
 // My own loudness while I talk goes to the server ~12 times a second as a number 0…15 (never
@@ -44,10 +101,13 @@ export class Voice {
     if (!this.supported) { this.toast('unsupported'); return this.state; }
     if (this.starting) return this.starting;
     this.starting = (async () => {
-      try {
-        this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
-      } catch (e) { this.toast('denied'); return this.state; }
-      this.track = this.stream.getAudioTracks()[0];
+      // the page's ONE mic (mic.js, shared with mic layers); voice chat sends a CLONE of its track,
+      // so muting voice chat doesn't silence a mic layer (and the other way round)
+      const shared = await getMic('voice');
+      if (!shared) { releaseMic('voice'); this.toast('denied'); return this.state; }
+      this.track = shared.getAudioTracks()[0].clone();
+      this.stream = new MediaStream([this.track]);
+      this.applyFx();
       this.state = 'on'; this.onState(this.state); this.toast('on');
       for (const p of this.peers.values()) this.addTrack(p);
       for (const id of this.people) this.peer(id); // everyone already here: I call them
@@ -98,7 +158,24 @@ export class Voice {
     if (this.track) this.addTrack(p);
     return p;
   }
-  addTrack(p) { if (!p.sender && this.track) p.sender = p.pc.addTrack(this.track, this.stream); }
+  addTrack(p) { if (!p.sender && this.track) p.sender = p.pc.addTrack(this.sendTrack(), this.stream); }
+  sendTrack() { return (this.fxChain && this.fxChain.track) || this.track; }
+  // The voice effect (VOICE_FX above): (re)build or remove the chain, then swap the sent track.
+  setFx(f) { this.fx = cleanVoiceFx({ ...(this.fx || {}), ...f }); this.applyFx(); return this.fx; }
+  applyFx() {
+    const f = this.fx || cleanVoiceFx(null);
+    if (this.fxChain) { this.fxChain.stop(); this.fxChain = null; }
+    const ctx = this.track && f.on && f.kind !== 'dry' && this.sound && this.sound.ensure ? this.sound.ensure() : null;
+    if (ctx && ctx.createMediaStreamDestination) {
+      try {
+        const src = ctx.createMediaStreamSource(new MediaStream([this.track])), dest = ctx.createMediaStreamDestination();
+        const chain = buildVoiceFx(ctx, src, dest, f, this.sound.Tone ? this.sound.Tone.getContext() : null);
+        this.fxChain = { ...chain, track: dest.stream.getAudioTracks()[0], kind: f.kind };
+      } catch (e) { this.log.push('voice fx: ' + e.message); this.fxChain = null; }
+    }
+    const t = this.sendTrack();
+    for (const p of this.peers.values()) if (p.sender && p.sender.track !== t) p.sender.replaceTrack(t).catch((e) => this.log.push('replaceTrack: ' + e.message));
+  }
   send(to, data) { this.net.sendSignal(to, data); }
   async onSignal(from, data) {
     if (!data || typeof data !== 'object' || typeof from !== 'string') return;
@@ -148,7 +225,9 @@ export class Voice {
   closeAll() {
     this.sendLevel(0, performance.now());
     for (const id of [...this.peers.keys()]) this.drop(id);
+    if (this.fxChain) { this.fxChain.stop(); this.fxChain = null; }
     if (this.stream) for (const t of this.stream.getTracks()) t.stop();
+    if (this.track) releaseMic('voice');
     this.stream = null; this.track = null; this.state = 'off'; this.onState(this.state);
   }
   // My own level (for the 🎙 glow), from an analyser on my microphone.
@@ -195,6 +274,6 @@ export class Voice {
   }
   info() {
     return { state: this.state, peers: [...this.peers.values()].map((p) => ({ id: p.id, conn: p.pc.connectionState, ice: p.pc.iceConnectionState, sending: !!p.sender, hearing: !!p.stream,
-      webAudio: !!p.gain, volume: p.volume ?? null, level: +(+p.level || 0).toFixed(4), talking: p.talking })), me: { talking: this.me.talking, level: +(+this.me.level || 0).toFixed(4) }, log: this.log.slice(-10) };
+      webAudio: !!p.gain, volume: p.volume ?? null, level: +(+p.level || 0).toFixed(4), talking: p.talking })), me: { talking: this.me.talking, level: +(+this.me.level || 0).toFixed(4) }, fx: this.fx || cleanVoiceFx(null), fxChain: this.fxChain ? this.fxChain.kind : null, sentTracks: [...this.peers.values()].map((p) => (p.sender && p.sender.track ? (p.sender.track === this.track ? 'mic' : this.fxChain && p.sender.track === this.fxChain.track ? 'fx' : 'other') : null)), log: this.log.slice(-10) };
   }
 }

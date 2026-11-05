@@ -18,7 +18,7 @@
 
 export const GROOVE = {
   ticks: 420,       // lcm(3, 4, 5, 6, 7)
-  barMs: 1500,      // one bar at 1.0× (a 4-pulse walker: 2.7 steps/s)
+  barMs: 4000 / 3,  // one bar at 1.0× = 2 beats of the 90 BPM master clock (shared/clock.mjs; was 1500 ms) – a 4-pulse walker: 3 steps/s
   min: 1 / 64, max: 8, def: 1,
   keyStep: Math.pow(2, 1 / 4), // [ and ]: a quarter octave; with Shift a whole octave
   sliderSteps: 1000,
