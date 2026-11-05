@@ -89,9 +89,13 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     st = await P.evaluate(() => window.klibb.door());
     check('…save → back to the pac, drawn on', st.open && st.step === 'pac' && st.drawn && !(await P.evaluate(() => window.klibb.nameTag().open)), st);
     // "to city →" = the city picker (t479u): start a city and name it, then in
-    await P.click('#df-city'); await sleep(500);
+    // pt536u (5 Nov 2026): first my session's film is made (#film-ui); Skip goes straight on to the picker
+    await P.click('#df-city');
+    await P.waitForSelector('#film-ui:not([hidden]) #fu-skip', { timeout: 15000 }).catch(() => {});
+    check('"to city →" first makes my film (the film screen, with Skip) (pt536u)', await P.isVisible('#fu-skip'));
+    await P.click('#fu-skip'); await sleep(500);
     const pick = await P.evaluate(() => window.klibb.city().pick);
-    check('"to city →" opens the city picker (t479u)', pick.open, pick);
+    check('…Skip → the city picker (t479u), the film screen gone', pick.open && !(await P.isVisible('#film-ui')), pick);
     await P.click('#cp-new'); await P.fill('#cp-name', 'Door town');
     await Promise.all([P.waitForURL(/room=stad-[a-z0-9]{6}$/, { timeout: 20000 }).catch(() => {}), P.click('#cp-go')]);
     await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }).catch(() => {}); await sleep(1500);

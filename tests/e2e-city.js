@@ -74,7 +74,10 @@ const EXIT = 'a03b0ba5768979e6';
     for (const id of picked) await P.click(`#df-grid .df-g[data-id="${id}"]`);
     await P.click('#df-next'); await sleep(900);
     await P.fill('#df-name', 'Jens pack');
-    await P.click('#df-city'); await sleep(900);
+    await P.click('#df-city');
+    await P.waitForSelector('#film-ui:not([hidden]) #fu-skip', { timeout: 15000 }).catch(() => {}); // pt536u: the film first – skip it
+    if (await P.isVisible('#fu-skip')) await P.click('#fu-skip');
+    await sleep(900);
     let pk = await P.evaluate(() => window.klibb.city().pick);
     check('"to city →" opens the city picker (no city yet: start one)', pk.open && pk.step === 'list' && pk.cities && pk.cities.length === 0, pk);
     await shot(P, '01-city-picker-empty.png');

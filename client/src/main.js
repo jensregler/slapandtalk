@@ -58,6 +58,8 @@ import { enterCity, leaveCity } from './cityleave.js';
 import { initProps } from './propsmode.js';
 import { canEditProps, propMeshSurface } from '../../shared/props.mjs';
 import { unlockHeaders } from './entitlements.js';
+import { FilmLog } from './filmlog.js';
+import { runFilm, filmState, filmBlob, filmPreview } from './filmui.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -84,6 +86,8 @@ const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
 // ordinary box rooms you walk into, started in order. In all of them ("in the city", IN_CITY) the wheel
 // holds only what you brought (citymode.js). THIS_CITY = the city's own id (its outside).
 const CITY_OUTSIDE = isCityOutside(ROOM), IN_CITY = isCityRoom(ROOM), THIS_CITY = cityOf(ROOM);
+const filmLog = IN_CITY ? null : new FilmLog(ROOM); // the session film (filmThenCity)
+if (filmLog && !filmLog.has('start')) filmLog.add('start', { room: ROOM });
 // leaving a city drops the packs a free player took; a new visit to a city starts with only my pack
 const carryReady = IN_CITY ? enterCity(THIS_CITY) : leaveCity();
 const room = CITY_OUTSIDE ? buildCityRoom() : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
@@ -812,6 +816,7 @@ async function slapAt(ndc, info, onStart, auto = null) {
   together.selfGesture('slap', h.point, h.normal);
   // Kom ihåg exakt vilken design som stämplas: användaren kan hinna trycka R innan svaret kommer.
   const design = state.selected;
+  if (!auto || auto.first !== false) { const [dw, dh] = stampDims(design, 1); filmLog?.add('stick', { url: String(design.url || '').length < 200_000 ? design.url || '' : '', aspect: dh > 0 ? +(dw / dh).toFixed(3) : 1 }); } // the session film
   sound.play('slap', null, auto ? { volume: auto.volume } : {}); // direkt, utan att vänta på servern: det ska kännas som en riktig klibba
   const nonce = Math.random().toString(36).slice(2, 12);
   myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
@@ -1235,6 +1240,7 @@ function startPeel(entries, { quiet = false } = {}) {
 }
 // Min gubbe griper klibban och drar bort den (tredjepersonsvy).
 function peelGesture(id) {
+  filmLog?.add('peel');
   const st = stamps.meshes.get(id)?.userData.stamp;
   if (st) together.selfGesture('peel', st.position, st.normal);
 }
@@ -2244,7 +2250,7 @@ function saveRoomPreset() {
   clearTimeout(presetTimer);
   presetTimer = setTimeout(() => { const cur = loadSoundLook(); putRoomPreset(ROOM, { patches: cur.patches, fx: cur.fx, radio: radio.state }); }, 500);
 }
-const radio = new Radio({ sound, room: ROOM, clock: () => (groove ? groove.now() : Date.now()), onChange: saveRoomPreset });
+const radio = new Radio({ sound, room: ROOM, clock: () => (groove ? groove.now() : Date.now()), onChange: () => { filmLog?.add('radio', { what: 'dial' }); saveRoomPreset(); } });
 // The city's place effect (Jens, 5 Nov 2026; shared/cityfx.mjs): the master bus follows where I
 // stand – only outside in the city, and only for me (per listener). Houses / other rooms: neutral
 // (their own room reverb stays). Every PLACE_EVERY_MS, plain params, slewed (PLACE_SLEW).
@@ -2367,7 +2373,24 @@ function walkToDoor(n) { const s = spawnOutside(houseId(THIS_CITY, n)); camera.p
 // alive); in a city already, the new pack is simply what I carry now. Leaving my room for a city is
 // one way (Jens, t479u: it may have filled up with people) – no "back to my room".
 const doorOpts = () => ({ S, toast, choices: () => (IN_CITY ? state.library.filter((d) => !isNat(d) && !MENU_IDS.includes(d.id) && !RETIRED_MENU_IDS.includes(d.id)) : stickerDesigns().filter((d) => !MENU_IDS.includes(d.id))),
-  toCity: () => { if (IN_CITY) cityWheelChanged(); else openCityPick({ toast, go: (id) => { location.href = roomUrl(id); } }); } });
+  toCity: () => { if (IN_CITY) cityWheelChanged(); else filmThenCity(); } });
+// The session film (Jens, 5 Nov 2026, pt536u): leaving the room for the City ends my film – the pack I
+// just made is its last scene – then Watch / Download / Discard, then the City picker as before. The
+// film is only made here (an offscreen render while the bar runs); any failure or Skip → the City.
+function filmThenCity() {
+  const toCity = () => openCityPick({ toast, go: (id) => { location.href = roomUrl(id); } });
+  if (!filmLog || window.klibb?.noFilm) { toCity(); return; }
+  let pac = {}; try { pac = JSON.parse(localStorage.getItem('klibb.pac') || '{}') || {}; } catch { /* none */ }
+  filmLog.list = filmLog.list.filter((e) => e.e !== 'pack'); // made again: this pack
+  filmLog.add('pack', { name: pac.name || '', bag: pac.bag || 1 });
+  filmOpts().then((o) => runFilm({ ...o, onDone: toCity, onDiscard: () => filmLog.clear() })).catch((err) => { console.warn('film', err); toCity(); });
+}
+async function filmOpts() {
+  let pac = {}; try { pac = JSON.parse(localStorage.getItem('klibb.pac') || '{}') || {}; } catch { /* none */ }
+  const me = together.me() || {}, wallM = room.surfaces.find((m) => /^vägg/.test(m.name))?.material, floorM = room.surfaces.find((m) => m.name === 'golv')?.material;
+  const model = await import('./avatars.js').then((m) => m.loadAvatarModel());
+  return { events: filmLog.events(), room: ROOM, name: me.shownAs || me.name || '', model, look: me.look || {}, wallMat: wallM, floorMat: floorM, radioUrl: radioImg(), pacUrl: pac.img || (pac.urls || [])[0] || '' };
+}
 // Walking into a door's zone (in front of it) opens it once; walk away and back to open it again.
 let atDoor = null;
 function tickCityDoors() {
@@ -2386,7 +2409,7 @@ function exitChoices() {
 }
 const menuActions = {
   character: () => { closeMore(); closeRoomMenu(); together.openAvatarPanel(); },
-  radio: () => { closeMore(); if (entitlements.full.soundDesign) soundUi.open(); else { fullUi?.open(); toast(S.soundLocked, 2600); } },
+  radio: () => { closeMore(); filmLog?.add('radio', { what: 'open' }); if (entitlements.full.soundDesign) soundUi.open(); else { fullUi?.open(); toast(S.soundLocked, 2600); } },
   room: () => openRoomPanel(),
   exit: () => openChoice('exit', exitChoices()),
   nametag: () => openNameTag(),
@@ -3046,6 +3069,8 @@ if ('serviceWorker' in navigator) {
 
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 window.klibb = {
+  filmLog: () => filmLog, filmState, filmBlob, filmThenCity: () => filmThenCity(),
+  filmPreview: async (size) => filmPreview({ ...(await filmOpts()), size }), // tests/stills: a frame of the film at any time
   props: propsUi, propsMode, setProps,
   demo: DEMO, config, voice: () => voice.info(), voiceObj: () => voice, toggleMic: () => voice.toggle(), library: () => state.library.slice(),
   demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
