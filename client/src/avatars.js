@@ -8,6 +8,8 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import AV from '../../shared/avatar.json';
 import { ArmGesture } from './slapanim.js';
+import { DANCE, dancePoseAt, dancePhase } from '../../shared/dance.mjs';
+export { DANCE, dancePoseAt, dancePhase };
 import { cleanFabrics } from '../../shared/fabric.mjs';
 import { acquireFabric, releaseFabric, makeFabricable, setFabric, tickFabric } from './fabrics.js';
 import { Mouth, MOUTH } from './mouth.js';
@@ -194,6 +196,23 @@ function sitTurns(av, S) {
   turnBone(av, 'LowerArmR', X, S.fore); turnBone(av, 'LowerArmL', X, SIT.fore * 0.85);
   turnBone(av, 'Head', X, S.head);
 }
+
+// Runway dance (shared/dance.mjs): full-body keyframes on the Quaternius rig. Hands never go to the
+// floor – the drop lowers the hips so the bent knees read as kneeling. Chest/abdomen give the pops
+// and shimmy when the Idle/Walk clips are muted.
+function danceTurns(av, S) {
+  const X = [1, 0, 0], Z = [0, 0, 1];
+  turnBone(av, 'UpperLegL', X, S.legL); turnBone(av, 'UpperLegR', X, S.legR);
+  turnBone(av, 'UpperLegL', Z, S.stanceL); turnBone(av, 'UpperLegR', Z, S.stanceR);
+  turnBone(av, 'LowerLegL', X, S.kneeL); turnBone(av, 'LowerLegR', X, S.kneeR);
+  turnBone(av, 'Abdomen', X, S.abdomen || 0);
+  turnBone(av, 'Torso', X, S.lean);
+  turnBone(av, 'Chest', X, S.chest || 0);
+  turnBone(av, 'UpperArmL', X, S.armLX); turnBone(av, 'UpperArmR', X, S.armRX);
+  turnBone(av, 'UpperArmL', Z, S.armLZ); turnBone(av, 'UpperArmR', Z, S.armRZ);
+  turnBone(av, 'LowerArmL', X, S.foreL); turnBone(av, 'LowerArmR', X, S.foreR);
+  turnBone(av, 'Head', X, S.head);
+}
 // "✏️ drawing…" above someone sitting and drawing (one texture for everyone).
 let drawTex = null;
 function drawTexture() {
@@ -246,6 +265,7 @@ export class Avatar {
     } else this.root.add(this.cap);
     this._rest = new Map(); this.model.traverse((o) => { if (o.isBone) this._rest.set(o, o.quaternion.clone()); });
     this.seated = null; // { draw } while sitting on a chair (setSeated)
+    this.dance = null; // { t } while the runway dance plays (startDance)
     // The talking mouth (mouth.js): follows the head bone like the cap, hidden while silent.
     this.mouth = new Mouth(name || Math.random()); this.root.add(this.mouth.group); this.mouthT = null;
     // Tyger: varje färgplats kan bära en upprepad bild (fabrics.js). Huden har två material (mörkare skugga).
@@ -361,17 +381,20 @@ export class Avatar {
   unsay() { if (this.bubble) { this.root.remove(this.bubble); this.bubble.material.map.dispose(); this.bubble.material.dispose(); this.bubble = null; } }
   // speed = hur fort gubben går (m/s) → gå- eller stå-animation
   update(dt, speed = 0) {
-    const target = speed > 0.25 ? 1 : 0;
+    const dancing = !!this.dance;
+    const target = (!dancing && speed > 0.25) ? 1 : 0;
     this.walk += (target - this.walk) * Math.min(1, dt * 8);
-    const waving = performance.now() < this.waveUntil && this.walk < 0.2 && this.actions.Wave;
+    const waving = !dancing && performance.now() < this.waveUntil && this.walk < 0.2 && this.actions.Wave;
     if (this.actions.Wave) {
       if (waving && !this.actions.Wave.isRunning()) { this.actions.Wave.reset().setLoop(THREE.LoopOnce, 1).fadeIn(0.2).play(); }
+      if (dancing && this.actions.Wave.isRunning()) this.actions.Wave.stop();
     }
-    this.actions.Walk?.setEffectiveWeight(this.walk);
+    this.actions.Walk?.setEffectiveWeight(dancing ? 0 : this.walk);
     if (this.actions.Walk) this.actions.Walk.timeScale = THREE.MathUtils.clamp(speed / 1.6, 0.6, 1.8);
-    this.actions.Idle?.setEffectiveWeight(1 - this.walk);
+    this.actions.Idle?.setEffectiveWeight(dancing ? 0 : (1 - this.walk));
     this.mixer.update(dt);
-    if (this.seated) this.applySeat(dt); // the seated pose replaces the animation (before the arm gesture)
+    if (this.dance) this.applyDance(dt); // runway dance replaces Idle/Walk (before the arm gesture)
+    else if (this.seated) this.applySeat(dt); // the seated pose replaces the animation (before the arm gesture)
     this.gesture.apply(this.root);
     const now = Date.now();
     for (const [slot, e] of Object.entries(this.fab)) if (e.tex) this.slotMats[slot].forEach((m) => tickFabric(m, now));
@@ -392,6 +415,7 @@ export class Avatar {
   // over the table; draw = the hand moves a pencil (and a small "drawing" mark above the head). The
   // caller places the root on the seat (its x/z, facing the table). off = standing again.
   setSeated(on, draw = false) {
+    if (on && this.dance) this.stopDance(); // sitting cancels the dance
     const was = !!this.seated;
     this.seated = on ? { draw: !!draw, t: this.seated ? this.seated.t : 0 } : null;
     if (!on && was) { for (const [b, q] of this._rest) b.quaternion.copy(q); this.model.position.set(0, 0, 0); }
@@ -419,7 +443,36 @@ export class Avatar {
     for (const [b, qa] of P.a) { if (k) b.quaternion.slerpQuaternions(qa, P.b.get(b), k); else b.quaternion.copy(qa); }
     this.model.position.set(0, -SIT.drop, SIT.back);
   }
+  // Runway dance (Jens t540u): one-shot keyframe routine on this avatar. Refuses while seated.
+  // Returns false if it did not start (already dancing, or sitting).
+  startDance() {
+    if (this.seated || this.dance) return false;
+    this.waveUntil = 0; this.actions.Wave?.stop();
+    this.gesture.h = null; this.gesture.g = null; // no slap/hold fighting the arms
+    this.dance = { t: 0 };
+    return true;
+  }
+  stopDance() {
+    if (!this.dance) return;
+    this.dance = null;
+    for (const [b, q] of this._rest) b.quaternion.copy(q);
+    this.model.position.set(0, 0, 0);
+  }
+  get dancing() { return !!this.dance; }
+  get danceTime() { return this.dance ? this.dance.t : 0; }
+  get dancePhase() { return this.dance ? dancePhase(this.dance.t) : null; }
+  applyDance(dt) {
+    const d = this.dance; if (!d) return;
+    d.t += dt;
+    if (d.t >= DANCE.duration) { this.stopDance(); return; }
+    for (const [b, q] of this._rest) b.quaternion.copy(q);
+    const S = dancePoseAt(d.t);
+    danceTurns(this, S);
+    this.model.position.set(0, -S.drop, S.back || 0);
+  }
+
   dispose() {
+    this.stopDance();
     if (this.drawMark) { this.root.remove(this.drawMark); this.drawMark.material.dispose(); this.drawMark = null; }
     this.mouth?.dispose();
     this.unsay(); this.setName(''); if (this.talk) { this.root.remove(this.talk); this.talk.material.dispose(); this.talk = null; }
@@ -466,6 +519,8 @@ export class Players {
   }
   // Someone sat down on a chair (chair = its prop id; draw = drawing) or stood up (chair null).
   sit(id, chair, draw = false) { const pl = this.map.get(id); if (!pl) return false; pl.sit = chair ? { chair, draw: !!draw } : null; if (!chair) pl.avatar?.setSeated(false); return true; }
+  // Someone started the runway dance (others see it on their avatar).
+  dance(id) { const pl = this.map.get(id); if (!pl?.avatar) return false; if (pl.sit) { pl.sit = null; pl.avatar.setSeated(false); } return pl.avatar.startDance(); }
   seatedOn(chair) { for (const p of this.map.values()) if (p.sit && p.sit.chair === chair) return p.id; return null; }
   takenSeats() { const s = new Set(); for (const p of this.map.values()) if (p.sit) s.add(p.sit.chair); return s; }
   look(id, name, look) { const pl = this.map.get(id); if (pl) this.upsert({ id, name, look }); }
@@ -490,7 +545,7 @@ export class Players {
     const x = a.x + (b.x - a.x) * k, z = a.z + (b.z - a.z) * k;
     let dy = b.y - a.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); // kortaste vägen runt
     pl.pos.set(x, 0, z); pl.yaw = a.y + dy * k;
-    const seat = pl.sit ? this.seatOf(pl.sit.chair) : null;
+    const seat = (!pl.avatar?.dancing && pl.sit) ? this.seatOf(pl.sit.chair) : null;
     if (seat) { // on a chair: there, facing the table (the props layer knows where the chair is)
       pl.pos.set(seat.x, 0, seat.z);
       if (pl.avatar) { pl.avatar.root.position.set(seat.x, seat.y0 || 0, seat.z); pl.avatar.root.rotation.y = seat.yaw; pl.avatar.setSeated(true, pl.sit.draw); }
@@ -514,6 +569,6 @@ export class Players {
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
       walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false,
-      gestures: p.gestures || 0, slot: p.slot, sit: p.sit ? { ...p.sit } : null, seated: !!p.avatar?.seated, capWorld: p.avatar?.cap.visible ? p.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
+      gestures: p.gestures || 0, slot: p.slot, sit: p.sit ? { ...p.sit } : null, seated: !!p.avatar?.seated, dancing: !!p.avatar?.dancing, dancePhase: p.avatar?.dancePhase || null, danceTime: p.avatar ? +p.avatar.danceTime.toFixed(2) : 0, capWorld: p.avatar?.cap.visible ? p.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
   }
 }

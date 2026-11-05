@@ -6,7 +6,7 @@
 //   sideways = turn the sticker wheel (a band above the stack, up while you turn it; wheel.js).
 // - The menu: 📒 Stickers (the sticker book: your palette + ⬆ Upload), 🧍 Character, 🏠 Room (the
 //   room's info and Room ▾ on top of ⚙ More: recording, sound, cameras …), ↩ Undo, 👤 3rd person,
-//   📷 Photo, and the Talk card (💬 chat, 🎙 microphone). A tap outside closes it.
+//   📷 Photo, 💃 Dance, and the Talk card (💬 chat, 🎙 microphone). A tap outside closes it.
 // - The editing view (Jens's picture 4): the held sticker sits in its holder (no ring) in the middle of the
 //   screen, sharp; two fingers pinch to scale it and twist to rotate it (main.js); the three
 //   menu buttons (📒 Stickers, 🧍 Character, 🏠 Room) stay lit at the bottom; everything else is
@@ -59,6 +59,7 @@ export function initStackMenu(o) {
   item('sm-undo', () => o.peelLast(), { stay: true }); // undo again and again
   item('sm-view', () => o.toggleView());
   item('sm-photo', () => o.snapPhoto());
+  item('sm-dance', () => o.startDance?.());
   item('sm-chat', () => { if (!o.chatOpen()) $('chat-btn').click(); });
   $('stack-scrim').addEventListener('pointerdown', (e) => { e.preventDefault(); closeMenu(); });
 

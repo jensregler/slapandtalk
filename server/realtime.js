@@ -12,11 +12,13 @@
 //                    unlock {unlock: {key, dev}}  (new full-version key in an open tab)
 //                    ping · signal {to, data}  (signal = för röstchatt via WebRTC, se nedan)
 //                    talk {l} · held {h}  (recording only: my voice level / the sticker I aim with, never relayed)
+//                    dance {}  (runway dance, shared/dance.mjs: I start the one-shot dance; others see it)
 //                    sit {chair: prop id | null, draw}  (3D props, shared/props.mjs: I sit down on a chair – drawing –
 //                    or stand up; one person per chair, the server keeps who sits where)
 //   server → klient: welcome {id, you, players, chat, max, full, rec, now (server ms: the shared clock for the footstep groove)} · join {player} · leave {id}
 //                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
 //                    event {e} · signal {from, data} · pong · error {error}
+//                    dance {id}  (someone started the runway dance)
 //                    sit {id, chair, draw}  (someone sat down / stood up; to the sender with taken: id when that chair was taken)
 //   a player (welcome.players, join) carries sit: { chair, draw } while seated.
 //   p = ögats position [x, y, z], y = vridning (yaw), pi = blicken upp/ner (pitch), i radianer.
@@ -391,6 +393,17 @@ function attachRealtime(server, {
       const h = cleanHeld(m.h, boundsOf(c)); if (h === undefined) return;
       return rec(r.id, 'held', { id: c.id, h });
     }
+    if (m.t === 'dance') {
+      // Runway dance (shared/dance.mjs): one-shot; broadcast so others play it on this player's avatar.
+      if (!c.player || !c.danceLimit()) return;
+      // Standing up if they were seated – the dance needs the floor.
+      if (c.sit) {
+        if (r.seats.get(c.sit.chair) === c.id) r.seats.delete(c.sit.chair);
+        c.sit = null;
+        toRoom(r, { t: 'sit', id: c.id, chair: null, draw: false });
+      }
+      return toRoom(r, { t: 'dance', id: c.id }, c);
+    }
     if (m.t === 'sit') {
       // Sitting down on a chair (3D props): the chair is a prop id; one person per chair. null = stand up.
       if (!c.player || !c.sitLimit()) return;
@@ -415,7 +428,7 @@ function attachRealtime(server, {
   wss.on('connection', (ws, req, roomId, ip) => {
     const c = {
       id: crypto.randomBytes(5).toString('hex'), ws, room: roomId, ip, joined: false, player: false, strikes: 0,
-      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10), talkLimit: bucket(15, 20), heldLimit: bucket(12, 20), sitLimit: bucket(2, 8),
+      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10), talkLimit: bucket(15, 20), heldLimit: bucket(12, 20), sitLimit: bucket(2, 8), danceLimit: bucket(0.15, 2),
     };
     perIp.set(ip, (perIp.get(ip) || 0) + 1);
     ws.on('pong', () => { ws.klibbDead = false; });

@@ -1683,6 +1683,7 @@ if (!isTouch) {
     if (e.code === 'KeyM' && !e.repeat) setMuted(!sound.muted);
     if (e.code === 'KeyP' && !e.repeat) snapPhoto(); // 📷 Photo
     if (e.code === 'KeyC' && !e.repeat) toggleView();
+    if (e.code === 'KeyX' && !e.repeat) startDance(); // runway dance (shared/dance.mjs)
     if (e.code === 'KeyL' && !e.repeat && credit.shown?.link) openLink(credit.shown.link);
     if (propsMode()) { // the Props wheel: Q/E turn, R/F the next/previous prop, Delete removes the selected one, Esc lets go
       if (e.code === 'KeyQ') propsUi.turn(1);
@@ -1849,7 +1850,7 @@ if (!isTouch) {
   stackMenu = initStackMenu({
     pinching: () => !!touchPinch,
     S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
-    peelLast: () => peelLast(), toggleView: () => toggleView(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
+    peelLast: () => peelLast(), toggleView: () => toggleView(), startDance: () => startDance(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
     chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(), wheel: activeWheelApi, wheelUp, natureOpen: () => natureOpen(),
     release: (x, y) => { if (!camView && !placingCam) heldTap(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), x, y); },
   });
@@ -2772,6 +2773,31 @@ function setView(v, { quiet = false } = {}) {
   return view;
 }
 const toggleView = () => setView(nextView(view));
+
+// Runway dance (Jens t540u): X on desktop, 💃 in the phone menu. Switches to 3rd person so you
+// can see your own character, plays the keyframe routine, restores the previous view when done.
+let dancePrevView = null, danceWatch = 0;
+async function startDance() {
+  if (together.dancing()) return false;
+  if (together.selfSeat() || propsUi?.seated()) { // stand up first (the dance needs the floor)
+    propsUi?.standUp?.();
+    together.setSelfSeat(null);
+    together.net.sendSit(null);
+  }
+  if (view === 'first') { dancePrevView = 'first'; setView('third', { quiet: true }); }
+  else dancePrevView = null;
+  const ok = await together.startDance();
+  if (!ok) { if (dancePrevView) setView(dancePrevView, { quiet: true }); dancePrevView = null; toast('Could not start the dance just now.', 1800); return false; }
+  toast(isTouch ? '💃 Dance!' : '💃 Dance! (X)', 1600);
+  clearInterval(danceWatch);
+  danceWatch = setInterval(() => {
+    if (together.dancing()) return;
+    clearInterval(danceWatch); danceWatch = 0;
+    if (dancePrevView) { setView(dancePrevView, { quiet: true }); dancePrevView = null; }
+  }, 200);
+  return true;
+}
+
 $('view-first').onclick = () => { if (view !== 'first') setView('first'); };
 $('view-third').onclick = () => { if (view !== 'third') setView('third'); };
 $('view-front').onclick = () => { if (view !== 'front') setView('front'); };
@@ -2960,7 +2986,8 @@ let holdSharpForTests = false; // klibb.holdSharp(true): tests about other thing
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (holdSharpForTests && deskHeld && deskHeld.state === 'timed') { const t = performance.now(); if (deskHeld.canSlap(t)) deskHeld.keepAlive(t); else deskHeld.wake(t); }
-  if (!camView) controls.update(dt);
+  if (!camView && !together.dancing()) controls.update(dt);
+  else if (together.dancing()) { controls.keys.clear(); controls.joy.set(0, 0); } // dance owns the body – no WASD/joystick fight
   propsUi.tick(dt); // props: far ones without ink, my chair, the Props wheel's ghost
   tickCityDoors();
   tickRoomFabric(room.surfaces); if (sp.open) { fargUi.tick(); for (const k of SURF_KINDS) ownUi[k].tick(); } // Färg: the room image spins / cycles / scrolls
@@ -3132,7 +3159,7 @@ window.klibb = {
     };
     return { ...st, view, screen: st.visible ? { sticker: px(preview.mesh), shadow: px(preview.shadow) } : null };
   },
-  setView, toggleView, view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
+  setView, toggleView, startDance, dancing: () => together.dancing(), view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, toggleNature, setNatureMode, natureMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, dropsPeel, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };

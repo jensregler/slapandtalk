@@ -151,14 +151,14 @@ export const EN = {
   // ---------- Desktop / touch help ----------
   enter: 'Enter the room',
   resumeHint: 'Click to enter',
-  quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C camera (1st / 3rd / front) · T chat',
+  quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C camera (1st / 3rd / front) · X dance · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
     + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = Slap mode / 🌿 Nature mode (nature stickers), G = look mode on/off '
-    + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), P = 📷 photo of what you see, Esc = menu (Esc again = back into the room). '
+    + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), X = 💃 dance (your character does the runway dance; switches to 3rd person while it plays), P = 📷 photo of what you see, Esc = menu (Esc again = back into the room). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Visit the City opens the shared room (the plain address takes you to your most recent room). '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
-  helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look. The sticker stack bottom right: tap it for the menu (📒 Stickers, 🧍 Character, 🏠 Room, ↩ Undo, 👤 3rd person, 📷 Photo, 💬 Talk, 🎙 Mic), swipe it up/down for the next/previous sticker, or sideways to turn the sticker wheel. '
+  helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look. The sticker stack bottom right: tap it for the menu (📒 Stickers, 🧍 Character, 🏠 Room, ↩ Undo, 👤 3rd person, 📷 Photo, 💃 Dance, 💬 Talk, 🎙 Mic), swipe it up/down for the next/previous sticker, or sideways to turn the sticker wheel. '
     + 'The sticker in your hand sits in its holder in the middle: tap it to slap it there, drag it out and let go where it should go, or put a finger on a wall: it follows your finger and slaps where you let go; two fingers pinch it bigger/smaller and twist it round; 📒 🧍 🏠 stay at the bottom. Left untouched for 2 s it fades away and one finger just looks around – tap the screen to get it back (that tap does not slap). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room, 🔗 Share link sends it to friends. '
     + '<b>Together:</b> everyone in the same room sees each other right away. 💬 = chat. '
@@ -168,7 +168,7 @@ export const EN = {
   // ---------- Touch: the sticker stack menu (stackmenu.js) ----------
   stackBtnAria: 'Your stickers: tap for the menu, swipe up/down for the next/previous sticker, swipe sideways to turn the sticker wheel',
   smAria: 'Menu', smBook: 'Stickers', smAvatar: 'Character', smRoom: 'Room', smUndo: 'Undo', smView: '3rd person', smViewFirst: '1st person', smViewFront: 'Front 🤳',
-  smPhoto: 'Photo', smTalk: 'Talk', smMic: 'Mic', smTalkAria: 'Talk and microphone',
+  smPhoto: 'Photo', smDance: 'Dance', smTalk: 'Talk', smMic: 'Mic', smTalkAria: 'Talk and microphone',
   smBookTitle: 'Your stickers', smBookHint: 'Tap one to hold it, then tap a wall to slap it.',
   heldWake: 'Tap a wall to slap it.',
 
@@ -431,7 +431,7 @@ export const EN = {
   inviteUsed: (name) => (name ? `${name} came in with your invite.` : 'Your invite has been used.'),
   inviteFull: 'The room is full.',
   inviteNone: 'You can invite one friend.',
-  quickHelpDemo: 'Click to enter · WASD walk · click = slap · R/F next/prev sticker · Z peel · V look mode · C 3rd person · T chat · B talk',
+  quickHelpDemo: 'Click to enter · WASD walk · click = slap · R/F next/prev sticker · Z peel · V look mode · C 3rd person · X dance · T chat · B talk',
   helpDemoDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
     + 'R/F = next/previous sticker from the library, Z = peel your last sticker, V = look mode (click a sticker to see who made it), C = 1st/3rd person, Esc = menu. '
     + '<b>Together:</b> invite one friend with ✉ Invite a friend (the link works once). T or Enter = chat, 🎙 or B = talk (B again mutes). '

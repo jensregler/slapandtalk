@@ -193,6 +193,13 @@ function client(base, room, hello = {}) {
       && seer.msgs.filter((m) => m.t === 'join' && m.player.name === 'Jens').length === 1,
       'into a house and back out: the old page\'s connection is dropped at once – exactly one Jens in the city, no ghost');
 
+    // ---------- Runway dance (shared/dance.mjs) ----------
+    const da = join('dans1', { name: 'Dansare' }); await da.ready; const dwa = await da.wait((m) => m.t === 'welcome');
+    const db = join('dans1', { name: 'Tittare2' }); await db.ready; await db.wait((m) => m.t === 'welcome');
+    da.send({ t: 'dance' });
+    const dmsg = await db.wait((m) => m.t === 'dance');
+    assert(dmsg && dmsg.id === dwa.id && !da.msgs.some((m) => m.t === 'dance'),
+      'dance: others see who started it; the dancer does not get their own echo');
 
     rt.close();
     await sleep(150);

@@ -61,6 +61,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     onDenied, onInvite, onSignal,
     // 3D props: someone sat down on a chair / stood up (mine comes back too: taken = the chair was someone else's)
     onSit(m) { if (m.id !== net.id) players.sit(m.id, m.chair, m.draw); onSit(m); },
+    onDance(m) { if (m.id !== net.id) players.dance(m.id); },
     onMove: (id, p, y) => players.move(id, p, y),
     onLook(id, name, look) {
       const pl = players.map.get(id);
@@ -313,10 +314,11 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       return;
     }
     a.root.rotation.y = controls.yaw + Math.PI;
-    if (self.seat) { a.root.position.set(self.seat.x, self.seat.y0 || 0, self.seat.z); a.root.rotation.y = self.seat.yaw; a.setSeated(true, self.seat.draw); }
+    if (a.dancing) { /* dance owns the pose; stay where I stood when it started */ }
+    else if (self.seat) { a.root.position.set(self.seat.x, self.seat.y0 || 0, self.seat.z); a.root.rotation.y = self.seat.yaw; a.setSeated(true, self.seat.draw); }
     else if (a.seated) a.setSeated(false);
     a.root.visible = self.want && !hide;
-    if (self.want) a.update(dt, self.speed);
+    if (self.want || a.dancing) a.update(dt, a.dancing ? 0 : self.speed);
   }
 
   renderPeople(); renderChatInput();
@@ -351,6 +353,19 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     // 3D props: I sit on a chair (seat = { x, y0, z, yaw, draw }) or stand up (null); my avatar shows it.
     setSelfSeat(seat) { self.seat = seat ? { ...seat } : null; if (!seat && self.avatar?.seated) self.avatar.setSeated(false); },
     selfSeat: () => (self.seat ? { ...self.seat } : null),
+    // Runway dance (shared/dance.mjs): play on my avatar and tell the room. Needs the avatar built
+    // (3rd person / a camera looking at me). Standing up first if I was on a chair.
+    startDance() {
+      if (self.seat) { self.seat = null; self.avatar?.setSeated(false); if (net.status === 'online') net.sendSit(null); }
+      const ensure = self.avatar ? Promise.resolve(self.avatar) : buildSelf();
+      return ensure.then((a) => {
+        if (!a.startDance()) return false;
+        if (net.status === 'online') net.sendDance();
+        return true;
+      }).catch(() => false);
+    },
+    stopDance() { self.avatar?.stopDance(); },
+    dancing: () => !!self.avatar?.dancing,
     // Min gubbe slappar/peelar (syns bara i tredjepersonsvy). De andra får veta via servern (by = net.id).
     // The drag pose (sticker arrays) on my own avatar: point = where the row ends, null = let go.
     selfHold: (point, normal) => { const a = self.avatar; if (!a) return false; if (point) return a.hold(point, normal); a.release(); return true; },
@@ -359,7 +374,8 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     handPos: () => { const a = self.avatar; if (!a) return null; const w = a.gesture.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray()); return w; },
     selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0, fabrics: self.avatar ? self.avatar.fabricInfo() : {},
       face: self.avatar ? self.avatar.faceInfo() : null, look: self.avatar ? { ...self.avatar.look } : null, gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null,
-      seated: !!self.avatar?.seated, capWorld: self.avatar?.cap.visible ? self.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null }),
+      seated: !!self.avatar?.seated, dancing: !!self.avatar?.dancing, dancePhase: self.avatar?.dancePhase || null, danceTime: self.avatar ? +self.avatar.danceTime.toFixed(2) : 0,
+      capWorld: self.avatar?.cap.visible ? self.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null }),
     busy: () => av.open,
     // The room's character (null = my own avatar): shown on me, sent to the room, the panel locked.
     setRoomLook(look) {
