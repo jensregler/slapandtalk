@@ -62,6 +62,11 @@ import { canEditProps, propMeshSurface } from '../../shared/props.mjs';
 import { unlockHeaders } from './entitlements.js';
 import { FilmLog } from './filmlog.js';
 import { runFilm, filmState, filmBlob, filmPreview } from './filmui.js';
+import { HighlightLog } from './highlightlog.js';
+import { HighlightStore } from './highlightstore.js';
+import { offerHighlightReel, highlightState, highlightBlob, highlightPreview } from './highlightui.js';
+import { findCrossCameraMoments, reelCameras, cityBounds as highlightCityBounds } from '../../shared/highlight.mjs';
+import { roomBounds as highlightRoomBounds } from '../../shared/autocam.mjs';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -89,6 +94,10 @@ const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
 // holds only what you brought (citymode.js). THIS_CITY = the city's own id (its outside).
 const CITY_OUTSIDE = isCityOutside(ROOM), IN_CITY = isCityRoom(ROOM), THIS_CITY = cityOf(ROOM);
 const filmLog = IN_CITY ? null : new FilmLog(ROOM); // the session film (filmThenCity)
+const highlightLog = new HighlightLog(ROOM); // room AND city – automatic cameraman moments
+const highlightStore = new HighlightStore(ROOM);
+if (!highlightLog.has('start')) highlightLog.add('start', { room: ROOM, city: !!IN_CITY });
+const highlightCrew = reelCameras(CITY_OUTSIDE ? highlightCityBounds() : highlightRoomBounds(), { city: !!CITY_OUTSIDE, seed: ROOM });
 if (filmLog && !filmLog.has('start')) filmLog.add('start', { room: ROOM });
 // leaving a city drops the packs a free player took; a new visit to a city starts with only my pack
 const carryReady = IN_CITY ? enterCity(THIS_CITY) : leaveCity();
@@ -822,6 +831,7 @@ async function slapAt(ndc, info, onStart, auto = null) {
   // Kom ihåg exakt vilken design som stämplas: användaren kan hinna trycka R innan svaret kommer.
   const design = state.selected;
   if (!auto || auto.first !== false) { const [dw, dh] = stampDims(design, 1); filmLog?.add('stick', { url: String(design.url || '').length < 200_000 ? design.url || '' : '', aspect: dh > 0 ? +(dw / dh).toFixed(3) : 1 }); } // the session film
+
   { const [aw, ah] = stampDims(design, slapSize); sound.play('slap', null, { area: aw * ah, size: slapSize, ...(auto ? { volume: auto.volume } : {}) }); } // bigger sticker = bigger slap (same curve as duff)
   const nonce = Math.random().toString(36).slice(2, 12);
   myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
@@ -848,6 +858,26 @@ async function slapAt(ndc, info, onStart, auto = null) {
   let settle; const settled = new Promise((r) => { settle = r; });
   pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, ...(auto ? { burst: auto.burst } : {}) });
   stamps.add(temp, design).then(updateCount);
+  // Highlight reel: log my sticker + neighbours (homage) + cross-camera cameos.
+  if (!auto || auto.first !== false) {
+    const [dw, dh] = stampDims(design, slapSize);
+    const others = [...stamps.meshes.values()].map((m) => m.userData.stamp).filter((s) => s && !s.pending && !highlightLog.isMine(s.id) && s.id !== tempId);
+    for (const o of others) {
+      if (!highlightLog.events().some((e) => e.e === 'other' && e.id === o.id)) {
+        highlightLog.add('other', { id: o.id, p: o.position, size: o.size, imageId: o.imageId, by: 'other' });
+      }
+    }
+    highlightLog.add('stick', {
+      id: tempId, p: body.position, size: slapSize, by: together.net.id || 'me',
+      imageId: design.id, url: String(design.url || '').length < 200_000 ? design.url || '' : '',
+      aspect: dh > 0 ? +(dw / dh).toFixed(3) : 1, surface: body.surface, normal: body.normal,
+    });
+    highlightLog.noteMine(tempId);
+    const meP = [camera.position.x, camera.position.y, camera.position.z];
+    for (const x of findCrossCameraMoments({ myPos: meP, myId: together.net.id || 'me', cameras: highlightCrew, othersActions: others.length ? [{ by: 'other', t: Date.now() }] : [], t: Date.now() - highlightLog.t0 })) {
+      highlightLog.add('cross', { cam: x.cam, playerId: x.playerId, p: x.p, by: x.by, camPose: x.camPose });
+    }
+  }
   if (onStart) {
     Object.assign(info, { point: h.point.clone(), normal: h.normal.clone(), q: q.clone(), size: slapSize, surface: h.surface, design, nonce, temp });
     // The array path must never cost the slap itself: if starting a row fails, this is a plain slap.
@@ -905,6 +935,9 @@ function confirmSlap(nonce, stamp, image) {
   pendingSlaps.delete(nonce);
   if (p.peel) { stamps.gone.add(p.tempId); stamps.gone.add(stamp.id); peelWhenSaved.add(stamp.id); return; }
   if (!stamps.confirm(p.tempId, stamp, image)) stamps.add(stamp, image).then(updateCount);
+  highlightLog.noteMine(stamp.id);
+  // Keep the stick event's id in sync with the server id (homage dedupe).
+  for (const e of highlightLog.list) if (e.e === 'stick' && e.id === p.tempId) e.id = stamp.id;
 }
 function dropPending(nonce) {
   const p = pendingSlaps.get(nonce);
@@ -2419,11 +2452,37 @@ const doorOpts = () => ({ S, toast, choices: () => (IN_CITY ? state.library.filt
 // film is only made here (an offscreen render while the bar runs); any failure or Skip → the City.
 function filmThenCity() {
   const toCity = () => openCityPick({ toast, go: (id) => { location.href = roomUrl(id); } });
-  if (!filmLog || window.klibb?.noFilm) { toCity(); return; }
-  let pac = {}; try { pac = JSON.parse(localStorage.getItem('klibb.pac') || '{}') || {}; } catch { /* none */ }
-  filmLog.list = filmLog.list.filter((e) => e.e !== 'pack'); // made again: this pack
-  filmLog.add('pack', { name: pac.name || '', bag: pac.bag || 1 });
-  filmOpts().then((o) => runFilm({ ...o, onDone: toCity, onDiscard: () => filmLog.clear() })).catch((err) => { console.warn('film', err); toCity(); });
+  const afterReel = () => {
+    highlightLog.clear();
+    if (!filmLog || window.klibb?.noFilm) { toCity(); return; }
+    let pac = {}; try { pac = JSON.parse(localStorage.getItem('klibb.pac') || '{}') || {}; } catch { /* none */ }
+    filmLog.list = filmLog.list.filter((e) => e.e !== 'pack'); // made again: this pack
+    filmLog.add('pack', { name: pac.name || '', bag: pac.bag || 1 });
+    filmOpts().then((o) => runFilm({ ...o, onDone: toCity, onDiscard: () => filmLog.clear() })).catch((err) => { console.warn('film', err); toCity(); });
+  };
+  if (window.klibb?.noHighlight) { afterReel(); return; }
+  offerHighlightReel({
+    events: highlightLog.events(), roomId: ROOM, style: state.style, city: false, place: 'room',
+    stickers: stickersForReel(), store: highlightStore, sound, myId: together.net.id || 'me',
+    onDone: afterReel,
+  }).catch((err) => { console.warn('highlight', err); afterReel(); });
+}
+function stickersForReel() {
+  const out = [];
+  for (const [id, m] of stamps.meshes) {
+    const st = m.userData.stamp, img = m.userData.image;
+    if (st && img) out.push({ stamp: st, image: img });
+  }
+  return out;
+}
+function leaveWithHighlight(go) {
+  if (window.klibb?.noHighlight) { highlightLog.clear(); go(); return; }
+  offerHighlightReel({
+    events: highlightLog.events(), roomId: ROOM, style: state.style, city: !!CITY_OUTSIDE || !!IN_CITY,
+    place: IN_CITY ? 'city' : 'room',
+    stickers: stickersForReel(), store: highlightStore, sound, myId: together.net.id || 'me',
+    onDone: () => { highlightLog.clear(); go(); },
+  }).catch((err) => { console.warn('highlight', err); highlightLog.clear(); go(); });
 }
 async function filmOpts() {
   let pac = {}; try { pac = JSON.parse(localStorage.getItem('klibb.pac') || '{}') || {}; } catch { /* none */ }
@@ -2444,7 +2503,8 @@ if (IN_CITY) carryReady.then(() => setTimeout(() => { if (!localStorage.getItem(
 function exitChoices() {
   const out = [];
   if (IN_CITY && !CITY_OUTSIDE) out.push({ id: 'to-city', text: S.cityBackToCity, go: () => { location.href = roomUrl(THIS_CITY) + '&at=' + ROOM; } });
-  out.push({ id: 'exit-menu', text: S.exitToMenu, go: () => { location.href = `${location.origin}/?start=1`; } }, { id: 'back', text: S.choiceBack });
+  // Leaving the city (or exiting to menu from a room): offer the highlight reel first.
+  out.push({ id: 'exit-menu', text: S.exitToMenu, go: () => leaveWithHighlight(() => { location.href = `${location.origin}/?start=1`; }) }, { id: 'back', text: S.choiceBack });
   return out;
 }
 const menuActions = {
@@ -2463,6 +2523,7 @@ function openNameTag() {
   closeMore(); closeRoomMenu(); controls.unlock?.();
   // a free chair close by (3D props): I sit down at the table and draw – the others see it
   propsUi.sitToDraw();
+  highlightLog.add('draw', { playerId: together.net.id || 'me', p: [camera.position.x, camera.position.y, camera.position.z] });
   openNameTagTool({
     S, toast,
     onClose: () => propsUi.standUp(),
@@ -2965,7 +3026,16 @@ var voice = new Voice({ // eslint-disable-line no-var
   net: together.net, sound,
   positionOf: (id) => { const pl = together.players.map.get(id); return pl ? { x: pl.pos.x, z: pl.pos.z } : null; },
   listener: () => ({ x: camera.position.x, z: camera.position.z }),
-  onSpeaking: (id, on, level) => { together.setSpeaking(id, on, level); if (id === 'me') for (const b of micBtns()) b.classList.toggle('speaking', !!on); },
+  onSpeaking: (id, on, level) => {
+    together.setSpeaking(id, on, level);
+    if (id === 'me') for (const b of micBtns()) b.classList.toggle('speaking', !!on);
+    if (on && level > 0) {
+      const who = id === 'me' ? (together.net.id || 'me') : id;
+      const p = id === 'me' ? [camera.position.x, camera.position.y, camera.position.z]
+        : (() => { const o = together.players.get?.(id); const pos = o?.avatar?.root?.position; return pos ? [pos.x, pos.y + 1.5, pos.z] : [0, 1.55, 0]; })();
+      highlightLog.add('voice', { playerId: who, p, level });
+    }
+  },
   onState: (st) => { renderMic(st); personalSet(VOICE_MIC_KEY, st === 'on' || st === 'muted' ? st : null); },
   toast: (k) => toast({ on: S.micOnToast, muted: S.micMutedToast, denied: S.micDenied, unsupported: S.micUnsupported }[k] || '', 1800),
   tempo: () => { try { return radio.tempo().bpm; } catch { return 90; } },
@@ -3216,6 +3286,9 @@ if ('serviceWorker' in navigator) {
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 window.klibb = {
   filmLog: () => filmLog, filmState, filmBlob, filmThenCity: () => filmThenCity(),
+  highlightLog: () => highlightLog, highlightStore: () => highlightStore, highlightState, highlightBlob,
+  highlightPreview: (size) => highlightPreview({ events: highlightLog.events(), roomId: ROOM, style: state.style, stickers: stickersForReel(), city: !!CITY_OUTSIDE, size }),
+  offerHighlight: () => leaveWithHighlight(() => {}), highlightCrew: () => highlightCrew,
   filmPreview: async (size) => filmPreview({ ...(await filmOpts()), size }), // tests/stills: a frame of the film at any time
   props: propsUi, propsMode, setProps,
   demo: DEMO, config, voice: () => voice.info(), voiceObj: () => voice, toggleMic: () => voice.toggle(), library: () => state.library.slice(),

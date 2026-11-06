@@ -5,6 +5,8 @@
 // you see (free version: + channel bug and link ticker), uploaded with a link to share.
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
+import { buildCityRoom } from './city.js';
+import { isCityOutside } from '../../shared/city.mjs';
 import { PresetLayer } from './preset.js';
 import { applyStyle, normalizeStyle, DEFAULT_STYLE, tickRoomFabric } from './roomstyle.js';
 import { StampLayer, StampPreview } from './stamps.js';
@@ -46,7 +48,9 @@ renderer.autoClear = true;
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x111111);
 const camera = new THREE.PerspectiveCamera(EYE_FOV, 1, 0.05, 100); // den fria kameran
 const view = new THREE.PerspectiveCamera(EYE_FOV, 1, 0.05, 100); // det som faktiskt visas
-const room = buildBoxRoom(); scene.add(room.group);
+// Real room OR city scene – never a bare gray box for city recordings.
+const room = isCityOutside(ROOM) ? buildCityRoom() : buildBoxRoom(); scene.add(room.group);
+if (room.camFar) { camera.far = room.camFar; view.far = room.camFar; camera.updateProjectionMatrix(); view.updateProjectionMatrix(); }
 const presetLayer = new PresetLayer(scene, room.surfaces); // a preset room's baked images (preset.js)
 fetch(`/api/rooms/${ROOM}`).then((r) => r.json()).then((j) => j && j.room && j.room.preset && presetLayer.set(j.room.preset)).catch(() => {});
 camera.position.set(0, 2.4, 4.4);
@@ -80,7 +84,9 @@ const personPose = (id, t = rp.t) => (rp.pp ? rp.pp.poseAt(id, t) : null);
 // ---------- Synka scenen mot inspelningen vid tiden t ----------
 async function showStyle(style) {
   const key = JSON.stringify(style || null); if (key === rp.style) return; rp.style = key;
-  try { await applyStyle(room.surfaces, normalizeStyle(style || DEFAULT_STYLE)); } catch { /* texturer saknas: rummet är grått */ }
+  if (isCityOutside(ROOM)) return; // city materials come from buildCityRoom (stone/sky), not the catalogue
+  try { await applyStyle(room.surfaces, normalizeStyle(style || DEFAULT_STYLE)); }
+  catch (err) { console.warn('replay style', err); try { await applyStyle(room.surfaces, DEFAULT_STYLE); } catch { /* last resort */ } }
 }
 function syncStamps(list) {
   const want = new Map(list.map((s) => [s.stamp.id, s]));
@@ -503,7 +509,7 @@ load();
 
 // För tester (och nyfikna i konsolen).
 window.replay = {
-  ready: false, room: ROOM, recId: REC, scene, renderer, peelLayer,
+  ready: false, room: ROOM, recId: REC, scene, renderer, peelLayer, isCity: isCityOutside(ROOM), roomName: room.group?.name || 'box',
   get duration() { return rp.tl?.duration || 0; }, get t() { return rp.t; }, get view() { return rp.view; }, get playing() { return rp.playing; },
   seek, play, pause, setView, setSpeed: (s) => { rp.speed = s; $('rp-speed').value = String(s); },
   views: () => [...$('rp-view').options].map((o) => o.value),
