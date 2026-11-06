@@ -210,7 +210,16 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const out = el('output', null, fmt(k, value));
     // pitch grid: the osc Pitch moves in semitones (shared/synth.mjs snapFreq); LFO rates ≥ 20 Hz too
     const snap = k === 'freq' ? snapFreq : k === 'rate' ? snapRate : (v) => v;
-    r.oninput = () => { const v = snap(fromSlider(k, range, Number(r.value))); out.textContent = fmt(k, v); onInput(v); };
+    r.oninput = () => {
+      let v = snap(fromSlider(k, range, Number(r.value)));
+      // Pitch (and audio-rate LFO rate): snap the thumb too, so a click always lands on a note and
+      // tiny drags that stay inside one semitone don't look dead (Jens t587u: "pitch does nothing").
+      if (k === 'freq' || k === 'rate') {
+        const snapped = toSlider(k, range, v);
+        if (Number(r.value) !== snapped) r.value = snapped;
+      }
+      out.textContent = fmt(k, v); onInput(v);
+    };
     if (lfo) {
       row.dataset.mod = lfo.to;
       if ((lfo.patch.mods || []).some((m) => m.to === lfo.to)) row.classList.add('has-lfo');
@@ -274,14 +283,25 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     if (l.kind === 'mic') { /* no wave/noise colour */ } else if (l.kind === 'osc') sel.append(select('Wave', WAVES, l.wave, (v) => { l.wave = v; edited(k); }, { sawtooth: 'saw' }));
     else sel.append(select('Noise', NOISES, l.noise, (v) => { l.noise = v; edited(k); }));
     sel.append(select('Filter', FILTERS, l.filter, (v) => { l.filter = v; edited(k); }));
-    sel.append(select('LFO', LFO_TARGETS, l.lfo, (v) => { l.lfo = v; edited(k, true); }, { none: 'LFO off', pitch: 'LFO → pitch', cutoff: 'LFO → cutoff', amp: 'LFO → amp' }));
+    // LFO target next to wave/filter (t587u). Turning one on with depth 0 used to do nothing audible.
+    sel.append(select('LFO', LFO_TARGETS, l.lfo, (v) => {
+      l.lfo = v;
+      if (v !== 'none' && !(l.lfoDepth > 0)) l.lfoDepth = 0.35;
+      edited(k, true);
+    }, { none: 'LFO off', pitch: 'LFO → pitch', cutoff: 'LFO → cutoff', amp: 'LFO → amp' }));
     if (l.lfo !== 'none') sel.append(select('LFO wave', WAVES, l.lfoWave, (v) => { l.lfoWave = v; edited(k); }, { sawtooth: 'saw' }));
     if (p.layers.length > 1) sel.appendChild(removeLayerBtn(p, i, k));
     box.appendChild(sel);
+    // LFO rate/depth right under the selector (was buried at the bottom of the layer).
+    if (l.lfo !== 'none') {
+      const g = el('div', 'snd-group snd-lfo-top'); g.appendChild(el('small', null, 'LFO'));
+      for (const key of ['lfoRate', 'lfoDepth']) g.appendChild(layerSlider(p, i, k, key));
+      box.appendChild(g);
+    }
     if (l.kind === 'mic') box.appendChild(micBlock());
     box.appendChild(seqBlock(p, i, k));
     for (const [title, keys] of GROUPS) {
-      if (title === 'LFO' && l.lfo === 'none') continue;
+      if (title === 'LFO') continue; // rendered above, next to the LFO selector
       const g = el('div', 'snd-group'); g.appendChild(el('small', null, title));
       for (const key of keys) {
         if ((l.kind === 'noise' || l.kind === 'mic') && ['freq', 'detune', 'unison', 'spread', 'sub', 'pitchAmt', 'pitchTime'].includes(key)) continue;
@@ -350,10 +370,19 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     box.appendChild(el('legend', null, `Layer ${i + 1} · 🎵 Sampler`));
     const sel = el('div', 'snd-sel');
     sel.append(select('Filter', FILTERS, l.filter, (v) => { l.filter = v; edited(k); }));
-    sel.append(select('LFO', LFO_TARGETS, l.lfo, (v) => { l.lfo = v; edited(k, true); }, { none: 'LFO off', pitch: 'LFO → pitch', cutoff: 'LFO → cutoff', amp: 'LFO → amp' }));
+    sel.append(select('LFO', LFO_TARGETS, l.lfo, (v) => {
+      l.lfo = v;
+      if (v !== 'none' && !(l.lfoDepth > 0)) l.lfoDepth = 0.35;
+      edited(k, true);
+    }, { none: 'LFO off', pitch: 'LFO → pitch', cutoff: 'LFO → cutoff', amp: 'LFO → amp' }));
     if (l.lfo !== 'none') sel.append(select('LFO wave', WAVES, l.lfoWave, (v) => { l.lfoWave = v; edited(k); }, { sawtooth: 'saw' }));
     if (p.layers.length > 1) sel.appendChild(removeLayerBtn(p, i, k));
     box.appendChild(sel);
+    if (l.lfo !== 'none') {
+      const g = el('div', 'snd-group snd-lfo-top'); g.appendChild(el('small', null, 'LFO'));
+      for (const key of ['lfoRate', 'lfoDepth']) g.appendChild(layerSlider(p, i, k, key));
+      box.appendChild(g);
+    }
     box.appendChild(seqBlock(p, i, k));
     // file: drag-and-drop (desktop) or the picker (iPhone: Files, Voice Memos via Files, iCloud …)
     const drop = el('div', 'smp-drop'); drop.dataset.drop = 'sampler';
@@ -396,7 +425,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     box.appendChild(sw);
     if (l.loop && l.whole) box.appendChild(el('p', 'hint', 'Looping: the envelope (Hold + Release) decides how long it plays.'));
     for (const [title, keys] of SAMPLER_GROUPS) {
-      if (title === 'LFO' && l.lfo === 'none') continue;
+      if (title === 'LFO') continue; // rendered above, next to the LFO selector
       const g = el('div', 'snd-group'); g.appendChild(el('small', null, title));
       for (const key of keys) {
         if (!l.loop && ['loopStart', 'loopEnd', 'xfade'].includes(key)) continue;

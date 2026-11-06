@@ -18,8 +18,9 @@ export function seededLook(AV, seed) {
   const r = seededRandom(seed), any = (list) => list[Math.floor(r() * list.length)];
   const look = {
     outfit: any(Object.keys(AV.outfits)), hair: any(Object.keys(AV.hair)), shirt: any(AV.colors.shirt), pants: any(AV.colors.pants),
-    hairColor: any(AV.colors.hair), skin: any(AV.colors.skin), hat: r() < 0.3, hatColor: any(AV.colors.hat),
+    hairColor: any(AV.colors.hair), skin: any(AV.colors.skin),
+    shoes: any(AV.colors.shoes || ['#222222']), hat: r() < 0.3, hatColor: any(AV.colors.hat),
   };
-  if (r() < 0.25 && AV.colors.face) look.face = any(AV.colors.face); // now and then a face colour of its own
+  // Face colour UI is gone (t587u); room characters no longer roll a separate face colour.
   return look;
 }

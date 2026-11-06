@@ -18,6 +18,7 @@ import { cleanFabrics } from '../../shared/fabric.mjs';
 import { acquireFabric, releaseFabric, makeFabricable, setFabric, tickFabric } from './fabrics.js';
 import { Mouth, MOUTH } from './mouth.js';
 import { FACE, isFaceTriangle, effectiveFabrics } from './face.js';
+import { ownsLockedFace, applyLockedFace } from '../../shared/lockedface.mjs';
 import { cleanInsta } from '../../shared/insta.mjs';
 export { cleanInsta };
 import { rollLookOnRestart } from './restartlook.js';
@@ -35,25 +36,28 @@ export const FACE_HEX = /^#[0-9a-f]{6}$/i;
 const pickColor = (v, list, def) => (typeof v === 'string' && list.includes(v.toLowerCase()) ? v.toLowerCase() : def);
 export function normalizeLook(l) {
   const d = AV.default; l = l && typeof l === 'object' ? l : {};
-  return {
+  const out = {
     outfit: AV.outfits[l.outfit] ? l.outfit : d.outfit,
     hair: AV.hair[l.hair] ? l.hair : d.hair,
     shirt: pickColor(l.shirt, AV.colors.shirt, d.shirt),
     pants: pickColor(l.pants, AV.colors.pants, d.pants),
     hairColor: pickColor(l.hairColor, AV.colors.hair, d.hairColor),
     skin: pickColor(l.skin, AV.colors.skin, d.skin),
+    shoes: pickColor(l.shoes, AV.colors.shoes, d.shoes || '#222222'),
     hat: l.hat === true,
     hatColor: pickColor(l.hatColor, AV.colors.hat, d.hatColor),
     ...(typeof l.face === 'string' && FACE_HEX.test(l.face) ? { face: l.face.toLowerCase() } : {}), // own face colour; absent = skin
     ...(cleanFabrics(l.fabric) ? { fabric: cleanFabrics(l.fabric) } : {}), // tyger (valfritt), se shared/fabric.mjs
     ...(cleanInsta(l.insta) ? { insta: cleanInsta(l.insta) } : {}), // Instagram name (shared/insta.mjs)
   };
+  // Jens (t587u): lock @jensreglermanniska's face photo (scale included); no face colour of its own.
+  return ownsLockedFace(out) ? applyLockedFace(out) : out;
 }
 const any = (list) => list[Math.floor(Math.random() * list.length)];
 export function randomLook() {
   return normalizeLook({
     outfit: any(Object.keys(AV.outfits)), hair: any(Object.keys(AV.hair)), shirt: any(AV.colors.shirt), pants: any(AV.colors.pants),
-    hairColor: any(AV.colors.hair), skin: any(AV.colors.skin), hat: Math.random() < 0.3, hatColor: any(AV.colors.hat),
+    hairColor: any(AV.colors.hair), skin: AV.default.skin, shoes: any(AV.colors.shoes), hat: Math.random() < 0.3, hatColor: any(AV.colors.hat),
   });
 }
 // Samma regler som servern: inga kontroll-/osynliga tecken, högst 24 tecken (emoji klipps inte itu).
@@ -119,7 +123,7 @@ function addFaceGroups(scene) {
 
 // Vilken roll har ett material på en viss del? (hud, hår, tröja, byxor eller ingen)
 const PART_ROLE = {};
-for (const o of Object.values(AV.outfits)) { PART_ROLE[o.body] = { shirt: o.shirt }; PART_ROLE[o.legs] = { pants: o.pants }; PART_ROLE[o.feet] = {}; }
+for (const o of Object.values(AV.outfits)) { PART_ROLE[o.body] = { shirt: o.shirt }; PART_ROLE[o.legs] = { pants: o.pants }; PART_ROLE[o.feet] = { shoes: o.shoes }; }
 for (const hh of Object.values(AV.hair)) PART_ROLE[hh.head] = { hair: hh.hair };
 const PARTS = new Set(Object.keys(PART_ROLE));
 function roleOf(part, mat) {
@@ -130,6 +134,7 @@ function roleOf(part, mat) {
   if (r.hair === mat) return 'hair';
   if (r.shirt === mat) return 'shirt';
   if (r.pants === mat) return 'pants';
+  if (r.shoes === mat) return 'shoes';
   return null;
 }
 
@@ -237,7 +242,7 @@ export class Avatar {
     this.model.scale.setScalar(SCALE);
     this.root.add(this.model);
     this.parts = {}; // delnamn -> [meshar]
-    this.mats = { skin: [], skinDark: [], brows: [], hair: [], shirt: [], pants: [], face: [], faceDark: [] };
+    this.mats = { skin: [], skinDark: [], brows: [], hair: [], shirt: [], pants: [], shoes: [], face: [], faceDark: [] };
     this.faceFeatures = []; // the head's eyes and eyebrows (hidden under a face photo, which has its own)
     this.model.traverse((o) => {
       if (!o.isMesh) return;
@@ -275,7 +280,7 @@ export class Avatar {
     // Tyger: varje färgplats kan bära en upprepad bild (fabrics.js). Huden har två material (mörkare skugga).
     for (const [role, list] of Object.entries(this.mats)) for (const m of list) makeFabricable(m, { tint: role === 'skinDark' || role === 'faceDark' ? 0.82 : 1, face: role === 'face' || role === 'faceDark' ? FACE : null });
     makeFabricable(capMat);
-    this.slotMats = { shirt: this.mats.shirt, pants: this.mats.pants, hair: this.mats.hair, skin: [...this.mats.skin, ...this.mats.skinDark], hat: [capMat], face: [...this.mats.face, ...this.mats.faceDark] };
+    this.slotMats = { shirt: this.mats.shirt, pants: this.mats.pants, hair: this.mats.hair, skin: [...this.mats.skin, ...this.mats.skinDark], shoes: this.mats.shoes, hat: [capMat], face: [...this.mats.face, ...this.mats.faceDark] };
     this.fab = {}; // plats -> { id, f, tex, ok }
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = {};
@@ -293,7 +298,7 @@ export class Avatar {
     for (const [p, list] of Object.entries(this.parts)) for (const m of list) m.visible = show.has(p);
     const set = (role, hex, mul = 1) => this.mats[role].forEach((m) => { m.color.set(hex); if (mul !== 1) m.color.multiplyScalar(mul); });
     set('skin', L.skin); set('skinDark', L.skin, 0.82); set('hair', L.hairColor); set('brows', L.hairColor, 0.55);
-    set('shirt', L.shirt); set('pants', L.pants);
+    set('shirt', L.shirt); set('pants', L.pants); set('shoes', L.shoes || '#222222');
     set('face', L.face || L.skin); set('faceDark', L.face || L.skin, 0.82);
     this.cap.visible = L.hat; this.capMat.color.set(L.hatColor);
     this.applyFabrics(effectiveFabrics(L));

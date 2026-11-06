@@ -360,11 +360,15 @@ export class Voice {
         src.connect(g);
         this.monSrc = src;
       }
-      g.connect(ctx.destination);
+      // t588u: through the listener FX (+ city place) instead of straight to the speakers.
+      const eng = this.sound && this.sound.engine;
+      if (eng && eng.plugEars) eng.plugEars(g); else g.connect(ctx.destination);
       this.monGain = g;
     } catch (e) { this.log.push('monitor: ' + e.message); this.stopMonitor(); }
   }
   stopMonitor() {
+    const eng = this.sound && this.sound.engine;
+    if (eng && eng.unplugEars && this.monGain) { try { eng.unplugEars(this.monGain); } catch { /* ok */ } }
     try { this.monSrc && this.monSrc.disconnect(); } catch { /* ok */ }
     try { this.monGain && this.monGain.disconnect(); } catch { /* ok */ }
     if (this.fxChain && this.fxChain.tap && this.monGain) {
@@ -407,7 +411,10 @@ export class Voice {
     if (ctx && ctx.state === 'running' && ctx.createMediaStreamSource) {
       try {
         p.src = ctx.createMediaStreamSource(stream); p.gain = ctx.createGain();
-        p.src.connect(p.gain).connect(ctx.destination);
+        p.src.connect(p.gain);
+        // t588u: other players' voices through my listener FX (+ city place), not raw speakers.
+        const eng = this.sound && this.sound.engine;
+        if (eng && eng.plugEars) eng.plugEars(p.gain); else p.gain.connect(ctx.destination);
         p.analyser = ctx.createAnalyser(); p.analyser.fftSize = 512; p.buf = new Float32Array(p.analyser.fftSize); p.src.connect(p.analyser);
         p.audio.muted = true;
       } catch { p.gain = null; p.audio.muted = false; }
@@ -417,6 +424,7 @@ export class Voice {
   drop(id) {
     const p = this.peers.get(id); if (!p) return;
     try { p.pc.close(); } catch { /* */ }
+    try { const eng = this.sound && this.sound.engine; if (eng && eng.unplugEars && p.gain) eng.unplugEars(p.gain); } catch { /* */ }
     try { p.src && p.src.disconnect(); p.gain && p.gain.disconnect(); p.analyser && p.analyser.disconnect(); } catch { /* */ }
     if (p.audio) { p.audio.srcObject = null; p.audio.remove(); }
     if (p.talking) this.onSpeaking(id, false, 0);

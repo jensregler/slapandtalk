@@ -288,7 +288,7 @@ export const EN = {
   dkAlready: 'already in your deck', dkPickFor: 'replaces →', dkChoose: 'tap a deck sticker', dkAdd: (n) => `＋ Add without replacing (room for ${n})`,
   dkSave: '✓ Put them in my deck', dkLater: 'Later', dkSaved: 'They are in your deck now – also outside the city.', dkInDeck: '✓ In your deck', dkPut: '🃏 Put in my deck',
   doorChoose3: 'choose 3 slaps to bring', doorPack: 'pack them →', doorNamePac: 'name your pac', doorDraw: '✏️ draw on it', doorToCity: 'to city →',
-  outfit: 'Outfit', hair: 'Hair', shirt: 'Top', pants: 'Trousers', hairColor: 'Hair colour', skin: 'Skin', cap: 'Cap',
+  outfit: 'Outfit', hair: 'Hair', shirt: 'Top', pants: 'Trousers', hairColor: 'Hair colour', skin: 'Skin', shoes: 'Shoes', cap: 'Cap',
   capColour: 'Cap colour',
   avRoomCharacter: 'In this room you are a surprise character, made just for you. Your own avatar is back in your other rooms – your name you can still change here.',
   face: 'Face', faceSameAsSkin: 'Same as skin', faceSameAsSkinTitle: 'The face follows the skin colour (and skin fabric)',

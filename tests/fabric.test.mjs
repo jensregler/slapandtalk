@@ -40,8 +40,8 @@ const seeded = (seed) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let 
   for (const bad of [null, 'x', 42, [], { id: 'ABCDEF0123456789' }, { id: '0123' }, { id: ID + '0' }, { id: '../../etc/passwd' }, { id: 7 }]) {
     assert(cleanFabric(bad) === null, `ogiltigt tyg nekas: ${JSON.stringify(bad)}`);
   }
-  const fs1 = cleanFabrics({ shirt: { id: ID }, shoes: { id: ID }, __proto__: { id: ID }, pants: { id: 'nope' }, hat: { id: ID2, scale: 3 } });
-  assert(same(Object.keys(fs1), ['shirt', 'hat']) && fs1.hat.scale === 3, 'bara kända platser (shirt, pants, hair, skin, hat) och giltiga id:n behålls');
+  const fs1 = cleanFabrics({ shirt: { id: ID }, boots: { id: ID }, __proto__: { id: ID }, pants: { id: 'nope' }, hat: { id: ID2, scale: 3 }, shoes: { id: ID, scale: 1.5 } });
+  assert(same(Object.keys(fs1), ['shirt', 'shoes', 'hat']) && fs1.hat.scale === 3 && fs1.shoes.scale === 1.5, 'bara kända platser (inkl. shoes) och giltiga id:n behålls; okända (boots) och trasiga (pants) åker');
   assert(cleanFabrics({}) === null && cleanFabrics(null) === null && cleanFabrics([]) === null && cleanFabrics('x') === null && cleanFabrics({ shirt: { id: 'x' } }) === null,
     'inga giltiga tyger = null (looken ser ut precis som förut)');
   const p = fabricPhase(cleanFabric({ id: ID, rot: 10, hue: 20, spin: true, spinHz: 0.5, cycleHue: true, hueHz: 0.25, scroll: 1 }), 1_000_000_001_000);
@@ -140,7 +140,7 @@ try {
     c.ready = new Promise((r) => ws.on('open', r)).then(() => c.send({ t: 'hello', ...hello }));
     return c;
   };
-  const fab = { shirt: { id: m1.id, scale: 2.5, rot: 45, hue: 200, cycleHue: true, hueHz: 0.5, spin: true, spinHz: 0.2, scroll: 0.3 }, hat: { id: 'trasigt' }, shoes: { id: m1.id } };
+  const fab = { shirt: { id: m1.id, scale: 2.5, rot: 45, hue: 200, cycleHue: true, hueHz: 0.5, spin: true, spinHz: 0.2, scroll: 0.3 }, hat: { id: 'trasigt' }, boots: { id: m1.id } };
   const a = client('fab-rt', { name: 'Anna', look: { outfit: 'punk', hat: true, fabric: fab }, unlock: { key: FULL_KEY } });
   await a.ready; await a.wait((m) => m.t === 'welcome');
   const b = client('fab-rt', { name: 'Bosse', look: { outfit: 'tshirt' } });

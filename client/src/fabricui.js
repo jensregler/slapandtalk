@@ -6,8 +6,8 @@ import { randomFabricParams } from '../../shared/fabric.mjs';
 import { readMine, getBlob } from './designs.js';
 import { has } from './entitlements.js';
 
-export const SLOTS = { shirt: 'shirt', pants: 'pants', hair: 'hairColor', skin: 'skin', hat: 'hatColor', face: 'face' }; // plats -> färgfältet i looken
-const SLOT_LABEL = { shirt: () => S.shirt, pants: () => S.pants, hair: () => S.hairColor, skin: () => S.skin, hat: () => S.capColour, face: () => S.face };
+export const SLOTS = { shirt: 'shirt', pants: 'pants', hair: 'hairColor', skin: 'skin', shoes: 'shoes', hat: 'hatColor', face: 'face' }; // plats -> färgfältet i looken
+const SLOT_LABEL = { shirt: () => S.shirt, pants: () => S.pants, hair: () => S.hairColor, skin: () => S.skin, shoes: () => S.shoes, hat: () => S.capColour, face: () => S.face };
 const RECENT_KEY = 'klibb.fabrics', PRESET_KEY = 'klibb.fabricPresets', FROM_STICKER_KEY = 'klibb.fabricFromSticker';
 const ID_RE = /^[a-f0-9]{16}$/;
 const readJson = (k, def) => { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v && typeof v === 'object' ? v : def; } catch { return def; } };
@@ -108,12 +108,7 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     up.onclick = () => { fileSlot = slot; filePhoto = false; file.click(); };
     const hint = document.createElement('small'); hint.textContent = f?.photo ? `${S.facePhotoOn} ${S.fabPickHint}` : f ? S.fabPickHint : `${S.fabNone} ${S.fabPickHint}`;
     const srcBtns = [up];
-    if (slot === 'face') { // the face: a photo of a face, mapped once onto the front of the head
-      const ph = document.createElement('button'); ph.type = 'button'; ph.className = 'fab-up fab-photo'; ph.textContent = S.facePhoto; ph.title = S.facePhotoTitle;
-      if (f?.photo) ph.classList.add('sel');
-      ph.onclick = () => { fileSlot = slot; filePhoto = true; file.click(); };
-      srcBtns.push(ph);
-    }
+    // face photo UI removed (t587u: face locked)
     const picks = document.createElement('div'); picks.className = 'fab-picks';
     const curId = f?.id;
     const fromSticker = readJson(FROM_STICKER_KEY, {}), presetIds = readJson(PRESET_KEY, {});
@@ -160,12 +155,24 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     if (wild && home && wild.parentElement !== home) home.appendChild(wild);
     let wildPlaced = false;
     for (const row of document.querySelectorAll('#avatar-panel .fab-slot')) {
-      const slot = row.dataset.slot, f = full ? d.fabric?.[slot] || null : null;
+      const slot = row.dataset.slot;
+      if (slot === 'face') { row.hidden = true; continue; } // face locked / no UI (t587u)
+      const f = full ? d.fabric?.[slot] || null : null;
       if (f) { modes[slot] = 'fabric'; params[slot] = f; }
       if (!full) modes[slot] = 'color';
+      // Skin: colour picker removed (t588u). Default closed; Fabric button opens the fabric panel.
+      if (slot === 'skin' && !f) modes[slot] = 'color';
       const mode = modes[slot] === 'fabric' ? 'fabric' : 'color';
       const head = row.querySelector('.fab-head');
-      head.querySelector('.fab-seg')?.remove(); if (full) head.appendChild(seg(slot, mode));
+      head.querySelector('.fab-seg')?.remove();
+      if (full && slot === 'skin') {
+        // Fabric-only toggle (no Colour button – that picker lives on Shoes now).
+        const box = document.createElement('div'); box.className = 'fab-seg'; box.setAttribute('role', 'group');
+        const b = document.createElement('button'); b.type = 'button'; b.dataset.mode = 'fabric'; b.textContent = S.fabFabric;
+        b.setAttribute('aria-pressed', String(mode === 'fabric')); if (mode === 'fabric') b.classList.add('sel');
+        b.onclick = () => { modes[slot] = 'fabric'; if (params[slot]?.id) setSlot(slot, cleanFabric(params[slot])); else setDraft({}, { rerender: true }); };
+        box.appendChild(b); head.appendChild(box);
+      } else if (full) head.appendChild(seg(slot, mode));
       row.querySelector('.fab-ctl')?.remove(); row.querySelector('.fab-base')?.remove();
       const sw = row.querySelector('.swatches');
       if (mode === 'fabric') {
@@ -201,7 +208,7 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
   // 🌀 Randomize: färger, kläder och tyger på det mesta, med galna värden.
   async function wild(baseLook) {
     const sources = [...Object.keys(PRESETS).map((k) => () => idForPreset(k)), ...readMine().slice(-10).map((st) => () => idForSticker(st)), ...readRecent().map((id) => async () => id)];
-    const slots = Object.keys(SLOTS).filter((s) => (s === 'skin' || s === 'face' ? Math.random() < 0.35 : Math.random() < 0.8));
+    const slots = Object.keys(SLOTS).filter((s) => s !== 'face').filter((s) => (s === 'skin' ? Math.random() < 0.35 : Math.random() < 0.8));
     busy++; toast(S.randomizing, 1500);
     try {
       const ids = await Promise.all(slots.map(() => sources[Math.floor(Math.random() * sources.length)]().catch(() => null)));

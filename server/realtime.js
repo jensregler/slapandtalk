@@ -98,24 +98,33 @@ const GUEST_RE = /^(guest|g[äa]st)\s*\d*$/i;
 const ALL = { fabrics: true, soundDesign: true }; // cleanLook(l) without flags: trust (recordings, tests)
 // Same rule as shared/insta.mjs (ESM; tests/stickermenu.test.mjs checks they agree).
 const cleanInsta = (v) => String(v ?? '').trim().replace(/^@+/, '').replace(/[^A-Za-z0-9._]/g, '').slice(0, 30).toLowerCase();
+const LOCKED_FACE_INSTA = 'jensreglermanniska';
+const LOCKED_FACE = Object.freeze({ id: '70cf6e844298da52', scale: 1.15, rot: 0, hue: 0, hueHz: 0.25, spinHz: 0.1, scroll: 0, cycleHue: false, spin: false, photo: true });
 function cleanLook(l, ent = ALL) {
   const d = AV.default; l = l && typeof l === 'object' ? l : {};
   const pick = (v, list, def) => (typeof v === 'string' && list.includes(v.toLowerCase()) ? v.toLowerCase() : def);
-  return {
+  const out = {
     outfit: AV.outfits[l.outfit] ? l.outfit : d.outfit,
     hair: AV.hair[l.hair] ? l.hair : d.hair,
     shirt: pick(l.shirt, AV.colors.shirt, d.shirt),
     pants: pick(l.pants, AV.colors.pants, d.pants),
     hairColor: pick(l.hairColor, AV.colors.hair, d.hairColor),
     skin: pick(l.skin, AV.colors.skin, d.skin),
+    shoes: pick(l.shoes, AV.colors.shoes || [], d.shoes || '#222222'),
     hat: l.hat === true,
     hatColor: pick(l.hatColor, AV.colors.hat, d.hatColor),
-    // The face's own colour (any #rrggbb, the face picker); absent = the same as the skin.
+    // The face's own colour (any #rrggbb); absent = the same as the skin. Locked owners drop it.
     ...(typeof l.face === 'string' && /^#[0-9a-f]{6}$/i.test(l.face) ? { face: l.face.toLowerCase() } : {}),
     ...(ent.fabrics ? fabricField(l.fabric) : {}),
     ...soundField(l.sound, ent),
     ...(cleanInsta(l.insta) ? { insta: cleanInsta(l.insta) } : {}), // the Instagram name (shared/insta.mjs: same rule)
   };
+  // Jens (t587u): @jensreglermanniska keeps the locked face photo (baked asset / uploads id).
+  if (out.insta === LOCKED_FACE_INSTA && ent.fabrics) {
+    delete out.face;
+    out.fabric = { ...(out.fabric || {}), face: { ...LOCKED_FACE } };
+  }
+  return out;
 }
 // look.sound (shared/synth.mjs): the seed for the player's own variation of the default sounds,
 // plus custom patches/FX for soundDesign players – clamped to the same ranges as the editor.

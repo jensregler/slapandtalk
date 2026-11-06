@@ -1,11 +1,13 @@
 // The synth engine: plays JSON patches (shared/synth.mjs) with Tone.js (MIT, lazy-loaded so
 // the first paint stays light). Every sound in the room is one of these patches:
 //   slap, peel, nope, step (footsteps), duff (backing paper landing).
-// Signal path per voice:  layers → [player/patch FX chain] → [spatial panner] → room bus → out
+// Signal path per voice (t588u listener FX):
+//   layers → [spatial panner] → room bus → [city place bus] → ears → [listener FX] → master → guard → speakers
 //   room bus = automatic, subtle acoustics from the room's materials (free, no UI)
-//   FX chain = filter → bitcrush → distortion → delay → reverb (paid "Sound settings")
-// FX chains and the room reverb are cached and shared; voices are short-lived and disposed
-// after they ring out, and at most MAX_VOICES play at once (phones stay fine).
+//   city place = position-based effects (shared/cityfx.mjs), already per-listener
+//   listener FX = MY copy of the room/sound-settings effect chain (filter→crush→dist→delay→reverb).
+//     Applied once, locally, to everything I hear (synths, samples, voice monitor, other voices).
+//     No per-source FX, no extra network messages. Voices are short-lived; MAX_VOICES caps polyphony.
 import { cleanPatch, cleanFx, delaySeconds, patchLength, samplerRate, FX_DEFAULTS, SYNTH } from '../../shared/synth.mjs';
 import { evalMods, compileMods, MOD } from '../../shared/lfo.mjs';
 import { ensureDecimator, makeDecimator, makeMods, makePlace } from './decimator.js';
@@ -29,18 +31,24 @@ export class SynthEngine {
   // Tone: the loaded module. ctx: a Tone context (Tone.getContext() or the one inside Tone.Offline).
   constructor(Tone, { output = null } = {}) {
     this.Tone = Tone;
-    this.out = new Tone.Gain(1);
+    this.out = new Tone.Gain(1);       // room-bus output (pre place / ears)
+    this.ears = new Tone.Gain(1);      // everything I hear lands here (post place)
+    this.master = new Tone.Gain(1);    // post listener-FX, into the guard
     // ears + speakers guard (audio-rate LFOs, many voices): a fast limiter, then a gentle tanh soft clip
     const raw = Tone.getContext().rawContext;
     const lim = raw.createDynamicsCompressor(); lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.1;
     const clip = raw.createWaveShaper(); clip.curve = softClipCurve(); clip.oversample = '2x';
-    this.out.connect(lim); lim.connect(clip); Tone.connect(clip, output || Tone.getDestination());
+    // Default path (no city place yet): out → ears → master → lim → clip → speakers
+    this.out.connect(this.ears); this.ears.connect(this.master);
+    this.master.connect(lim); lim.connect(clip); Tone.connect(clip, output || Tone.getDestination());
     this.guard = { lim, clip };
     this.roomIn = new Tone.Gain(1);
     this.roomDry = new Tone.Gain(1).connect(this.out);
     this.roomVerb = null; this.roomWet = 0; this.roomKey = '';
     this.roomIn.connect(this.roomDry);
-    this.chains = new Map(); // JSON(fx) -> { input, nodes, used }
+    this.chains = new Map(); // legacy per-source FX cache (kept for offline/tests; play() no longer routes through it)
+    this.listenerFx = null;  // { key, nodes, input } – one chain on ears → master
+    this.listenerFxKey = '';
     this.voices = [];        // end times (context seconds)
     this.stepVoices = [];    // the same for footsteps (pool 'step', MAX_STEP_VOICES)
     this.polys = new Map();  // sampler polyphony: sample hash → ringing voices [{ env, src, end }]
@@ -59,23 +67,25 @@ export class SynthEngine {
   }
 
   // ---------- The place bus (city: shared/cityfx.mjs) ----------
-  // Built ONCE (the first time a non-neutral place is set), between my master and the guard:
+  // Built ONCE (the first time a non-neutral place is set), between the room bus and my ears:
   //   out → low-pass → place worklet (flanger/chorus, decimate+bits, stutter/chop) → mix
-  //   mix → guard (dry) · mix → delay A (fb) → guard · mix → delay B (fb) → guard
-  //   mix → small reverb (0.9 s) → guard · mix → big reverb (5.5 s) → guard
+  //   mix → ears (dry) · mix → delay A/B → ears · mix → small/big reverb → ears
+  //   ears → [listener FX] → master → guard → speakers
   // After that only plain AudioParams move (setTargetAtTime, PLACE_SLEW): no graph rebuilds.
+  // Place follows MY position (per listener); nothing is sent to anyone.
   placeBus() {
     if (this.place) return this.place;
-    const T = this.Tone, ctx = this.raw, { lim } = this.guard;
+    const T = this.Tone, ctx = this.raw, ears = this.ears;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.5; lp.frequency.value = Math.min(20000, ctx.sampleRate / 2 - 100);
     const node = this.workletOk ? makePlace(T.getContext()) : null;
     const mix = ctx.createGain();
-    const tap = (max) => { const d = ctx.createDelay(max), fb = ctx.createGain(), send = ctx.createGain(); fb.gain.value = 0; send.gain.value = 0; mix.connect(send); send.connect(d); d.connect(fb); fb.connect(d); d.connect(lim); return { d, fb, send }; };
-    const verb = (decay, pre) => { const v = new T.Reverb({ decay, preDelay: pre, wet: 1 }), send = ctx.createGain(); send.gain.value = 0; mix.connect(send); T.connect(send, v); v.connect(lim); return { v, send }; };
-    try { this.out.disconnect(); } catch { /* ok */ }
+    const intoEars = (n) => { try { T.connect(n, ears); } catch { try { n.connect(ears.input || ears); } catch { /* ok */ } } };
+    const tap = (max) => { const d = ctx.createDelay(max), fb = ctx.createGain(), send = ctx.createGain(); fb.gain.value = 0; send.gain.value = 0; mix.connect(send); send.connect(d); d.connect(fb); fb.connect(d); intoEars(d); return { d, fb, send }; };
+    const verb = (decay, pre) => { const v = new T.Reverb({ decay, preDelay: pre, wet: 1 }), send = ctx.createGain(); send.gain.value = 0; mix.connect(send); T.connect(send, v); intoEars(v); return { v, send }; };
+    try { this.out.disconnect(); } catch { /* ok */ } // was out → ears
     T.connect(this.out, lp);
     if (node) { lp.connect(node); node.connect(mix); } else lp.connect(mix);
-    mix.connect(lim);
+    intoEars(mix);
     this.place = { lp, node, mix, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), last: null, sets: 0 };
     return this.place;
   }
@@ -109,7 +119,56 @@ export class SynthEngine {
     try { await verb.ready; } catch { /* old browsers */ }
   }
 
-  // A cached FX chain for this fx JSON (null fx / all wet 0 = straight to the room bus).
+  // ---------- Listener FX (t588u) ----------
+  // One effect chain on ears → master. Room/sound-settings still decide the parameters (synced as
+  // today via look.sound.fx / the room preset); each player applies THEIR copy locally to everything
+  // reaching their ears. plugEars() is how voice monitor + other players' voices join the same path.
+  setListenerFx(fx) {
+    const T = this.Tone, f = cleanFx(fx), key = fxActive(f) ? JSON.stringify(f) : '';
+    if (key === this.listenerFxKey) return this.listenerFx;
+    this.listenerFxKey = key;
+    try { this.ears.disconnect(); } catch { /* ok */ }
+    if (this.listenerFx) {
+      const old = this.listenerFx; this.listenerFx = null;
+      setTimeout(() => old.nodes.forEach((n) => { try { n.dispose(); } catch { /* ok */ } }), 500);
+    }
+    if (!key) { this.ears.connect(this.master); return null; }
+    const nodes = [];
+    const input = new T.Gain(1); nodes.push(input);
+    let last = input;
+    const add = (n) => { nodes.push(n); last.connect(n); last = n; return n; };
+    if (f.filter.wet > 0) {
+      const split = add(new T.Gain(1)), xf = new T.CrossFade(f.filter.wet), n = new T.Filter({ type: f.filter.type, frequency: f.filter.cutoff, Q: f.filter.q });
+      split.connect(xf.a); split.connect(n); n.connect(xf.b); nodes.push(n, xf); last = xf;
+    }
+    if (f.crush.wet > 0) { const n = new T.BitCrusher(f.crush.bits); n.wet.value = f.crush.wet; add(n); }
+    if (f.dist.wet > 0) { const n = new T.Distortion(f.dist.amount); n.wet.value = f.dist.wet; add(n); }
+    if (f.delay.wet > 0) {
+      const sec = delaySeconds(f.delay);
+      const n = f.delay.pingPong ? new T.PingPongDelay({ delayTime: sec, feedback: f.delay.feedback, maxDelay: 1.6 }) : new T.FeedbackDelay({ delayTime: sec, feedback: f.delay.feedback, maxDelay: 1.6 });
+      n.wet.value = f.delay.wet; add(n);
+    }
+    if (f.reverb.wet > 0) { const n = new T.Reverb({ decay: f.reverb.decay, preDelay: f.reverb.preDelay }); n.wet.value = f.reverb.wet; add(n); }
+    this.ears.connect(input); last.connect(this.master);
+    this.listenerFx = { key, input, nodes };
+    return this.listenerFx;
+  }
+  // Connect a raw Web Audio node (voice monitor, remote peer) into my ears so it gets listener FX + place.
+  plugEars(node) {
+    if (!node) return;
+    try { this.Tone.connect(node, this.ears); } catch {
+      try { node.connect(this.ears.input || this.ears); } catch { /* ok */ }
+    }
+  }
+  unplugEars(node) {
+    if (!node) return;
+    try { this.Tone.disconnect(node, this.ears); } catch {
+      try { node.disconnect(this.ears.input || this.ears); } catch { /* ok */ }
+    }
+  }
+
+  // A cached FX chain for this fx JSON. Kept for offline rendering / tests; live play() routes
+  // through the listener FX instead (t588u), so per-source FX is no longer heard by others.
   chain(fx) {
     const f = cleanFx(fx); if (!fxActive(f)) return this.roomIn;
     const key = JSON.stringify(f);
@@ -157,7 +216,8 @@ export class SynthEngine {
     if (this[key].length >= (step ? MAX_STEP_VOICES : pool === 'seq' ? MAX_SEQ_VOICES : MAX_VOICES)) return false;
     this[key].push(t0 + len);
     const nodes = [];
-    const dest = this.chain(p.fx || fx);
+    // t588u: no per-source FX – everything shares the listener chain on ears → master.
+    const dest = this.roomIn;
     let out = dest.input || dest;
     if (pos) {
       const pan = ctx.createPanner();

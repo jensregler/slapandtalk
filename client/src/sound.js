@@ -5,7 +5,9 @@
 //   duff  – the backing paper landing; bigger paper = louder and lower
 // Each player has their own variation of the defaults, picked deterministically from a seed in
 // their look (look.sound.seed), so everyone hears YOUR slap the same way with no extra traffic.
-// Paid "Sound settings" can replace a patch and add an FX chain (look.sound.patches / .fx).
+// Paid "Sound settings" can replace a patch and set an FX chain (look.sound.patches / .fx).
+// FX follows the LISTENER (t588u): my local copy of the chain colours everything I hear
+// (my sounds, others' sounds, voice monitor, remote voices) – not per-source, not sent as audio.
 // Other people's sounds are spatial (HRTF panner, quieter with distance). The room's materials
 // add a subtle, automatic reverb (roomAcoustics). Mute is remembered ('klibb.muted').
 import { DEFAULT_PATCHES, variant, morphPatch, cleanPatch, cleanFx, duffScale, slapScale, retune, roomAcoustics, colourPatch } from '../../shared/synth.mjs';
@@ -49,6 +51,7 @@ export class Sounds {
       this.engine = new SynthEngine(Tone);
       this.engine.out.gain.value = 0.9 * this.volume;
       this.engine.setRoom(this.room);
+      this.engine.setListenerFx(this.mine && this.mine.fx ? cleanFx(this.mine.fx) : null);
       return this.engine;
     }).catch((e) => { console.warn('synth', e); return null; });
     return this.ctx;
@@ -61,7 +64,13 @@ export class Sounds {
   setMuted(m) { this.muted = !!m; localStorage.setItem(MUTE_KEY, this.muted ? '1' : '0'); }
   // a mic layer was made / switched on: ask for the mic (mic.js). → true when it is on
   async useMic() { this.ensure(); await this.ready; return this.engine ? this.engine.useMic() : false; }
-  setMine(sound) { this.mine = sound || null; if (sound?.patches && this.ensure()) ensureSamples(sound.patches, this.ctx); } // (sampler layers' audio from this device)
+  setMine(sound) {
+    this.mine = sound || null;
+    if (sound?.patches && this.ensure()) ensureSamples(sound.patches, this.ctx); // (sampler layers' audio from this device)
+    // Listener FX: apply MY fx locally to everything reaching my ears (t588u).
+    const apply = (eng) => { if (eng) eng.setListenerFx(sound && sound.fx ? cleanFx(sound.fx) : null); };
+    if (this.engine) apply(this.engine); else if (this.ready) this.ready.then(apply);
+  }
   // Room style ({ floor, wall, ceiling }) → automatic acoustics.
   setRoom(style) { this.room = roomAcoustics(style); if (this.engine) this.engine.setRoom(this.room); }
   // Where am I and which way am I looking (call every frame with the camera).
@@ -137,8 +146,8 @@ export class Sounds {
     } else { this.log.push(entry); if (this.log.length > 50) this.log.shift(); }
     if (this.muted) return entry;
     if (!this.ensure()) return entry;
-    const fx = who && who.fx ? cleanFx(who.fx) : null;
-    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, fx, pos: remote ? at : null, time, pool: kind === 'step' ? 'step' : 'main', paper })) entry.skipped = true; };
+    // FX is on the listener chain (setMine → setListenerFx), not per voice.
+    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, pos: remote ? at : null, time, pool: kind === 'step' ? 'step' : 'main', paper })) entry.skipped = true; };
     if (this.engine) go(this.engine);
     else if (time == null) { const t = Date.now(); this.ready.then((eng) => { if (Date.now() - t < 400) go(eng); }); } // the very first sound waits for Tone.js
     return entry;
@@ -146,11 +155,20 @@ export class Sounds {
   // The radio's loops (radio.js): a patch (or one layer of it) at an AudioContext time, with my effects.
   playPatch(patch, { time = null, layer = null, gain = 1, gate = null, length = null } = {}) {
     if (this.muted || !this.engine || !patch) return false;
-    const fx = this.mine && this.mine.fx ? cleanFx(this.mine.fx) : null;
-    return this.engine.play(patch, { gain: gain * this.volumeOf(), fx, time, layer, gate, length, pool: 'seq' });
+    return this.engine.play(patch, { gain: gain * this.volumeOf(), time, layer, gate, length, pool: 'seq' });
   }
   volumeOf() { return 1; }
   // Preview a patch (the Sound settings editor), dry, at my position.
-  preview(patch, fx = null) { if (!this.ensure()) return Promise.resolve(false); return this.ready.then(async (eng) => { if (!eng) return false; await ensureSamples({ p: patch }, this.ctx); return eng.play(patch, { fx }); }); }
+  preview(patch, fx = null) {
+    if (!this.ensure()) return Promise.resolve(false);
+    return this.ready.then(async (eng) => {
+      if (!eng) return false;
+      await ensureSamples({ p: patch }, this.ctx);
+      // Preview uses the listener chain; if the editor passes a draft fx, apply it for the preview.
+      if (fx) eng.setListenerFx(fx);
+      else eng.setListenerFx(this.mine && this.mine.fx ? cleanFx(this.mine.fx) : null);
+      return eng.play(patch, {});
+    });
+  }
   get maxVoices() { return MAX_VOICES; }
 }
