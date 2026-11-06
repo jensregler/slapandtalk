@@ -160,7 +160,10 @@ const EXIT = 'a03b0ba5768979e6';
     // ---- B on the start card: the Join list shows the city's name
     const ctxB = await browser.newContext({ viewport: { width: 1280, height: 860 } });
     const B = await ctxB.newPage(); B.on('pageerror', (e) => errors.push('B: ' + e.message));
-    await B.goto(`${S.base}/?start=1`); await B.waitForSelector('#sc-list .sc-room', { timeout: 20000 }); await sleep(800);
+    await B.goto(`${S.base}/?start=1`);
+    await B.waitForSelector('#sc-splash, #sc-new', { timeout: 20000 });
+    if (!(await B.$('#sc-new'))) { await B.click('#start-card'); await B.waitForSelector('#sc-new', { timeout: 10000 }); }
+    await B.click('#sc-join'); await B.waitForSelector('#sc-list .sc-room', { timeout: 20000 }); await sleep(800);
     const join = await B.evaluate(() => [...document.querySelectorAll('#sc-list .sc-room')].map((b) => ({ id: b.dataset.id, text: b.textContent })));
     check('start card Join list: the room in the city shows the city name ("🏙 Slapville · house 1")', join.some((r) => r.id === `${CID}-1` && r.text.includes('🏙 Slapville · house 1')), join);
     await shot(B, '09-join-list-with-city-name.png');

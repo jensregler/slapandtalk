@@ -16,6 +16,13 @@ const SHOTS = process.env.PRESETPICKER_SHOTS || '/workspace/presetpicker-shots';
 const ADMIN = 'presetpicker-e2e-admin';
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
+
+async function toMain(page) {
+  await page.waitForSelector('#sc-splash, #sc-new', { timeout: 15000 });
+  if (await page.$('#sc-new')) return;
+  await page.click('#start-card');
+  await page.waitForSelector('#sc-new', { timeout: 10000 });
+}
 const script = (base, ...a) => new Promise((ok) => execFile(process.execPath, [path.join(__dirname, '..', 'scripts', 'make-preset.js'), ...a, '--base', base], { env: { ...process.env, ADMIN_TOKEN: ADMIN }, timeout: 240000 }, (err, so, se) => ok({ err, so, se })));
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
@@ -27,10 +34,10 @@ const script = (base, ...a) => new Promise((ok) => execFile(process.execPath, [p
   const H = { 'x-admin-token': ADMIN };
   try {
     check('GET /api/presets: none yet → []', (await (await fetch(`${S.base}/api/presets`)).json()).presets.length === 0);
-    // the start card without presets: no room? row (as before)
+    // no presets yet: PRESET screen says so
     const p0 = await (await b.newContext({ viewport: { width: 1280, height: 1000 } })).newPage(); p0.on('pageerror', (e) => errs.push(e.message));
-    await p0.goto(`${S.base}/`); await p0.click('#sc-new'); await sleep(600);
-    check('no presets: the second card has no room? row', await p0.evaluate(() => document.getElementById('sc-preset-field').hidden));
+    await p0.goto(`${S.base}/`); await toMain(p0); await p0.click('#sc-new'); await p0.click('#sc-preset'); await sleep(600);
+    check('no presets: PRESET screen shows the empty message', await p0.evaluate(() => /No presets/i.test(document.querySelector('#sc-preset-list .sc-empty')?.textContent || '')));
     await p0.context().close();
 
     // ---- Jens designs a room with nature stickers; the script makes it a preset (+ its picture) ----
@@ -87,37 +94,31 @@ const script = (base, ...a) => new Promise((ok) => execFile(process.execPath, [p
     pub = (await (await fetch(`${S.base}/api/presets`)).json()).presets;
     check('the source rooms deleted (+ a restart): both presets still offered, with names and pictures', gone.missing.length === 2 && pub.length === 2 && pub[0].title === 'Skogen' && pub[0].thumb, { gone, pub });
 
-    // ---- the picker ----
-    const p = await (await b.newContext({ viewport: { width: 1280, height: 1000 } })).newPage(); p.on('pageerror', (e) => errs.push(e.message));
-    await p.goto(`${S.base}/`); await p.click('#sc-new');
-    await p.waitForSelector('#sc-preset-field:not([hidden])', { timeout: 10000 });
-    await p.fill('#sc-name', 'Jens'); await p.fill('#sc-insta', '@jensregler'); await p.fill('#sc-roomname', 'Malmö slaps');
-    check('the second card: room? = "Blank room" by default', await p.textContent('#sc-preset-name') === 'Blank room');
-    await sleep(300); await p.screenshot({ path: path.join(SHOTS, '01-new-room-card-blank.png') });
-    await p.click('#sc-preset'); await p.waitForSelector('#sc-pick-grid .sc-pick:nth-child(3)'); await sleep(1200);
-    const tiles = await p.evaluate(() => [...document.querySelectorAll('#sc-pick-grid .sc-pick')].map((t) => ({ id: t.dataset.id, name: t.querySelector('b').textContent, picked: t.classList.contains('sc-picked'), img: !!t.querySelector('img') && t.querySelector('img').naturalWidth > 0 })));
-    check('the picker: Blank room (picked) + both presets by name, each with a picture', tiles.length === 3 && tiles[0].id === '' && tiles[0].picked && tiles[1].name === 'Skogen' && tiles[1].img && tiles[2].name === 'Källaren' && tiles[2].img, tiles);
+    // ---- the Run-DMC PRESET list ----
+    const p = await (await b.newContext({ viewport: { width: 900, height: 1000 } })).newPage(); p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(`${S.base}/`); await toMain(p); await p.click('#sc-new'); await sleep(300);
+    await p.screenshot({ path: path.join(SHOTS, '01-new-room-card-blank.png') });
+    await p.click('#sc-preset'); await p.waitForSelector('#sc-preset-list .sc-preset-item', { timeout: 10000 }); await sleep(600);
+    const tiles = await p.evaluate(() => [...document.querySelectorAll('#sc-preset-list .sc-preset-item')].map((t) => ({ id: t.dataset.id, name: t.textContent })));
+    check('the PRESET list: both presets by name (Skogen, Källaren)', tiles.length === 2 && tiles.some((x) => /skogen/i.test(x.name)) && tiles.some((x) => /källaren|kallaren/i.test(x.name)), tiles);
     await p.screenshot({ path: path.join(SHOTS, '02-picker.png') });
-    await p.click('#sc-pick-grid .sc-pick:nth-child(2)'); await sleep(500);
-    check('choosing "Skogen": the card shows it (with its picture)', await p.textContent('#sc-preset-name') === 'Skogen' && await p.evaluate(() => !!document.querySelector('#sc-preset img')));
-    await p.screenshot({ path: path.join(SHOTS, '03-new-room-card-skogen.png') });
-    await p.click('#sc-save');
+    await p.click(`#sc-preset-list .sc-preset-item[data-id="${list1[0].id}"]`);
     await p.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.presetLayer && window.klibb.presetLayer().loaded >= 6, null, { timeout: 40000 });
-    const r = await p.evaluate(async () => { const j = (await (await fetch('/api/rooms/' + window.klibb.room)).json()).room; return { name: j.name, preset: j.preset && j.preset.id, floor: j.style.floor, stickers: j.stickers }; });
-    check('"save and enter": a new room "Malmö slaps" made from Skogen (its look + six images; its source room is gone)', r.name === 'Malmö slaps' && r.preset === list1[0].id && r.floor === 'betong', r);
+    const r = await p.evaluate(async () => { const j = (await (await fetch('/api/rooms/' + window.klibb.room)).json()).room; return { preset: j.preset && j.preset.id, floor: j.style.floor, stickers: j.stickers }; });
+    check('choosing "Skogen": a new room made from Skogen (its look + six images; its source room is gone)', r.preset === list1[0].id && r.floor === 'betong', r);
     await p.evaluate(() => { const k = window.klibb; k.setView?.('first', { quiet: true }); k.moveTo(0, 4.4); k.look(0, -0.12); }); await sleep(1500);
     await p.screenshot({ path: path.join(SHOTS, '04-room-from-skogen.png') });
-    // Blank: { preset: false } – no preset even though there are some (no random one)
-    const p3 = await (await b.newContext({ viewport: { width: 1280, height: 1000 } })).newPage(); p3.on('pageerror', (e) => errs.push(e.message));
-    await p3.goto(`${S.base}/`); await p3.click('#sc-new'); await p3.waitForSelector('#sc-preset-field:not([hidden])'); await p3.fill('#sc-name', 'Jens');
-    await p3.click('#sc-save'); await p3.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 40000 });
+    // EMPTY ROOM: { preset: false } – no preset even though there are some
+    const p3 = await (await b.newContext({ viewport: { width: 900, height: 1000 } })).newPage(); p3.on('pageerror', (e) => errs.push(e.message));
+    await p3.goto(`${S.base}/`); await toMain(p3); await p3.click('#sc-new'); await p3.click('#sc-empty');
+    await p3.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 40000 });
     const r3 = await p3.evaluate(async () => (await (await fetch('/api/rooms/' + window.klibb.room)).json()).room);
-    check('Blank room (left as it is): the new room has no preset', !r3.preset, r3);
+    check('EMPTY ROOM: the new room has no preset', !r3.preset, r3);
     // phone
     const m = await (await b.newContext({ viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })).newPage(); m.on('pageerror', (e) => errs.push(e.message));
-    await m.goto(`${S.base}/`); await m.tap('#sc-new'); await m.waitForSelector('#sc-preset-field:not([hidden])'); await sleep(500);
+    await m.goto(`${S.base}/`); await toMain(m); await m.tap('#sc-new'); await sleep(500);
     await m.screenshot({ path: path.join(SHOTS, '05-phone-new-room-card.png') });
-    await m.tap('#sc-preset'); await m.waitForSelector('#sc-pick-grid .sc-pick:nth-child(3)'); await sleep(1200);
+    await m.tap('#sc-preset'); await m.waitForSelector('#sc-preset-list .sc-preset-item'); await sleep(1200);
     await m.screenshot({ path: path.join(SHOTS, '06-phone-picker.png') });
     // deep links untouched
     const dl = await (await b.newContext()).newPage();

@@ -240,6 +240,7 @@ export const EN = {
   scEnter: 'enter', scNewRoom: 'new room', scHaveCode: '…or I have a code:', scJoin: '…or Join',
   scInCity: (n) => `a city · ${n === 1 ? '1 person' : `${n} people`} here`,
   scLoading: 'Looking for rooms…', scJoinNone: 'No open rooms with people in them right now – make a new one!', scJoinOffline: 'Could not fetch the rooms.',
+  scNoPresets: 'No presets yet – try Empty room.',
   scRoomFacts: (free, st, vis, age) => `${free} free spot${free === 1 ? '' : 's'} · ${st} sticker${st === 1 ? '' : 's'} · ${vis} visitor${vis === 1 ? '' : 's'} · ${age}`,
   scName: 'name?', scInsta: 'instagram @:', scRoomName: 'roomname?', scBack: 'back', scSaveEnter: 'save and enter', scMaking: 'Making your room…', scFailed: 'Could not make the room.',
   scRoomType: 'room?', scBlankRoom: 'Blank room', scPickChange: 'change ▸', scPickTitle: 'Choose your room',

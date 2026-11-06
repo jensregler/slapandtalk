@@ -1,7 +1,7 @@
 // Which part of the app starts? ?replay=<id> = the replay page, otherwise the room itself.
 // The page text is filled in from strings.js first. The server's config (config.js) decides if
 // this is the demo profile: then the name question and the room routing (demo.js) come first;
-// otherwise the plain address shows the start card (startcard.js); ?last=1 goes to your most
+// otherwise the plain address shows the Run-DMC start menu (startcard.js); ?last=1 goes to your most
 // recently used room (landing.js).
 import { applyStrings } from './strings.js';
 import { loadConfig, config } from './config.js';
@@ -19,8 +19,8 @@ async function start() {
     // shop's ?unlock= / ?thanks=1#unlock= return – go on to the room as before.
     const bare = [...q.keys()].every((k) => k === 'start') && !/unlock=/.test(location.hash);
     if (bare) {
-      // The plain address and ?start=1 (the exit sticker's "Exit to menu"): the Priority Mail start
-      // card (startcard.js; Jens, 31 Oct 2026) – it loads the chosen room itself.
+      // The plain address and ?start=1 (the exit sticker's "Exit to menu"): the Run-DMC start
+      // menu (startcard.js; Jens, 6 Nov 2026) – it loads the chosen room itself.
       const { showStartCard } = await import('./startcard.js');
       await showStartCard();
       return;
