@@ -8,7 +8,7 @@
 // Paid "Sound settings" can replace a patch and add an FX chain (look.sound.patches / .fx).
 // Other people's sounds are spatial (HRTF panner, quieter with distance). The room's materials
 // add a subtle, automatic reverb (roomAcoustics). Mute is remembered ('klibb.muted').
-import { DEFAULT_PATCHES, variant, morphPatch, cleanPatch, cleanFx, duffScale, retune, roomAcoustics, colourPatch } from '../../shared/synth.mjs';
+import { DEFAULT_PATCHES, variant, morphPatch, cleanPatch, cleanFx, duffScale, slapScale, retune, roomAcoustics, colourPatch } from '../../shared/synth.mjs';
 import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
 import { peelStepParams } from '../../shared/peelstep.mjs';
 import { ensureSamples } from './samples.js';
@@ -107,21 +107,27 @@ export class Sounds {
   }
   // kind: 'slap' | 'peel' | 'nope' | 'step' | 'duff'. at = [x, y, z] for a sound out in the
   // room (spatial), or null for my own. opts: { sound: that player's look.sound (default: mine),
-  // area: m² (duff), volume }.
+  // area: m² (duff + slap), size: m longest side (slap fallback → treated as square), volume }.
   // time: when (AudioContext seconds, the footstep groove schedules ahead); tune: extra pitch ratio.
   // onPeel + speed (m/s, footsteps only): the step lands on backing paper – the paper variant.
-  play(kind, at = null, { sound, area, volume = 1, time = null, tune = 1, onPeel = false, speed = 0, exact = false } = {}) {
+  play(kind, at = null, { sound, area, size, volume = 1, time = null, tune = 1, onPeel = false, speed = 0, exact = false } = {}) {
     const remote = !!at;
     const who = sound === undefined ? this.mine : sound;
     const wobble = exact ? 1 : kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06; // tiny per-play life
     let rate = wobble * tune, gain = volume * (VOLUME[kind] || [1, 1])[remote ? 1 : 0];
     if (kind === 'duff') { const s = duffScale(area); gain *= s.gain; rate *= s.rate; }
+    if (kind === 'slap' && (area != null || size != null)) {
+      const s = area != null ? duffScale(area) : slapScale(size);
+      gain *= s.gain; rate *= s.rate;
+    }
     const distance = remote ? Math.hypot(at[0] - this.listener.p[0], at[1] - this.listener.p[1], at[2] - this.listener.p[2]) : 0;
     // Same curve as the panner (inverse distance), so the log shows what you hear.
     const heard = remote ? 1.6 / (1.6 + Math.max(0, distance - 1.6)) : 1;
     const { patch, custom } = this.patchFor(kind, who);
     const entry = { kind, remote, distance: +distance.toFixed(2), gain: +heard.toFixed(3), level: +gain.toFixed(3), rate: +rate.toFixed(3),
-      seed: who?.seed || null, colour: who && Number.isInteger(who.colour) ? who.colour : 0, custom, muted: this.muted, time: Date.now(), ...(kind === 'duff' ? { area: +(+area || 0).toFixed(4) } : {}) };
+      seed: who?.seed || null, colour: who && Number.isInteger(who.colour) ? who.colour : 0, custom, muted: this.muted, time: Date.now(),
+      ...((kind === 'duff' || kind === 'slap') && area != null ? { area: +(+area || 0).toFixed(4) } : {}),
+      ...(kind === 'slap' && size != null ? { size: +(+size || 0).toFixed(4) } : {}) };
     const paper = kind === 'step' && onPeel ? peelStepParams(speed) : null;
     if (paper) { gain *= paper.gain; entry.paper = paper; }
     if (kind === 'step') {

@@ -213,7 +213,7 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
     await A.screenshot({ path: path.join(SHOTS, '07-sound-panel-radio-full.png') });
     // ---------- reload: the room preset comes back from the server ----------
-    await A.evaluate((R) => { sessionStorage.removeItem(`klibb.sound@${R}`); sessionStorage.removeItem(`klibb.radio@${R}`); }, R);
+    await A.evaluate((R) => { sessionStorage.removeItem('klibb.sound'); sessionStorage.removeItem(`klibb.radio@${R}`); }, R);
     await A.reload(); await A.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }); await A.evaluate(() => window.klibb.radioReady()); await sleep(500);
     const back = await A.evaluate(() => ({ mine: window.klibb.soundMine(), radio: window.klibb.radio().state }));
     check('reload (fresh tab copy): this room\'s preset is loaded from the server, radio as it was', back.mine.patches && back.mine.patches.slap.layers.some((l) => l.kind === 'sampler') && back.radio.knob === 0.5 && back.radio.bird.on, back.radio);

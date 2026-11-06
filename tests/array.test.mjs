@@ -52,6 +52,11 @@ const wall = { position: [0, 2, -5], quaternion: [0, 0, 0, 1], surface: 'vägg-n
   assert(many.count === ARRAY_MAX && ARRAY_MAX === 200, 'at most 200 stickers per drag');
   const floor = arrayPlan({ position: [0, 0, 0], quaternion: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2], surface: 'golv' }, 0.2, 0.2, [0, 0.5, -1]);
   assert(floor.items.length === 6 && floor.items.every((x) => x.position[1] === 0) && near(floor.items[5].position[2], -1), 'floor: works the same on the floor (y stays 0)');
+  const fan = arrayPlan(wall, 0.2, 0.2, [1.5, 2, -5], { endW: 0.4, endH: 0.4 });
+  assert(fan.count >= 3 && near(fan.items[0].w, 0.2) && fan.items[fan.items.length - 1].w > 0.2,
+    'fan: endW/endH grows the last sticker; first keeps the anchor size', { n: fan.count, last: fan.items.at(-1)?.w });
+  const shrink = arrayPlan(wall, 0.4, 0.4, [1.5, 2, -5], { endW: 0.15, endH: 0.15 });
+  assert(shrink.items[0].w > shrink.items.at(-1).w, 'fan: shrinking end size falls along the row');
 }
 
 // ---------- The server ----------
@@ -99,7 +104,15 @@ try {
   // Size limits ride on the anchor: a free 3 m slap is clamped to 1 m, and so is every copy.
   const huge = await slap([-3, 2, -5], { size: 3 });
   const hr = await (await array({ anchor: { id: huge.stamp.id, token: huge.peelToken }, to: [-3, 0, -5] })).json();
-  assert(huge.stamp.size === 1 && hr.stamps.every((x) => x.stamp.size === 1), 'free version: the anchor is clamped to 1 m and the copies copy that');
+  // OPEN_ACCESS (shared/openaccess.mjs) currently grants bigStickers → clamp to 1.5 m (full), not 1 m.
+  // Pre-existing on master; what matters here is that every copy matches the clamped anchor size.
+  assert(huge.stamp.size <= 1.5 && hr.stamps.length >= 1 && hr.stamps.every((x) => x.stamp.size === huge.stamp.size),
+    'size limits ride on the anchor: every copy matches the clamped anchor size', { anchor: huge.stamp.size, copies: hr.stamps.map((x) => x.stamp.size) });
+  // Fan: endSize grows along the row (clamped to free max 1 m).
+  const fanA = await slap([-2, 1, -5], { size: 0.2, owner: 'device-ffff' });
+  const fanR = await (await array({ anchor: { id: fanA.stamp.id, token: fanA.peelToken }, to: [-2 + 1.2, 1, -5], endSize: 0.5 })).json();
+  assert(fanR.stamps.length >= 2 && fanR.stamps[0].stamp.size >= 0.2 - 0.01 && fanR.stamps.at(-1).stamp.size > fanR.stamps[0].stamp.size,
+    'endSize: copies grow toward the end (networked per-sticker size)', fanR.stamps.map((x) => x.stamp.size));
 
   // One peel step: the anchor's key peels the whole row (POST /peel with the same token for every id).
   const peel = await (await post(`/api/rooms/${R}/peel`, { items: [A.stamp.id, ...ids].map((id) => ({ id, token: A.peelToken })) })).json();

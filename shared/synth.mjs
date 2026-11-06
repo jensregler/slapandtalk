@@ -260,13 +260,21 @@ export function colourPatch(patch, slot, sound = '') {
   return cleanPatch({ ...patch, layers: patch.layers.map((l) => ({ ...l, freq: l.freq * c.pitch, cutoff: l.cutoff * c.pitch * c.bright })) });
 }
 
-// ---------- Duff: bigger paper = louder and lower ----------
-// area in m² (w × h of the peel). Reference: a 30 × 30 cm sticker (0.09 m²) → gain 1, rate 1.
+// ---------- Size → loudness / pitch (duff + slap) ----------
+// area in m² (w × h of the peel / sticker). Reference: a 30 × 30 cm sticker (0.09 m²) → gain 1, rate 1.
+// Bigger = louder and lower; smaller = quieter and higher. Shared by the backing-paper landing (duff)
+// and the slap itself (Jens, 6 Nov 2026), so a trapezoid array rises or falls across the row.
 export function duffScale(area) {
   const a = Math.max(0.0004, Math.min(4, isNum(area) ? area : 0.09));
   const gain = Math.min(2, Math.max(0.15, Math.pow(a / 0.09, 0.35)));
   const rate = Math.min(1.7, Math.max(0.55, Math.pow(0.09 / a, 0.18)));
   return { gain: +gain.toFixed(3), rate: +rate.toFixed(3) };
+}
+// Slap: same curve. Pass the sticker's area (w × h), or its longest side in metres (treated as square).
+export function slapScale(sizeOrArea, asArea = false) {
+  if (asArea) return duffScale(sizeOrArea);
+  const s = isNum(sizeOrArea) ? sizeOrArea : 0.3;
+  return duffScale(s * s);
 }
 // Scale a patch's pitch (and filter) by rate – used for duff and the small per-play wobble.
 export function retune(patch, rate) {

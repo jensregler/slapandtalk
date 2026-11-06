@@ -7,7 +7,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
-import { SYNTH, SOUNDS, DEFAULT_PATCHES, FX_DEFAULTS, cleanPatch, cleanLayer, cleanFx, cleanSound, variant, duffScale, roomAcoustics,
+import { SYNTH, SOUNDS, DEFAULT_PATCHES, FX_DEFAULTS, cleanPatch, cleanLayer, cleanFx, cleanSound, variant, duffScale, slapScale, roomAcoustics,
   ACOUSTICS, randomPatch, randomFx, delaySeconds, retune, hashSeed, VARIATION } from '../shared/synth.mjs';
 
 const require = createRequire(import.meta.url);
@@ -66,6 +66,8 @@ const areas = [0.0025, 0.01, 0.04, 0.09, 0.25, 0.64, 1.44];
 const ds = areas.map(duffScale);
 assert(ds.every((d, i) => i === 0 || (d.gain >= ds[i - 1].gain && d.rate <= ds[i - 1].rate)) && ds[0].gain < ds[6].gain && ds[0].rate > ds[6].rate && same(duffScale(0.09), { gain: 1, rate: 1 }),
   `duff: volume rises and pitch falls with peel area (${ds.map((d, i) => `${areas[i]} m² → ×${d.gain} vol, ×${d.rate} pitch`).join('; ')})`);
+assert(same(slapScale(0.3), duffScale(0.09)) && slapScale(0.6).gain > slapScale(0.3).gain && slapScale(0.15).rate > slapScale(0.3).rate,
+  'slapScale: same curve as duff (bigger sticker = louder and lower)');
 assert(retune(DEFAULT_PATCHES.duff, 0.5).layers[1].freq === DEFAULT_PATCHES.duff.layers[1].freq * 0.5, 'retune lowers the duff pitch for big papers');
 
 // ---------- Free acoustics from the room's materials ----------

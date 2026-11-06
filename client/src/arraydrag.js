@@ -2,7 +2,7 @@
 // (slap at A, look toward B). The math (spacing, count, which copies fit on the face) is
 // shared/array.mjs, the same as the server's. A ghost that sits fully inside its face is a plain
 // quad (cheap, so 200 of them can follow the crosshair every frame); one near an edge is folded
-// like the real sticker (fold.js).
+// like the real sticker (fold.js). Per-item w/h (fan / trapezoid scale) come from arrayPlan.
 import * as THREE from 'three';
 import { foldStamp, foldGeometry } from './fold.js';
 import { insideFace } from '../../shared/array.mjs';
@@ -29,20 +29,22 @@ export class ArrayGhosts {
     }
     return this.pool[k];
   }
-  // items: [{ position: [x, y, z] }]; quaternion/normal: THREE; w × h metres; face: shared face (or null).
+  // items: [{ position, w?, h? }]; quaternion/normal: THREE; w × h metres = fallback (anchor size); face: shared face (or null).
   show(items, quaternion, normal, w, h, surface, face) {
-    const r = Math.hypot(w, h) / 2;
     items.forEach((it, k) => {
+      const wi = isFinite(it.w) && it.w > 0 ? it.w : w;
+      const hi = isFinite(it.h) && it.h > 0 ? it.h : h;
+      const r = Math.hypot(wi, hi) / 2;
       const m = this.mesh(k);
       if (!this.faces || insideFace(face, it.position, r)) {
         if (m.userData.key !== 'quad') { m.geometry.dispose(); m.geometry = this.quad; m.userData.key = 'quad'; }
         m.position.set(...it.position).addScaledVector(normal, 0.0025);
-        m.quaternion.copy(quaternion); m.scale.set(w, h, 1);
+        m.quaternion.copy(quaternion); m.scale.set(wi, hi, 1);
       } else {
-        const key = [...it.position, ...quaternion.toArray(), w, h, surface].map((v) => (typeof v === 'number' ? v.toFixed(4) : v)).join();
+        const key = [...it.position, ...quaternion.toArray(), wi, hi, surface].map((v) => (typeof v === 'number' ? v.toFixed(4) : v)).join();
         if (m.userData.key !== key) {
           if (m.userData.key !== 'quad') m.geometry.dispose();
-          m.geometry = foldGeometry(foldStamp(this.faces, { center: new THREE.Vector3(...it.position), quaternion, w, h, surface }), 0.0025);
+          m.geometry = foldGeometry(foldStamp(this.faces, { center: new THREE.Vector3(...it.position), quaternion, w: wi, h: hi, surface }), 0.0025);
           m.userData.key = key;
         }
         m.position.set(0, 0, 0); m.quaternion.identity(); m.scale.set(1, 1, 1);

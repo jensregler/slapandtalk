@@ -13,25 +13,39 @@ import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
 import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, pitchMin, pitchMax, runRate, pitchRatio, pitchLabel, tempoLabel } from '../../shared/runmode.mjs';
 
-// Per room (Jens, 5 Nov 2026, shared/radio.mjs): my sound settings are this room's preset – the copy
-// for this visit lives under 'klibb.sound@<room>' (the server keeps it for good, radio.js).
+// Global for the visit (Jens, 6 Nov 2026): patches / FX / Music vol / groove / run / voice FX /
+// Hear myself follow you from a room out into the City and into the next room. A room's server
+// preset (radio.js) only seeds this visit when there is no personal sound yet.
+// Older 'klibb.sound@<room>' keys are migrated once onto 'klibb.sound'.
 const SEED_KEY = 'klibb.soundSeed';
-let SOUND_KEY = 'klibb.sound';
-export function setSoundRoom(room) { SOUND_KEY = room ? `klibb.sound@${room}` : 'klibb.sound'; }
+const SOUND_KEY = 'klibb.sound';
+export const VOICE_FX_KEY = 'klibb.voiceFx';
+export const VOICE_MON_KEY = 'klibb.voiceMon';
+export const VOICE_MIC_KEY = 'klibb.voiceMic'; // 'on' | 'muted' | absent(=off)
+export function setSoundRoom(_room) { /* no-op: sound is global for the visit (API kept for callers) */ }
 export const soundKey = () => SOUND_KEY;
 const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const write = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* full/private */ } };
 // the personal sound settings: this visit (tab) only
 const sread = (k) => { try { return sessionStorage.getItem(k); } catch { return null; } };
 const swrite = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch { /* private */ } };
-// Every personal sound setting (patches + effects, Music vol, the footstep groove's scale).
-export const PERSONAL_SOUND_KEYS = [SOUND_KEY, 'klibb.musicVol', 'klibb.grooveScale', RUN.key];
+// Every personal sound setting that "Exit to menu" puts back to default.
+export const PERSONAL_SOUND_KEYS = [SOUND_KEY, 'klibb.musicVol', 'klibb.grooveScale', RUN.key, VOICE_FX_KEY, VOICE_MON_KEY, VOICE_MIC_KEY];
 // (before 2 Nov 2026 they lived in localStorage for good: gone, so nobody starts with old ones)
 try { for (const k of PERSONAL_SOUND_KEYS) localStorage.removeItem(k); } catch { /* private */ }
+// Migrate a leftover per-room sound key onto the global visit key (once).
+try {
+  if (!sessionStorage.getItem(SOUND_KEY)) {
+    for (const k of Object.keys(sessionStorage)) {
+      if (/^klibb\.sound@/.test(k) && sessionStorage.getItem(k)) { sessionStorage.setItem(SOUND_KEY, sessionStorage.getItem(k)); break; }
+    }
+  }
+} catch { /* private */ }
 // "Exit to menu" (the start card): all of them back to default.
 export function resetPersonalSound() {
   for (const k of PERSONAL_SOUND_KEYS) swrite(k, null);
   try { for (const k of Object.keys(sessionStorage)) if (/^klibb\.(sound|radio)@/.test(k)) sessionStorage.removeItem(k); } catch { /* private */ }
+  try { localStorage.removeItem(VOICE_FX_KEY); } catch { /* private */ }
   clearSamples().catch(() => {});
   runCache = null;
 }

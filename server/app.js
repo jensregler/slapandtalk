@@ -812,21 +812,39 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
   if (isNatureImage(await natureMod, image) && !isAdmin(req) && !(await entOf(req)).natureStickers) return res.status(403).json({ error: 'Nature stickers are part of the full version.', full: true, feature: 'natureStickers' });
   // a 3D prop's mesh (shared/props.mjs propMeshSurface; not a flat face): no rows there (the web app doesn't ask)
   if (PROPS.propMeshSurface(anchor.surface)) return res.status(400).json({ error: 'Nothing to repeat', empty: true });
-  const A = await arrayMod, P = await peelsMod;
+  const A = await arrayMod, P = await peelsMod, N = await natureMod;
   const [w, h] = P.stampDims(image, anchor.size);
-  let items = A.arrayPlan(anchor, w, h, b.to).items.filter((x) => x.i > 0);
+  // Fan / trapezoid (Jens, 6 Nov 2026): optional endSize (longest side, metres) for the LAST sticker.
+  // Clamped the same way a free/full slap would be, then stampDims → endW/endH for arrayPlan.
+  let endSize = anchor.size;
+  if (isNum(b.endSize) && b.endSize > 0) {
+    endSize = b.endSize;
+    const nature = isNatureImage(N, image);
+    if (nature) {
+      const lim = N.sizeLimitsCm({ ...image, nature: true }, null, { maxHeightCm: CITY.natureMaxHeightCmIn(room) });
+      endSize = Math.min(lim.maxCm / 100, Math.max(lim.minCm / 100, endSize));
+    } else if ((endSize > FREE_MAX_STICKER_M + FREE_SIZE_SLACK || endSize < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) && !(await entOf(req)).bigStickers) {
+      endSize = Math.min(FREE_MAX_STICKER_M, Math.max(FREE_MIN_STICKER_M, endSize));
+    } else {
+      const L = N.STICKER_LIMITS.full;
+      if (endSize > L.maxCm / 100 + FREE_SIZE_SLACK || endSize < L.minCm / 100 - FREE_SIZE_SLACK) endSize = Math.min(L.maxCm / 100, Math.max(L.minCm / 100, endSize));
+    }
+  }
+  const [endW, endH] = P.stampDims(image, endSize);
+  let items = A.arrayPlan(anchor, w, h, b.to, { endW, endH }).items.filter((x) => x.i > 0);
   if (!items.length) return res.status(400).json({ error: 'Nothing to repeat', empty: true });
   const peelSt = await store.peelState(room);
   if (peelSt.on && peelSt.peels.length && P.onFloor(String(anchor.surface || ''), anchor.normal)) {
     const keep = [];
-    for (const x of items) if ((await floorOverlap(P, image, { ...anchor, position: x.position }, peelSt.peels)) <= P.PEEL.refuseOverlap) keep.push(x);
+    for (const x of items) if ((await floorOverlap(P, image, { ...anchor, position: x.position, size: Math.max(x.w, x.h) }, peelSt.peels)) <= P.PEEL.refuseOverlap) keep.push(x);
     items = keep;
     if (!items.length) return res.status(409).json({ error: 'Nope.', nope: true });
   }
   if (!arrayBudget(req.ip, items.length)) return res.status(429).json({ error: 'Easy now – wait a minute.' });
   const evicted = [];
-  const copy = ({ position }) => ({
-    imageId: anchor.imageId, position, normal: anchor.normal, quaternion: anchor.quaternion, size: anchor.size,
+  const copy = (it) => ({
+    imageId: anchor.imageId, position: it.position, normal: anchor.normal, quaternion: anchor.quaternion,
+    size: Math.max(it.w || w, it.h || h),
     rotation: isNum(anchor.rotation) ? anchor.rotation : 0, surface: anchor.surface,
     ...(anchor.artist !== undefined ? { artist: anchor.artist } : {}), ...(anchor.artistLink ? { artistLink: anchor.artistLink } : {}),
   });
@@ -836,9 +854,10 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
   const nonce = typeof b.nonce === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(b.nonce) ? b.nonce : null;
   const by = playerId(b.by);
   const byOrder = new Map(saved.map((s, n) => [s.id, items[n].i])); // saved keeps items' order (minus evicted)
+  const itemByI = new Map(items.map((x) => [x.i, x]));
   const rows = [];
   let papers = 0;
-  const on = !isNatureImage(await natureMod, image) && (peelSt.on || (await store.peelState(room)).on); // nature stickers: no backing paper (Jens, 28 Oct 2026)
+  const on = !isNatureImage(N, image) && (peelSt.on || (await store.peelState(room)).on); // nature stickers: no backing paper (Jens, 28 Oct 2026)
   const from = on ? (cleanFrom(b.peelFrom) || fallbackFrom(anchor.position, anchor.normal)) : null;
   for (const s of saved) {
     const i = byOrder.get(s.id), stamp = publicStamp(s);
@@ -848,7 +867,9 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
       papers++;
       const seed = n || s.id;
       const { side, ...plan } = P.peelPlan(seed, from, s.position);
-      peel = await store.addPeel(room, { id: s.id, imageId: image.id, w: Math.round(w * 1e4) / 1e4, h: Math.round(h * 1e4) / 1e4, seed, ...plan }, P.PEEL.maxPerRoom);
+      const it = itemByI.get(i);
+      const pw = it ? it.w : w, ph = it ? it.h : h;
+      peel = await store.addPeel(room, { id: s.id, imageId: image.id, w: Math.round(pw * 1e4) / 1e4, h: Math.round(ph * 1e4) / 1e4, seed, ...plan }, P.PEEL.maxPerRoom);
     }
     rows.push({ i, stamp, ...(peel ? { peel } : {}) });
     broadcast(room, { type: 'stamp:add', stamp, image, ...(n ? { nonce: n } : {}), ...(by ? { by } : {}), batch: { g: anchor.id, i, n: saved.length }, ...(peel ? { peel } : {}) });

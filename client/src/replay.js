@@ -136,7 +136,7 @@ function syncPlayers(list, dt, jumped) {
     const ended = row ? null : rowEndAt(rp.tl, p.id, rp.t, RETURN_MS); // just let go: the arm swings back down
     const rh = row ? p.held : ended && ended.h;
     if (rh) {
-      const items = row ? row.items : arrayPlan({ position: rh.p, quaternion: rh.q, surface: rh.s }, rh.w, rh.h, rh.a.to).items;
+      const items = row ? row.items : arrayPlan({ position: rh.p, quaternion: rh.q, surface: rh.s }, rh.w, rh.h, rh.a.to, { endW: rh.ew || rh.w, endH: rh.eh || rh.h }).items;
       const end = items[items.length - 1];
       a.avatar.hold(end ? end.position : rh.p, end && end.normal ? end.normal : rh.n, row ? row.age : 1e6, ended ? ended.out : null);
     } else a.avatar.drop();
@@ -155,11 +155,11 @@ const v3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
 const ROW_FACES = boxFaces();
 const rows = new Map(); // id -> { key, items, since }
 function rowOf(id, h) {
-  const key = `${h.img}|${h.p}|${h.q}|${h.s}|${h.w}|${h.h}|${h.a.to}`;
+  const key = `${h.img}|${h.p}|${h.q}|${h.s}|${h.w}|${h.h}|${h.ew}|${h.eh}|${h.a.to}`;
   let r = rows.get(id);
   if (r && r.key === key) { r.age = Math.max(0, rp.t - r.since); return r; }
   const fresh = !r || r.anchor !== `${h.p}|${h.s}`;
-  const items = arrayPlan({ position: h.p, quaternion: h.q, surface: h.s }, h.w, h.h, h.a.to).items.filter((x) => x.i > 0)
+  const items = arrayPlan({ position: h.p, quaternion: h.q, surface: h.s }, h.w, h.h, h.a.to, { endW: h.ew || h.w, endH: h.eh || h.h }).items.filter((x) => x.i > 0)
     .map((x) => (x.surface ? { ...x, q: new THREE.Quaternion(...x.quaternion), n: v3(x.normal), face: faceFor(ROW_FACES, x.surface, x.position, x.normal) } : x));
   r = { key, items, anchor: `${h.p}|${h.s}`, since: fresh ? rp.t : r.since, age: fresh ? 0 : Math.max(0, rp.t - r.since) };
   rows.set(id, r);

@@ -34,7 +34,7 @@ import AVATAR_SPEC from '../../shared/avatar.json';
 import { initFullVersion } from './fullversion.js';
 import { GrooveSteps } from './groove.js';
 import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, grooveLabel } from '../../shared/groove.mjs';
-import { loadSoundLook, initSoundUI, resetPersonalSound, personalGet, personalSet, setSoundRoom, soundKey, loadRunMode } from './soundui.js';
+import { loadSoundLook, initSoundUI, resetPersonalSound, personalGet, personalSet, setSoundRoom, soundKey, loadRunMode, VOICE_FX_KEY, VOICE_MON_KEY, VOICE_MIC_KEY } from './soundui.js';
 import { runRate, pitchRatio } from '../../shared/runmode.mjs';
 import { setDanceClock } from './avatars.js';
 import { Radio, radioBlock, fetchRoomPreset, putRoomPreset } from './radio.js';
@@ -44,7 +44,7 @@ import * as demo from './demo.js';
 import { noteVisit } from './landing.js';
 import { Voice, VOICE_FX, cleanVoiceFx, cleanMonitor, pitchLabel } from './voice.js';
 import { ArrayGhosts } from './arraydrag.js';
-import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
+import { arrayPlan, faceFor, PEELS_PER_ARRAY, wheelScaleFactor, clampStampSize } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
 import { initStackMenu } from './stackmenu.js';
 import { createHeldTimer } from '../../shared/heldtimer.mjs';
@@ -819,7 +819,7 @@ async function slapAt(ndc, info, onStart, auto = null) {
   // Kom ihåg exakt vilken design som stämplas: användaren kan hinna trycka R innan svaret kommer.
   const design = state.selected;
   if (!auto || auto.first !== false) { const [dw, dh] = stampDims(design, 1); filmLog?.add('stick', { url: String(design.url || '').length < 200_000 ? design.url || '' : '', aspect: dh > 0 ? +(dw / dh).toFixed(3) : 1 }); } // the session film
-  sound.play('slap', null, auto ? { volume: auto.volume } : {}); // direkt, utan att vänta på servern: det ska kännas som en riktig klibba
+  { const [aw, ah] = stampDims(design, slapSize); sound.play('slap', null, { area: aw * ah, size: slapSize, ...(auto ? { volume: auto.volume } : {}) }); } // bigger sticker = bigger slap (same curve as duff)
   const nonce = Math.random().toString(36).slice(2, 12);
   myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
   const body = { nonce, owner: deviceId(), ...(together.net.id ? { by: together.net.id } : {}), // by: så de andra ser min gubbe slappa
@@ -917,7 +917,7 @@ function dropPending(nonce) {
 // exactly a slap. The row is ONE peel step: A's history entry gets extra = the copies' ids.
 // Desktop only (on touch a drag looks around).
 let mouseHeld = false;
-let arrayDrag = null; // { a: stampAt info, w, h, face, to: Vector3|null, items }
+let arrayDrag = null; // { a, w, h, endW, endH, endSize, face, to, items }
 const arrayOps = []; // released rows waiting for the server (Z peels the newest as one step)
 const ARRAY_FACES = boxFaces();
 const ghosts = new ArrayGhosts(scene, stamps.faces);
@@ -936,10 +936,19 @@ function startArray(a) {
   if (arrayFaults.start) throw new Error('test: array start unavailable');
   if (propMeshSurface(a.surface)) return; // a 3D prop's mesh (not a flat face): no rows there – one sticker
   const [w, h] = StampLayer.dims(a.design, a.size);
-  arrayDrag = { a, w, h, face: faceFor(ARRAY_FACES, a.surface, a.point.toArray(), a.normal.toArray()), to: null, items: [] };
+  arrayDrag = { a, w, h, endW: w, endH: h, endSize: a.size, face: faceFor(ARRAY_FACES, a.surface, a.point.toArray(), a.normal.toArray()), to: null, items: [] };
   arrayPlane.setFromNormalAndCoplanarPoint(a.normal, a.point);
   ghosts.setTexture(null);
   stamps.texture(a.design).then((t) => { if (arrayDrag && arrayDrag.a === a) ghosts.setTexture(t); }).catch(() => {});
+}
+// Scroll wheel while dragging: scale the LAST sticker; the row fans from the anchor size to that.
+function scaleArrayEnd(deltaY, deltaMode = 0) {
+  const d = arrayDrag; if (!d) return;
+  const factor = wheelScaleFactor(deltaY, deltaMode);
+  const minM = minSizeCm(d.a.design) / 100, maxM = maxSizeCm(d.a.design) / 100;
+  d.endSize = clampStampSize(d.endSize * factor, minM, maxM);
+  const [ew, eh] = StampLayer.dims(d.a.design, d.endSize);
+  d.endW = ew; d.endH = eh;
 }
 // Every frame while dragging: B = where the crosshair's ray meets A's plane. Returns the ghost count.
 function updateArray() {
@@ -947,7 +956,7 @@ function updateArray() {
   if (arrayFaults.update) throw new Error('test: array update unavailable');
   aimRay(CENTER);
   if (raycaster.ray.intersectPlane(arrayPlane, arrayHit)) d.to = arrayHit.clone(); // looking away from the plane: keep the last B
-  d.items = d.to ? arrayPlan({ position: d.a.point.toArray(), quaternion: d.a.q.toArray(), surface: d.a.surface }, d.w, d.h, d.to.toArray()).items.filter((x) => x.i > 0) : [];
+  d.items = d.to ? arrayPlan({ position: d.a.point.toArray(), quaternion: d.a.q.toArray(), surface: d.a.surface }, d.w, d.h, d.to.toArray(), { endW: d.endW, endH: d.endH }).items.filter((x) => x.i > 0) : [];
   if (d.items.length) ghosts.show(d.items, d.a.q, d.a.normal, d.w, d.h, d.a.surface, d.face); else ghosts.hide();
   return d.items.length;
 }
@@ -972,21 +981,26 @@ function commitArray() {
   let settle; const settled = new Promise((r) => { settle = r; });
   const now = new Date().toISOString();
   let papers = 0;
-  for (const { i, position } of items) {
+  for (const it of items) {
+    const { i, position } = it;
+    const copySize = Math.max(it.w || d.w, it.h || d.h);
     const nonce = `${a.nonce}x${i}`;
     myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
     const tempId = 'tmp-' + nonce;
     pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, row: a.nonce });
-    stamps.add({ ...a.temp, id: tempId, position, order: stamps.topOrder() + 1, createdAt: now, pending: true }, design).then(updateCount);
+    stamps.add({ ...a.temp, id: tempId, position, size: copySize, order: stamps.topOrder() + 1, createdAt: now, pending: true }, design).then(updateCount);
     if (peelLayer.on && dropsPeel(design) && papers < PEELS_PER_ARRAY) {
       papers++;
-      const [pw, ph] = stampDims(design, a.size);
+      const pw = it.w || d.w, ph = it.h || d.h;
       peelLayer.add({ id: tempId, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, from, position) }, design, { animate: true, by: 'me' });
     }
-    op.temps.push({ i, nonce, tempId });
+    op.temps.push({ i, nonce, tempId, size: copySize, area: (it.w || d.w) * (it.h || d.h) });
   }
-  // A quick, soft rattle along the row (A already made the real slap sound on the way down).
-  for (let k = 0; k < Math.min(3, items.length); k++) setTimeout(() => sound.play('slap', null, { volume: 0.4 - k * 0.1 }), 45 * (k + 1));
+  // Soft rattle along the row; each copy's slap follows its size (fan → rising/falling slap).
+  for (let k = 0; k < Math.min(8, items.length); k++) {
+    const it = items[k], area = (it.w || d.w) * (it.h || d.h), sz = Math.max(it.w || d.w, it.h || d.h);
+    setTimeout(() => sound.play('slap', null, { volume: Math.max(0.15, 0.45 - k * 0.04), area, size: sz }), 40 * (k + 1));
+  }
   arrayOps.push(op);
   // The recording keeps the row (ghosts + drag pose) until the copies are in (see recordHeld).
   const bridge = (arrayRec = { msg: heldMsg({ row: d }) });
@@ -1000,7 +1014,7 @@ function commitArray() {
       let res;
       try {
         res = await api.addArray(ROOM, { anchor: { id: anchor.id, token: hist.token }, to: d.to.toArray(), nonce: a.nonce,
-          ...(together.net.id ? { by: together.net.id } : {}), peelFrom: { p: [from.x, from.z], yaw: from.yaw } });
+          endSize: d.endSize, ...(together.net.id ? { by: together.net.id } : {}), peelFrom: { p: [from.x, from.z], yaw: from.yaw } });
       } catch (err) {
         dropAll(); // the row did not make it: the first sticker (its own slap) stays – one sticker
         if ([404, 405, 501].includes(err.status)) { arraysOff = true; console.warn('sticker arrays not supported here – plain slaps'); return; }
@@ -1669,7 +1683,17 @@ if (!isTouch) {
   addEventListener('mousemove', (e) => { if (e.movementX || e.movementY) deskActive(); }, true);
   addEventListener('keydown', () => deskActive(), true);
   addEventListener('wheel', () => deskActive(), { capture: true, passive: true });
-  addEventListener('wheel', (e) => { if (propsMode()) { if (controls.locked || propsUi.selected()) propsUi.scaleBy(e.deltaY > 0 ? 1 / 1.08 : 1.08); return; } if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
+  // Array drag: wheel scales the LAST sticker (fan). preventDefault so the page / camera don't scroll.
+  addEventListener('wheel', (e) => {
+    if (!arrayDrag) return;
+    e.preventDefault();
+    try { scaleArrayEnd(e.deltaY, e.deltaMode); updateArray(); } catch (err) { arrayFailed('wheel', err); }
+  }, { passive: false });
+  addEventListener('wheel', (e) => {
+    if (arrayDrag) return; // handled above
+    if (propsMode()) { if (controls.locked || propsUi.selected()) propsUi.scaleBy(e.deltaY > 0 ? 1 / 1.08 : 1.08); return; }
+    if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1));
+  }, { passive: true });
   addEventListener('keydown', (e) => {
     if (isTyping(e)) return; // inte medan man skriver
     if (endDlg.open || linkDlg.open) return; // rutan "End of slap history" eller länkfrågan är öppen
@@ -2078,9 +2102,16 @@ function onRoomEvent(e) {
     // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
     if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); if (e.peel) peelLayer.confirm('tmp-' + e.nonce, e.peel); return; } // min egen, redan synlig
     if (e.peel && !(e.nonce && myNonces.has(e.nonce))) peelLayer.add(e.peel, e.image, { animate: true, by: e.by }); // någon annans papper faller
-    // A sticker array comes as one stamp:add per copy (e.batch = { g, i, n }): one sound, one gesture per row.
+    // A sticker array comes as one stamp:add per copy (e.batch = { g, i, n }): one gesture per row,
+    // but each copy plays its own sized slap so a fan rises/falls across the row (remote hear it too).
     const quietCopy = !!(e.batch && typeof e.batch.g === 'string' && rowHeard(e.batch.g));
-    if (!quietCopy && !(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id)) sound.play('slap', e.stamp.position, { sound: together.voiceOf(e.by) });
+    if (!(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id)) {
+      const sz = e.stamp.size || 0.3;
+      let area = sz * sz;
+      if (e.image) { try { const [aw, ah] = stampDims(e.image, sz); area = aw * ah; } catch { /* keep square */ } }
+      const vol = e.batch ? Math.max(0.2, 0.85 - 0.05 * ((e.batch.i || 1) - 1)) : 1;
+      sound.play('slap', e.stamp.position, { sound: together.voiceOf(e.by), area, size: sz, volume: vol });
+    }
     // Någon annans slap: deras gubbe slår handen mot väggen samtidigt som klibban dyker upp.
     // (by saknas från äldre klienter: då syns bara klibban, som förut.)
     if (!quietCopy && typeof e.by === 'string' && e.by !== together.net.id && !stamps.meshes.has(e.stamp.id)) together.players.gesture(e.by, 'slap', e.stamp.position, e.stamp.normal);
@@ -2276,7 +2307,9 @@ function placeChip(v) {
 try { const r = JSON.parse(personalGet(RADIO_KEY) || 'null'); if (r) radio.set(r, { save: false }); } catch { /* none */ }
 const radioReady = DEMO ? Promise.resolve() : fetchRoomPreset(ROOM).then((p) => {
   if (!p) return; // (undefined: offline – keep this visit's copy; null: nothing saved yet – the original)
-  if (p.patches || p.fx) personalSet(soundKey(), JSON.stringify({ patches: p.patches, fx: p.fx }));
+  // Personal sound is global for the visit: a room preset only seeds when this visit has none yet
+  // (so walking room → city → room never wipes Voice FX / patches / Music vol).
+  if ((p.patches || p.fx) && !personalGet(soundKey())) personalSet(soundKey(), JSON.stringify({ patches: p.patches, fx: p.fx }));
   radio.set(p.radio || {}, { save: false }); personalSet(RADIO_KEY, JSON.stringify(radio.state));
   together.soundChanged();
 });
@@ -2929,20 +2962,32 @@ var voice = new Voice({ // eslint-disable-line no-var
   positionOf: (id) => { const pl = together.players.map.get(id); return pl ? { x: pl.pos.x, z: pl.pos.z } : null; },
   listener: () => ({ x: camera.position.x, z: camera.position.z }),
   onSpeaking: (id, on, level) => { together.setSpeaking(id, on, level); if (id === 'me') for (const b of micBtns()) b.classList.toggle('speaking', !!on); },
-  onState: (st) => renderMic(st),
+  onState: (st) => { renderMic(st); personalSet(VOICE_MIC_KEY, st === 'on' || st === 'muted' ? st : null); },
   toast: (k) => toast({ on: S.micOnToast, muted: S.micMutedToast, denied: S.micDenied, unsupported: S.micUnsupported }[k] || '', 1800),
   tempo: () => { try { return radio.tempo().bpm; } catch { return 90; } },
 });
 voice.recording = () => !!rec; // voice levels go to the server only while ● REC (voice.js)
-voice.reset = () => { for (const id of [...voice.peers.keys()]) voice.drop(id); voice.setPeople([...together.players.map.keys()]); };
+voice.reset = () => {
+  for (const id of [...voice.peers.keys()]) voice.drop(id);
+  voice.setPeople([...together.players.map.keys()]);
+  // Re-apply FX + monitor after peer teardown so the chain and Hear myself survive reconnects.
+  try {
+    let vf = null; try { vf = JSON.parse(personalGet(VOICE_FX_KEY) || 'null'); } catch { /* none */ }
+    voice.setFx(cleanVoiceFx(vf || voice.fx));
+    let vm = null; try { vm = JSON.parse(personalGet(VOICE_MON_KEY) || 'null'); } catch { /* none */ }
+    voice.setMonitor(cleanMonitor(vm || voice.monitor));
+  } catch { /* audio not ready */ }
+};
 voice.near = localStorage.getItem('klibb.voiceNear') !== '0';
 $('voice-near').checked = voice.near;
 $('voice-near').onchange = (e) => { voice.near = e.target.checked; localStorage.setItem('klibb.voiceNear', voice.near ? '1' : '0'); };
-// voice effect + Hear myself (voice.js): mine, kept in this browser; effect off by default
+// voice effect + Hear myself (voice.js): mine, global for this visit (sessionStorage); follow room→city.
 {
-  let vf = null; try { vf = JSON.parse(localStorage.getItem('klibb.voiceFx') || 'null'); } catch { /* none */ }
+  let vf = null; try { vf = JSON.parse(personalGet(VOICE_FX_KEY) || 'null'); } catch { /* none */ }
+  // migrate from the older localStorage key once
+  if (!vf) { try { vf = JSON.parse(localStorage.getItem('klibb.voiceFx') || 'null'); if (vf) personalSet(VOICE_FX_KEY, JSON.stringify(cleanVoiceFx(vf))); } catch { /* none */ } }
   voice.setFx(cleanVoiceFx(vf));
-  let vm = null; try { vm = JSON.parse(sessionStorage.getItem(VOICE_FX.monKey) || 'null'); } catch { /* none */ }
+  let vm = null; try { vm = JSON.parse(personalGet(VOICE_MON_KEY) || sessionStorage.getItem(VOICE_FX.monKey) || 'null'); } catch { /* none */ }
   voice.setMonitor(cleanMonitor(vm));
   const on = $('voice-fx-on'), kind = $('voice-fx-kind'), amt = $('voice-fx-amt'), out = $('voice-fx-out');
   const div = $('voice-fx-div'), pitch = $('voice-fx-pitch'), harm = $('voice-fx-harm');
@@ -2964,7 +3009,7 @@ $('voice-near').onchange = (e) => { voice.near = e.target.checked; localStorage.
     const m = voice.monitor; monOn.checked = m.on; monVol.value = String(Math.round(m.vol * 100)); monOut.textContent = `${Math.round(m.vol * 100)} %`;
     monRaw.checked = m.raw; monVol.disabled = monRaw.disabled = !m.on; monHint.hidden = !m.on;
   };
-  const save = (f) => { voice.setFx(f); localStorage.setItem('klibb.voiceFx', JSON.stringify(voice.fx)); show(); };
+  const save = (f) => { voice.setFx(f); personalSet(VOICE_FX_KEY, JSON.stringify(voice.fx)); show(); };
   const micRawNow = () => { try { return voice.info().raw; } catch { return false; } };
   const saveMon = async (partial, { toastOn } = {}) => {
     const was = voice.monitor.on;
@@ -2974,7 +3019,7 @@ $('voice-near').onchange = (e) => { voice.near = e.target.checked; localStorage.
     if (partial.on === false && partial.raw === undefined) next.raw = false;
     voice.setMonitor(next);
     if (next.raw !== micRawNow()) await voice.setRaw(next.raw);
-    try { sessionStorage.setItem(VOICE_FX.monKey, JSON.stringify(voice.monitor)); } catch { /* private */ }
+    personalSet(VOICE_MON_KEY, JSON.stringify(voice.monitor));
     show();
     if (toastOn && next.on && !was) toast(S.voiceMonOnToast, 2200);
     if (toastOn && !next.on && was) toast(S.voiceMonOffToast, 1600);
@@ -2989,6 +3034,11 @@ $('voice-near').onchange = (e) => { voice.near = e.target.checked; localStorage.
   // Apply persisted raw on boot if monitor was on
   if (voice.monitor.raw) voice.setRaw(true).catch(() => {});
   show();
+  // Restore mic on/muted across room→city (session only; permission already granted this visit).
+  const wantMic = personalGet(VOICE_MIC_KEY);
+  if (wantMic === 'on' || wantMic === 'muted') {
+    voice.toggle().then(() => { if (wantMic === 'muted' && voice.state === 'on') voice.toggle(); }).catch(() => {});
+  }
 }
 function micBtns() { return [$('mic-btn'), $('mic-touch'), $('sm-mic')]; }
 function renderMic(st = voice.state) {
@@ -3023,8 +3073,8 @@ function heldMsg(x) {
   if (!x) return null;
   if (x.row) {
     const d = x.row;
-    return { img: d.a.design.id, p: d.a.point.toArray().map(r3), n: d.a.normal.toArray().map(r3), q: d.a.q.toArray().map(r3), w: r3(d.w), h: r3(d.h), s: d.a.surface,
-      a: { to: d.to.toArray().map(r3) } };
+    return { img: d.a.design.id, p: d.a.point.toArray().map(r3), n: d.a.normal.toArray().map(r3), q: d.a.q.toArray().map(r3), w: r3(d.w), h: r3(d.h),
+      ew: r3(d.endW || d.w), eh: r3(d.endH || d.h), s: d.a.surface, a: { to: d.to.toArray().map(r3) } };
   }
   if (x.msg) return x.msg;
   return { img: state.selected.id, p: x.h.point.toArray().map(r3), n: x.h.normal.toArray().map(r3), q: x.q.toArray().map(r3), w: r3(x.w), h: r3(x.hh), s: x.h.surface };
@@ -3190,7 +3240,7 @@ window.klibb = {
   moveTo(x, z) { camera.position.x = x; camera.position.z = z; },
   stampAt: (x = 0, y = 0) => stampAt(new THREE.Vector2(x, y)),
   arrayFaults, arraysOff: () => arraysOff, lockBroken: () => lockBroken,
-  arrayState: () => ({ dragging: !!arrayDrag, ghosts: ghosts.count, inFlight: arrayOps.length, items: arrayDrag ? arrayDrag.items.length : 0 }), arrayPlan,
+  arrayState: () => ({ dragging: !!arrayDrag, ghosts: ghosts.count, inFlight: arrayOps.length, items: arrayDrag ? arrayDrag.items.length : 0, endSize: arrayDrag ? arrayDrag.endSize : null, endW: arrayDrag ? arrayDrag.endW : null, endH: arrayDrag ? arrayDrag.endH : null }), arrayPlan, scaleArrayEnd,
   pendingSlaps: () => pendingSlaps.size, // klibbor som syns men inte är bekräftade av servern än
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, roomFabric: () => roomFabricInfo(room.surfaces), styleDraft: () => sp.style && JSON.parse(JSON.stringify(sp.style)), canEditStyle, surfaces: room.surfaces,
   net: together.net, players: () => together.players.list(), me: together.me, roomLook: () => together.roomLook(), openChat: together.openChat,
