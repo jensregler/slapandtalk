@@ -1,10 +1,12 @@
 // Sound settings (full version, entitlements.full.soundDesign): one synth panel per sound
 // (slap, peel, nope, steps, duff) and an effects panel, with preview, reset and randomize.
-// Personal (Jens, 2 Nov 2026): my sound settings are mine only – kept for this visit (sessionStorage
-// 'klibb.sound', so they come along from a room out into the City), never sent to anyone, never set
-// by a room or by other people; what I hear (my slaps and everyone else's) plays with them. "Exit to
-// menu" (the start card) puts every one of them back to default (resetPersonalSound). Free players
-// never see the panel; they get their own variation of the default sounds from 'klibb.soundSeed'.
+// Personal (Jens, 2 Nov 2026 / session model 6 Nov 2026): my sound settings are mine only –
+// sessionStorage 'klibb.sound' (and voice FX / Hear myself / Music vol / groove / run / mic). They
+// come along from a room out into the City (and around inside the city), never sent to anyone.
+// Entering a NEW room (or a fresh page load into a room) puts every one of them back to default
+// and clears sampler recordings (prepareSoundForPlace → resetPersonalSound). "Exit to menu" does
+// the same. Free players never see the panel; they get their own variation of the defaults from
+// 'klibb.soundSeed'.
 import { SOUNDS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, DEFAULT_PATCHES, FX_DEFAULTS,
   cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx, noteName, diffPatch, snapFreq, retune as retuneP } from '../../shared/synth.mjs';
 import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseTarget, modOrder, snapRate, selfLoop, targetSpec, LAYER_TARGETS, PATCH_TARGETS, MOD_TARGETS } from '../../shared/lfo.mjs';
@@ -13,27 +15,28 @@ import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
 import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, pitchMin, pitchMax, runRate, pitchRatio, pitchLabel, tempoLabel } from '../../shared/runmode.mjs';
 
-// Global for the visit (Jens, 6 Nov 2026): patches / FX / Music vol / groove / run / voice FX /
-// Hear myself follow you from a room out into the City and into the next room. A room's server
-// preset (radio.js) only seeds this visit when there is no personal sound yet.
-// Older 'klibb.sound@<room>' keys are migrated once onto 'klibb.sound'.
+// Visit-scoped (Jens, 6 Nov 2026): patches / FX / Music vol / groove / run / voice FX / Hear myself
+// follow you from a room out into the City. Entering a different room (or a fresh load into a room)
+// resets them (prepareSoundForPlace). A room's server preset (radio.js) only seeds when personal
+// sound is empty after that reset. Older 'klibb.sound@<room>' keys are migrated once onto 'klibb.sound'.
 const SEED_KEY = 'klibb.soundSeed';
 const SOUND_KEY = 'klibb.sound';
+export const SOUND_SCOPE_KEY = 'klibb.soundScope'; // 'room:<id>' | 'city:<id>' – where this visit's sound last lived
 export const VOICE_FX_KEY = 'klibb.voiceFx';
 export const VOICE_MON_KEY = 'klibb.voiceMon';
 export const VOICE_MIC_KEY = 'klibb.voiceMic'; // 'on' | 'muted' | absent(=off)
-export function setSoundRoom(_room) { /* no-op: sound is global for the visit (API kept for callers) */ }
+export function setSoundRoom(_room) { /* no-op: sound is visit-scoped (API kept for callers) */ }
 export const soundKey = () => SOUND_KEY;
 const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const write = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* full/private */ } };
 // the personal sound settings: this visit (tab) only
 const sread = (k) => { try { return sessionStorage.getItem(k); } catch { return null; } };
 const swrite = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch { /* private */ } };
-// Every personal sound setting that "Exit to menu" puts back to default.
+// Every personal sound setting that Exit-to-menu / a new room puts back to default.
 export const PERSONAL_SOUND_KEYS = [SOUND_KEY, 'klibb.musicVol', 'klibb.grooveScale', RUN.key, VOICE_FX_KEY, VOICE_MON_KEY, VOICE_MIC_KEY];
 // (before 2 Nov 2026 they lived in localStorage for good: gone, so nobody starts with old ones)
 try { for (const k of PERSONAL_SOUND_KEYS) localStorage.removeItem(k); } catch { /* private */ }
-// Migrate a leftover per-room sound key onto the global visit key (once).
+// Migrate a leftover per-room sound key onto the visit key (once).
 try {
   if (!sessionStorage.getItem(SOUND_KEY)) {
     for (const k of Object.keys(sessionStorage)) {
@@ -41,13 +44,39 @@ try {
     }
   }
 } catch { /* private */ }
-// "Exit to menu" (the start card): all of them back to default.
+// Wipe personal sound + sampler recordings (IndexedDB) + per-room radio copies + the visit scope.
 export function resetPersonalSound() {
   for (const k of PERSONAL_SOUND_KEYS) swrite(k, null);
-  try { for (const k of Object.keys(sessionStorage)) if (/^klibb\.(sound|radio)@/.test(k)) sessionStorage.removeItem(k); } catch { /* private */ }
+  swrite(SOUND_SCOPE_KEY, null);
+  try {
+    const keys = [];
+    for (let i = 0; i < sessionStorage.length; i++) keys.push(sessionStorage.key(i));
+    for (const k of keys) if (k && /^klibb\.(sound|radio)@/.test(k)) sessionStorage.removeItem(k);
+  } catch { /* private */ }
   try { localStorage.removeItem(VOICE_FX_KEY); } catch { /* private */ }
   clearSamples().catch(() => {});
   runCache = null;
+}
+// Call once at boot (main.js), before Sounds / voice read session keys.
+// place = { kind: 'city', id } → KEEP settings (room→city and within the city).
+// place = { kind: 'room', id } → KEEP only on reload of the SAME room; otherwise RESET
+// (fresh load, other room, or leaving the city into a room).
+export function prepareSoundForPlace(place) {
+  const prev = sread(SOUND_SCOPE_KEY);
+  if (!place || !place.kind || !place.id) {
+    resetPersonalSound();
+    return { reset: true, prev, scope: null };
+  }
+  if (place.kind === 'city') {
+    const scope = `city:${place.id}`;
+    swrite(SOUND_SCOPE_KEY, scope);
+    return { reset: false, prev, scope };
+  }
+  const scope = `room:${place.id}`;
+  if (prev === scope) return { reset: false, prev, scope };
+  resetPersonalSound();
+  swrite(SOUND_SCOPE_KEY, scope);
+  return { reset: true, prev, scope };
 }
 export const personalGet = sread, personalSet = swrite;
 // Run mode (shared/runmode.mjs, Jens t544u): { tempo %, pitch step, lock } – personal, this visit.

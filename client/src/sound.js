@@ -32,7 +32,7 @@ export class Sounds {
     this.cache = new Map(); // seed+kind -> varied patch
     // Browsers only allow audio after the user has clicked/tapped/typed: start then.
     // Music vol (Jens, 31 Oct 2026; Sound settings): how loud everything the room plays is for me, 0…1 (this device).
-    // Personal, this visit only (sessionStorage; soundui.js resetPersonalSound on "Exit to menu").
+    // Personal, this visit only (sessionStorage; reset on Exit-to-menu or a new room – soundui.js).
     const sv = (() => { try { return sessionStorage.getItem(VOL_KEY); } catch { return null; } })();
     const v = Number(sv); this.volume = sv != null && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
     const unlock = () => { this.ensure(); if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); };

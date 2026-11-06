@@ -34,7 +34,7 @@ import AVATAR_SPEC from '../../shared/avatar.json';
 import { initFullVersion } from './fullversion.js';
 import { GrooveSteps } from './groove.js';
 import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, grooveLabel } from '../../shared/groove.mjs';
-import { loadSoundLook, initSoundUI, resetPersonalSound, personalGet, personalSet, setSoundRoom, soundKey, loadRunMode, VOICE_FX_KEY, VOICE_MON_KEY, VOICE_MIC_KEY } from './soundui.js';
+import { loadSoundLook, initSoundUI, resetPersonalSound, prepareSoundForPlace, personalGet, personalSet, setSoundRoom, soundKey, loadRunMode, VOICE_FX_KEY, VOICE_MON_KEY, VOICE_MIC_KEY } from './soundui.js';
 import { runRate, pitchRatio } from '../../shared/runmode.mjs';
 import { setDanceClock } from './avatars.js';
 import { Radio, radioBlock, fetchRoomPreset, putRoomPreset } from './radio.js';
@@ -211,8 +211,11 @@ const state = {
 };
 
 // ---------- Ljud (sound.js) ----------
+// Session model (Jens t572u): room→city keeps personal sound; a fresh load or a NEW room resets
+// recordings + settings to defaults (prepareSoundForPlace). Must run before Sounds reads musicVol.
+prepareSoundForPlace(IN_CITY ? { kind: 'city', id: THIS_CITY } : { kind: 'room', id: ROOM });
 const sound = new Sounds();
-setSoundRoom(ROOM); // my sound settings = this room's preset (radio.js, shared/radio.mjs)
+setSoundRoom(ROOM); // API kept; personal sound is visit-scoped (soundui.js)
 sound.setMine({ seed: loadSoundLook().seed }); // custom patches only once the full version is confirmed
 const myNonces = new Set(); // mina egna stämplar på väg till servern (så ljudet inte spelas två gånger)
 const myPeels = new Set(); // stämplar som jag själv peelar
@@ -2222,8 +2225,8 @@ var fullUi = initFullVersion({ // eslint-disable-line no-var
 // ---------- Footstep groove (shared/groove.mjs) ----------
 // The scale (bar length) is a PERSONAL sound setting (Jens, 2 Nov 2026: sound settings are per user,
 // local, never synced, never set by the room): this visit only (sessionStorage 'klibb.grooveScale',
-// reset on "Exit to menu", soundui.js resetPersonalSound). The room no longer decides it – a room's
-// old stored groove is ignored and nothing is sent. Full version (soundDesign) or admin, as before.
+// reset on Exit-to-menu or a new room – soundui.js resetPersonalSound). The room no longer decides
+// it – a room's old stored groove is ignored and nothing is sent. Full version (soundDesign) or admin.
 // Slider in ⚙ More → Sound, keys [ and ] (Shift = a whole octave).
 // var: the WebSocket welcome can arrive before these lines have run.
 var groove = new GrooveSteps(sound); // eslint-disable-line no-var
@@ -2307,8 +2310,9 @@ function placeChip(v) {
 try { const r = JSON.parse(personalGet(RADIO_KEY) || 'null'); if (r) radio.set(r, { save: false }); } catch { /* none */ }
 const radioReady = DEMO ? Promise.resolve() : fetchRoomPreset(ROOM).then((p) => {
   if (!p) return; // (undefined: offline – keep this visit's copy; null: nothing saved yet – the original)
-  // Personal sound is global for the visit: a room preset only seeds when this visit has none yet
-  // (so walking room → city → room never wipes Voice FX / patches / Music vol).
+  // Personal sound follows room→city; a new room resets first (prepareSoundForPlace). A room
+  // preset only seeds when personal sound is empty (so city keeps Voice FX / patches / Music vol,
+  // and a brand-new room starts from this room's own saved preset or the defaults).
   if ((p.patches || p.fx) && !personalGet(soundKey())) personalSet(soundKey(), JSON.stringify({ patches: p.patches, fx: p.fx }));
   radio.set(p.radio || {}, { save: false }); personalSet(RADIO_KEY, JSON.stringify(radio.state));
   together.soundChanged();
@@ -2981,7 +2985,7 @@ voice.reset = () => {
 voice.near = localStorage.getItem('klibb.voiceNear') !== '0';
 $('voice-near').checked = voice.near;
 $('voice-near').onchange = (e) => { voice.near = e.target.checked; localStorage.setItem('klibb.voiceNear', voice.near ? '1' : '0'); };
-// voice effect + Hear myself (voice.js): mine, global for this visit (sessionStorage); follow room→city.
+// voice effect + Hear myself (voice.js): mine for this visit (sessionStorage); follow room→city; reset on a new room.
 {
   let vf = null; try { vf = JSON.parse(personalGet(VOICE_FX_KEY) || 'null'); } catch { /* none */ }
   // migrate from the older localStorage key once
@@ -3221,7 +3225,7 @@ window.klibb = {
   soundUi: () => soundUi, place: () => ({ now: placeNow, bus: !!sound.engine?.place, worklet: !!sound.engine?.place?.node, sets: sound.engine?.place?.sets || 0, cfg: placeCfg }), setCityFx: (cfg) => { placeCfg = cfg ? (cleanCityFx(cfg) || CITY_FX) : CITY_FX; placeAt = 0; return placeCfg; }, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
   groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
   setGrooveScale, grooveObj: () => groove,
-  autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundMine: () => sound.mine, voiceOf: (id) => together.voiceOf(id),
+  autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundMine: () => sound.mine, prepareSoundForPlace, resetPersonalSound, voiceOf: (id) => together.voiceOf(id),
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
