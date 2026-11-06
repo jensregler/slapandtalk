@@ -1,17 +1,17 @@
 // Run-DMC start menu (Jens, 6 Nov 2026): black square, two dark-red bars, huge white type.
 // Flow: Splash (SLP/TLK) → Main (NEW GAME / JOIN EXISTING) → NEW GAME (EMPTY ROOM / PRESET)
-//   → PRESET list (GET /api/presets) or JOIN list (GET /api/rooms/open). BACK in the bottom bar.
-// Empty room = quick create (POST /api/rooms {}). Preset = POST { preset: id }. Join = /?room=<id>.
-// Code entry kept on the join screen (bottom bar). Shown for the plain address and ?start=1 (boot.js).
+//   → PRESET list or JOIN list → details (name, Instagram; room name when creating) → enter.
+// Empty room = POST /api/rooms { preset:false }. Preset = POST { preset:id }. Join = /?room=<id>.
+// Direct ?room= links still work (boot.js). No CODE button (t591u).
+import { cleanInsta } from '../../shared/insta.mjs';
 import { clearMineForNewRoom } from './designs.js';
 import { S } from './strings.js';
 import { resetPersonalSound } from './soundui.js';
 import { leaveCity } from './cityleave.js';
-import { isCityRoom } from '../../shared/city.mjs';
 import { rollLookOnRestart } from './restartlook.js';
 
-const ROOM_RE = /^[a-z0-9-]{1,40}$/;
 const ROOM_KEYS = 'klibb.roomKeys';
+const LOOK_KEY = 'klibb.avatar';
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
 const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
 const el = (tag, props = {}, kids = []) => { const e = Object.assign(document.createElement(tag), props); for (const k of [].concat(kids)) e.append(k); return e; };
@@ -56,22 +56,35 @@ export function showStartCard() {
 
   const clear = () => { body.textContent = ''; bottom.textContent = ''; bottom.onclick = null; bottom.classList.remove('sc-back-bar'); };
   const opt = (id, text, cls = '') => el('button', { type: 'button', id, className: 'sc-opt ' + cls, textContent: text });
-  const backBar = (onBack) => {
+  const backBar = (onBack, extra) => {
     bottom.classList.add('sc-back-bar');
     const b = el('button', { type: 'button', id: 'sc-back', className: 'sc-back', textContent: 'BACK' });
     b.onclick = (e) => { e.stopPropagation(); onBack(); };
     bottom.append(b);
+    if (extra) bottom.append(extra);
     bottom.onclick = (e) => { if (e.target === bottom) onBack(); };
   };
 
-  async function makeRoom(presetId) {
-    rollLookOnRestart();
+  // Save name + Instagram into klibb.avatar (face lock keys off look.insta).
+  function saveIdentity(name, instaRaw) {
+    const saved = read(LOOK_KEY) || {};
+    const insta = cleanInsta(instaRaw);
+    const look = { ...(saved.look || {}) };
+    if (insta) look.insta = insta; else delete look.insta;
+    write(LOOK_KEY, { ...saved, name: name.trim().slice(0, 24) || saved.name || '', look });
+    return look;
+  }
+
+  async function createAndEnter(presetId, roomName) {
     const msg = el('p', { className: 'sc-msg', id: 'sc-msg', textContent: S.scMaking });
     body.append(msg);
     try {
+      const payload = { preset: presetId || false };
+      const n = (roomName || '').trim().slice(0, 40);
+      if (n) payload.name = n;
       const r = await fetch('/api/rooms', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preset: presetId || false }),
+        body: JSON.stringify(payload),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.room) throw new Error(data.error || `Error ${r.status}`);
@@ -80,7 +93,68 @@ export function showStartCard() {
       go(data.room.id);
     } catch (e) {
       msg.textContent = e.message || S.scFailed;
+      return false;
     }
+    return true;
+  }
+
+  // Intermediate details page (t590u): after Empty/Preset/Join choice, before entering.
+  // opts: { kind:'new'|'join', presetId?, roomId?, onBack }
+  function details(opts) {
+    clear();
+    frame.dataset.screen = 'details';
+    if (opts.kind === 'new') rollLookOnRestart();
+    const saved = read(LOOK_KEY) || {};
+
+    const field = (id, label, value, max, extra = {}) => {
+      const inp = el('input', {
+        id, type: 'text', maxLength: max, value: value || '',
+        autocomplete: 'off', spellcheck: false, className: 'sc-input', ...extra,
+      });
+      const wrap = el('label', { className: 'sc-field', htmlFor: id }, [
+        el('span', { className: 'sc-field-label', textContent: label }),
+        inp,
+      ]);
+      return [wrap, inp];
+    };
+
+    const form = el('div', { className: 'sc-form', id: 'sc-details' });
+    let iRoom = null;
+    if (opts.kind === 'new') {
+      const [fRoom, inp] = field('sc-roomname', S.scRoomName, '', 40);
+      iRoom = inp;
+      form.append(fRoom);
+    }
+    const [fName, iName] = field('sc-name', S.scName, saved.name || '', 24, { autocomplete: 'nickname' });
+    const [fInsta, iInsta] = field('sc-insta', S.scInsta, saved.look?.insta || '', 31, { autocapitalize: 'none', autocomplete: 'username' });
+    form.append(fName, fInsta);
+    iInsta.addEventListener('input', () => {
+      const v = cleanInsta(iInsta.value);
+      if (v !== iInsta.value.toLowerCase().replace(/^@+/, '')) iInsta.value = v;
+    });
+    const msg = el('p', { className: 'sc-msg', id: 'sc-msg' });
+    form.append(msg);
+    body.append(form);
+
+    const goBtn = el('button', { type: 'button', id: 'sc-enter', className: 'sc-enter-btn', textContent: S.scEnterGo });
+    backBar(opts.onBack, goBtn);
+
+    const submit = async () => {
+      if (goBtn.disabled) return;
+      goBtn.disabled = true;
+      saveIdentity(iName.value, iInsta.value);
+      if (opts.kind === 'join') {
+        go(opts.roomId);
+        return;
+      }
+      const ok = await createAndEnter(opts.presetId || false, iRoom ? iRoom.value : '');
+      if (!ok) goBtn.disabled = false;
+    };
+    goBtn.onclick = (e) => { e.stopPropagation(); submit(); };
+    for (const i of [iRoom, iName, iInsta].filter(Boolean)) {
+      i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+    }
+    (iRoom || iName).focus();
   }
 
   function splash() {
@@ -122,7 +196,7 @@ export function showStartCard() {
     const empty = opt('sc-empty', 'EMPTY ROOM', 'sc-opt-main');
     const preset = opt('sc-preset', 'PRESET', 'sc-opt-main');
     body.append(el('div', { className: 'sc-stack' }, [empty, preset]));
-    empty.onclick = () => { empty.disabled = true; preset.disabled = true; makeRoom(false); };
+    empty.onclick = () => details({ kind: 'new', presetId: false, onBack: newGame });
     preset.onclick = presetScreen;
     backBar(main);
     empty.focus();
@@ -150,10 +224,7 @@ export function showStartCard() {
           textContent: label,
         });
         b.dataset.id = p.id;
-        b.onclick = () => {
-          for (const x of list.querySelectorAll('button')) x.disabled = true;
-          makeRoom(p.id);
-        };
+        b.onclick = () => details({ kind: 'new', presetId: p.id, onBack: presetScreen });
         list.append(b);
       }
       list.querySelector('button')?.focus();
@@ -167,14 +238,7 @@ export function showStartCard() {
       el('p', { className: 'sc-empty', textContent: S.scLoading }),
     ]);
     body.append(list);
-    // Bottom bar: BACK + CODE (code path kept; not on the mockup but needed for room codes)
-    bottom.classList.add('sc-back-bar');
-    const back = el('button', { type: 'button', id: 'sc-back', className: 'sc-back', textContent: 'BACK' });
-    const code = el('button', { type: 'button', id: 'sc-code', className: 'sc-code', textContent: 'CODE' });
-    back.onclick = (e) => { e.stopPropagation(); main(); };
-    code.onclick = (e) => { e.stopPropagation(); codeDialog(); };
-    bottom.append(back, code);
-    bottom.onclick = (e) => { if (e.target === bottom) main(); };
+    backBar(main);
 
     (async () => {
       let rooms = [];
@@ -189,35 +253,11 @@ export function showStartCard() {
         const b = el('button', { type: 'button', className: 'sc-opt sc-opt-list sc-room' + (r.city ? ' sc-room-city' : '') });
         b.dataset.id = r.id;
         b.textContent = roomLine(r);
-        b.onclick = () => go(r.id);
+        b.onclick = () => details({ kind: 'join', roomId: r.id, onBack: joinScreen });
         list.append(b);
       }
       list.querySelector('button')?.focus();
     })();
-  }
-
-  function codeDialog() {
-    const dlg = el('dialog', { id: 'sc-code-dialog', className: 'sc-dialog' });
-    const inp = el('input', { id: 'sc-code-input', type: 'text', maxLength: 200, autocomplete: 'off', autocapitalize: 'none', spellcheck: false, placeholder: S.scCodePlaceholder });
-    const msg = el('p', { className: 'sc-msg', id: 'sc-code-msg' });
-    const ok = el('button', { type: 'button', className: 'sc-foot sc-go', id: 'sc-code-go', textContent: S.scCodeGo });
-    const cancel = el('button', { type: 'button', className: 'sc-foot', id: 'sc-code-cancel', textContent: S.scBack });
-    dlg.append(el('h2', { textContent: S.scCodeTitle }), inp, msg, el('div', { className: 'sc-feet' }, [cancel, ok]));
-    root.appendChild(dlg); dlg.showModal(); inp.focus();
-    cancel.onclick = () => { dlg.close(); dlg.remove(); };
-    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok.click(); } });
-    ok.onclick = async () => {
-      const code = cleanCode(inp.value);
-      if (!ROOM_RE.test(code)) { msg.textContent = S.scCodeBad; return; }
-      if (isCityRoom(code)) { go(code); return; }
-      ok.disabled = true; msg.textContent = '';
-      try {
-        const r = await fetch(`/api/rooms/recent?ids=${code}`, { cache: 'no-store' }); const a = await r.json();
-        if ((a.rooms || []).some((x) => x.id === code)) { go(code); return; }
-        msg.textContent = S.scCodeUnknown;
-      } catch { go(code); return; }
-      ok.disabled = false;
-    };
   }
 
   splash();

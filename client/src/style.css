@@ -794,16 +794,15 @@ body.start-card-on { overflow: auto; background: #fff; }
 .sc-list-wrap { width: 100%; max-height: 100%; overflow: auto; display: flex; flex-direction: column; align-items: stretch; gap: clamp(6px, 1.6cqh, 14px); padding: 0 1%; -webkit-overflow-scrolling: touch; }
 .sc-empty { margin: 0; text-align: center; color: #fff; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 700; font-size: clamp(16px, 3.4cqh, 26px); opacity: .85; }
 .sc-msg { margin: 0; text-align: center; color: #fff; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 700; font-size: clamp(16px, 3.4cqh, 26px); }
-.sc-back, .sc-code { font-family: "Helvetica Neue", Helvetica, Arial Black, Arial, sans-serif; font-weight: 900; font-size: clamp(18px, 4.2cqh, 34px); letter-spacing: .02em; color: #fff !important; text-transform: uppercase; padding: .1em 0; }
-.sc-back:hover, .sc-code:hover, .sc-back:focus-visible, .sc-code:focus-visible { text-shadow: 0 0 .1em rgba(255,255,255,.9); outline: none; }
-.sc-dialog { border: 0; border-radius: 0; padding: 22px 24px; width: min(520px, 90vw); background: #000; color: #fff; border: 4px solid #a00c24; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
-.sc-dialog::backdrop { background: rgba(0,0,0,.72); }
-.sc-dialog h2 { margin: 0 0 12px; color: #fff; font-size: 30px; font-weight: 900; text-transform: uppercase; }
-.sc-dialog input { width: 100%; box-sizing: border-box; font-size: 26px; padding: 10px 12px; border: 2px solid #a00c24; border-radius: 0; background: #111; color: #fff; }
-.sc-dialog .sc-msg { font-size: 18px; margin: 8px 0; color: #fff; }
-.sc-dialog .sc-feet { display: flex; justify-content: space-between; margin-top: 10px; }
-.sc-dialog .sc-foot { font-size: 28px !important; font-weight: 900; color: #fff !important; text-transform: uppercase; }
-.sc-dialog .sc-go { color: #a00c24 !important; }
+.sc-back, .sc-enter-btn { font-family: "Helvetica Neue", Helvetica, Arial Black, Arial, sans-serif; font-weight: 900; font-size: clamp(18px, 4.2cqh, 34px); letter-spacing: .02em; color: #fff !important; text-transform: uppercase; padding: .1em 0; }
+.sc-back:hover, .sc-enter-btn:hover, .sc-back:focus-visible, .sc-enter-btn:focus-visible { text-shadow: 0 0 .1em rgba(255,255,255,.9); outline: none; }
+.sc-enter-btn:disabled { opacity: .45; cursor: wait; }
+.sc-form { width: 100%; max-width: 92%; display: flex; flex-direction: column; gap: clamp(10px, 3.2cqh, 28px); align-items: stretch; }
+.sc-field { display: flex; flex-direction: column; gap: clamp(4px, 1cqh, 10px); width: 100%; }
+.sc-field-label { font-family: "Helvetica Neue", Helvetica, Arial Black, Arial, sans-serif; font-weight: 900; font-size: clamp(18px, 4.5cqh, 36px); letter-spacing: -.01em; text-transform: uppercase; color: #fff; }
+.sc-input { width: 100%; box-sizing: border-box; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 700; font-size: clamp(20px, 4.8cqh, 36px); padding: .35em .45em; border: 3px solid #a00c24; border-radius: 0; background: #111; color: #fff; caret-color: #fff; outline: none; }
+.sc-input:focus { border-color: #fff; box-shadow: 0 0 0 2px #a00c24; }
+.sc-form .sc-msg { min-height: 1.2em; }
 @media (max-width: 480px) {
   .sc-frame { width: min(96vw, calc(100vh - 16px)); padding: 2.6%; }
   .sc-opt-list { font-size: clamp(14px, 3.2cqh, 22px); }

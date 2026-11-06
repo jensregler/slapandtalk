@@ -242,7 +242,7 @@ export const EN = {
   scLoading: 'Looking for rooms…', scJoinNone: 'No open rooms with people in them right now – make a new one!', scJoinOffline: 'Could not fetch the rooms.',
   scNoPresets: 'No presets yet – try Empty room.',
   scRoomFacts: (free, st, vis, age) => `${free} free spot${free === 1 ? '' : 's'} · ${st} sticker${st === 1 ? '' : 's'} · ${vis} visitor${vis === 1 ? '' : 's'} · ${age}`,
-  scName: 'name?', scInsta: 'instagram @:', scRoomName: 'roomname?', scBack: 'back', scSaveEnter: 'save and enter', scMaking: 'Making your room…', scFailed: 'Could not make the room.',
+  scName: 'NAME', scInsta: 'INSTAGRAM', scRoomName: 'ROOM NAME', scBack: 'back', scSaveEnter: 'save and enter', scEnterGo: 'ENTER', scMaking: 'Making your room…', scFailed: 'Could not make the room.',
   scRoomType: 'room?', scBlankRoom: 'Blank room', scPickChange: 'change ▸', scPickTitle: 'Choose your room',
   scCodeTitle: 'I have a code', scCodePlaceholder: 'the room code (or its link)', scCodeGo: 'enter', scCodeBad: 'A code has letters, digits and dashes.', scCodeUnknown: 'There is no room with that code (any more).',
   soundReset: 'All sounds, effects and Music vol are back to default – Save to keep it.',

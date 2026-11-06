@@ -103,14 +103,18 @@ const script = (base, ...a) => new Promise((ok) => execFile(process.execPath, [p
     check('the PRESET list: both presets by name (Skogen, Källaren)', tiles.length === 2 && tiles.some((x) => /skogen/i.test(x.name)) && tiles.some((x) => /källaren|kallaren/i.test(x.name)), tiles);
     await p.screenshot({ path: path.join(SHOTS, '02-picker.png') });
     await p.click(`#sc-preset-list .sc-preset-item[data-id="${list1[0].id}"]`);
+    await p.waitForSelector('#sc-details', { timeout: 10000 });
+    await p.fill('#sc-name', 'Jens'); await p.fill('#sc-insta', '@jensregler'); await p.fill('#sc-roomname', 'Malmö slaps');
+    await p.click('#sc-enter');
     await p.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.presetLayer && window.klibb.presetLayer().loaded >= 6, null, { timeout: 40000 });
-    const r = await p.evaluate(async () => { const j = (await (await fetch('/api/rooms/' + window.klibb.room)).json()).room; return { preset: j.preset && j.preset.id, floor: j.style.floor, stickers: j.stickers }; });
-    check('choosing "Skogen": a new room made from Skogen (its look + six images; its source room is gone)', r.preset === list1[0].id && r.floor === 'betong', r);
+    const r = await p.evaluate(async () => { const j = (await (await fetch('/api/rooms/' + window.klibb.room)).json()).room; return { name: j.name, preset: j.preset && j.preset.id, floor: j.style.floor, stickers: j.stickers }; });
+    check('choosing "Skogen": a new room "Malmö slaps" made from Skogen (its look + six images; its source room is gone)', r.name === 'Malmö slaps' && r.preset === list1[0].id && r.floor === 'betong', r);
     await p.evaluate(() => { const k = window.klibb; k.setView?.('first', { quiet: true }); k.moveTo(0, 4.4); k.look(0, -0.12); }); await sleep(1500);
     await p.screenshot({ path: path.join(SHOTS, '04-room-from-skogen.png') });
     // EMPTY ROOM: { preset: false } – no preset even though there are some
     const p3 = await (await b.newContext({ viewport: { width: 900, height: 1000 } })).newPage(); p3.on('pageerror', (e) => errs.push(e.message));
     await p3.goto(`${S.base}/`); await toMain(p3); await p3.click('#sc-new'); await p3.click('#sc-empty');
+    await p3.waitForSelector('#sc-details', { timeout: 10000 }); await p3.fill('#sc-name', 'Jens'); await p3.click('#sc-enter');
     await p3.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 40000 });
     const r3 = await p3.evaluate(async () => (await (await fetch('/api/rooms/' + window.klibb.room)).json()).room);
     check('EMPTY ROOM: the new room has no preset', !r3.preset, r3);

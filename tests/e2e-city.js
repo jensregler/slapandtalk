@@ -168,7 +168,9 @@ const EXIT = 'a03b0ba5768979e6';
     check('start card Join list: the room in the city shows the city name ("🏙 Slapville · house 1")', join.some((r) => r.id === `${CID}-1` && r.text.includes('🏙 Slapville · house 1')), join);
     await shot(B, '09-join-list-with-city-name.png');
     // B joins via the list → the house; no pack yet → the pack maker opens by itself
-    await Promise.all([B.waitForURL(new RegExp(`room=${CID}-1$`), { timeout: 20000 }), B.click(`#sc-list .sc-room[data-id="${CID}-1"]`)]);
+    await B.click(`#sc-list .sc-room[data-id="${CID}-1"]`);
+    await B.waitForSelector('#sc-details', { timeout: 10000 });
+    await B.fill('#sc-name', 'B'); await Promise.all([B.waitForURL(new RegExp(`room=${CID}-1$`), { timeout: 20000 }), B.click('#sc-enter')]);
     await ready(B); await sleep(3000);
     check('joining a city room without a pack: the pack maker opens ("choose 3 slaps")', (await B.evaluate(() => window.klibb.door())).open);
 

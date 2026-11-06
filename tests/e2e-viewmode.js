@@ -86,6 +86,7 @@ const CUSTOM = { patches: { slap: { gain: 0.3, layers: [{ kind: 'osc', wave: 'sq
     const menu = await p.evaluate(() => ['klibb.sound', 'klibb.musicVol', 'klibb.grooveScale'].map((k) => sessionStorage.getItem(k)));
     check('"Exit to menu": every sound setting back to default', menu.every((x) => x === null), menu);
     await p.click('#sc-new'); await p.click('#sc-empty');
+    await p.waitForSelector('#sc-details', { timeout: 10000 }); await p.fill('#sc-name', 'Jens'); await p.click('#sc-enter');
     await p.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 }); await sleep(500);
     const fresh = await p.evaluate(() => ({ me: window.klibb.voiceOf(null), vol: window.klibb.sound.volume, groove: window.klibb.groove().scale, mode: window.klibb.state.mode }));
     check('…a new room starts with the default sound (and in View mode)', !fresh.me.patches && !fresh.me.fx && fresh.vol === 1 && fresh.groove === 1 && fresh.mode === 'view', fresh);
