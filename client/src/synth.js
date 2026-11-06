@@ -88,7 +88,7 @@ export class SynthEngine {
     to(P.a.d.delayTime, v.delayTime); to(P.a.fb.gain, v.delayFb); to(P.a.send.gain, v.delayWet);
     to(P.b.d.delayTime, v.delay2Time); to(P.b.fb.gain, v.delay2Fb); to(P.b.send.gain, v.delay2Wet);
     to(P.small.send.gain, v.verbWet * (1 - v.verbSize)); to(P.big.send.gain, v.verbWet * v.verbSize);
-    if (P.node) for (const k of ['modMix', 'modBase', 'modDepth', 'modRate', 'modFb', 'decim', 'bits', 'decimMix', 'stutter', 'stutterLen', 'chop']) { const prm = P.node.parameters.get(k); if (prm) to(prm, v[k]); }
+    if (P.node) for (const k of ['modMix', 'modBase', 'modDepth', 'modRate', 'modFb', 'decim', 'bits', 'decimMix', 'stutter', 'stutterLen', 'chop', 'freqHz', 'freqMix']) { const prm = P.node.parameters.get(k); if (prm) to(prm, v[k]); }
     P.last = v; P.sets++;
     return true;
   }

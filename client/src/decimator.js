@@ -62,16 +62,20 @@ registerProcessor('klibb-decimator', Decimator);
 //   2. decimation (sample-and-hold) + bit reduction, mixed in by decimMix
 //   3. stutter/chop – beat repeat: the sound is cut in slices (stutterLen, a 16th at 90 BPM); at
 //      each slice a coin (stutter = chance) says "repeat the last slice"; chop gates its 2nd half
+//   4. freq shift – RING MODULATION (carrier × signal) as a cheap frequency-shifter stand-in.
+//      True SSB (Hilbert) would need a long FIR; ring-mod keeps one worklet and still reads as a
+//      clear "Freq shift quarter" colour. Dry/wet via freqMix, carrier Hz via freqHz.
 // All k-rate params (the client slews them), nothing allocates while running.
 class Place extends AudioWorkletProcessor {
   static get parameterDescriptors() { const p = (name, d, lo, hi) => ({ name, defaultValue: d, minValue: lo, maxValue: hi, automationRate: 'k-rate' });
     return [p('modMix', 0, 0, 1), p('modBase', 2, 0.1, 40), p('modDepth', 1, 0, 20), p('modRate', 0.3, 0, 20), p('modFb', 0, -0.95, 0.95),
-      p('decim', 1, 1, 64), p('bits', 16, 1, 16), p('decimMix', 0, 0, 1), p('stutter', 0, 0, 1), p('stutterLen', 1 / 6, 0.02, 1), p('chop', 0, 0, 1)]; }
+      p('decim', 1, 1, 64), p('bits', 16, 1, 16), p('decimMix', 0, 0, 1), p('stutter', 0, 0, 1), p('stutterLen', 1 / 6, 0.02, 1), p('chop', 0, 0, 1),
+      p('freqHz', 0, -800, 800), p('freqMix', 0, 0, 1)]; }
   constructor() {
     super(); this.N = 4096; this.md = [new Float32Array(this.N), new Float32Array(this.N)]; this.mw = 0; this.ph = 0;
     this.R = Math.ceil(sampleRate * 2.1); this.ring = [new Float32Array(this.R), new Float32Array(this.R)]; this.rw = 0;
     this.held = [0, 0]; this.acc = 1e9; this.pos = 0; this.rep = false; this.from = 0; this.seed = 12345;
-    this.stats = 0;
+    this.stats = 0; this.fph = 0; // freq-shift (ring-mod) carrier phase
   }
   rnd() { this.seed = (this.seed * 1103515245 + 12345) >>> 0; return this.seed / 4294967296; }
   process(inputs, outputs, P) {
@@ -80,6 +84,7 @@ class Place extends AudioWorkletProcessor {
     const mm = g('modMix'), base = g('modBase') * sampleRate / 1000, dep = g('modDepth') * sampleRate / 1000, fb = g('modFb'), dr = 2 * Math.PI * g('modRate') / sampleRate;
     const dec = g('decim'), dm = g('decimMix'), bits = g('bits'), q = bits < 15.5 ? Math.pow(2, Math.round(bits) - 1) : 0;
     const st = g('stutter'), L = Math.max(64, Math.round(g('stutterLen') * sampleRate)), chop = g('chop');
+    const fHz = g('freqHz'), fMix = g('freqMix'), fDr = 2 * Math.PI * fHz / sampleRate;
     const N = this.N, R = this.R;
     for (let i = 0; i < n; i++) {
       // slice clock (stutter)
@@ -87,6 +92,8 @@ class Place extends AudioWorkletProcessor {
       const pos = this.pos++, edge = Math.min(1, pos / 96, (L - pos) / 96);
       let doS = ++this.acc >= dec; if (doS) { this.acc -= dec; if (this.acc >= dec) this.acc = 0; }
       this.ph += dr; if (this.ph > 6.283185307) this.ph -= 6.283185307;
+      this.fph += fDr; if (this.fph > 6.283185307) this.fph -= 6.283185307; else if (this.fph < -6.283185307) this.fph += 6.283185307;
+      const car = fMix > 0.0005 ? Math.cos(this.fph) : 1;
       for (let c = 0; c < C; c++) {
         let x = inp && inp.length ? (inp[c] || inp[0])[i] : 0;
         if (!(x === x) || x > 8 || x < -8) x = 0; // NaN / runaway guard
@@ -109,6 +116,8 @@ class Place extends AudioWorkletProcessor {
           const y = ring[(this.from + pos) % R] * (pos > L / 2 ? 1 - chop : 1);
           x = x + (y - x) * edge;
         }
+        // 4. freq shift (ring mod): y = (1-m)·x + m·x·cos(ωt)
+        if (fMix > 0.0005) x = x * (1 - fMix) + (x * car) * fMix;
         out[c][i] = x;
       }
       this.mw = (this.mw + 1) % N; this.rw = (this.rw + 1) % R;

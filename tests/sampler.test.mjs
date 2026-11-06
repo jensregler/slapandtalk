@@ -8,7 +8,7 @@ import { MASTER, roomTempo, loopSteps, barMsAt, barsAtTime } from '../shared/clo
 import { cleanRadio, cleanPreset, cleanBpm, knobToBpm, bpmToKnob, FOUR_VOICES, voiceEvents, VOICE_CYCLE_MS, birdPhrase, RADIO } from '../shared/radio.mjs';
 import { decimate } from '../client/src/decimator.js';
 import { knobToMorph, RADIO_DEFAULTS } from '../shared/radio.mjs';
-import { CITY_FX, PLACE, PLACE_NEUTRAL, cityFxAt, zoneWeight, cleanCityFx } from '../shared/cityfx.mjs';
+import { CITY_FX, PLACE, PLACE_NEUTRAL, cityFxAt, zoneWeight, cleanCityFx, fieldAmounts, cornerField, sideField, peakField, delayParamsAt, PEAKS, FIELD, BEAT } from '../shared/cityfx.mjs';
 import fs from 'fs';
 
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ✓ ' + name); };
@@ -200,40 +200,129 @@ ok('radio knob = morph + seek (not a volume): 0 = original, ½ = my preset, 1 = 
   const m15 = morphPatch(a, b, 1.5); assert.ok(m15.layers[0].cutoff > 2000 && m15.layers[0].cutoff < 4000);
 });
 
-ok('city place effect: zones blend smoothly (no jumps), quarters as laid out, clean quarter fully dry, table editable', () => {
+ok('city place effect v2: continuous fields, Freq shift replaces Clean, peaks steep-but-smooth, delay gradients', () => {
   const at = (x, z) => cityFxAt(x, z);
+  const A = (x, z) => fieldAmounts(x, z);
+  // Layout: corners Delay NW / Reverb NE / Glitch SW / Freq SE; sides Flanger W / Chorus E
+  assert.ok(A(-48, -48).delay >= 0.99, 'Delay extreme at NW outer corner');
+  assert.ok(A(48, -48).reverb >= 0.99, 'Reverb extreme at NE outer corner');
+  assert.ok(A(-48, 48).glitch >= 0.99, 'Glitch extreme at SW outer corner');
+  assert.ok(A(48, 48).freq >= 0.99, 'Freq shift extreme at SE outer corner');
+  assert.ok(!('clean' in at(32, 32).zones), 'Clean quarter is gone');
+  assert.ok(at(32, 32).zones.freq > 0.5 && at(32, 32).freqMix > 0.3, 'SE is Freq shift, not dry');
+  // Town Hall ~0
+  const hall = A(0, 0);
+  for (const k of ['delay', 'reverb', 'flanger', 'chorus', 'glitch', 'freq', 'peakA', 'peakB', 'peakC', 'peakD']) {
+    assert.ok(hall[k] < 0.05, `Town Hall quiet: ${k}=${hall[k]}`);
+  }
+  const hv = at(0, 0);
+  assert.ok(hv.delayWet < 0.2 && hv.verbWet < 0.2 && hv.modMix < 0.15 && hv.freqMix < 0.1 && hv.decimMix < 0.2, 'Town Hall params quiet');
+  // Corner slow falloff: still strong near house centre, weaker toward centre
+  assert.ok(A(-32, -32).delay > 0.55, 'Delay still strong at house centre');
+  assert.ok(A(-32, -32).delay > A(-16, -16).delay, 'Delay falls toward centre');
+  assert.ok(A(-16, -16).delay > A(0, 0).delay, 'Delay keeps falling');
+  // ONE shape, rotated: the four corners match under sign-flip
+  for (const [x, z] of [[-40, -30], [-25, -40], [-35, -35]]) {
+    const d = cornerField(x, z, -1, -1);
+    assert.ok(near(d, cornerField(-x, z, 1, -1), 1e-9), 'NE mirror of NW');
+    assert.ok(near(d, cornerField(x, -z, -1, 1), 1e-9), 'SW mirror of NW');
+    assert.ok(near(d, cornerField(-x, -z, 1, 1), 1e-9), 'SE mirror of NW');
+  }
+  // Side half-disc: strong near the house toward centre, ~0 at Town Hall, soft outer shoulder
+  assert.ok(sideField(-24, 0, -1) > 0.7, 'Flanger strong on the inner side of the west house');
+  assert.ok(sideField(-32, 0, -1) > 0.95, 'Flanger ≈1 at house centre');
+  assert.ok(sideField(0, 0, -1) < 0.08, 'Flanger ~0 at Town Hall');
+  assert.ok(sideField(-48, 0, -1) < 0.35, 'Flanger soft at the outer city edge');
+  assert.ok(sideField(24, 0, 1) > 0.7, 'Chorus strong on the inner side of the east house');
+  assert.ok(Math.abs(sideField(-24, 0, -1) - sideField(24, 0, 1)) < 1e-9, 'side shapes are mirrors');
+  // Alley blending: Delay corner field meets Flanger half-disc in the NW–W street
+  const alley = A(-16, -8);
+  assert.ok(alley.delay > 0.15 && alley.flanger > 0.3, 'alley blends Delay + Flanger');
+  const alleyV = at(-16, -8);
+  assert.ok(alleyV.delayWet > 0.05 && alleyV.modMix > 0.3, 'alley params mix both');
+  // Two corner fields meet along the north street (Delay NW + Reverb NE)
+  const deep = A(0, -36);
+  assert.ok(deep.delay > 0.15 && deep.reverb > 0.15, 'north street blends Delay + Reverb');
+  assert.ok(deep.delay + deep.reverb > 0.4, 'deep alley: combined corner energy');
+  // Extreme combo near where side + corner + peak shoulders meet
+  const combo = A(-20, -14);
+  assert.ok(combo.delayAmt + combo.flangerAmt > 0.6, 'combo zone has multiple effects');
+  // Peaks: steep-but-continuous, correct effect pairs
+  assert.equal(PEAKS[0].effects.join('+'), 'chorus+freq');
+  assert.equal(PEAKS[1].effects.join('+'), 'flanger+glitch');
+  assert.equal(PEAKS[2].effects.join('+'), 'reverb+chorus');
+  assert.equal(PEAKS[3].effects.join('+'), 'delay+flanger');
+  assert.ok(peakField(-16, -16, -16, -16) === 1, 'peak centre = 1');
+  assert.ok(peakField(-16, -16, -16 + FIELD.peakR + 0.01, -16) === 0, 'peak outside R = 0');
+  // Continuity: small step near the knee changes amount continuously (not a hard switch)
+  const p0 = peakField(-16, -16, -16 + 0.5, -16);
+  const p1 = peakField(-16, -16, -16 + 0.6, -16);
+  assert.ok(p0 > p1 && p0 - p1 < 0.25, `peak continuous steep step ${p0}->${p1}`);
+  // Very steep: most of the drop happens inside a few metres
+  assert.ok(peakField(-16, -16, -16 + 1.5, -16) < 0.55, 'peak already down by 1.5 m');
+  assert.ok(peakField(-16, -16, -16 + 2.5, -16) < 0.2, 'peak nearly gone by 2.5 m');
+  // Peak A adds Chorus + Freq even though NW is Delay territory
+  const pa = A(-16, -16);
+  assert.ok(pa.peakA > 0.95 && pa.chorusAmt > 0.9 && pa.freqAmt > 0.9, 'Peak A fetches Chorus+Freq');
+  const pav = at(-16, -16);
+  assert.ok(pav.freqMix > 0.5 && pav.modMix > 0.5, 'Peak A audible as freq+chorus');
+  // Peak D fetches Delay+Flanger
+  const pd = A(16, 16);
+  assert.ok(pd.peakD > 0.95 && pd.delayAmt > 0.9 && pd.flangerAmt > 0.9, 'Peak D fetches Delay+Flanger');
+  // Delay time short near house, tempo-synced moderate mid-alley
+  const nearHouse = delayParamsAt(-40, -40);
+  const midAlley = delayParamsAt(-32, -8);
+  assert.ok(nearHouse.delayTime < 0.12, `short near house: ${nearHouse.delayTime}`);
+  assert.ok(Math.abs(midAlley.delayTime - BEAT / 2) < 0.08, `mid-alley near ⅛: ${midAlley.delayTime} vs ${BEAT / 2}`);
+  assert.ok(nearHouse.delayFb > midAlley.delayFb, 'feedback also follows gradient');
+  const dl = at(-40, -40);
+  assert.ok(dl.delayWet > 0.35 && dl.delayTime < 0.12, 'Delay quarter extreme: wet + short');
+  // Quarters as laid out (chip weights)
   const z = (x, zz) => at(x, zz).zones;
-  assert.equal(z(-32, -32).delay, 1); assert.equal(z(32, -32).reverb, 1); assert.equal(z(-32, 0).flanger, 1); assert.equal(z(32, 0).chorus, 1);
-  assert.equal(z(-32, 32).glitch, 1); assert.equal(z(32, 32).clean, 1); assert.equal(z(0, 17).square, 1); assert.equal(z(0, -46).park, 1);
-  const c = at(32, 32); for (const k of Object.keys(PLACE)) if (!['bird', 'wind'].includes(k)) assert.ok(near(c[k], PLACE_NEUTRAL[k], 1e-6), 'clean: ' + k);
-  const dl = at(-32, -32); assert.ok(near(dl.delayTime, 1 / 3) && near(dl.delay2Time, 0.5) && dl.delayFb > 0.3, 'delay quarter: ⅛ + dotted ⅛ at 90 BPM, feedback');
-  assert.ok(at(32, -32).verbWet >= 0.7 && at(32, -32).verbSize === 1);
-  assert.ok(at(-32, 0).modBase < 3 && at(-32, 0).modFb > 0.5, 'flanger: short + feedback'); assert.ok(at(32, 0).modBase > 10 && at(32, 0).modFb === 0, 'chorus: longer, no feedback');
-  const g = at(-32, 32); assert.ok(g.stutter > 0.3 && g.decimMix > 0.5 && g.bits < 8 && near(g.stutterLen, 1 / 6), 'glitch: crush + bits + 16th stutter');
-  assert.ok(at(47.5, 0).decimMix > 0.6 && at(47.5, 0).cutoff < 6000, 'edge: a broken radio'); assert.ok(at(0, -46).bird === 2, 'park: more bird');
-  assert.ok(at(16, 0).delayWet > 0 && at(0, 30).verbWet > 0.12, 'streets: slapback; square: big echo');
-  // between two quarters: a blend
-  const mid = at(-32, -16); assert.ok(mid.zones.delay > 0.3 && mid.zones.flanger > 0.3 && mid.modMix > 0.2 && mid.delay2Wet > 0.05);
-  // walking: every 10 cm step changes each value by only a small part of its range (no jumps)
-  let worst = 0;
+  assert.ok(z(-42, -42).delay > 0.85); assert.ok(z(42, -42).reverb > 0.85);
+  assert.ok(z(-18, 0).flanger > 0.5); assert.ok(z(18, 0).chorus > 0.5);
+  assert.ok(z(-42, 42).glitch > 0.85); assert.ok(z(42, 42).freq > 0.85);
+  assert.ok(z(0, -47.5).park > 0.5, 'north park');
+  // Reverb / flanger / chorus / glitch character
+  assert.ok(at(40, -40).verbWet >= 0.5 && at(40, -40).verbSize > 0.7);
+  assert.ok(at(-18, 0).modBase < 4 && at(-18, 0).modFb > 0.4, 'flanger: short + feedback');
+  assert.ok(at(18, 0).modBase > 10 && at(18, 0).modFb < 0.15, 'chorus: longer, little feedback');
+  const g = at(-40, 40); assert.ok(g.stutter > 0.3 && g.decimMix > 0.5 && g.bits < 10, 'glitch: crush + stutter');
+  assert.ok(Math.abs(at(40, 40).freqHz) > 100 && at(40, 40).freqMix > 0.5, 'freq shift: Hz + mix');
+  assert.ok(at(47.5, 0).decimMix > 0.5 && at(47.5, 0).cutoff < 8000, 'edge: broken radio');
+  // Walking: every 10 cm step changes each value by only a small part of its range (no jumps)
+  // Peaks are steep by design – exclude a small radius around each peak centre from the worst-step check,
+  // but still require continuity (no hard discontinuities) everywhere including peaks.
+  let worst = 0, worstPeak = 0;
+  const nearPeak = (x, z) => PEAKS.some((p) => Math.hypot(x - p.x, z - p.z) < FIELD.peakR + 0.5);
   for (const line of [[[-48, -32], [48, -32]], [[-48, 0], [48, 0]], [[-48, 32], [48, 32]], [[-32, -48], [-32, 48]], [[32, -48], [32, 48]], [[0, -48], [0, 48]], [[-48, -48], [48, 48]]]) {
-    let prev = null;
+    let prev = null, prevXZ = null;
     for (let i = 0; i <= 960; i++) {
-      const t = i / 960, v = at(line[0][0] + (line[1][0] - line[0][0]) * t, line[0][1] + (line[1][1] - line[0][1]) * t);
-      if (prev) for (const k of Object.keys(PLACE)) { const [lo, hi, log] = PLACE[k]; const d = log ? Math.abs(Math.log(v[k] / prev[k])) / Math.log(hi / lo) : Math.abs(v[k] - prev[k]) / (hi - lo); worst = Math.max(worst, d); }
-      prev = v;
+      const t = i / 960, x = line[0][0] + (line[1][0] - line[0][0]) * t, zz = line[0][1] + (line[1][1] - line[0][1]) * t;
+      const v = at(x, zz);
+      if (prev) {
+        for (const k of Object.keys(PLACE)) {
+          const [lo, hi, log] = PLACE[k];
+          const d = log ? Math.abs(Math.log(Math.max(1e-12, v[k]) / Math.max(1e-12, prev[k]))) / Math.log(hi / lo) : Math.abs(v[k] - prev[k]) / (hi - lo);
+          if (nearPeak(x, zz) || nearPeak(prevXZ[0], prevXZ[1])) worstPeak = Math.max(worstPeak, d);
+          else worst = Math.max(worst, d);
+        }
+      }
+      prev = v; prevXZ = [x, zz];
     }
   }
-  assert.ok(worst < 0.04, `largest step ${worst.toFixed(4)} of a range per 10 cm`);
+  assert.ok(worst < 0.06, `largest non-peak step ${worst.toFixed(4)} of a range per 10 cm`);
+  assert.ok(worstPeak < 0.35, `largest peak-area step ${worstPeak.toFixed(4)} (steep but continuous)`);
   for (let i = 0; i < 300; i++) { const v = at(Math.random() * 120 - 60, Math.random() * 120 - 60); for (const k of Object.keys(PLACE)) assert.ok(v[k] >= PLACE[k][0] && v[k] <= PLACE[k][1] && Number.isFinite(v[k]), k); }
   assert.ok(same(Object.keys(at(NaN, 0)).sort(), Object.keys(at(0, 0)).sort()));
-  // weights: 1 inside, smooth to 0 at feather
+  // Legacy zoneWeight still works for custom circle/rect overlays
   const q = { shape: 'circle', x: 0, z: 0, r: 5, feather: 4 }; assert.equal(zoneWeight(q, 3, 0), 1); assert.equal(zoneWeight(q, 9, 0), 0); assert.ok(near(zoneWeight(q, 7, 0), 0.5));
-  // data-driven: a cleaned edit drives cityFxAt; junk is dropped and clamped
   const ed = cleanCityFx({ base: { verbWet: 9 }, zones: [{ shape: 'circle', x: 0, z: 0, r: 4, fx: { modMix: 1, bogus: 3 } }, { shape: 'star' }, null] });
   assert.equal(ed.base.verbWet, PLACE.verbWet[1]); assert.equal(ed.zones.length, 1); assert.ok(!('bogus' in ed.zones[0].fx));
   assert.equal(cityFxAt(0, 0, ed).modMix, 1); assert.equal(cityFxAt(30, 30, ed).modMix, 0);
   assert.ok(same(cleanCityFx(CITY_FX).zones.map((x) => x.id), CITY_FX.zones.map((x) => x.id)), 'the built-in table passes its own check');
+  assert.ok(PLACE.freqHz && PLACE.freqMix, 'freq shift keys in PLACE');
+  assert.equal(PLACE_NEUTRAL.freqHz, 0); assert.equal(PLACE_NEUTRAL.freqMix, 0);
 });
 ok('envelope follower: a mod source like an LFO (same list/limits/cycles/nesting), rectify + one-pole, threshold, invert, loops smoothed', () => {
   const layers = cleanPatch({ layers: [{ kind: 'osc' }, { kind: 'mic' }] }).layers;

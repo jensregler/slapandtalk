@@ -1,97 +1,307 @@
-// Place effect in the city (Jens, 5 Nov 2026): everyone carries their OWN sound (radio, preset,
+// Place effect in the city (Jens, 5–6 Nov 2026): everyone carries their OWN sound (radio, preset,
 // morph) out into the city, but the GLOBAL effect – the master bus after all my sounds – depends
 // on WHERE I stand. Per listener: each player hears the effect for their own position; nothing is
 // sent to anyone.
 //
-// Data-driven: CITY_FX is a small table – a `base` (what the streets sound like) and `zones`
-// applied in order on top of it. Each zone has a shape and a soft edge (`feather`, metres):
-//   { id, name, shape: 'circle', x, z, r, feather, fx }          – round place (r = full strength)
-//   { id, name, shape: 'rect', x, z, w, d, feather, fx }          – box (centre x/z, size w × d)
-//   { id, name, shape: 'edge', inset, fx }                       – the last `inset` metres to the city's edge
-// `fx` lists only what the zone changes (any of the PLACE keys). Strength w is 1 inside the shape
-// and falls smoothly (smoothstep) to 0 at `feather` metres outside, so walking never jumps; the
-// client also slews the audio params (~0.25 s time constant ≈ 0.75 s to settle).
+// v2 (sketch video + t579u): continuous GRADIENT FIELDS instead of flat 28 m quarters.
+//   - Four CORNER houses (Delay NW, Reverb NE, Glitch SW, Freq shift SE): one slow shape,
+//     rotated/mirrored – 100 % at the outer map corner, gentle falloff toward the centre.
+//   - Two SIDE houses (Flanger W, Chorus E): half-disc radiating from the inner face toward
+//     the alleys / centre.
+//   - Alleys BLEND overlapping fields (multiple effects at once); deeper meetings = extremes.
+//   - Around the Town Hall amounts ≈ 0 (quiet, effect-free).
+//   - Four small PEAKS at the inner intersections (±16, ±16): steep-but-smooth curves (not a
+//     hard switch). Each peak fetches effects from the opposite side of the city.
+//   - Parameters follow the gradients too (delay time short near the Delay house → tempo-synced
+//     mid-alley; feedback, reverb size, mod depth/rate, glitch rate, freq-shift Hz likewise).
 // Inside houses / other rooms: PLACE_NEUTRAL (the room's own reverb does the rest).
-// To change the zones: edit CITY_FX below (or pass a table to cityFxAt / klibb.setCityFx() in the
-// browser to try one live; cleanCityFx() checks it). Coordinates are metres on the city map:
-// the city is 96 × 96 m (x and z from −48 to 48), 3 × 3 plots of 32 m, the Town Hall in the middle
-// (0, 0), its door facing south (+z), the spawn at (0, 17).
+// Coordinates: metres on the city map – 96 × 96 m (x, z −48…48), 3 × 3 plots of 32 m, Town Hall
+// at (0, 0), door facing south (+z), spawn at (0, 17). North = −z.
 import { CITY } from './city.mjs';
 import { MASTER } from './clock.mjs';
 
 // Every place parameter: [min, max, log?]. Plain numbers – fed to existing audio params.
 export const PLACE = Object.freeze({
-  verbWet:   [0, 0.8],          // reverb send
-  verbSize:  [0, 1],            // 0 = small room (0.9 s) … 1 = big hall (5.5 s): a blend of two reverbs
-  delayTime: [0.02, 0.6, true], // s (slapback ≈ 0.06–0.12)
+  verbWet:   [0, 0.8],
+  verbSize:  [0, 1],
+  delayTime: [0.02, 0.6, true],
   delayFb:   [0, 0.7],
   delayWet:  [0, 0.8],
-  delay2Time: [0.02, 1.2, true], // a second delay (the delay quarter: two taps blending)
+  delay2Time: [0.02, 1.2, true],
   delay2Fb:  [0, 0.7],
   delay2Wet: [0, 0.8],
-  modMix:    [0, 1],            // flanger / chorus (one modulated short delay in the worklet)
+  modMix:    [0, 1],
   modBase:   [0.5, 30, true],   // ms: ~1–3 = flanger, ~12–25 = chorus
-  modDepth:  [0, 10],           // ms swing
-  modRate:   [0.05, 5, true],   // Hz
-  modFb:     [0, 0.9],          // flanger feedback (chorus ≈ 0)
-  stutter:   [0, 1],            // chance per slice to repeat the last slice (beat repeat)
-  stutterLen: [0.04, 0.7, true], // s, the slice (a 16th at 90 BPM = 0.167)
-  chop:      [0, 1],            // cuts the 2nd half of a repeated slice
-  cutoff:    [300, 20000, true], // master low-pass, Hz
-  decim:     [1, 32, true],     // sample-and-hold factor (1 = off)
-  bits:      [1, 16],           // bit depth (16 = clean)
-  decimMix:  [0, 1],            // how much of the decimated signal (0 = none)
-  bird:      [0, 2],            // × the radio's bird volume
-  wind:      [0, 2],            // × the radio's wind volume
+  modDepth:  [0, 10],
+  modRate:   [0.05, 5, true],
+  modFb:     [0, 0.9],
+  stutter:   [0, 1],
+  stutterLen: [0.04, 0.7, true],
+  chop:      [0, 1],
+  cutoff:    [300, 20000, true],
+  decim:     [1, 32, true],
+  bits:      [1, 16],
+  decimMix:  [0, 1],
+  // Freq shift (ring-mod approximation of a frequency shifter; see decimator.js Place worklet).
+  freqHz:    [-800, 800],       // carrier Hz; 0 = no shift
+  freqMix:   [0, 1],            // dry/wet of the ring-mod branch
+  bird:      [0, 2],
+  wind:      [0, 2],
 });
-export const PLACE_NEUTRAL = Object.freeze({ verbWet: 0, verbSize: 0.3, delayTime: 0.1, delayFb: 0, delayWet: 0, delay2Time: 0.5, delay2Fb: 0, delay2Wet: 0,
-  modMix: 0, modBase: 15, modDepth: 3, modRate: 0.5, modFb: 0, cutoff: 20000, decim: 1, bits: 16, decimMix: 0, stutter: 0, stutterLen: 1 / 6, chop: 0, bird: 1, wind: 1 });
-// Tempo-synced times come from the master clock (shared/clock.mjs, 90 BPM): a beat = 0.667 s.
-const BEAT = 60 / MASTER.bpm;
-// Every value set back to clean (the dry quarter): all effects off, the radio's bird/wind as they are.
-const CLEAN = Object.freeze({ ...PLACE_NEUTRAL });
-export const PLACE_SLEW = 0.25; // s, the audio params' time constant (setTargetAtTime)
-export const PLACE_EVERY_MS = 100; // how often the client recomputes from my position
+export const PLACE_NEUTRAL = Object.freeze({
+  verbWet: 0, verbSize: 0.3, delayTime: 0.1, delayFb: 0, delayWet: 0,
+  delay2Time: 0.5, delay2Fb: 0, delay2Wet: 0,
+  modMix: 0, modBase: 15, modDepth: 3, modRate: 0.5, modFb: 0,
+  cutoff: 20000, decim: 1, bits: 16, decimMix: 0, stutter: 0, stutterLen: 1 / 6, chop: 0,
+  freqHz: 0, freqMix: 0, bird: 1, wind: 1,
+});
+const BEAT = 60 / MASTER.bpm; // ⅔ s at 90 BPM
+export const PLACE_SLEW = 0.25;
+export const PLACE_EVERY_MS = 100;
 
-// Layout (north = −z; the plots are 32 m, centres at −32 / 0 / 32; houses stand in the middle 16 × 16 m):
-//      ┌──────────── north park (bird + wind) ────────────┐
-//      │  1 DELAY      │  2 (streets)    │  3 REVERB       │
-//      │  quarter      │                 │  quarter        │
-//      ├───────────────┼─────────────────┼─────────────────┤
-//      │  4 FLANGER    │   TOWN HALL     │  5 CHORUS       │
-//      │  quarter      │  (streets)      │  quarter        │
-//      ├───────────────┼──── square ─────┼─────────────────┤
-//      │  6 GLITCH     │  7 (square:     │  8 CLEAN        │
-//      │  crush+stutter│   big echo)     │  fully dry      │
-//      └──────── edge: broken radio (last 7 m) ───────────┘
-// Streets everywhere else: a short slapback. Quarters cover their plot (28 × 28 m) and fade over
-// 8 m, so the street between two quarters is a blend of both. Later rows win where they overlap;
-// CLEAN is last, so the clean quarter is truly clean (even at the city edge).
-const quarter = (id, name, i, j, fx) => ({ id, name, shape: 'rect', x: i * 32, z: j * 32, w: 28, d: 28, feather: 8, fx });
-export const CITY_FX = Object.freeze({
-  base: { verbWet: 0.12, verbSize: 0.25, delayTime: 0.085, delayFb: 0.18, delayWet: 0.16, cutoff: 16000 }, // streets between houses: a short slapback
-  zones: [
-    { id: 'square', name: 'Town square', shape: 'circle', x: 0, z: 17, r: 9, feather: 9, // open square in front of the Town Hall: big echo
-      fx: { verbWet: 0.45, verbSize: 0.95, delayWet: 0.12, delayTime: BEAT, delayFb: 0.25, cutoff: 18000 } },
-    { id: 'park', name: 'North park', shape: 'rect', x: 0, z: -44, w: 96, d: 8, feather: 8, // behind the north row: nature
-      fx: { bird: 2, wind: 1.7, verbWet: 0.22, verbSize: 0.55, delayWet: 0.03, cutoff: 12000 } },
-    quarter('delay', 'Delay quarter', -1, -1, { delayTime: BEAT / 2, delayFb: 0.45, delayWet: 0.38, delay2Time: BEAT * 3 / 4, delay2Fb: 0.4, delay2Wet: 0.3, verbWet: 0.1 }), // ⅛ + dotted ⅛ at 90 BPM
-    quarter('reverb', 'Reverb quarter', 1, -1, { verbWet: 0.7, verbSize: 1, delayWet: 0.02, cutoff: 14000 }),
-    quarter('flanger', 'Flanger quarter', -1, 0, { modMix: 1, modBase: 1.6, modDepth: 1.4, modRate: 0.22, modFb: 0.72, delayWet: 0.06 }),
-    quarter('chorus', 'Chorus quarter', 1, 0, { modMix: 0.85, modBase: 16, modDepth: 5, modRate: 0.9, modFb: 0, delayWet: 0.08, verbWet: 0.18 }),
-    quarter('glitch', 'Glitch quarter', -1, 1, { decim: 10, bits: 5, decimMix: 0.8, stutter: 0.45, stutterLen: BEAT / 4, chop: 0.7, delayWet: 0.05 }),
-    { id: 'edge', name: 'City edge', shape: 'edge', inset: 7, // the last 7 m: a broken radio
-      fx: { decim: 14, bits: 6, decimMix: 0.75, cutoff: 4500, wind: 1.4 } },
-    quarter('clean', 'Clean quarter', 1, 1, CLEAN),
-  ],
+// ---------- Field geometry (metres) ----------
+export const FIELD = Object.freeze({
+  half: 48,                 // city half-extent
+  plot: 32,
+  houseHalf: 8,             // house is 16 × 16
+  // Corner shape: 100 % within CORNER_FULL of the outer map corner, ~0 by CORNER_ZERO.
+  cornerFull: 5,
+  cornerZero: 72,           // past centre along the diagonal (√2·48 ≈ 67.9) → Town Hall ≈ 0, alleys still alive
+  // Side half-disc: from the inner face of Flanger/Chorus toward the centre / alleys.
+  sideFull: 3,
+  sideZero: 28,           // house-centred; Town Hall at 32 m → ~0; alleys still filled
+  // Peaks at the four inner intersections around the Town Hall.
+  peakR: 3.2,               // metres to ~0 (steep smooth falloff)
+  peakKnee: 0.35,           // metres still ~100 %
+  peakPower: 3,             // >1 → steeper shoulders than plain smoothstep
+});
+
+// Named field ids (also used as place-chip labels via CITY_FX.zones).
+export const FIELD_IDS = Object.freeze({
+  delay: 'delay', reverb: 'reverb', flanger: 'flanger', chorus: 'chorus',
+  glitch: 'glitch', freq: 'freq',
+  peakA: 'peakA', peakB: 'peakB', peakC: 'peakC', peakD: 'peakD',
+  park: 'park', edge: 'edge',
 });
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 const KEYS = Object.keys(PLACE);
+const mixLin = (a, b, t) => a + (b - a) * t;
+const mix = (k, a, b, t) => (PLACE[k][2] ? Math.exp(Math.log(Math.max(1e-12, a)) + (Math.log(Math.max(1e-12, b)) - Math.log(Math.max(1e-12, a))) * t) : mixLin(a, b, t));
 
-// Strength (0–1) of one zone at (x, z).
+// Smooth falloff 1→0 as d goes FULL→ZERO.
+function radialFalloff(d, full, zero) {
+  if (d <= full) return 1;
+  if (d >= zero) return 0;
+  return 1 - smooth((d - full) / (zero - full));
+}
+
+// ---------- ONE corner shape, rotated/mirrored via (sx, sz) ∈ {−1,+1}² ----------
+// Outer map corner = (sx·48, sz·48). Amount = 1 there, slow falloff toward the centre.
+export function cornerField(x, z, sx, sz, f = FIELD) {
+  const ocx = sx * f.half, ocz = sz * f.half;
+  return radialFalloff(Math.hypot(x - ocx, z - ocz), f.cornerFull, f.cornerZero);
+}
+
+// ---------- Side half-disc: Flanger (sx=−1) / Chorus (sx=+1) ----------
+// Semi-circle centred on the house, radiating toward the city centre / alleys. The outer half
+// (toward the city edge) keeps a soft shoulder through the house so there's no cliff at the wall,
+// then falls off before the map edge.
+export function sideField(x, z, sx, f = FIELD) {
+  const hx = sx * f.plot;                    // house centre ±32
+  const toward = sx * (hx - x);              // ≥0 on the centre-facing side of the house
+  const r = Math.hypot(x - hx, z);
+  const base = radialFalloff(r, f.sideFull, f.sideZero);
+  if (toward >= -0.01) return base;          // centre-facing half (incl. the house midline)
+  // Outer shoulder: through the house body, then down toward the city edge
+  const outer = radialFalloff(-toward, 0, f.houseHalf + 8);
+  return base * Math.max(0.15, outer);
+}
+
+// ---------- Peak: steep-but-continuous (NOT an instant switch) ----------
+// 1 at the centre, drops fast to 0 just outside. Power>1 steepens the shoulders.
+export function peakField(x, z, px, pz, f = FIELD) {
+  const d = Math.hypot(x - px, z - pz);
+  if (d <= f.peakKnee) return 1;
+  if (d >= f.peakR) return 0;
+  const s = smooth((d - f.peakKnee) / (f.peakR - f.peakKnee));
+  return Math.pow(1 - s, f.peakPower);
+}
+
+// Peak centres: A NW, B NE, C SW, D SE – the four inner intersections around the Town Hall.
+export const PEAKS = Object.freeze([
+  { id: 'peakA', name: 'Peak A', x: -16, z: -16, effects: ['chorus', 'freq'] },
+  { id: 'peakB', name: 'Peak B', x:  16, z: -16, effects: ['flanger', 'glitch'] },
+  { id: 'peakC', name: 'Peak C', x: -16, z:  16, effects: ['reverb', 'chorus'] },
+  { id: 'peakD', name: 'Peak D', x:  16, z:  16, effects: ['delay', 'flanger'] },
+]);
+
+// Soft overlays kept from v1 (nature + broken-radio edge). No loud Town-square echo – the hall
+// area must stay quiet.
+function parkWeight(x, z) {
+  // Thin north strip at the very edge (z ≈ −48…−46.5), clear of the NW/NE house corners (−40).
+  const dz = Math.max(0, Math.abs(z - (-47.25)) - 0.75);
+  const dx = Math.max(0, Math.abs(x) - 48);
+  return 1 - smooth(Math.hypot(dx, dz) / 4);
+}
+function edgeWeight(x, z, box = CITY) {
+  const inset = 7;
+  const b = Math.min(box.width / 2 - Math.abs(x), box.depth / 2 - Math.abs(z));
+  return 1 - smooth(b / inset);
+}
+
+// Amounts for every named field at (x, z). Pure geometry – no audio params yet.
+export function fieldAmounts(x, z, f = FIELD) {
+  const delay = cornerField(x, z, -1, -1, f);
+  const reverb = cornerField(x, z,  1, -1, f);
+  const glitch = cornerField(x, z, -1,  1, f);
+  const freq = cornerField(x, z,  1,  1, f);
+  const flanger = sideField(x, z, -1, f);
+  const chorus = sideField(x, z,  1, f);
+  const peakA = peakField(x, z, -16, -16, f);
+  const peakB = peakField(x, z,  16, -16, f);
+  const peakC = peakField(x, z, -16,  16, f);
+  const peakD = peakField(x, z,  16,  16, f);
+  const park = parkWeight(x, z);
+  const edge = edgeWeight(x, z);
+  return {
+    delay, reverb, flanger, chorus, glitch, freq,
+    peakA, peakB, peakC, peakD, park, edge,
+    // Combined effect strengths (peaks fetch opposite-side effects).
+    delayAmt: delay + peakD,
+    reverbAmt: reverb + peakC,
+    flangerAmt: flanger + peakB + peakD,
+    chorusAmt: chorus + peakA + peakC,
+    glitchAmt: glitch + peakB,
+    freqAmt: freq + peakA,
+  };
+}
+
+// Delay time / feedback follow distance from the Delay outer corner (not just amount):
+// short & snappy next to the house, tempo-synced (⅛) around mid-alley, longer further out.
+export function delayParamsAt(x, z, f = FIELD) {
+  const d = Math.hypot(x - (-f.half), z - (-f.half)); // dist from NW outer corner
+  // 0 at corner → 1 around ~40 m (mid-alley / toward centre).
+  const t = clamp((d - 8) / 34, 0, 1);
+  const tSmooth = smooth(t);
+  const delayTime = mixLin(0.055, BEAT / 2, tSmooth);       // 55 ms → ⅛ note (⅓ s)
+  const delay2Time = mixLin(0.11, BEAT * 3 / 4, tSmooth);   // ~110 ms → dotted ⅛
+  const delayFb = mixLin(0.55, 0.28, tSmooth);
+  const delay2Fb = mixLin(0.48, 0.22, tSmooth);
+  return { delayTime, delay2Time, delayFb, delay2Fb, t: tSmooth };
+}
+
+// Map field amounts → PLACE params. Soft-cap so alley extremes stay musical.
+function softCap(a, knee = 1) {
+  // a≥0 → approaches knee*1.5 asymptotically; ≈a for a≪knee.
+  return knee * 1.5 * (1 - Math.exp(-a / knee));
+}
+
+function paramsFromFields(A, x, z) {
+  const v = { ...PLACE_NEUTRAL };
+  const dA = softCap(A.delayAmt), rA = softCap(A.reverbAmt);
+  const fA = softCap(A.flangerAmt), cA = softCap(A.chorusAmt);
+  const gA = softCap(A.glitchAmt), qA = softCap(A.freqAmt);
+  const park = A.park, edge = A.edge;
+
+  // --- Delay (corner NW + peak D) ---
+  // delayTime always blends street slapback → gradient so a silent→audible crossing never snaps.
+  const dp = delayParamsAt(x, z);
+  const dPres = clamp(dA / 0.35, 0, 1);
+  v.delayWet = 0.55 * dA;
+  v.delay2Wet = 0.42 * dA;
+  v.delayTime = mixLin(0.085, dp.delayTime, dPres);
+  v.delay2Time = mixLin(0.17, dp.delay2Time, dPres);
+  v.delayFb = mixLin(0.15, dp.delayFb, dPres) * Math.max(dPres, clamp(dA, 0, 1));
+  v.delay2Fb = mixLin(0.1, dp.delay2Fb, dPres) * Math.max(dPres, clamp(dA, 0, 1));
+
+  // --- Reverb (corner NE + peak C) ---
+  v.verbWet = 0.72 * rA;
+  v.verbSize = mixLin(0.35, 1, clamp(rA, 0, 1));
+
+  // --- Flanger (side W + peaks B,D) vs Chorus (side E + peaks A,C) ---
+  // When both are up (alley blend), bias modBase toward the stronger one.
+  // Always write the params (even at ~0 mix) so walking out of a field never snaps modBase
+  // back to PLACE_NEUTRAL mid-value.
+  const modSum = fA + cA;
+  v.modMix = clamp(0.95 * softCap(modSum, 1), 0, 1);
+  // Soften bias when both fields are tiny so a 0↔ε crossing can't swing modBase across its whole range.
+  const rawBias = modSum > 1e-9 ? cA / modSum : 0.5; // 0 = pure flanger, 1 = pure chorus
+  const chorusBias = mixLin(0.5, rawBias, clamp(modSum / 0.1, 0, 1));
+  v.modBase = mix('modBase', 1.5, 18, chorusBias);
+  v.modDepth = mixLin(1.3, 5.5, chorusBias) * clamp(modSum, 0, 1.2);
+  v.modRate = mix('modRate', 0.18, 1.1, chorusBias);
+  v.modFb = mixLin(0.75, 0, chorusBias) * clamp(fA, 0, 1);
+
+  // --- Glitch (corner SW + peak B) ---
+  v.decimMix = 0.85 * gA;
+  v.decim = mix('decim', 1, 12, clamp(gA, 0, 1));
+  v.bits = mixLin(16, 4, clamp(gA, 0, 1));
+  v.stutter = 0.55 * gA;
+  // Near the house (high amount): dense 16ths; further out: longer slices.
+  v.stutterLen = mix('stutterLen', BEAT / 4, BEAT / 2, 1 - clamp(gA, 0, 1));
+  v.chop = 0.75 * gA;
+
+  // --- Freq shift (corner SE + peak A) ---
+  // Hz grows with amount (0 at quiet → ± up to ~480 Hz at extreme). Sign flips gently with z so
+  // the north and south halves of the SE quarter pull opposite ways – keeps motion in the sound.
+  // Hz grows with amount; sign follows a smooth N/S bias (no hard flip at z=0).
+  const freqSign = clamp(z / 24, -1, 1); // ≈0 on the equator, ±1 deep south/north of SE
+  v.freqMix = clamp(0.9 * qA, 0, 1);
+  v.freqHz = freqSign * mixLin(0, 480, clamp(qA, 0, 1));
+
+  // --- Park / edge overlays (additive, light) ---
+  if (park > 0) {
+    v.bird = mixLin(v.bird, 2, park);
+    v.wind = mixLin(v.wind, 1.7, park);
+    v.verbWet = mixLin(v.verbWet, Math.max(v.verbWet, 0.22), park * 0.5);
+    v.verbSize = mixLin(v.verbSize, Math.max(v.verbSize, 0.55), park * 0.5);
+  }
+  if (edge > 0) {
+    v.decimMix = mixLin(v.decimMix, Math.max(v.decimMix, 0.75), edge);
+    v.decim = mix('decim', v.decim, Math.max(v.decim, 14), edge);
+    v.bits = mixLin(v.bits, Math.min(v.bits, 6), edge);
+    v.cutoff = mix('cutoff', v.cutoff, 4500, edge);
+    v.wind = mixLin(v.wind, Math.max(v.wind, 1.4), edge);
+  }
+
+  // Streets base: a tiny slapback wet when nothing else is cooking (time already blended above).
+  const activity = dA + rA + fA + cA + gA + qA;
+  if (activity < 0.15) {
+    const street = 1 - activity / 0.15;
+    v.delayWet = Math.max(v.delayWet, 0.12 * street);
+    v.delayFb = Math.max(v.delayFb, 0.15 * street * (1 - dPres));
+    v.verbWet = Math.max(v.verbWet, 0.08 * street);
+    if (street > 0.5) v.cutoff = Math.min(v.cutoff, 16000);
+  }
+
+  for (const k of KEYS) v[k] = clamp(v[k], PLACE[k][0], PLACE[k][1]);
+  return v;
+}
+
+// Zone table for the place-chip / debugger / cleanCityFx round-trip. Weights come from fields.
+export const CITY_FX = Object.freeze({
+  base: {}, // fields own the base; kept for cleanCityFx / setCityFx edits
+  zones: Object.freeze([
+    { id: 'delay', name: 'Delay quarter', shape: 'field', fx: {} },
+    { id: 'reverb', name: 'Reverb quarter', shape: 'field', fx: {} },
+    { id: 'flanger', name: 'Flanger quarter', shape: 'field', fx: {} },
+    { id: 'chorus', name: 'Chorus quarter', shape: 'field', fx: {} },
+    { id: 'glitch', name: 'Glitch quarter', shape: 'field', fx: {} },
+    { id: 'freq', name: 'Freq shift quarter', shape: 'field', fx: {} },
+    { id: 'peakA', name: 'Peak A', shape: 'field', fx: {} },
+    { id: 'peakB', name: 'Peak B', shape: 'field', fx: {} },
+    { id: 'peakC', name: 'Peak C', shape: 'field', fx: {} },
+    { id: 'peakD', name: 'Peak D', shape: 'field', fx: {} },
+    { id: 'park', name: 'North park', shape: 'field', fx: {} },
+    { id: 'edge', name: 'City edge', shape: 'field', fx: {} },
+  ]),
+});
+
+// Legacy shape weights (custom overlays via setCityFx / cleanCityFx).
 export function zoneWeight(zn, x, z, box = CITY) {
+  if (zn.shape === 'field') return 0; // fields are computed in cityFxAt, not here
   const f = Math.max(0.01, zn.feather ?? 6);
   if (zn.shape === 'circle') return 1 - smooth((Math.hypot(x - zn.x, z - zn.z) - zn.r) / f);
   if (zn.shape === 'rect') {
@@ -104,12 +314,29 @@ export function zoneWeight(zn, x, z, box = CITY) {
   }
   return 0;
 }
-const mix = (k, a, b, t) => (PLACE[k][2] ? Math.exp(Math.log(a) + (Math.log(b) - Math.log(a)) * t) : a + (b - a) * t);
 
 // The place effect at (x, z): { ...PLACE values, zones: { id: weight } }.
 export function cityFxAt(x, z, cfg = CITY_FX) {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return { ...PLACE_NEUTRAL, zones: {} };
+
+  // Default path: continuous fields.
+  const usingDefault = cfg === CITY_FX || (!cfg?.base && (cfg?.zones || []).every((zn) => zn.shape === 'field' || !zn.shape));
+  if (usingDefault || (cfg?.zones || []).every((zn) => zn.shape === 'field')) {
+    const A = fieldAmounts(x, z);
+    const v = paramsFromFields(A, x, z);
+    const zones = {
+      delay: +A.delay.toFixed(3), reverb: +A.reverb.toFixed(3),
+      flanger: +A.flanger.toFixed(3), chorus: +A.chorus.toFixed(3),
+      glitch: +A.glitch.toFixed(3), freq: +A.freq.toFixed(3),
+      peakA: +A.peakA.toFixed(3), peakB: +A.peakB.toFixed(3),
+      peakC: +A.peakC.toFixed(3), peakD: +A.peakD.toFixed(3),
+      park: +A.park.toFixed(3), edge: +A.edge.toFixed(3),
+    };
+    return { ...v, zones };
+  }
+
+  // Custom edited table (circle/rect/edge overlays): same blend as v1.
   const v = { ...PLACE_NEUTRAL, ...(cfg.base || {}) }, zones = {};
-  if (!Number.isFinite(x) || !Number.isFinite(z)) return { ...PLACE_NEUTRAL, zones };
   for (const zn of cfg.zones || []) {
     const w = zoneWeight(zn, x, z); zones[zn.id] = +w.toFixed(3);
     if (w <= 0) continue;
@@ -120,14 +347,15 @@ export function cityFxAt(x, z, cfg = CITY_FX) {
 }
 export const placeNeutral = () => ({ ...PLACE_NEUTRAL, zones: {} });
 
-// Check an edited table (later: the build city's editor). Unknown keys/shapes are dropped, values clamped.
+// Check an edited table. Unknown keys/shapes dropped, values clamped. 'field' kept as a tag.
 export function cleanCityFx(cfg) {
   if (!cfg || typeof cfg !== 'object') return null;
   const vals = (o) => { const out = {}; for (const k of KEYS) if (Number.isFinite(o?.[k])) out[k] = clamp(o[k], PLACE[k][0], PLACE[k][1]); return out; };
   const num = (n, lo, hi, d) => (Number.isFinite(n) ? clamp(n, lo, hi) : d);
   const zones = (Array.isArray(cfg.zones) ? cfg.zones : []).slice(0, 32).map((z, i) => {
-    if (!z || !['circle', 'rect', 'edge'].includes(z.shape)) return null;
+    if (!z || !['circle', 'rect', 'edge', 'field'].includes(z.shape)) return null;
     const o = { id: String(z.id || `z${i}`).slice(0, 24), name: String(z.name || '').slice(0, 40), shape: z.shape, fx: vals(z.fx) };
+    if (z.shape === 'field') return o;
     if (z.shape === 'edge') o.inset = num(z.inset, 0.5, 48, 6);
     else { o.x = num(z.x, -48, 48, 0); o.z = num(z.z, -48, 48, 0); o.feather = num(z.feather, 0.5, 48, 6); }
     if (z.shape === 'circle') o.r = num(z.r, 0, 96, 8);
@@ -136,3 +364,5 @@ export function cleanCityFx(cfg) {
   }).filter(Boolean);
   return { base: vals(cfg.base), zones };
 }
+
+export { BEAT, smooth, clamp };

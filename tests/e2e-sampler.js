@@ -227,18 +227,18 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await C.goto(`${S.base}/?room=stad`); await C.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 });
     await C.mouse.click(600, 400); await sleep(300);
     await C.evaluate(async () => { const s = window.klibb.soundObj(); await s.ready; await s.engine?.ready; });
-    const go = async (x, z, ms = 1600) => { await C.evaluate(([x, z]) => window.klibb.moveTo(x, z), [x, z]); await sleep(ms); return C.evaluate(() => { const p = window.klibb.place(), e = window.klibb.soundObj().engine?.place; return { ...p, cfg: undefined, live: e ? { a: e.a.send.gain.value, b: e.b.send.gain.value, big: e.big.send.gain.value, mod: e.node?.parameters.get('modMix').value, st: e.node?.parameters.get('stutter').value, dm: e.node?.parameters.get('decimMix').value } : null, chip: document.getElementById('place-chip')?.textContent }; }); };
+    const go = async (x, z, ms = 1600) => { await C.evaluate(([x, z]) => window.klibb.moveTo(x, z), [x, z]); await sleep(ms); return C.evaluate(() => { const p = window.klibb.place(), e = window.klibb.soundObj().engine?.place; return { ...p, cfg: undefined, live: e ? { a: e.a.send.gain.value, b: e.b.send.gain.value, big: e.big.send.gain.value, mod: e.node?.parameters.get('modMix').value, st: e.node?.parameters.get('stutter').value, dm: e.node?.parameters.get('decimMix').value, fm: e.node?.parameters.get('freqMix')?.value, fh: e.node?.parameters.get('freqHz')?.value } : null, chip: document.getElementById('place-chip')?.textContent }; }); };
     const q = {};
-    for (const [id, x, z] of [['delay', -32, -20], ['reverb', 32, -20], ['flanger', -20, 0], ['chorus', 20, 0], ['glitch', -32, 44], ['clean', 32, 44], ['square', 0, 17]]) q[id] = await go(x, z);
-    check('city: one place bus (worklet) after my master; each quarter is heard where it is (delay, reverb, flanger, chorus, glitch, square)',
-      q.delay.bus && q.delay.worklet && q.delay.now.zones.delay === 1 && q.delay.live.a > 0.3 && q.delay.live.b > 0.25 && q.reverb.live.big > 0.6 && q.flanger.live.mod > 0.9 && q.chorus.live.mod > 0.8 && q.glitch.live.st > 0.4 && q.glitch.live.dm > 0.7 && q.square.live.big > 0.35,
+    for (const [id, x, z] of [['delay', -42, -42], ['reverb', 42, -42], ['flanger', -20, 0], ['chorus', 20, 0], ['glitch', -42, 42], ['freq', 42, 42], ['hall', 0, 0]]) q[id] = await go(x, z);
+    check('city: one place bus (worklet) after my master; each quarter is heard where it is (delay, reverb, flanger, chorus, glitch, freq)',
+      q.delay.bus && q.delay.worklet && q.delay.now.zones.delay > 0.85 && q.delay.live.a > 0.25 && q.reverb.live.big > 0.4 && q.flanger.live.mod > 0.7 && q.chorus.live.mod > 0.6 && q.glitch.live.st > 0.3 && q.glitch.live.dm > 0.5 && q.freq.live.fm > 0.4 && Math.abs(q.freq.live.fh) > 50,
       Object.fromEntries(Object.entries(q).map(([k, v]) => [k, v.live])));
-    check('…the clean quarter is fully dry (every send 0, no flanger/crush/stutter)', q.clean.live.a < 0.005 && q.clean.live.b < 0.005 && q.clean.live.big < 0.005 && q.clean.live.mod < 0.005 && q.clean.live.st < 0.005 && q.clean.live.dm < 0.005, q.clean.live);
-    check('…a big label says where I am ("🎛 Delay quarter" …)', q.delay.chip === '🎛 Delay quarter' && q.clean.chip === '🎛 Clean quarter', [q.delay.chip, q.clean.chip]);
-    // smooth: jump from clean to delay – the params glide (no step), settle in about a second
-    await go(32, 44, 1500);
-    const g0 = await go(-32, -20, 160), g1 = await go(-32, -20, 1400);
-    check('…no jumps: teleporting clean → delay quarter, the delay send glides (slew ≈ 0.75 s), then settles', g0.live.a > 0.01 && g0.live.a < 0.3 && g1.live.a > 0.3, { after160ms: g0.live.a, after1_5s: g1.live.a });
+    check('…Town Hall is quiet (no strong sends / freq / glitch)', q.hall.live.a < 0.25 && q.hall.live.big < 0.25 && q.hall.live.mod < 0.2 && (q.hall.live.fm || 0) < 0.15 && q.hall.live.st < 0.15, q.hall.live);
+    check('…a big label says where I am ("🎛 Delay quarter" / "🎛 Freq shift quarter")', q.delay.chip === '🎛 Delay quarter' && q.freq.chip === '🎛 Freq shift quarter', [q.delay.chip, q.freq.chip]);
+    // smooth: jump from freq to delay – the params glide (no step), settle in about a second
+    await go(42, 42, 1500);
+    const g0 = await go(-42, -42, 160), g1 = await go(-42, -42, 1400);
+    check('…no jumps: teleporting freq → delay quarter, the delay send glides (slew ≈ 0.75 s), then settles', g0.live.a > 0.01 && g0.live.a < 0.35 && g1.live.a > 0.25, { after160ms: g0.live.a, after1_5s: g1.live.a });
     await C.screenshot({ path: path.join(SHOTS, '09-city-delay-quarter.png') });
     // between two quarters: a blend
     const mid = await go(-32, -16);
