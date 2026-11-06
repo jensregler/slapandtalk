@@ -452,7 +452,16 @@ export const EN = {
   micDenied: 'No microphone (permission was not given).',
   micUnsupported: 'Voice does not work in this browser.',
   voiceNear: 'Voices fade with distance',
+  voiceFx: '🎙 Voice effect',
+  voiceFxAmt: 'Amount',
+  voiceMon: '🎧 Hear myself',
+  voiceMonVol: 'Monitor',
+  voiceRaw: '🎸 Raw mic (for instruments)',
+  voiceMonHint: '🎧 Use headphones – otherwise it can howl (feedback).',
+  voiceMonOnToast: 'Hearing yourself – use headphones.',
+  voiceMonOffToast: 'Not hearing yourself anymore.',
 };
+
 
 export const S = EN;
 export const LOCALE = 'en-GB'; // dates and times

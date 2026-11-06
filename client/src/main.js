@@ -42,7 +42,7 @@ import * as synthShared from '../../shared/synth.mjs';
 import { config } from './config.js';
 import * as demo from './demo.js';
 import { noteVisit } from './landing.js';
-import { Voice, VOICE_FX, cleanVoiceFx } from './voice.js';
+import { Voice, VOICE_FX, cleanVoiceFx, cleanMonitor, pitchLabel } from './voice.js';
 import { ArrayGhosts } from './arraydrag.js';
 import { arrayPlan, faceFor, PEELS_PER_ARRAY } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
@@ -2931,22 +2931,63 @@ var voice = new Voice({ // eslint-disable-line no-var
   onSpeaking: (id, on, level) => { together.setSpeaking(id, on, level); if (id === 'me') for (const b of micBtns()) b.classList.toggle('speaking', !!on); },
   onState: (st) => renderMic(st),
   toast: (k) => toast({ on: S.micOnToast, muted: S.micMutedToast, denied: S.micDenied, unsupported: S.micUnsupported }[k] || '', 1800),
+  tempo: () => { try { return radio.tempo().bpm; } catch { return 90; } },
 });
 voice.recording = () => !!rec; // voice levels go to the server only while ● REC (voice.js)
 voice.reset = () => { for (const id of [...voice.peers.keys()]) voice.drop(id); voice.setPeople([...together.players.map.keys()]); };
 voice.near = localStorage.getItem('klibb.voiceNear') !== '0';
 $('voice-near').checked = voice.near;
 $('voice-near').onchange = (e) => { voice.near = e.target.checked; localStorage.setItem('klibb.voiceNear', voice.near ? '1' : '0'); };
-// voice effect (voice.js): mine, kept in this browser, off by default
+// voice effect + Hear myself (voice.js): mine, kept in this browser; effect off by default
 {
   let vf = null; try { vf = JSON.parse(localStorage.getItem('klibb.voiceFx') || 'null'); } catch { /* none */ }
   voice.setFx(cleanVoiceFx(vf));
+  let vm = null; try { vm = JSON.parse(sessionStorage.getItem(VOICE_FX.monKey) || 'null'); } catch { /* none */ }
+  voice.setMonitor(cleanMonitor(vm));
   const on = $('voice-fx-on'), kind = $('voice-fx-kind'), amt = $('voice-fx-amt'), out = $('voice-fx-out');
+  const div = $('voice-fx-div'), pitch = $('voice-fx-pitch'), harm = $('voice-fx-harm');
+  const monOn = $('voice-mon-on'), monVol = $('voice-mon-vol'), monOut = $('voice-mon-out'), monRaw = $('voice-mon-raw'), monHint = $('voice-mon-hint');
   for (const k of VOICE_FX.kinds.filter((x) => x !== 'dry')) { const o = document.createElement('option'); o.value = k; o.textContent = VOICE_FX.names[k]; kind.appendChild(o); }
-  const show = () => { const f = voice.fx; on.checked = f.on; kind.value = f.kind; amt.value = String(Math.round(f.amount * 100)); out.textContent = `${Math.round(f.amount * 100)} %`; kind.disabled = amt.disabled = !f.on; };
+  for (const d of VOICE_FX.divs) { const o = document.createElement('option'); o.value = d; o.textContent = VOICE_FX.divNames[d]; div.appendChild(o); }
+  for (const st of VOICE_FX.pentatonic) { const o = document.createElement('option'); o.value = String(st); o.textContent = pitchLabel(st); pitch.appendChild(o); }
+  for (const h of VOICE_FX.harm) { const o = document.createElement('option'); o.value = h; o.textContent = VOICE_FX.harmNames[h]; harm.appendChild(o); }
+  const showExtra = () => {
+    const f = voice.fx; const k = f.kind;
+    div.hidden = !(f.on && k === 'echo'); pitch.hidden = !(f.on && k === 'pitch'); harm.hidden = !(f.on && (k === 'harmony' || k === 'pitch'));
+    // pitch select doubles as the interval picker for harmony's base? No – harm has its own. For pitch kind hide harm.
+    harm.hidden = !(f.on && k === 'harmony');
+  };
+  const show = () => {
+    const f = voice.fx; on.checked = f.on; kind.value = f.kind; amt.value = String(Math.round(f.amount * 100)); out.textContent = `${Math.round(f.amount * 100)} %`;
+    kind.disabled = amt.disabled = !f.on; div.value = f.div; pitch.value = String(f.pitch); harm.value = f.harm;
+    showExtra();
+    const m = voice.monitor; monOn.checked = m.on; monVol.value = String(Math.round(m.vol * 100)); monOut.textContent = `${Math.round(m.vol * 100)} %`;
+    monRaw.checked = m.raw; monVol.disabled = monRaw.disabled = !m.on; monHint.hidden = !m.on;
+  };
   const save = (f) => { voice.setFx(f); localStorage.setItem('klibb.voiceFx', JSON.stringify(voice.fx)); show(); };
+  const micRawNow = () => { try { return voice.info().raw; } catch { return false; } };
+  const saveMon = async (partial, { toastOn } = {}) => {
+    const was = voice.monitor.on;
+    const next = cleanMonitor({ ...voice.monitor, ...partial });
+    // Turning Hear myself on → raw mic on (instrument-friendly). Turning it off → raw off (chat processing back).
+    if (partial.on === true && partial.raw === undefined) next.raw = true;
+    if (partial.on === false && partial.raw === undefined) next.raw = false;
+    voice.setMonitor(next);
+    if (next.raw !== micRawNow()) await voice.setRaw(next.raw);
+    try { sessionStorage.setItem(VOICE_FX.monKey, JSON.stringify(voice.monitor)); } catch { /* private */ }
+    show();
+    if (toastOn && next.on && !was) toast(S.voiceMonOnToast, 2200);
+    if (toastOn && !next.on && was) toast(S.voiceMonOffToast, 1600);
+  };
   on.onchange = () => save({ on: on.checked }); kind.onchange = () => save({ kind: kind.value });
+  div.onchange = () => save({ div: div.value }); pitch.onchange = () => save({ pitch: Number(pitch.value) }); harm.onchange = () => save({ harm: harm.value });
   amt.oninput = () => { out.textContent = `${amt.value} %`; }; amt.onchange = () => save({ amount: Number(amt.value) / 100 });
+  monOn.onchange = () => saveMon({ on: monOn.checked }, { toastOn: true });
+  monVol.oninput = () => { monOut.textContent = `${monVol.value} %`; if (voice.monGain && voice.state !== 'muted') voice.monGain.gain.value = Number(monVol.value) / 100; };
+  monVol.onchange = () => saveMon({ vol: Number(monVol.value) / 100 });
+  monRaw.onchange = () => saveMon({ raw: monRaw.checked });
+  // Apply persisted raw on boot if monitor was on
+  if (voice.monitor.raw) voice.setRaw(true).catch(() => {});
   show();
 }
 function micBtns() { return [$('mic-btn'), $('mic-touch'), $('sm-mic')]; }

@@ -42,7 +42,7 @@ export class Sounds {
   ensure() {
     if (this.ctx) return this.ctx;
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
-    try { this.ctx = new AC(); } catch { return null; }
+    try { this.ctx = new AC({ latencyHint: 'interactive' }); } catch { try { this.ctx = new AC(); } catch { return null; } }
     this.ready = loadTone().then((Tone) => {
       Tone.setContext(new Tone.Context(this.ctx));
       this.Tone = Tone;

@@ -159,13 +159,24 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await A.evaluate(() => { const on = document.getElementById('voice-fx-on'); on.checked = true; on.dispatchEvent(new Event('change')); const k = document.getElementById('voice-fx-kind'); k.value = 'echo'; k.dispatchEvent(new Event('change')); }); await sleep(500);
     const v1 = await A.evaluate(() => window.klibb.voice());
     check('…voice effect on (Echo, on the 90 BPM clock): processed on MY side, the peers get that track', v1.fx.on && v1.fx.kind === 'echo' && v1.fxChain === 'echo' && v1.sentTracks.every((t) => t === 'fx'), { fx: v1.fx, chain: v1.fxChain, sent: v1.sentTracks, log: v1.log });
-    for (const kind of ['radio', 'hall', 'robot']) await A.evaluate((kind) => { const k = document.getElementById('voice-fx-kind'); k.value = kind; k.dispatchEvent(new Event('change')); }, kind);
+    for (const kind of ['radio', 'hall', 'robot', 'chorus', 'pitch', 'harmony']) await A.evaluate((kind) => { const k = document.getElementById('voice-fx-kind'); k.value = kind; k.dispatchEvent(new Event('change')); }, kind);
     await sleep(300);
     const v2 = await A.evaluate(() => window.klibb.voice());
     await A.evaluate(() => { const on = document.getElementById('voice-fx-on'); on.checked = false; on.dispatchEvent(new Event('change')); }); await sleep(500);
     const v3 = await A.evaluate(() => ({ v: window.klibb.voice(), micLayer: !!window.klibb.soundObj().engine.micSource() }));
-    check('…radio / hall / robot build too; turning it off sends the original mic track again (the mic layer keeps working)', v2.fxChain === 'robot' && v3.v.fxChain === null && v3.v.sentTracks.every((t) => t === 'mic') && v3.micLayer, { v2: v2.fxChain, v3: v3.v.sentTracks });
-    await A.evaluate(() => { document.getElementById('more-btn')?.click(); document.getElementById('voice-fx-box')?.scrollIntoView({ block: 'center' }); }); await sleep(300);
+    check('…radio / hall / robot / chorus / pitch / harmony build too; turning it off sends the original mic track again (the mic layer keeps working)', v2.fxChain === 'harmony' && v3.v.fxChain === null && v3.v.sentTracks.every((t) => t === 'mic') && v3.micLayer, { v2: v2.fxChain, v3: v3.v.sentTracks });
+    // Hear myself: monitor the (dry or effected) voice locally; headphones hint; raw mic for instruments
+    await A.evaluate(() => { document.getElementById('more-btn')?.click(); document.getElementById('voice-mon-box')?.scrollIntoView({ block: 'center' }); }); await sleep(200);
+    const mon0 = await A.evaluate(() => ({ box: !!document.getElementById('voice-mon-box'), hint: document.getElementById('voice-mon-hint')?.hidden, v: window.klibb.voice() }));
+    check('Hear myself UI is next to Voice effect, off by default, hint hidden', mon0.box && mon0.hint === true && mon0.v.monitor.on === false && mon0.v.monitoring === false, mon0);
+    await A.evaluate(() => { const on = document.getElementById('voice-mon-on'); on.checked = true; on.dispatchEvent(new Event('change')); }); await sleep(800);
+    const mon1 = await A.evaluate(() => ({ v: window.klibb.voice(), hint: document.getElementById('voice-mon-hint')?.hidden, raw: document.getElementById('voice-mon-raw')?.checked, label: document.querySelector('#voice-mon-box [data-t="voiceMon"]')?.textContent }));
+    check('…Hear myself on: monitoring into headphones, raw mic on, headphones warning shown', mon1.v.monitor.on && mon1.v.monitoring && mon1.hint === false && mon1.raw === true && /Hear myself/.test(mon1.label || ''), mon1);
+    await A.evaluate(() => { const on = document.getElementById('voice-fx-on'); on.checked = true; on.dispatchEvent(new Event('change')); const k = document.getElementById('voice-fx-kind'); k.value = 'echo'; k.dispatchEvent(new Event('change')); }); await sleep(400);
+    const mon2 = await A.evaluate(() => window.klibb.voice());
+    check('…with Echo on, monitor still taps the processed chain (peers still get fx)', mon2.monitoring && mon2.fxChain === 'echo' && mon2.sentTracks.every((t) => t === 'fx'), mon2);
+    await A.evaluate(() => { const on = document.getElementById('voice-mon-on'); on.checked = false; on.dispatchEvent(new Event('change')); const fx = document.getElementById('voice-fx-on'); fx.checked = false; fx.dispatchEvent(new Event('change')); }); await sleep(400);
+    await A.evaluate(() => { document.getElementById('voice-fx-box')?.scrollIntoView({ block: 'center' }); }); await sleep(200);
     await A.screenshot({ path: path.join(SHOTS, '12-voice-effect.png') });
     await A.evaluate(() => { window.klibb.toggleMic(); document.getElementById('more-btn')?.click(); }); // mute
     // ---------- the running loops on the master clock ----------

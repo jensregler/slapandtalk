@@ -264,12 +264,19 @@ ok('envelope follower: a mod source like an LFO (same list/limits/cycles/nesting
   // evalMods (control-rate fallback): a follower is neutral, no crash
   assert.ok(evalMods(mods, { seconds: 0.5 }).blocks > 0);
 });
-ok('voice effect settings: off by default (dry), kinds radio/echo/hall/robot, amount 0–1; echo on the 90 BPM clock', async () => {
-  const { cleanVoiceFx, VOICE_FX } = await import('../client/src/voice.js');
+ok('voice effect settings: off by default (dry), kinds incl. chorus/pitch/harmony, amount 0–1; echo on the 90 BPM clock', async () => {
+  const { cleanVoiceFx, VOICE_FX, delaySec, snapVoicePitch, cleanMonitor } = await import('../client/src/voice.js');
   const d = cleanVoiceFx(null); assert.equal(d.on, false);
-  assert.deepEqual(VOICE_FX.kinds, ['dry', 'radio', 'echo', 'hall', 'robot']);
+  assert.deepEqual(VOICE_FX.kinds, ['dry', 'radio', 'echo', 'hall', 'robot', 'chorus', 'pitch', 'harmony']);
   const f = cleanVoiceFx({ on: true, kind: 'hall', amount: 3 }); assert.ok(f.on && f.kind === 'hall' && f.amount === 1);
   assert.equal(cleanVoiceFx({ kind: 'x' }).kind, 'radio'); assert.ok(Math.abs(VOICE_FX.beat - 2 / 3) < 1e-9);
+  assert.ok(Math.abs(delaySec('1/8', 90) - 1 / 3) < 1e-9);
+  assert.ok(Math.abs(delaySec('1/4', 90) - 2 / 3) < 1e-9);
+  assert.ok(Math.abs(delaySec('1/8.', 90) - 0.5) < 1e-9);
+  assert.equal(snapVoicePitch(6), 7); assert.equal(snapVoicePitch(0), 0); assert.equal(snapVoicePitch(100), 19);
+  const m = cleanMonitor(null); assert.equal(m.on, false); assert.equal(m.vol, VOICE_FX.monVolDef); assert.equal(m.raw, false);
+  assert.equal(cleanVoiceFx({ kind: 'echo', div: '1/4' }).div, '1/4');
+  assert.equal(cleanVoiceFx({ kind: 'harmony', harm: 'octave' }).harm, 'octave');
 });
 void variant;
 console.log(`sampler/LFO/radio: ${n} checks ok`);

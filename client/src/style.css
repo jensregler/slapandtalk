@@ -1163,6 +1163,8 @@ body.touch #sound-panel { width: auto; font-size: 17px; }
 .voice-fx select { font-size: 16px; min-height: 40px; }
 .voice-fx-amt { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; }
 .voice-fx-amt input { flex: 1; min-height: 32px; }
+.voice-mon { margin-top: 4px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.12); }
+.voice-mon .mic-warn { flex: 1 1 100%; margin: 4px 0 0; font-size: 15px; }
 
 /* Followers + mic layer (big and clear) */
 .flw-meter { height: 22px; border-radius: 8px; background: #222; border: 2px solid #555; margin: 8px 0; overflow: hidden; }

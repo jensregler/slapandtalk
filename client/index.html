@@ -131,9 +131,19 @@
       <label class="check"><input id="voice-near" type="checkbox" checked /> <span data-t="voiceNear">Voices fade with distance</span></label>
       <!-- Voice effect (voice.js VOICE_FX): mine only, OFF = dry; everyone hears what I send -->
       <div id="voice-fx-box" class="voice-fx">
-        <label class="check"><input id="voice-fx-on" type="checkbox" /> <span>🎙 Voice effect</span></label>
-        <select id="voice-fx-kind" aria-label="Voice effect"></select>
-        <label class="voice-fx-amt"><span>Amount</span> <input id="voice-fx-amt" type="range" min="0" max="100" step="1" value="60" aria-label="Voice effect amount" /> <output id="voice-fx-out">60 %</output></label>
+        <label class="check"><input id="voice-fx-on" type="checkbox" /> <span data-t="voiceFx">🎙 Voice effect</span></label>
+        <select id="voice-fx-kind" aria-label="Voice effect" data-t-aria="voiceFx"></select>
+        <select id="voice-fx-div" hidden aria-label="Echo subdivision"></select>
+        <select id="voice-fx-pitch" hidden aria-label="Pitch"></select>
+        <select id="voice-fx-harm" hidden aria-label="Harmony"></select>
+        <label class="voice-fx-amt"><span data-t="voiceFxAmt">Amount</span> <input id="voice-fx-amt" type="range" min="0" max="100" step="1" value="60" aria-label="Voice effect amount" /> <output id="voice-fx-out">60 %</output></label>
+      </div>
+      <!-- Hear myself (voice.js monitor): same processed voice into my headphones -->
+      <div id="voice-mon-box" class="voice-fx voice-mon">
+        <label class="check"><input id="voice-mon-on" type="checkbox" /> <span data-t="voiceMon">🎧 Hear myself</span></label>
+        <label class="voice-fx-amt"><span data-t="voiceMonVol">Monitor</span> <input id="voice-mon-vol" type="range" min="0" max="100" step="1" value="70" aria-label="Monitor volume" /> <output id="voice-mon-out">70 %</output></label>
+        <label class="check"><input id="voice-mon-raw" type="checkbox" /> <span data-t="voiceRaw">🎸 Raw mic (for instruments)</span></label>
+        <p id="voice-mon-hint" class="mic-warn" hidden data-t="voiceMonHint">🎧 Use headphones – otherwise it can howl (feedback).</p>
       </div>
       <button id="sound-design-btn" type="button" class="no-demo" hidden data-t="soundDesign" data-t-title="soundDesignTitle">Sound settings…</button>
       <!-- Footstep groove (shared/groove.mjs): the room's creator with the full version. Keys [ and ]. -->

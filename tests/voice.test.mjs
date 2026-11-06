@@ -14,10 +14,22 @@ class FakePC {
 }
 globalThis.RTCPeerConnection = FakePC;
 let asked = 0;
-const track = { enabled: true, stop() { this.stopped = true; } };
-Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices: { getUserMedia: async () => { asked++; return { getAudioTracks: () => [track], getTracks: () => [track] }; } } }, configurable: true });
+const mkTrack = () => {
+  const t = { enabled: true, stopped: false, stop() { this.stopped = true; }, clone() { return mkTrack(); } };
+  return t;
+};
+let track = mkTrack();
+if (typeof globalThis.MediaStream !== 'function') {
+  globalThis.MediaStream = class MediaStream {
+    constructor(tracks = []) { this._tracks = tracks; }
+    getAudioTracks() { return this._tracks; }
+    getTracks() { return this._tracks; }
+    get active() { return this._tracks.some((t) => !t.stopped); }
+  };
+}
+Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices: { getUserMedia: async (c) => { asked++; track = mkTrack(); return new MediaStream([track]); } } }, configurable: true });
 
-const { Voice, VOICE } = await import('../client/src/voice.js');
+const { Voice, VOICE, cleanMonitor, delaySec, snapVoicePitch, VOICE_FX } = await import('../client/src/voice.js');
 let n = 0; const ok = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); };
 const sent = [];
 const speak = [];
@@ -29,9 +41,9 @@ await ok('off by default: no mic asked for, no connections', () => { v.setPeople
 await v.toggle(); await new Promise((r) => setTimeout(r, 5));
 await ok('first toggle asks for the mic once and calls everyone already here (mesh)', () => { assert.equal(asked, 1); assert.equal(v.state, 'on'); assert.deepEqual([...v.peers.keys()].sort(), ['a', 'b']); assert.ok(sent.some((s) => s.to === 'a' && s.d.d && s.d.d.type === 'offer')); });
 await v.toggle();
-await ok('second toggle mutes (track disabled, connection kept), third unmutes; no new permission prompt', () => { assert.equal(v.state, 'muted'); assert.equal(track.enabled, false); assert.equal(v.peers.size, 2); });
+await ok('second toggle mutes (track disabled, connection kept), third unmutes; no new permission prompt', () => { assert.equal(v.state, 'muted'); assert.equal(v.track.enabled, false); assert.equal(v.peers.size, 2); });
 await v.toggle();
-await ok('…unmuted', () => { assert.equal(v.state, 'on'); assert.equal(track.enabled, true); assert.equal(asked, 1); });
+await ok('…unmuted', () => { assert.equal(v.state, 'on'); assert.equal(v.track.enabled, true); assert.equal(asked, 1); });
 await ok('someone leaving closes their connection', () => { const pc = v.peers.get('b').pc; v.setPeople(['a']); assert.equal(pc.closed, true); assert.equal(v.peers.has('b'), false); });
 await ok('perfect negotiation: the impolite side ignores a clashing offer', async () => {
   const p = v.peer('a'); p.polite = false; p.makingOffer = true;
@@ -53,5 +65,18 @@ await ok('speaking: on above talkOn, held for holdMs, off below talkOff', () => 
   v.talk(p, 'a', 0.001, 1100); assert.equal(p.talking, true, 'held');
   v.talk(p, 'a', 0.001, 1000 + VOICE.holdMs + 1); assert.equal(p.talking, false); assert.deepEqual(speak.at(-1), ['a', false]);
 });
-await ok('closeAll stops the mic and all connections', () => { v.closeAll(); assert.equal(track.stopped, true); assert.equal(v.peers.size, 0); assert.equal(v.state, 'off'); });
+await ok('monitor helpers: cleanMonitor defaults, delaySec on the 90 BPM clock, pitch snaps to pentatonic', () => {
+  const m = cleanMonitor(null); assert.equal(m.on, false); assert.equal(m.vol, VOICE_FX.monVolDef); assert.equal(m.raw, false);
+  assert.ok(Math.abs(delaySec('1/8') - VOICE_FX.beat / 2) < 1e-9);
+  assert.equal(snapVoicePitch(6), 7); assert.equal(snapVoicePitch(-4), -5); assert.equal(snapVoicePitch(-3.1), -3);
+});
+await ok('setMonitor off by default; turning on records the choice without needing peers', () => {
+  assert.equal(v.monitor.on, false);
+  v.setMonitor({ on: true, vol: 0.4 });
+  assert.equal(v.monitor.on, true); assert.equal(v.monitor.vol, 0.4);
+  // no AudioContext in this fake world → applyMonitor is a no-op (no crash)
+  assert.equal(v.info().monitoring, false);
+  v.setMonitor({ on: false });
+});
+await ok('closeAll stops the mic and all connections', () => { v.closeAll(); assert.equal(v.peers.size, 0); assert.equal(v.state, 'off'); assert.equal(v.track, null); });
 console.log(`voice: ${n} passed`);
