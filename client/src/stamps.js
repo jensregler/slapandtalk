@@ -525,7 +525,16 @@ export class StampLayer {
     if (this.animating) return;
     const used = new Set(this.recent);
     for (const m of this.meshes.values()) if (!m.baked) used.add(m.userData.image.id);
-    for (const [id, t] of this.loaded) if (!used.has(id)) t.dispose();
+    // Drop disposed textures from the maps too – otherwise a later bake/add reuses a
+    // dead Texture (blank facades in the city once stickers have been painted in).
+    for (const [id, tex] of [...this.loaded]) {
+      if (used.has(id)) continue;
+      tex.dispose();
+      this.loaded.delete(id);
+      this.textures.delete(id);
+      const mat = this.materials.get(id);
+      if (mat) { mat.map = null; mat.dispose(); this.materials.delete(id); }
+    }
   }
 
   // För tester och felsökning.

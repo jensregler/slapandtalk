@@ -82,4 +82,50 @@ ok('foldStamp at outside wall corner: pieces on both walls', () => {
   assert.ok(names.has('h1-s') && names.has('h1-e'), `wall↔wall fold (got ${[...names]})`);
 });
 
+
+ok('city: sticker fully on wall does NOT ghost-copy onto ground', () => {
+  const surfs = [
+    plane('golv', 96, 96, [0, 0, 0], [-Math.PI / 2, 0, 0]),
+    plane('h1-s', 16, 8, [0, 4, -24], [0, 0, 0]),
+  ];
+  const faces = facesFromSurfaces(surfs);
+  const q = new THREE.Quaternion(); // facing +Z
+  const pieces = foldStamp(faces, { center: new THREE.Vector3(0, 4, -24), quaternion: q, w: 2, h: 2, surface: 'h1-s' });
+  const names = pieces.map((p) => p.face);
+  assert.deepEqual(names, ['h1-s'], `only wall, got ${names}`);
+});
+
+ok('city: overhang at wall base folds OUTSIDE the building, not under it', () => {
+  const surfs = [
+    plane('golv', 96, 96, [0, 0, 0], [-Math.PI / 2, 0, 0]),
+    plane('h1-s', 16, 8, [0, 4, -24], [0, 0, 0]), // normal +Z, outside is z > -24
+  ];
+  const faces = facesFromSurfaces(surfs);
+  const q = new THREE.Quaternion();
+  const pieces = foldStamp(faces, { center: new THREE.Vector3(0, 0.2, -24), quaternion: q, w: 1, h: 1, surface: 'h1-s' });
+  const names = new Set(pieces.map((p) => p.face));
+  assert.ok(names.has('h1-s') && names.has('golv'), `wall+ground got ${[...names]}`);
+  const gp = pieces.find((p) => p.face === 'golv');
+  const mid = gp.points.reduce((a, v) => a.add(v.clone()), new THREE.Vector3()).multiplyScalar(1 / gp.points.length);
+  assert.ok(mid.z > -24 + 1e-3, `ground piece must be outside (z>-24), got z=${mid.z}`);
+  assert.ok(gp.points.every((p) => p.z > -24 - 1e-3), 'no ground vertex under the house');
+});
+
+ok('city: hall wall prefers roof over coplanar city sky; no sky float from mid-wall sticker', () => {
+  const surfs = [
+    plane('tak', 96, 96, [0, 24, 0], [Math.PI / 2, 0, 0]),       // city sky
+    plane('hall-s', 16, 24, [0, 12, 8], [0, 0, 0]),                 // Town Hall south
+    plane('hall-roof', 16, 16, [0, 24, 0], [-Math.PI / 2, 0, 0]),   // coplanar with sky
+  ];
+  const faces = facesFromSurfaces(surfs);
+  const by = Object.fromEntries(faces.map((f) => [f.name, f]));
+  assert.ok(!by['tak'].neighbors.some((n) => n.face.name === 'hall-roof'), 'sky ↔ hall-roof must not link (coplanar)');
+  assert.ok(by['hall-s'].neighbors.some((n) => n.face.name === 'hall-roof'), 'hall wall → roof');
+  assert.ok(!by['hall-s'].neighbors.some((n) => n.face.name === 'tak'), 'hall wall must not prefer city sky over roof');
+  const q = new THREE.Quaternion();
+  const pieces = foldStamp(faces, { center: new THREE.Vector3(0, 12, 8), quaternion: q, w: 4, h: 4, surface: 'hall-s' });
+  assert.ok(!pieces.some((p) => p.face === 'tak'), `no floating sky piece, got ${pieces.map((p) => p.face)}`);
+  assert.ok(pieces.some((p) => p.face === 'hall-s'));
+});
+
 console.log(`\nfold: ${n} passed`);

@@ -16,6 +16,14 @@
 // över alla tre (det blir en "veck-kil" över). Den kilen delas längs diagonalen och
 // varje halva viks ner på den yta den sitter ihop med, under klibbans övriga bitar.
 // Ingen del försvinner bakom en vägg och det blir inga glipor.
+//
+// City (6 Nov 2026): the ground (and sky) is a huge plane that runs BOTH outside a
+// house wall and under/behind it. Unfolding that whole plane around the wall's edge
+// laid the under-building half over the wall face, so every wall sticker also got a
+// mirrored copy on the ground (and Town-Hall stickers floated on the sky). We now
+// (a) skip coplanar face↔face links (hall roof ≡ city sky), (b) when several faces
+// share one edge, prefer the smallest, and (c) clip each unfolded neighbour to the
+// half-plane beyond the crease before intersecting the sticker.
 import * as THREE from 'three';
 
 const EPS = 1e-4;
@@ -42,6 +50,11 @@ export function edgeOnFace(F, a, b, eps = 1e-3) {
   return pointOnFace(F, a, eps) && pointOnFace(F, b, eps);
 }
 
+function coplanar(a, b, eps = 1e-2) {
+  return Math.abs(a.normal.dot(b.normal)) > 0.999
+    && Math.abs(a.center.clone().sub(b.center).dot(a.normal)) < eps;
+}
+
 export function facesFromSurfaces(surfaces) {
   const faces = [];
   for (const m of surfaces) {
@@ -53,7 +66,7 @@ export function facesFromSurfaces(surfaces) {
       .map(([x, y]) => new THREE.Vector3(x, y, 0).applyMatrix4(m.matrixWorld));
     const normal = new THREE.Vector3(0, 0, 1).transformDirection(m.matrixWorld).normalize();
     const center = corners.reduce((a, c) => a.add(c), new THREE.Vector3()).multiplyScalar(0.25);
-    faces.push({ name: m.name, corners, normal, center, neighbors: [] });
+    faces.push({ name: m.name, corners, normal, center, neighbors: [], area: w * h });
   }
   const link = (a, b, edge) => {
     if (a.neighbors.some((n) => n.face === b)) return;
@@ -64,16 +77,24 @@ export function facesFromSurfaces(surfaces) {
       if (a === b) continue;
       // 1) Classic room case: two corners of A are also corners of B (shared edge vertices).
       const shared = a.corners.filter((p) => b.corners.some((q) => p.distanceTo(q) < 1e-3));
-      if (shared.length === 2) { link(a, b, shared); continue; }
+      if (shared.length === 2) {
+        // Coplanar faces that only share an edge (hall roof ↔ city sky at y=24): skip.
+        // A wall↔roof still has perpendicular normals, so it links.
+        if (coplanar(a, b)) continue;
+        link(a, b, shared); continue;
+      }
       // 2) City case: an edge of A lies ON B even when B is a much larger face (house wall
       //    sitting on the big ground plane, or a wall edge resting on a neighbour slab).
-      //    Without this, stickers at a building's base stay rigid and poke through the ground.
+      //    Without this, stickers at a building's base stay rigid and poke through the floor.
       for (let i = 0; i < 4; i++) {
         const p0 = a.corners[i], p1 = a.corners[(i + 1) % 4];
-        if (edgeOnFace(b, p0, p1)) {
-          // Same crease both ways: a sticker on the ground can fold up the wall too.
-          link(a, b, [p0, p1]); link(b, a, [p0, p1]); break;
-        }
+        if (!edgeOnFace(b, p0, p1)) continue;
+        if (coplanar(a, b)) break; // never fold a face onto a coplanar twin
+        // Prefer the smallest face that already owns this edge (hall roof over city sky).
+        const rival = faces.find((c) => c !== a && c !== b && c.area < b.area
+          && !coplanar(a, c) && edgeOnFace(c, p0, p1));
+        if (rival) break;
+        link(a, b, [p0, p1]); link(b, a, [p0, p1]); break;
       }
     }
   }
@@ -87,8 +108,20 @@ function unfoldMatrix(F, G, edge) {
   const dir = e1.clone().sub(e0).normalize();
   const mid = e0.clone().add(e1).multiplyScalar(0.5);
   const perp = (v) => v.addScaledVector(dir, -v.dot(dir)).normalize();
-  const intoG = perp(G.center.clone().sub(mid)); // från kanten in över G
+  // Into G: prefer the side in FRONT of F (outside a city wall). The city ground's
+  // centre sits under the house (behind the wall), so G.center alone folds the street
+  // the wrong way on north/west faces. Fall back to the behind side for roof / outside
+  // corners where the neighbour lies entirely behind F.
+  const front = [], back = [];
+  for (const p of G.corners) {
+    const s = p.clone().sub(mid).dot(F.normal);
+    if (s > 1e-3) front.push(p); else if (s < -1e-3) back.push(p);
+  }
+  const side = front.length ? front : (back.length ? back : G.corners);
+  const avg = side.reduce((a, p) => a.add(p.clone()), new THREE.Vector3()).multiplyScalar(1 / side.length);
+  const intoG = perp(avg.sub(mid));
   const outOfF = perp(mid.clone().sub(F.center)); // från F ut över kanten
+  if (intoG.lengthSq() < 1e-12 || outOfF.lengthSq() < 1e-12) return null;
   const q = new THREE.Quaternion().setFromUnitVectors(intoG, outOfF);
   return new THREE.Matrix4().makeTranslation(mid.x, mid.y, mid.z)
     .multiply(new THREE.Matrix4().makeRotationFromQuaternion(q))
@@ -151,17 +184,21 @@ export function foldStamp(faces, { center, quaternion, w, h, surface }) {
   const edgeOut = new Map(); // granne -> utåtriktad normal (2D) för H:s kant mot den
   for (const { face: A, edge } of H.neighbors) {
     const M = unfoldMatrix(H, A, edge);
+    if (!M) continue;
     layouts.push({ face: A, M, depth: 1 });
     const [p, q] = edge.map(to2);
     let nx = q[1] - p[1], ny = -(q[0] - p[0]);
-    const l = Math.hypot(nx, ny); nx /= l; ny /= l;
+    const l = Math.hypot(nx, ny); if (l < 1e-12) continue;
+    nx /= l; ny /= l;
     if (nx * -p[0] + ny * -p[1] > 0) { nx = -nx; ny = -ny; } // peka bort från H:s insida (c ligger på H)
     edgeOut.set(A, { n: [nx, ny], p });
   }
   for (const L of layouts.slice(1)) {
     for (const { face: B, edge } of L.face.neighbors) {
       if (B === H || !edgeOut.has(B)) continue; // bara riktiga hörn: B är granne till både H och A
-      const M = L.M.clone().multiply(unfoldMatrix(L.face, B, edge));
+      const M2 = unfoldMatrix(L.face, B, edge);
+      if (!M2) continue;
+      const M = L.M.clone().multiply(M2);
       // Hörnpunkten som H, A och B delar.
       const P = H.corners.find((x) => L.face.corners.some((y) => x.distanceTo(y) < 1e-3) && B.corners.some((y) => x.distanceTo(y) < 1e-3));
       if (!P) continue;
@@ -171,7 +208,14 @@ export function foldStamp(faces, { center, quaternion, w, h, surface }) {
 
   const pieces = [];
   for (const L of layouts) {
-    const poly2 = L.face.corners.map((p) => to2(p.clone().applyMatrix4(L.M)));
+    let poly2 = L.face.corners.map((p) => to2(p.clone().applyMatrix4(L.M)));
+    // City ground/sky: the unfolded neighbour covers H itself with its "behind the wall"
+    // half. Keep only the half-plane beyond the crease (where the neighbour actually lives).
+    if (L.depth === 1) {
+      const eo = edgeOut.get(L.face);
+      if (eo) poly2 = clipHalf(poly2, eo.n[0], eo.n[1], -(eo.n[0] * eo.p[0] + eo.n[1] * eo.p[1]));
+    }
+    if (poly2.length < 3) continue;
     // snabbtest: ligger ytan alls inom klibbans räckvidd?
     if (poly2.every((p) => p[0] > reach) || poly2.every((p) => p[0] < -reach) || poly2.every((p) => p[1] > reach) || poly2.every((p) => p[1] < -reach)) continue;
     let poly = clipConvex(rect, poly2);
