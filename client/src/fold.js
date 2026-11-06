@@ -24,6 +24,24 @@ const EPS = 1e-4;
 // Gör om rummets plana rektanglar (PlaneGeometry-meshar) till ytor med hörn,
 // normal (in i rummet) och grannar. Returnerar null om något inte är en rektangel,
 // då används den gamla projektionen i stället.
+// Is world point `p` on face F's plane and inside its rectangle? (eps metres)
+export function pointOnFace(F, p, eps = 1e-3) {
+  if (Math.abs(p.clone().sub(F.center).dot(F.normal)) > eps) return false;
+  // Local axes from the first two edges of the corner loop (PlaneGeometry order).
+  const u = F.corners[1].clone().sub(F.corners[0]);
+  const v = F.corners[3].clone().sub(F.corners[0]);
+  const lu2 = u.lengthSq(), lv2 = v.lengthSq();
+  if (lu2 < 1e-12 || lv2 < 1e-12) return false;
+  const d = p.clone().sub(F.corners[0]);
+  const su = d.dot(u) / lu2, sv = d.dot(v) / lv2;
+  return su >= -eps && su <= 1 + eps && sv >= -eps && sv <= 1 + eps;
+}
+
+// Does the segment a→b lie on F (both ends on the plane and inside the rectangle)?
+export function edgeOnFace(F, a, b, eps = 1e-3) {
+  return pointOnFace(F, a, eps) && pointOnFace(F, b, eps);
+}
+
 export function facesFromSurfaces(surfaces) {
   const faces = [];
   for (const m of surfaces) {
@@ -37,11 +55,26 @@ export function facesFromSurfaces(surfaces) {
     const center = corners.reduce((a, c) => a.add(c), new THREE.Vector3()).multiplyScalar(0.25);
     faces.push({ name: m.name, corners, normal, center, neighbors: [] });
   }
+  const link = (a, b, edge) => {
+    if (a.neighbors.some((n) => n.face === b)) return;
+    a.neighbors.push({ face: b, edge });
+  };
   for (const a of faces) {
     for (const b of faces) {
       if (a === b) continue;
+      // 1) Classic room case: two corners of A are also corners of B (shared edge vertices).
       const shared = a.corners.filter((p) => b.corners.some((q) => p.distanceTo(q) < 1e-3));
-      if (shared.length === 2) a.neighbors.push({ face: b, edge: shared });
+      if (shared.length === 2) { link(a, b, shared); continue; }
+      // 2) City case: an edge of A lies ON B even when B is a much larger face (house wall
+      //    sitting on the big ground plane, or a wall edge resting on a neighbour slab).
+      //    Without this, stickers at a building's base stay rigid and poke through the ground.
+      for (let i = 0; i < 4; i++) {
+        const p0 = a.corners[i], p1 = a.corners[(i + 1) % 4];
+        if (edgeOnFace(b, p0, p1)) {
+          // Same crease both ways: a sticker on the ground can fold up the wall too.
+          link(a, b, [p0, p1]); link(b, a, [p0, p1]); break;
+        }
+      }
     }
   }
   return faces;
