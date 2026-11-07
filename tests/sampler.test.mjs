@@ -15,7 +15,7 @@ let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ✓ ' + name); }
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-ok('old patches are unchanged: the five defaults clean to exactly the same JSON; osc/noise layers get no new keys', () => {
+ok('old patches are unchanged: the four defaults clean to exactly the same JSON; osc/noise layers get no new keys', () => {
   for (const k of SOUNDS) assert.ok(same(cleanPatch(DEFAULT_PATCHES[k]), DEFAULT_PATCHES[k]), k);
   const old = { v: 1, gain: 0.8, layers: [{ kind: 'osc', wave: 'square', freq: 300, d: 0.2, level: 0.4 }, { kind: 'noise', cutoff: 900 }] };
   const c = cleanPatch(old);

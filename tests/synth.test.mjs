@@ -7,8 +7,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
-import { SYNTH, SOUNDS, DEFAULT_PATCHES, FX_DEFAULTS, cleanPatch, cleanLayer, cleanFx, cleanSound, variant, duffScale, slapScale, roomAcoustics,
+import { SYNTH, SOUNDS, SOUND_TABS, DEFAULT_PATCHES, FX_DEFAULTS, cleanPatch, cleanLayer, cleanFx, cleanSound, variant, duffScale, slapScale, roomAcoustics,
   ACOUSTICS, randomPatch, randomFx, delaySeconds, retune, hashSeed, VARIATION } from '../shared/synth.mjs';
+import { FOUR_VOICES } from '../shared/radio.mjs';
 
 const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
@@ -31,7 +32,15 @@ const many = cleanPatch({ gain: 9, layers: Array.from({ length: 9 }, () => ({ ki
 assert(many.layers.length === SYNTH.maxLayers && many.gain === 1.5 && cleanPatch({ layers: [] }) === null && cleanPatch('x') === null && cleanPatch({ layers: [null, 5] }) === null,
   `patch: at most ${SYNTH.maxLayers} layers, gain clamped, empty/garbage patches rejected`);
 for (const k of SOUNDS) { const p = DEFAULT_PATCHES[k]; if (!same(cleanPatch(p), p)) throw new Error('default patch not clean: ' + k); }
-assert(SOUNDS.join() === 'slap,peel,nope,step,duff' && SOUNDS.every((k) => JSON.stringify(DEFAULT_PATCHES[k]).length < SYNTH.maxPatchBytes), 'the five default patches (slap, peel, nope, step, duff) are valid, clean JSON');
+assert(SOUNDS.join() === 'slap,peel,step,duff' && SOUNDS.every((k) => JSON.stringify(DEFAULT_PATCHES[k]).length < SYNTH.maxPatchBytes), 'the four default patches (slap, peel, step, duff) are valid, clean JSON');
+assert(SOUND_TABS.join() === 'slap,peel,step' && !SOUND_TABS.includes('duff'), 'sound-settings tabs: Slap, Peel, Steps only (duff hidden; Effects not a SOUND_TAB)');
+assert(!('nope' in DEFAULT_PATCHES) && !SOUNDS.includes('nope'), 'nope sound removed entirely');
+{
+  const legacy = cleanSound({ seed: 'abcd1234', patches: { nope: { v: 1, gain: 1, layers: [{ kind: 'osc', wave: 'square', freq: 290, d: 0.1, level: 0.18 }] }, slap: DEFAULT_PATCHES.slap } }, { custom: true });
+  assert(legacy && legacy.patches && legacy.patches.slap && !legacy.patches.nope, 'old presets with a nope patch still load: nope is ignored, other patches kept');
+}
+assert(FOUR_VOICES.find((v) => v.name === 'Call').sound === 'peel' && FOUR_VOICES.find((v) => v.name === 'Low').sound === 'duff',
+  'four voices: Call reassigned to peel (nope gone); Low still uses duff');
 const fx = cleanFx({ reverb: { decay: 99, wet: -1 }, delay: { time: 5, sync: '1/3', feedback: 2, pingPong: 'yes' }, crush: { bits: 0.2 }, dist: { amount: 3 }, filter: { type: 'notch', cutoff: 1 }, chorus: {} });
 assert(fx.reverb.decay === 12 && fx.reverb.wet === 0 && fx.delay.time === 1.5 && fx.delay.sync === 'free' && fx.delay.feedback === 0.95 && fx.delay.pingPong === false
   && fx.crush.bits === 1 && fx.dist.amount === 1 && fx.filter.type === 'lowpass' && fx.filter.cutoff === 20 && !('chorus' in fx) && cleanFx(null) === null,
@@ -58,7 +67,7 @@ for (let i = 0; i < 200; i++) {
     });
   }
 }
-assert(inBounds, `variation stays tasteful: pitch ±${Math.round(VARIATION.pitch * 100)} %, length ±${Math.round(VARIATION.length * 100)} %, levels untouched (200 players × 5 sounds)`);
+assert(inBounds, `variation stays tasteful: pitch ±${Math.round(VARIATION.pitch * 100)} %, length ±${Math.round(VARIATION.length * 100)} %, levels untouched (200 players × 4 sounds)`);
 assert(hashSeed('x') === hashSeed('x') && hashSeed('x') !== hashSeed('y'), 'seed hash is stable');
 
 // ---------- Duff: bigger paper = louder and lower ----------
@@ -137,7 +146,7 @@ try {
     const pitch = S2.SLOT_COLOURS.map((c) => 12 * Math.log2(c.pitch)).sort((a, b) => a - b);
     ok2(pitch.every((v, i) => i === 0 || v - pitch[i - 1] >= 1.9), `slot colours: ${kind} pitches at least 2 semitones apart (more than a player's own ±7 % variation)`);
   }
-  ok2(S2.colourPatch(S2.DEFAULT_PATCHES.nope, 3, 'nope') === S2.DEFAULT_PATCHES.nope && S2.slotColour(7) === S2.SLOT_COLOURS[2], 'slot colours: "nope" stays plain; slots wrap around');
+  ok2(S2.colourPatch(S2.DEFAULT_PATCHES.slap, 3, 'nope') === S2.DEFAULT_PATCHES.slap && S2.slotColour(7) === S2.SLOT_COLOURS[2], 'slot colours: unknown/removed sound name stays plain; slots wrap around');
 }
 console.log('Alla synth-tester gick igenom.');
 process.exit(0);

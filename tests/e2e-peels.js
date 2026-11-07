@@ -1,6 +1,6 @@
 // E2E: peels (baksidespapper). Skaparen (A) slår på 🧻 Peels i Room ▾, B ser det. A slappar:
 // pappret faller (skärmdump mitt i fallet) och landar på samma ställe för A och B. Golvet fylls,
-// och en klibba rakt på ett papper fastnar inte (nope). Skärmdumpar i FABRIC_SHOTS (som tygerna).
+// och en klibba rakt på ett papper fastnar inte (shrug, inget ljud). Skärmdumpar i FABRIC_SHOTS (som tygerna).
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -77,9 +77,9 @@ async function peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN }) {
     await A.evaluate(({ x, z }) => { const k = window.klibb; k.moveTo(x, z + 0.5); k.camera.position.y = 1.6; k.look(0, -Math.atan(1.6 / 0.5)); }, target);
     const refused = await A.evaluate(() => window.klibb.stampAt(0, 0));
     await A.waitForTimeout(300);
-    const after = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.nopes(), window.klibb.soundLog().at(-1).kind, window.klibb.peels().count]);
-    assert(refused === null && after[0] === before[0] && after[1] === before[1] + 1 && after[2] === 'nope' && after[3] === info.count,
-      'en klibba på golvet som mest hamnar på papper fastnar inte: ett "nope"-ljud, ingen klibba och inget nytt papper');
+    const after = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.nopes(), window.klibb.soundLog().at(-1)?.kind, window.klibb.peels().count]);
+    assert(refused === null && after[0] === before[0] && after[1] === before[1] + 1 && after[2] !== 'nope' && after[3] === info.count,
+      'en klibba på golvet som mest hamnar på papper fastnar inte: shrug/nopes++, inget nope-ljud, ingen klibba och inget nytt papper');
     const hack = await A.evaluate(async ({ x, z, id }) => (await fetch(`/api/rooms/${window.klibb.room}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageId: id, by: window.klibb.net.id, position: [x, 0, z], normal: [0, 1, 0], quaternion: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2], size: 0.3, surface: 'golv' }) })).status, { ...target, id: designId });
     assert(hack === 409, 'servern nekar också (409) om någon försöker gå förbi webbläsaren');
@@ -88,8 +88,8 @@ async function peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN }) {
     await A.evaluate(({ x, z }) => { const k = window.klibb; k.moveTo(x, z + 4); k.camera.position.y = 1.6; k.look(0, -Math.atan(1.6 / 4)); }, target);
     const farRefused = await A.evaluate(() => window.klibb.stampAt(0, 0));
     await A.waitForTimeout(300);
-    const af2 = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.nopes(), window.klibb.soundLog().at(-1).kind]);
-    assert(farRefused === null && af2[0] === bf[0] && af2[1] === bf[1] + 1 && af2[2] === 'nope', 'golvet på papper nekas också 4 m bort (nope), avståndet spelar ingen roll');
+    const af2 = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.nopes(), window.klibb.soundLog().at(-1)?.kind]);
+    assert(farRefused === null && af2[0] === bf[0] && af2[1] === bf[1] + 1 && af2[2] !== 'nope', 'golvet på papper nekas också 4 m bort (shrug, inget nope-ljud), avståndet spelar ingen roll');
     await A.evaluate(() => { const k = window.klibb; k.moveTo(3.6, -3.6); k.look(0, -0.9); });
     const okFloor = await A.evaluate(() => window.klibb.stampAt(0, 0).then((s) => !!s));
     assert(okFloor, 'på tomt golv fastnar klibban som vanligt');

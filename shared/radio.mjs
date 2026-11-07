@@ -54,7 +54,7 @@ export function cleanPreset(p) {
 export const FOUR_VOICES = Object.freeze([
   { name: 'Low', steps: 3, ratio: 1, sound: 'duff', gain: 1.1 },
   { name: 'Walk', steps: 4, ratio: 3 / 2, sound: 'step', gain: 1.6 },
-  { name: 'Call', steps: 5, ratio: 2, sound: 'nope', gain: 0.7 },
+  { name: 'Call', steps: 5, ratio: 2, sound: 'peel', gain: 0.7 }, // was nope (removed); peel keeps all four non-nope sounds in the voices
   { name: 'Spark', steps: 7, ratio: 5 / 2, sound: 'slap', gain: 0.45 },
 ]);
 export const VOICE_CYCLE_MS = 60000 / MASTER.bpm * MASTER.beatsPerBar; // one cycle = one master bar (2667 ms at 90 BPM)

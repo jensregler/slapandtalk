@@ -130,17 +130,13 @@ stamps.keepLive = () => roomHistory(ROOM).map((h) => h.stampId);
 // Peels: baksidespappret som faller till golvet vid varje slap (när rummet har det på), peels.js.
 const peelLayer = new PeelLayer(scene);
 const slapFx = new SlapFx(scene);
-// The backing paper lands: a soft "duff", louder and lower the bigger the paper, in the
-// slapper's own sound (their look.sound), from where it landed.
-peelLayer.onLand = (peel, by) => {
-  const area = (peel.w || 0.3) * (peel.h || 0.3);
-  if (by === 'me') sound.play('duff', [peel.x, 0.02, peel.z], { area, sound: sound.mine });
-  else sound.play('duff', [peel.x, 0.02, peel.z], { area, sound: together.voiceOf(by) });
-};
+// Peel landing is silent (Jens Nov 2026). The duff patch stays in SOUNDS for four voices (Low).
+peelLayer.onLand = null;
 let nopes = 0;
 // Klibbor fastnar inte på baksidespapper: ett litet "nej" och en axelryckning. (Påskägg, står inte i hjälpen.)
 function nope() {
-  nopes++; sound.play('nope');
+  // Visual only: the "nope" sound was removed (Jens Nov 2026). Shrug still marks a refused slap.
+  nopes++;
   let el = document.getElementById('nope-shrug');
   if (!el) { el = document.createElement('div'); el.id = 'nope-shrug'; el.textContent = '🤷'; el.setAttribute('aria-hidden', 'true'); document.body.appendChild(el); }
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');

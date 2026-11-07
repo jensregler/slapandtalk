@@ -1,6 +1,6 @@
 // The synth engine: plays JSON patches (shared/synth.mjs) with Tone.js (MIT, lazy-loaded so
 // the first paint stays light). Every sound in the room is one of these patches:
-//   slap, peel, nope, step (footsteps), duff (backing paper landing).
+//   slap, peel, step (footsteps), duff (four voices Low; peel landing is silent).
 // Signal path per voice (t588u listener FX):
 //   layers → [spatial panner] → room bus → [city place bus] → ears → [listener FX] → master → guard → speakers
 //   room bus = automatic, subtle acoustics from the room's materials (free, no UI)

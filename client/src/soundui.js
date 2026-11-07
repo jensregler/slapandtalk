@@ -1,5 +1,6 @@
-// Sound settings (full version, entitlements.full.soundDesign): one synth panel per sound
-// (slap, peel, nope, steps, duff) and an effects panel, with preview, reset and randomize.
+// Sound settings (full version, entitlements.full.soundDesign): synth panels for slap, peel and
+// steps (SOUND_TABS). Duff stays in SOUNDS for four voices but has no tab. Effects data (st.fx)
+// stays and is driven from the city (cityfx) – the Effects tab is kept in code but not shown.
 // Personal (Jens, 2 Nov 2026 / session model 6 Nov 2026): my sound settings are mine only –
 // sessionStorage 'klibb.sound' (and voice FX / Hear myself / Music vol / groove / run / mic). They
 // come along from a room out into the City (and around inside the city), never sent to anyone.
@@ -7,7 +8,7 @@
 // and clears sampler recordings (prepareSoundForPlace → resetPersonalSound). "Exit to menu" does
 // the same. Free players never see the panel; they get their own variation of the defaults from
 // 'klibb.soundSeed'.
-import { SOUNDS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, DEFAULT_PATCHES, FX_DEFAULTS,
+import { SOUNDS, SOUND_TABS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, DEFAULT_PATCHES, FX_DEFAULTS,
   cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx, noteName, diffPatch, snapFreq, retune as retuneP } from '../../shared/synth.mjs';
 import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseTarget, modOrder, snapRate, selfLoop, targetSpec, LAYER_TARGETS, PATCH_TARGETS, MOD_TARGETS } from '../../shared/lfo.mjs';
 import { loadSampleFile, clearSamples, pruneSamples, ensureSamples } from './samples.js';
@@ -188,7 +189,7 @@ export function lfoSliderFor(l, target) {
   return null;
 }
 const FX_UNITS = [['reverb', 'Reverb'], ['delay', 'Delay'], ['filter', 'Filter'], ['crush', 'Bitcrush'], ['dist', 'Distortion']];
-const TAB_NAMES = { slap: 'Slap', peel: 'Peel', nope: 'Nope', step: 'Steps', duff: 'Duff', fx: 'Effects' };
+const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Duff', fx: 'Effects' }; // duff + fx kept for code paths, not listed in SOUND_TABS
 
 // musicVol: { get, set, def } – the Music vol slider in the header (this device; main.js), so Reset can put it back too.
 // radioBlock: () => Master section (radio.js) shown at the top. onSave(clean) also stores this room's preset.
@@ -584,7 +585,10 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const body = $('snd-body'); body.innerHTML = '';
     const rb = $('snd-radio'); if (rb) { rb.innerHTML = ''; if (radioBlock) rb.appendChild(radioBlock()); }
     const tabs = $('snd-tabs'); tabs.innerHTML = '';
-    for (const t of [...SOUNDS, 'fx']) {
+    // Only Slap / Peel / Steps. Duff + Effects stay in SOUNDS/state (city drives fx; Low voice uses duff).
+    // Effects render branch below stays for programmatic/city use; the tab button is not shown.
+    if (st.tab !== 'fx' && !SOUND_TABS.includes(st.tab)) st.tab = 'slap';
+    for (const t of SOUND_TABS) {
       const b = el('button', null, TAB_NAMES[t]); b.type = 'button'; b.dataset.tab = t; b.setAttribute('aria-pressed', String(st.tab === t));
       if (st.tab === t) b.classList.add('sel'); b.onclick = () => { st.tab = t; render(); }; tabs.appendChild(b);
     }
@@ -666,10 +670,8 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     else { st.patches[st.tab] = randomPatch(seed + st.tab, { wild }); st.custom.add(st.tab); }
     render(); preview();
   }
-  // Reset = everything back to the defaults (Jens, 2 Nov 2026): every sound's settings on the Slap,
-  // Peel, Nope, Steps and Duff tabs (incl. their own effects), all the Effects (reverb, delay, filter,
-  // bitcrush, distortion) and Music vol. The sliders show it at once and Preview plays it; Save keeps
-  // it and sends it to the others like any save (no custom patches/fx = the default sounds).
+  // Reset = everything back to the defaults (Jens, 2 Nov 2026): every SOUNDS patch (Slap, Peel, Steps,
+  // Duff – even the hidden Duff), Effects data (even though the tab is hidden), and Music vol.
   function reset() {
     for (const k of SOUNDS) st.patches[k] = base(k);
     st.custom = new Set();

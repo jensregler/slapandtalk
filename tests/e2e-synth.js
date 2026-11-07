@@ -3,7 +3,7 @@
 //  - free: no Sound settings anywhere, but B has its own variation of the default sounds and
 //    HEARS A's custom sounds (A's look carries the patches; nothing else goes over the network)
 //  - A: Sound settings → synth panel per sound + effects, preview, randomize, reset, save
-//  - footsteps while walking, a "duff" when a peel lands (louder for bigger paper)
+//  - footsteps while walking; peel landing is silent (duff patch kept for four voices)
 //  - Tone.Offline render: every default patch (and players' variations, room acoustics, FX) is
 //    audible and doesn't clip.
 const path = require('path');
@@ -48,9 +48,9 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     const tabs = await A.$$eval('#snd-tabs button', (b) => b.map((x) => x.textContent));
     const panel = await A.evaluate(() => ({ layers: document.querySelectorAll('#snd-body .snd-layer').length, sliders: [...document.querySelectorAll('#snd-body .snd-sl')].map((r) => r.dataset.param),
       selects: [...document.querySelectorAll('#snd-body select')].map((s) => s.dataset.name) }));
-    assert(tabs.join() === 'Slap,Peel,Nope,Steps,Duff,Effects' && panel.layers === 3 && ['cutoff', 'q', 'a', 'd', 's', 'r', 'freq', 'pitchAmt', 'level', 'drive'].every((k) => panel.sliders.includes(k))
+    assert(tabs.join() === 'Slap,Peel,Steps' && panel.layers === 3 && ['cutoff', 'q', 'a', 'd', 's', 'r', 'freq', 'pitchAmt', 'level', 'drive'].every((k) => panel.sliders.includes(k))
       && ['Source', 'Wave', 'Filter'].every((k) => panel.selects.includes(k)),
-      `synth panel per sound (${tabs.join(', ')}): the slap has its 3 layers with source/wave/filter and ${panel.sliders.length} sliders (pitch, sweep, ADSR, cutoff, Q, filter env, level, drive…)`);
+      `synth panel per sound (${tabs.join(', ')}): Slap/Peel/Steps only; slap has its 3 layers with source/wave/filter and ${panel.sliders.length} sliders`);
     // Tweak: slap layer 1 cutoff + layer-2 pitch LFO via the LFO? ask button (t600u)
     await A.$eval('#snd-body .snd-layer[data-layer="0"] .snd-sl[data-param="cutoff"] input', (r) => { r.value = '700'; r.dispatchEvent(new Event('input', { bubbles: true })); });
     await A.$eval('#snd-body .snd-layer[data-layer="1"] .snd-sl[data-param="freq"] input', (r) => {
@@ -67,27 +67,38 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     assert(pv === true, '▶ Preview plays the edited patch');
     await A.waitForTimeout(300);
     await A.screenshot({ path: path.join(OUT, 'synth-panel.png') });
-    // Effects tab
-    await A.click('#snd-tabs button[data-tab="fx"]');
-    const units = await A.$$eval('#snd-body .snd-unit', (u) => u.map((x) => x.dataset.unit));
-    assert(units.join() === 'reverb,delay,filter,crush,dist', 'Effects: reverb (decay, pre-delay, wet), delay (time, sync, feedback, wet, ping-pong), filter, bitcrush, distortion');
-    await A.$eval('#snd-body .snd-unit[data-unit="reverb"] .snd-sl[data-param="wet"] input', (r) => { r.value = '250'; r.dispatchEvent(new Event('input', { bubbles: true })); });
-    await A.selectOption('#snd-body .snd-unit[data-unit="delay"] select[data-name="Sync"]', '1/8');
-    await A.$eval('#snd-body .snd-unit[data-unit="delay"] .snd-sl[data-param="wet"] input', (r) => { r.value = '200'; r.dispatchEvent(new Event('input', { bubbles: true })); });
-    await A.screenshot({ path: path.join(OUT, 'synth-effects-panel.png') });
-    // Randomize + reset on the Nope tab, wild on Peel
-    await A.click('#snd-tabs button[data-tab="nope"]');
-    const nope0 = await A.evaluate(() => JSON.stringify(window.klibb.soundUi().state().patches.nope));
+    // Effects tab is hidden (city drives fx). Set fx on state, then randomize/reset on Steps.
+    await A.evaluate(() => {
+      const st = window.klibb.soundUi().state(), sh = window.klibb.synthShared();
+      st.fx = sh.cleanFx({ reverb: { wet: 0.25 }, delay: { wet: 0.2, sync: '1/8' } });
+    });
+    await A.click('#snd-tabs button[data-tab="step"]');
+    const step0 = await A.evaluate(() => JSON.stringify(window.klibb.soundUi().state().patches.step));
     await A.click('#snd-random');
-    const nope1 = await A.evaluate(() => JSON.stringify(window.klibb.soundUi().state().patches.nope));
+    const step1 = await A.evaluate(() => JSON.stringify(window.klibb.soundUi().state().patches.step));
     await A.click('#snd-reset');
-    const nope2 = await A.evaluate(() => JSON.stringify(window.klibb.soundUi().state().patches.nope));
+    const step2 = await A.evaluate(() => JSON.stringify(window.klibb.soundUi().state().patches.step));
+    assert(step1 !== step0 && step2 === step0, '🎲 Randomize rolls a new patch, ↺ Reset brings back my default');
+    // After reset: restore slap LFO + fx (Effects tab hidden), wild on Peel, then Save
+    await A.click('#snd-tabs button[data-tab="slap"]');
+    await A.$eval('#snd-body .snd-layer[data-layer="1"] .snd-sl[data-param="freq"] input', (r) => {
+      r.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      r.value = String(Number(r.value) + 40);
+      r.dispatchEvent(new Event('input', { bubbles: true }));
+      r.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await A.waitForSelector('#lfo-ask');
+    await A.click('#lfo-ask');
+    await A.waitForSelector('#snd-body .snd-layer[data-layer="1"] .snd-lfo-under');
+    await A.evaluate(() => {
+      const st = window.klibb.soundUi().state(), sh = window.klibb.synthShared();
+      st.fx = sh.cleanFx({ reverb: { wet: 0.25 }, delay: { wet: 0.2, sync: '1/8' } });
+    });
     await A.click('#snd-tabs button[data-tab="peel"]'); await A.click('#snd-wild');
-    assert(nope1 !== nope0 && nope2 === nope0, '🎲 Randomize rolls a new patch, ↺ Reset brings back my default; 🌀 Wild goes further');
     await A.click('#snd-save');
     await A.waitForSelector('#sound-panel', { state: 'hidden' });
-    const saved = await A.evaluate(() => JSON.parse(localStorage.getItem('klibb.sound')));
-    assert(saved.patches.slap && saved.patches.peel && !saved.patches.nope && saved.fx.delay.sync === '1/8' && saved.patches.slap.layers[1].lfo === 'pitch',
+    const saved = await A.evaluate(() => JSON.parse(sessionStorage.getItem('klibb.sound') || localStorage.getItem('klibb.sound') || 'null'));
+    assert(saved && saved.patches.slap && saved.patches.peel && !saved.patches.nope && saved.fx.delay.sync === '1/8' && saved.patches.slap.layers[1].lfo === 'pitch',
       'Save: only the changed sounds (slap, peel) + effects are stored in this browser');
     await B.waitForFunction(() => { const s = window.klibb.players()[0].look.sound; return s && s.patches && s.patches.slap && s.fx; }, null, { timeout: 5000 });
     const bSeesA = await B.evaluate(() => window.klibb.players()[0].look.sound);
@@ -114,20 +125,17 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     assert(s1[0] - s0[0] >= 2 && s1[0] - s0[0] <= 6 && s1[1] > s0[1] && s2 === jumps0,
       `footsteps: walking ~2.9 m gives ${s1[0] - s0[0]} quiet steps for A (on the shared groove, shared/groove.mjs), B hears A's steps (${s1[1] - s0[1]}), a teleport makes no sound`);
 
-    // ---------- Duff: the backing paper landing ----------
+    // ---------- Peel landing is silent (duff patch kept for four voices) ----------
     const put = await fetch(`${BASE}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': KEY }, body: JSON.stringify({ on: true }) });
     await A.waitForFunction(() => window.klibb.peels().on, null, { timeout: 5000 });
-    const duffs = [];
-    for (const size of [0.15, 0.6]) {
-      await A.evaluate((size) => { const k = window.klibb; k.state.size = size; k.moveTo(-1 + size * 3, -3.0); k.look(0, 0.1); }, size);
-      const n = await A.evaluate(() => window.klibb.soundLog().length);
-      const st = await A.evaluate(async () => { const r = await window.klibb.stampAt(0, 0); return JSON.stringify(r); });
-      try { await A.waitForFunction((n) => window.klibb.soundLog().slice(n).some((e) => e.kind === 'duff'), n, { timeout: 10000 }); } catch (e) {
-        console.log('duff never came; stampAt →', st, await A.evaluate((n) => JSON.stringify({ sel: window.klibb.state.selected, peels: window.klibb.peels(), log: window.klibb.soundLog().slice(n), toast: document.getElementById('toast').textContent, count: window.klibb.stamps.count }), n)); throw e; }
-      duffs.push(await A.evaluate((n) => window.klibb.soundLog().slice(n).find((e) => e.kind === 'duff'), n));
-    }
-    assert(put.status === 200 && duffs[0].area < duffs[1].area && duffs[1].level > duffs[0].level && duffs[1].rate < duffs[0].rate,
-      `duff when a peel lands: ${duffs[0].area} m² → level ${duffs[0].level}, pitch ×${duffs[0].rate}; ${duffs[1].area} m² → level ${duffs[1].level}, pitch ×${duffs[1].rate} (bigger = louder and lower)`);
+    await A.evaluate(() => { const k = window.klibb; k.state.size = 0.3; k.moveTo(0, -3.0); k.look(0, 0.1); });
+    const nLand = await A.evaluate(() => window.klibb.soundLog().length);
+    await A.evaluate(async () => { await window.klibb.stampAt(0, 0); });
+    await A.waitForFunction((n) => window.klibb.peels().landed >= 1, nLand, { timeout: 10000 }).catch(() => {});
+    await A.waitForTimeout(500);
+    const landCheck = await A.evaluate((n) => ({ peels: window.klibb.peels(), duffs: window.klibb.soundLog().slice(n).filter((e) => e.kind === 'duff') }), nLand);
+    assert(put.status === 200 && landCheck.peels.landed >= 1 && landCheck.duffs.length === 0,
+      `peel lands silently: ${landCheck.peels.landed} landed, ${landCheck.duffs.length} duff sounds (expected 0)`);
 
     // ---------- Offline render: audible and never clipping ----------
     const seeds = ['jens', 'sylvester', 'ulla', 'guest-42', 'x7Kq2pLm'];
@@ -143,8 +151,8 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     }, seeds);
     const bad = Object.entries(off).filter(([, r]) => !r.ok);
     const peaks = Object.values(off).map((r) => r.peak);
-    assert(Object.keys(off).length === 5 + 25 + 3 && bad.length === 0,
-      `Tone.Offline: all ${Object.keys(off).length} renders (5 defaults, 25 player variations, big duff, tiled room, FX) are audible and don't clip (peak ${Math.min(...peaks).toFixed(2)}–${Math.max(...peaks).toFixed(2)})${bad.length ? ' FAILED: ' + JSON.stringify(bad) : ''}`);
+    assert(Object.keys(off).length === 4 + 20 + 3 && bad.length === 0,
+      `Tone.Offline: all ${Object.keys(off).length} renders (4 defaults, 20 player variations, big duff, tiled room, FX) are audible and don't clip (peak ${Math.min(...peaks).toFixed(2)}–${Math.max(...peaks).toFixed(2)})${bad.length ? ' FAILED: ' + JSON.stringify(bad) : ''}`);
   } finally {
     await actx.close(); await bctx.close();
   }

@@ -9,7 +9,7 @@ const SHOTS = process.env.STICKERMENU_SHOTS || '/workspace/stickermenu-shots';
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 900) : '')); } };
 const CUSTOM = {
-  patches: Object.fromEntries(['slap', 'peel', 'nope', 'step', 'duff'].map((k, i) => [k, { gain: 0.3, layers: [{ kind: 'osc', wave: 'square', freq: 300 + i * 200, d: 0.5, level: 0.9 }], fx: { reverb: { decay: 6, preDelay: 0.2, wet: 0.7 } } }])),
+  patches: Object.fromEntries(['slap', 'peel', 'step', 'duff'].map((k, i) => [k, { gain: 0.3, layers: [{ kind: 'osc', wave: 'square', freq: 300 + i * 200, d: 0.5, level: 0.9 }], fx: { reverb: { decay: 6, preDelay: 0.2, wet: 0.7 } } }])),
   fx: { reverb: { decay: 7, preDelay: 0.3, wet: 0.8 }, delay: { time: 0.6, feedback: 0.7, wet: 0.5, sync: '1/8', pingPong: true }, filter: { type: 'highpass', cutoff: 900, q: 8, wet: 0.6 }, crush: { bits: 3, wet: 0.7 }, dist: { amount: 0.9, wet: 0.8 } },
 };
 (async () => {
@@ -38,26 +38,27 @@ const CUSTOM = {
     await sleep(800);
     const before = await A.evaluate(() => window.klibb.voiceOf(null));
     const bSees0 = await B.evaluate(() => window.klibb.players()[0].look.sound);
-    check('before: A has custom sounds + effects (personal: B gets only A\'s seed, never the settings – Jens, 2 Nov 2026)', !!before.patches && Object.keys(before.patches).length === 5 && before.fx && before.fx.crush.bits === 3 && bSees0 && !bSees0.patches && !bSees0.fx, { before: before && Object.keys(before), bSees0 });
+    check('before: A has custom sounds + effects (personal: B gets only A\'s seed, never the settings – Jens, 2 Nov 2026)', !!before.patches && Object.keys(before.patches).length === 4 && before.fx && before.fx.crush.bits === 3 && bSees0 && !bSees0.patches && !bSees0.fx, { before: before && Object.keys(before), bSees0 });
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
     check('…Music vol slider at 35', await A.inputValue('#music-vol') === '35');
-    await A.click('#snd-tabs [data-tab="fx"]'); await sleep(200);
-    const fxBefore = await A.evaluate(() => [...document.querySelectorAll('#snd-body input[type=range]')].map((r) => r.value).join());
+    const fxBefore = await A.evaluate(() => { const st = window.klibb.soundUi().state(); return JSON.stringify(st.fx); });
+    const tabLabels = await A.$$eval('#snd-tabs button', (b) => b.map((x) => x.textContent));
+    check('sound settings tabs: Slap, Peel, Steps only (no Nope, Duff, Effects)', tabLabels.join() === 'Slap,Peel,Steps', tabLabels);
     await A.click('#snd-reset'); await sleep(500);
     const r = await A.evaluate(() => {
       const k = window.klibb, sh = k.synthShared(), st = k.soundUi().state(), seed = localStorage.getItem('klibb.soundSeed');
       const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
       const tabs = Object.fromEntries(sh.SOUNDS.map((s) => [s, same(st.patches[s], sh.variant(sh.DEFAULT_PATCHES[s], seed, s)) && !st.patches[s].fx]));
-      return { tabs, custom: [...st.custom], fx: same(sh.cleanFx(st.fx), sh.cleanFx(sh.FX_DEFAULTS)), vol: k.sound ? null : null, mv: document.getElementById('music-vol').value,
-        fxUi: [...document.querySelectorAll('#snd-body input[type=range]')].map((x) => x.value).join(), sel: [...document.querySelectorAll('#snd-body select')].map((x) => x.value), pp: document.querySelector('#snd-body input[type=checkbox]').checked };
+      return { tabs, custom: [...st.custom], fx: same(sh.cleanFx(st.fx), sh.cleanFx(sh.FX_DEFAULTS)), mv: document.getElementById('music-vol').value, fxJson: JSON.stringify(st.fx),
+        visible: [...document.querySelectorAll('#snd-tabs button')].map((x) => x.dataset.tab) };
     });
-    check('Reset: every tab (Slap, Peel, Nope, Steps, Duff) back to my default sound, no own effects, nothing custom', Object.values(r.tabs).every(Boolean) && r.custom.length === 0, r);
-    check('…every Effects variable back to default (reverb, delay incl. sync + ping-pong, filter incl. type, bitcrush, distortion)', r.fx && JSON.stringify(r.sel) === '["free","lowpass"]' && r.pp === false, r);
-    check('…the Effects sliders visibly moved (not the values from before)', r.fxUi !== fxBefore, { before: fxBefore, after: r.fxUi });
+    check('Reset: every sound (Slap, Peel, Steps, Duff) back to my default, no own effects, nothing custom', Object.values(r.tabs).every(Boolean) && r.custom.length === 0, r);
+    check('…Effects data back to default (tab hidden; city drives fx – state still resets)', r.fx && r.fxJson !== fxBefore, { before: fxBefore, after: r.fxJson, fx: r.fx });
+    check('…visible tabs still only Slap/Peel/Steps', r.visible.join() === 'slap,peel,step', r.visible);
     check('…Music vol slider back to 100 and the sound follows (master volume 1)', r.mv === '100' && await A.evaluate(() => sessionStorage.getItem('klibb.musicVol')) === '1', r.mv);
-    await A.click('#snd-tabs [data-tab="nope"]'); await sleep(150);
-    const nopeUi = await A.evaluate(() => { const v = document.querySelector('#snd-body .snd-sl[data-param="level"] output').textContent; const seed = localStorage.getItem('klibb.soundSeed'); const sh = window.klibb.synthShared(); return { v, want: Math.round(sh.variant(sh.DEFAULT_PATCHES.nope, seed, 'nope').gain * 100) + '%' }; });
-    check('…the Nope tab shows its default (Volume slider)', nopeUi.v === nopeUi.want, nopeUi);
+    await A.click('#snd-tabs [data-tab="step"]'); await sleep(150);
+    const stepUi = await A.evaluate(() => { const v = document.querySelector('#snd-body .snd-sl[data-param="level"] output').textContent; const seed = localStorage.getItem('klibb.soundSeed'); const sh = window.klibb.synthShared(); return { v, want: Math.round(sh.variant(sh.DEFAULT_PATCHES.step, seed, 'step').gain * 100) + '%' }; });
+    check('…the Steps tab shows its default (Volume slider)', stepUi.v === stepUi.want, stepUi);
     await A.screenshot({ path: path.join(SHOTS, '40-sound-reset.png') });
     // Cancel after Reset: nothing saved, Music vol back to 35
     await A.click('#snd-cancel'); await sleep(200);
