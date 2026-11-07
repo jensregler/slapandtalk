@@ -377,6 +377,17 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       if (av.open) { av.draft = normalizeLook(shownLook()); fab.reset(av.draft); renderAvatarPanel(); }
     },
     roomLook: () => (roomLook ? { ...roomLook } : null),
+    // Before leaving this page for the city (or another house): save what I am actually wearing so the
+    // next page loads the same clothes. Covers the room's character, an unsaved avatar-panel draft,
+    // and the live mesh. Jens, 7 Nov 2026 (city outfit bug).
+    persistWornLook() {
+      const raw = av.open ? av.draft : (self.avatar?.look || shownLook());
+      const look = normalizeLook(raw);
+      if (me.look.insta && !look.insta) look.insta = me.look.insta;
+      me.look = look;
+      saveMyAvatar(me.name, me.look);
+      return { ...me.look };
+    },
     // 'My avatar' open: main.js tells which way its camera looks from (faceYaw), and passes on drags (px).
     avatarView: () => (av.open ? { faceYaw: av.faceYaw, dragged: av.dragged, phase: av.phase, turn: self.avatar ? self.avatar.root.rotation.y : null,
       built: !!self.avatar, visible: !!self.avatar?.root.visible, pos: self.avatar?.root.position.toArray() || null,

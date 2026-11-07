@@ -1956,6 +1956,11 @@ if (!isTouch) {
 const TYPE_NAMES = S.roomTypes;
 // The City too gets ?room=stad: the plain address now goes to your own most recent room (landing.js).
 function roomUrl(id) { return `${location.origin}/?room=${id}`; }
+// Capture the live outfit before a full-page navigation so the city (and houses) keep the same clothes.
+function goRoom(id, extra = '') {
+  try { together.persistWornLook(); } catch { /* together not ready */ }
+  location.href = roomUrl(id) + extra;
+}
 function showRoomInfo(info) {
   const type = info?.type || (IN_CITY ? 'stad' : 'quick');
   const badge = $('room-type');
@@ -2120,7 +2125,7 @@ $('style-ok').onclick = async () => {
       // A new quick room starts with a clean sticker wheel (Jens, 29 Oct 2026): my uploads go, except
       // the starred ones (designs.js clearMineForNewRoom). Their local image copies too (≤ 1.5 s).
       if (r.type === 'quick' || !r.type) { const c = clearMineForNewRoom(); await Promise.race([c.done, new Promise((ok) => setTimeout(ok, 1500))]); }
-      location.href = roomUrl(r.id);
+      goRoom(r.id);
       return;
     }
     const res = await api.setStyle(ROOM, sp.style, { key: roomKeys()[ROOM], admin: state.adminToken });
@@ -2129,7 +2134,7 @@ $('style-ok').onclick = async () => {
     toast(S.styleSaved);
   } catch (err) { toast(err.message); } finally { b.disabled = false; }
 };
-$('to-stad').onclick = () => { location.href = roomUrl('stad'); };
+$('to-stad').onclick = () => { goRoom('stad'); };
 $('share-room').onclick = async () => {
   if (DEMO) return inviteFriend();
   const url = roomUrl(ROOM);
@@ -2442,7 +2447,7 @@ function doorHit(ndc) {
   return plotOfDoor(hit.object.userData.door);
 }
 const plotOfDoor = (d) => (d === 'hall' ? { n: 0, hall: true } : { ...plotOfHouse(Number(d)) });
-const goHouse = (n) => { location.href = roomUrl(houseId(THIS_CITY, n)); };
+const goHouse = (n) => { goRoom(houseId(THIS_CITY, n)); };
 // A house's door: started → go in; the next one → start it (a new empty room); a later one → not yet.
 async function openCityDoor(p) {
   if (p.hall) { openHall(); return; }
@@ -2473,7 +2478,7 @@ function syncPaid() { const t = setInterval(() => { const h = townHallState(); i
 function cityPackAction() {
   if (!localStorage.getItem('klibb.pac')) { openDoorPick(doorOpts()); return; }
   if (CITY_OUTSIDE) openChoice('city-pack', [{ id: 'to-hall', text: S.cityEnterHall, go: () => { walkToHall(); } }, { id: 'back', text: S.choiceBack }]);
-  else openChoice('city-pack', [{ id: 'to-city', text: S.cityBackToCity, go: () => { location.href = roomUrl(THIS_CITY) + '&at=' + ROOM; } }, { id: 'back', text: S.choiceBack }]);
+  else openChoice('city-pack', [{ id: 'to-city', text: S.cityBackToCity, go: () => { goRoom(THIS_CITY, '&at=' + ROOM); } }, { id: 'back', text: S.choiceBack }]);
 }
 // (from the pack button: straight in front of the Town Hall's door, then in)
 function walkToHall() { camera.position.set(0, 1.6 + (room.groundAt?.(0, 9.6) || 0), 9.6); controls.yaw = 0; controls.apply?.(); openHall(); }
@@ -2487,7 +2492,7 @@ const doorOpts = () => ({ S, toast, choices: () => (IN_CITY ? state.library.filt
 // just made is its last scene – then Watch / Download / Discard, then the City picker as before. The
 // film is only made here (an offscreen render while the bar runs); any failure or Skip → the City.
 function filmThenCity() {
-  const toCity = () => openCityPick({ toast, go: (id) => { location.href = roomUrl(id); } });
+  const toCity = () => openCityPick({ toast, go: (id) => { goRoom(id); } });
   const afterReel = () => {
     highlightLog.clear();
     if (!filmLog || window.klibb?.noFilm) { toCity(); return; }
@@ -2538,7 +2543,7 @@ function tickCityDoors() {
 if (IN_CITY) carryReady.then(() => setTimeout(() => { if (!localStorage.getItem('klibb.pac') && !doorOpen()) { toast(S.cityNoPack, 3500); openDoorPick(doorOpts()); } }, 1200));
 function exitChoices() {
   const out = [];
-  if (IN_CITY && !CITY_OUTSIDE) out.push({ id: 'to-city', text: S.cityBackToCity, go: () => { location.href = roomUrl(THIS_CITY) + '&at=' + ROOM; } });
+  if (IN_CITY && !CITY_OUTSIDE) out.push({ id: 'to-city', text: S.cityBackToCity, go: () => { goRoom(THIS_CITY, '&at=' + ROOM); } });
   // Leaving the city (or exiting to menu from a room): offer the highlight reel first.
   out.push({ id: 'exit-menu', text: S.exitToMenu, go: () => leaveWithHighlight(() => { location.href = `${location.origin}/?start=1`; }) }, { id: 'back', text: S.choiceBack });
   return out;
@@ -3365,7 +3370,7 @@ window.klibb = {
   pendingSlaps: () => pendingSlaps.size, // klibbor som syns men inte är bekräftade av servern än
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, roomFabric: () => roomFabricInfo(room.surfaces), styleDraft: () => sp.style && JSON.parse(JSON.stringify(sp.style)), canEditStyle, surfaces: room.surfaces,
   net: together.net, players: () => together.players.list(), me: together.me, roomLook: () => together.roomLook(), openChat: together.openChat,
-  openAvatarPanel: together.openAvatarPanel, avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
+  openAvatarPanel: together.openAvatarPanel, persistWornLook: () => together.persistWornLook(), goRoom: (id, extra) => goRoom(id, extra || ''), avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
   photo: () => snapPhoto(), lastPhoto: () => lastPhoto,
   setAutoCam, startPlacingCam, placingCam: () => placingCam, autoCamPoses: () => Object.fromEntries(autoCamsOf(cams.list()).map((c) => [c.id, liveAutoPose(c)])),
   autoCamPose: () => { const c = autoCamsOf(cams.list())[0]; return c ? liveAutoPose(c) : null; },
