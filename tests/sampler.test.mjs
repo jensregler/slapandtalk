@@ -15,7 +15,7 @@ let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ✓ ' + name); }
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-ok('old patches are unchanged: the five defaults clean to exactly the same JSON; osc/noise layers get no new keys', () => {
+ok('old patches are unchanged: the four defaults clean to exactly the same JSON; osc/noise layers get no new keys', () => {
   for (const k of SOUNDS) assert.ok(same(cleanPatch(DEFAULT_PATCHES[k]), DEFAULT_PATCHES[k]), k);
   const old = { v: 1, gain: 0.8, layers: [{ kind: 'osc', wave: 'square', freq: 300, d: 0.2, level: 0.4 }, { kind: 'noise', cutoff: 900 }] };
   const c = cleanPatch(old);
@@ -169,11 +169,14 @@ ok('tempo: 30 BPM … 120 000 BPM (2 kHz, "11"), log knob, ≥ 20 beats/s snaps 
   assert.ok(near(knobToBpm(bpmToKnob(90)), 90, 0.01)); assert.equal(knobToBpm(0), 30); assert.ok(knobToBpm(1) > 100000);
 });
 ok('radio + room preset: cleaned, per room; nothing = the original', () => {
-  const r = cleanRadio({ on: false, knob: 7, bird: { on: 'x', vol: 0.9 }, bpm: 120 });
-  assert.equal(r.on, false); assert.equal(r.knob, 1); assert.equal(r.bird.on, false); assert.equal(r.bird.vol, 0.9); assert.equal(r.bpm, 120);
+  const r = cleanRadio({ on: false, knob: 7, bird: { on: 'x', vol: 0.9 }, bpm: 120, city: 0.55 });
+  // Master rebuild: on + knob always "my sound"; city 0..1 kept; ambients still load
+  assert.equal(r.on, true); assert.equal(r.knob, 0.5); assert.equal(r.city, 0.55);
+  assert.equal(r.bird.on, false); assert.equal(r.bird.vol, 0.9); assert.equal(r.bpm, 120);
+  assert.equal(cleanRadio(null).city, 0); assert.equal(RADIO_DEFAULTS.city, 0);
   assert.equal(cleanPreset(null), null); assert.equal(cleanPreset({}), null);
-  const p = cleanPreset({ patches: { slap: { layers: [{ kind: 'sampler', sample: 'c'.repeat(64) }] }, bogus: {} }, radio: { knob: 0.3 } });
-  assert.ok(p.patches.slap && !p.patches.bogus && p.radio.knob === 0.3);
+  const p = cleanPreset({ patches: { slap: { layers: [{ kind: 'sampler', sample: 'c'.repeat(64) }] }, bogus: {} }, radio: { knob: 0.3, city: 0.2 } });
+  assert.ok(p.patches.slap && !p.patches.bogus && p.radio.knob === 0.5 && p.radio.city === 0.2);
 });
 ok('sequencer layer: lengths 1–16, steps {on, vol} (the old auto-slap step schema), compact storage', () => {
   const l = cleanLayer({ kind: 'osc', seq: { len: 40, bars: 3, steps: [{ on: false }] } });

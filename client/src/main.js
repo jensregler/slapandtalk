@@ -134,17 +134,13 @@ stamps.keepLive = () => roomHistory(ROOM).map((h) => h.stampId);
 // Peels: baksidespappret som faller till golvet vid varje slap (när rummet har det på), peels.js.
 const peelLayer = new PeelLayer(scene, { room: CITY_OUTSIDE ? CITY : null });
 const slapFx = new SlapFx(scene);
-// The backing paper lands: a soft "duff", louder and lower the bigger the paper, in the
-// slapper's own sound (their look.sound), from where it landed.
-peelLayer.onLand = (peel, by) => {
-  const area = (peel.w || 0.3) * (peel.h || 0.3);
-  if (by === 'me') sound.play('duff', [peel.x, 0.02, peel.z], { area, sound: sound.mine });
-  else sound.play('duff', [peel.x, 0.02, peel.z], { area, sound: together.voiceOf(by) });
-};
+// Peel landing is silent (Jens Nov 2026). The duff patch stays in SOUNDS for four voices (Low).
+peelLayer.onLand = null;
 let nopes = 0;
 // Klibbor fastnar inte på baksidespapper: ett litet "nej" och en axelryckning. (Påskägg, står inte i hjälpen.)
 function nope() {
-  nopes++; sound.play('nope');
+  // Visual only: the "nope" sound was removed (Jens Nov 2026). Shrug still marks a refused slap.
+  nopes++;
   let el = document.getElementById('nope-shrug');
   if (!el) { el = document.createElement('div'); el.id = 'nope-shrug'; el.textContent = '🤷'; el.setAttribute('aria-hidden', 'true'); document.body.appendChild(el); }
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
@@ -2372,7 +2368,13 @@ var autoSlap = null; // eslint-disable-line no-var
 // Sound settings (soundui.js): only reachable with entitlements.full.soundDesign.
 // Music vol (Jens, 31 Oct 2026): in the Sound settings header – how loud the room's sounds are for me.
 const MUSIC_VOL_DEFAULT = 1;
-const musicVol = { def: MUSIC_VOL_DEFAULT, get: () => sound.volume, set: (v) => { sound.setVolume(v); $('music-vol').value = String(Math.round(sound.volume * 100)); } };
+const musicVol = { def: MUSIC_VOL_DEFAULT, get: () => sound.volume, set: (v) => {
+  sound.setVolume(v);
+  const pct = String(Math.round(sound.volume * 100));
+  const mv = $('music-vol'); if (mv) mv.value = pct;
+  const m2 = $('master-vol'); if (m2) m2.value = pct;
+  const o2 = $('master-vol-val'); if (o2) o2.textContent = pct + ' %';
+} };
 // ---------- The radio (radio.js): my sound for this room, per player, never broadcast ----------
 // Every room starts from the original sound; Save = this room's preset (on the server, under a private
 // key in this browser). The radio's knob morphs original → preset → beyond (seek; not a volume); tempo, bird, wind, four voices.
@@ -2393,7 +2395,9 @@ function placeTick() {
   const eng = sound.engine; if (!eng) return;
   const now = performance.now(); if (now - placeAt < PLACE_EVERY_MS) return; placeAt = now;
   const v = CITY_OUTSIDE ? cityFxAt(camera.position.x, camera.position.z, placeCfg) : placeNeutral();
-  if (eng.setPlace(v, { slew: PLACE_SLEW, neutral: !CITY_OUTSIDE })) placeNow = v;
+  // City sound dry/wet only outside; in a room keep dry=1 so the slider does not mute the room.
+  const city = CITY_OUTSIDE ? (radio.state?.city ?? 0) : 0;
+  if (eng.setPlace(v, { slew: PLACE_SLEW, neutral: !CITY_OUTSIDE, city })) placeNow = v;
   radio.amb?.setPlaceMix?.(v.bird, v.wind, PLACE_SLEW);
   if (CITY_OUTSIDE) placeChip(v);
 }
@@ -2416,12 +2420,14 @@ const radioReady = DEMO ? Promise.resolve() : fetchRoomPreset(ROOM).then((p) => 
 });
 const radioImg = () => (state.library || []).find((d) => d.id === '14ea2304625a5827')?.url || '';
 const elx = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-const soundUi = initSoundUI({ $, sound, toast, musicVol,
+const soundUi = initSoundUI({ $, sound, toast, musicVol, radio,
   onSave: () => { together.soundChanged(); radio.set({ on: true, knob: 0.5 }, { save: false }); saveRoomPreset(); }, // hear what I saved: knob on 'Mine'
-  radioBlock: () => radioBlock({ radio, imgUrl: radioImg(), el: elx }),
+  radioBlock: () => radioBlock({ radio, imgUrl: radioImg(), el: elx, musicVol }),
   onOpenChange: (o) => { if (o) controls.unlock?.(); } });
 $('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { closeMore(); soundUi.open(); } };
 {
+  // Music vol lives in Master now; keep the header input as a hidden sync target for Reset/tests.
+  const row = $('music-vol-row'); if (row) row.hidden = true;
   const mv = $('music-vol');
   mv.value = String(Math.round(sound.volume * 100));
   mv.oninput = () => sound.setVolume(Number(mv.value) / 100);

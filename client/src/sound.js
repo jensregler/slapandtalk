@@ -1,8 +1,7 @@
 // Sounds: every sound in the room is a synth patch (shared/synth.mjs) played by the Tone.js
 // engine in synth.js – no sound files to download, nothing to license.
 //   slap  – a short, punchy "thwack"        peel – a softer "rrrip" with crackle
-//   nope  – "uh-uh" (a refused slap)        step – quiet footsteps while moving
-//   duff  – the backing paper landing; bigger paper = louder and lower
+//   step  – quiet footsteps while moving    duff – soft papery thud (four voices Low; landing silent)
 // Each player has their own variation of the defaults, picked deterministically from a seed in
 // their look (look.sound.seed), so everyone hears YOUR slap the same way with no extra traffic.
 // Paid "Sound settings" can replace a patch and set an FX chain (look.sound.patches / .fx).
@@ -18,7 +17,7 @@ import { knobToMorph } from '../../shared/radio.mjs';
 
 const MUTE_KEY = 'klibb.muted';
 const VOL_KEY = 'klibb.musicVol';
-const VOLUME = { slap: [0.75 / 0.75, 0.9 / 0.75], peel: [1, 0.6 / 0.45], nope: [1, 1], step: [1, 1], duff: [1, 1] }; // [mine, remote]
+const VOLUME = { slap: [0.75 / 0.75, 0.9 / 0.75], peel: [1, 0.6 / 0.45], step: [1, 1], duff: [1, 1] }; // [mine, remote]
 
 export class Sounds {
   constructor() {
@@ -114,7 +113,7 @@ export class Sounds {
     if (!this.cache.has(key)) { if (this.cache.size > 200) this.cache.clear(); this.cache.set(key, colourPatch(seed ? variant(DEFAULT_PATCHES[kind], seed, kind) : cleanPatch(DEFAULT_PATCHES[kind]), colour, kind)); }
     return { patch: this.cache.get(key), custom: false };
   }
-  // kind: 'slap' | 'peel' | 'nope' | 'step' | 'duff'. at = [x, y, z] for a sound out in the
+  // kind: 'slap' | 'peel' | 'step' | 'duff'. at = [x, y, z] for a sound out in the
   // room (spatial), or null for my own. opts: { sound: that player's look.sound (default: mine),
   // area: m² (duff + slap), size: m longest side (slap fallback → treated as square), volume }.
   // time: when (AudioContext seconds, the footstep groove schedules ahead); tune: extra pitch ratio.

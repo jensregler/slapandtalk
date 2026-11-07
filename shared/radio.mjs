@@ -1,13 +1,11 @@
-// The radio (Jens, 5 Nov 2026): the radio sticker in the room is MY sound's control.
-//   on/off – off: I hear Ulla's original sounds (every room starts there); on: my preset for this room
-//   knob   – morph / SEEK (not a volume): 0 = the original sound (Ulla's), ½ = my room preset,
-//            1 = twisted on past my preset ('the next value': the difference vector extrapolated
-//            to 2×, clamped, pitch on the grid). knobToMorph(k) = 2k → shared/synth.mjs morphPatch.
-//   bird, wind – synthesized background (client/src/ambient.js), each on/off + volume
-//   voices – four voices in phase (FOUR_VOICES below), on/off + volume
-// Per PLAYER and per ROOM: saved on the server under the room + a private key from my browser
-// (server/app.js /api/rooms/:room/sound) and never broadcast – like all sound settings since
-// 2 Nov 2026, it only changes what I hear. Somebody else's radio never changes my sound.
+// Master / room sound (was "the radio"; Jens, 5 Nov 2026 + rebuild Nov 2026).
+// Sound-settings Master UI shows only: master volume (ears) + City sound (0–100 dry↔wet).
+// Saved shape still carries the older fields so presets load:
+//   on, knob – forced to on + 0.5 ("my sound"); Blend / power UI removed
+//   bpm      – walk tempo (moved to Steps tab; dance clock / radio.tempo() follow it)
+//   city     – 0..1 dry/wet of the city place bus (reverb + delay); 0 = dry, 1 = wet only
+//   bird, wind, voices – dormant (engine paths kept; no Master UI)
+// Per PLAYER and per ROOM: saved on the server, never broadcast.
 import { cleanSound, rng, hashSeed } from './synth.mjs';
 import { MASTER } from './clock.mjs';
 import { snapRate } from './lfo.mjs';
@@ -26,13 +24,14 @@ export const bpmToKnob = (b) => (Math.log(cleanBpm(b)) - BL) / (BH - BL);
 export const knobToBpm = (k) => cleanBpm(Math.exp(BL + Math.min(1, Math.max(0, k)) * (BH - BL)));
 export const OWNER_RE = /^[A-Za-z0-9_-]{16,64}$/;
 export const knobToMorph = (k) => 2 * Math.min(1, Math.max(0, Number.isFinite(k) ? k : 0.5));
-export const RADIO_DEFAULTS = Object.freeze({ on: true, knob: 0.5, bpm: MASTER.bpm, bird: { on: false, vol: 0.35 }, wind: { on: false, vol: 0.25 }, voices: { on: false, vol: 0.5 } });
+export const RADIO_DEFAULTS = Object.freeze({ on: true, knob: 0.5, bpm: MASTER.bpm, city: 0, bird: { on: false, vol: 0.35 }, wind: { on: false, vol: 0.25 }, voices: { on: false, vol: 0.5 } });
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const unit = (v, fb) => (isNum(v) ? Math.round(Math.min(1, Math.max(0, v)) * 100) / 100 : fb);
 const sw = (o, d) => ({ on: typeof o?.on === 'boolean' ? o.on : d.on, vol: unit(o?.vol, d.vol) });
 export function cleanRadio(r) {
   const d = RADIO_DEFAULTS; if (!r || typeof r !== 'object') return { ...d, bird: { ...d.bird }, wind: { ...d.wind }, voices: { ...d.voices } };
-  return { on: typeof r.on === 'boolean' ? r.on : d.on, knob: unit(r.knob, d.knob), bpm: cleanBpm(r.bpm), bird: sw(r.bird, d.bird), wind: sw(r.wind, d.wind), voices: sw(r.voices, d.voices) };
+  // on + knob always "my sound" (Blend / power UI gone). bpm / city / ambients still load from presets.
+  return { on: true, knob: 0.5, bpm: cleanBpm(r.bpm), city: unit(r.city, d.city), bird: sw(r.bird, d.bird), wind: sw(r.wind, d.wind), voices: sw(r.voices, d.voices) };
 }
 // A room preset as stored: { patches?, fx?, radio }. null = nothing (= the original sound, radio defaults).
 export function cleanPreset(p) {
@@ -54,7 +53,7 @@ export function cleanPreset(p) {
 export const FOUR_VOICES = Object.freeze([
   { name: 'Low', steps: 3, ratio: 1, sound: 'duff', gain: 1.1 },
   { name: 'Walk', steps: 4, ratio: 3 / 2, sound: 'step', gain: 1.6 },
-  { name: 'Call', steps: 5, ratio: 2, sound: 'nope', gain: 0.7 },
+  { name: 'Call', steps: 5, ratio: 2, sound: 'peel', gain: 0.7 }, // was nope (removed); peel keeps all four non-nope sounds in the voices
   { name: 'Spark', steps: 7, ratio: 5 / 2, sound: 'slap', gain: 0.45 },
 ]);
 export const VOICE_CYCLE_MS = 60000 / MASTER.bpm * MASTER.beatsPerBar; // one cycle = one master bar (2667 ms at 90 BPM)

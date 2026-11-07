@@ -1,5 +1,6 @@
-// Sound settings (full version, entitlements.full.soundDesign): one synth panel per sound
-// (slap, peel, nope, steps, duff) and an effects panel, with preview, reset and randomize.
+// Sound settings (full version, entitlements.full.soundDesign): synth panels for slap, peel and
+// steps (SOUND_TABS). Duff stays in SOUNDS for four voices but has no tab. Effects data (st.fx)
+// stays and is driven from the city (cityfx) – the Effects tab is kept in code but not shown.
 // Personal (Jens, 2 Nov 2026 / session model 6 Nov 2026): my sound settings are mine only –
 // sessionStorage 'klibb.sound' (and voice FX / Hear myself / Music vol / groove / run / mic). They
 // come along from a room out into the City (and around inside the city), never sent to anyone.
@@ -7,13 +8,14 @@
 // and clears sampler recordings (prepareSoundForPlace → resetPersonalSound). "Exit to menu" does
 // the same. Free players never see the panel; they get their own variation of the defaults from
 // 'klibb.soundSeed'.
-import { SOUNDS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, DEFAULT_PATCHES, FX_DEFAULTS,
+import { SOUNDS, SOUND_TABS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, DEFAULT_PATCHES, FX_DEFAULTS,
   cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx, noteName, diffPatch, snapFreq, retune as retuneP } from '../../shared/synth.mjs';
 import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseTarget, modOrder, snapRate, selfLoop, targetSpec, LAYER_TARGETS, PATCH_TARGETS, MOD_TARGETS } from '../../shared/lfo.mjs';
 import { loadSampleFile, clearSamples, pruneSamples, ensureSamples } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
 import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, pitchMin, pitchMax, runRate, pitchRatio, pitchLabel, tempoLabel } from '../../shared/runmode.mjs';
+import { cleanBpm, bpmToKnob, knobToBpm } from '../../shared/radio.mjs';
 
 // Visit-scoped (Jens, 6 Nov 2026): patches / FX / Music vol / groove / run / voice FX / Hear myself
 // follow you from a room out into the City. Entering a different room (or a fresh load into a room)
@@ -188,11 +190,11 @@ export function lfoSliderFor(l, target) {
   return null;
 }
 const FX_UNITS = [['reverb', 'Reverb'], ['delay', 'Delay'], ['filter', 'Filter'], ['crush', 'Bitcrush'], ['dist', 'Distortion']];
-const TAB_NAMES = { slap: 'Slap', peel: 'Peel', nope: 'Nope', step: 'Steps', duff: 'Duff', fx: 'Effects' };
+const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Duff', fx: 'Effects' }; // duff + fx kept for code paths, not listed in SOUND_TABS
 
-// musicVol: { get, set, def } – the Music vol slider in the header (this device; main.js), so Reset can put it back too.
-// radioBlock: () => Master section (radio.js) shown at the top. onSave(clean) also stores this room's preset.
-export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, musicVol = null, radioBlock = null }) {
+// musicVol: { get, set, def } – master volume (was Music vol header; now in Master section).
+// radioBlock: () => Master section (volume + city sound). radio: Radio instance (walk tempo on Steps).
+export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, musicVol = null, radioBlock = null, radio = null }) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const st = { open: false, tab: 'slap', patches: {}, fx: null, rolls: 0 };
   const base = (k) => variant(DEFAULT_PATCHES[k], mySeed(), k); // my default (what free me sounds like)
@@ -584,7 +586,10 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const body = $('snd-body'); body.innerHTML = '';
     const rb = $('snd-radio'); if (rb) { rb.innerHTML = ''; if (radioBlock) rb.appendChild(radioBlock()); }
     const tabs = $('snd-tabs'); tabs.innerHTML = '';
-    for (const t of [...SOUNDS, 'fx']) {
+    // Only Slap / Peel / Steps. Duff + Effects stay in SOUNDS/state (city drives fx; Low voice uses duff).
+    // Effects render branch below stays for programmatic/city use; the tab button is not shown.
+    if (st.tab !== 'fx' && !SOUND_TABS.includes(st.tab)) st.tab = 'slap';
+    for (const t of SOUND_TABS) {
       const b = el('button', null, TAB_NAMES[t]); b.type = 'button'; b.dataset.tab = t; b.setAttribute('aria-pressed', String(st.tab === t));
       if (st.tab === t) b.classList.add('sel'); b.onclick = () => { st.tab = t; render(); }; tabs.appendChild(b);
     }
@@ -621,12 +626,16 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     if (p.fx) body.appendChild(fxBlock(p.fx, () => edited(k)));
   }
 
-  // ---------- Run mode (Steps tab; shared/runmode.mjs) ----------
+  // ---------- Walk + Run (Steps tab; walk tempo was Master tempo; run = shared/runmode.mjs) ----------
+  function walkBpmLabel(bpm) {
+    const b = cleanBpm(bpm);
+    return `${b.toFixed(b < 200 ? 1 : 0)} BPM`;
+  }
   function runBlock() {
     const r = st.run;
     const box = el('fieldset', 'snd-run'); box.id = 'snd-run';
-    box.appendChild(el('legend', null, S.runModeTitle));
-    box.appendChild(el('p', 'hint', S.runModeHint));
+    box.appendChild(el('legend', null, S.stepsModeTitle || 'Walk & run'));
+    box.appendChild(el('p', 'hint', S.stepsModeHint || 'Walk tempo is the room clock (dance, sequencers). Hold Shift to run – then run tempo and pitch apply.'));
     const row = (id, label, title, min, max, step, value, show, onInput) => {
       const d = el('div', 'snd-sl'); d.dataset.param = id; d.title = title;
       const inp = el('input'); inp.type = 'range'; inp.id = id; inp.min = min; inp.max = max; inp.step = step; inp.value = value; inp.setAttribute('aria-label', label);
@@ -634,13 +643,19 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       inp.oninput = () => { onInput(Number(inp.value)); out.textContent = show(); };
       d.append(el('span', null, label), inp, out); return d;
     };
+    // Walk tempo (was Master Tempo): log BPM knob 30…120000, default 90. Drives radio.state.bpm / dance clock.
+    const bpm0 = radio ? radio.state.bpm : 90;
+    const walkRow = row('walk-tempo', S.walkTempo || 'Walk tempo', S.walkTempoTitle || 'Steps / dance clock while walking (default 90 BPM)',
+      0, 1000, 1, Math.round(bpmToKnob(bpm0) * 1000),
+      () => walkBpmLabel(radio ? radio.state.bpm : bpm0),
+      (v) => { if (radio) radio.set({ bpm: knobToBpm(v / 1000) }, { save: false }); });
+    walkRow.querySelector('input').addEventListener('change', () => { if (radio) radio.set({}); });
+    box.appendChild(walkRow);
     box.appendChild(row('run-tempo', S.runTempo, S.runTempoTitle, RUN.tempoMin, RUN.tempoMax, RUN.tempoStep, r.tempo, () => tempoLabel(r), (v) => { r.tempo = cleanTempo(v); }));
-    box.appendChild(row('run-pitch', S.runPitch, S.runPitchTitle, pitchMin, pitchMax, 1, r.pitch, () => pitchLabel(r.pitch), (v) => { r.pitch = cleanPitch(v); }));
-    const lab = el('label', 'check'); lab.title = S.runLockTitle; const cb = el('input'); cb.type = 'checkbox'; cb.id = 'run-lock'; cb.checked = !!r.lock;
-    cb.onchange = () => { r.lock = cb.checked; const o = $('run-tempo-val'); if (o) o.textContent = tempoLabel(r); };
-    lab.append(cb, document.createTextNode(' ' + S.runLock));
+    box.appendChild(row('run-pitch', S.runPitch || 'Pitch correction', S.runPitchTitle, pitchMin, pitchMax, 1, r.pitch, () => pitchLabel(r.pitch), (v) => { r.pitch = cleanPitch(v); }));
+    // Lock-to-clock stays dormant (default on); Preview kept as a non-slider helper.
     const pv = el('button', 'snd-add', S.runPreview); pv.type = 'button'; pv.id = 'run-preview'; pv.title = S.runPreviewTitle; pv.onclick = () => previewRun();
-    const sel = el('div', 'snd-sel'); sel.append(lab, pv); box.appendChild(sel);
+    const sel = el('div', 'snd-sel'); sel.appendChild(pv); box.appendChild(sel);
     return box;
   }
   // One bar of walking (4 steps), then one bar of running, with the step patch being edited.
@@ -666,18 +681,17 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     else { st.patches[st.tab] = randomPatch(seed + st.tab, { wild }); st.custom.add(st.tab); }
     render(); preview();
   }
-  // Reset = everything back to the defaults (Jens, 2 Nov 2026): every sound's settings on the Slap,
-  // Peel, Nope, Steps and Duff tabs (incl. their own effects), all the Effects (reverb, delay, filter,
-  // bitcrush, distortion) and Music vol. The sliders show it at once and Preview plays it; Save keeps
-  // it and sends it to the others like any save (no custom patches/fx = the default sounds).
+  // Reset = everything back to the defaults (Jens, 2 Nov 2026): every SOUNDS patch, Effects data,
+  // Master volume, walk tempo (90), city sound (0), and run mode.
   function reset() {
     for (const k of SOUNDS) st.patches[k] = base(k);
     st.custom = new Set();
     st.fx = cleanFx(FX_DEFAULTS);
     if (musicVol) { musicVol.set(musicVol.def); st.volReset = true; }
     st.run = { ...RUN_DEFAULTS };
+    if (radio) radio.set({ bpm: 90, city: 0 });
     render(); preview();
-    toast(S.soundReset || 'All sounds, effects and Music vol back to default – Save to keep it', 2600);
+    toast(S.soundReset || 'All sounds, effects and Master volume back to default – Save to keep it', 2600);
   }
   function save() {
     const patches = {}; for (const k of st.custom) patches[k] = st.patches[k];
