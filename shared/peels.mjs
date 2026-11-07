@@ -1,14 +1,16 @@
 // Peels (backing paper): when a room has peels on, every slap drops the sticker's glossy
 // backing paper, a pure-white copy with the same silhouette, which flutters to the floor and stays.
 // Shared by the browser, the server and the tests, so everyone computes the same thing:
-//   - peelPlan(seed, from, target): where it is born (at the slap itself: the sticker's own height on
+//   - peelPlan(seed, from, target, room?, normal?): where it is born (at the slap itself: the sticker's own height on
 //     the wall, just off its surface) and where it lands (near the foot of the slap: the wall base, or just short of a floor
 //     sticker). Deterministic from the seed (the slap's nonce, or the stamp id), the server stores it.
-//   - peelPose(peel, u): position + rotation along the scripted fall path at u = 0..1 (no physics).
+//     Optional `normal` = the slap's surface normal (needed in the city: buildings aren't the outer box).
+//   - peelPose(peel, u, params?, room?): position + rotation along the scripted fall path at u = 0..1 (no physics).
 //   - overlapFraction(sticker, peels): how much of a new floor sticker lies on peels (easter egg:
 //     stickers don't stick on backing paper; more than PEEL.refuseOverlap is refused).
-// All the tweakable numbers are in PEEL.
+// All the tweakable numbers are in PEEL (rooms) and CITY_PEEL (city outside).
 import ROOM from './room.json' with { type: 'json' };
+import { CITY, pushOut } from './city.mjs';
 
 export const PEEL = {
   maxPerRoom: 300,          // oldest peels go first
@@ -43,7 +45,28 @@ export const PEEL = {
   // paper slides along a surface instead of going through it.
   pathMargin: 0.08,         // m: mid-path stay this far inside the walls
 };
+
+// City-outside peels (Jens, Nov 2026): always on in the experience. Same lifetime as room peels;
+// launch a bit more out from the wall ("mer från väggen"). No room-box clamp — land on the city
+// ground near the wall, pushed out of buildings (shared/city.mjs pushOut). Tunables live HERE.
+export const CITY_PEEL = {
+  birthOff: 0.10,           // m: stronger outward birth than PEEL.birthOff (0.06)
+  travelBase: 0.40,         // m: a bit more out from the wall than PEEL.travelBase (0.25)
+  travelPerM: 0.45,
+  scatterBase: 0.12,        // tighter along the wall so it reads as flying straight out
+  scatterPerM: 0.10,
+  wallMargin: 0.20,         // m: stay inside the city outer bounds (96 × 96)
+  pathMargin: 0.12,         // m: mid-path margin from the city outer walls
+  buildingMargin: 0.20,     // m: land / path stay this far outside house boxes
+  lifeMs: 6000,             // same as PEEL.lifeMs (client fade + server peels:expire)
+  fadeMs: 500,              // same as PEEL.fadeMs
+  maxPerRoom: 300,          // same cap; expiry + this keep memory bounded
+};
+
 export const FLOOR_SURFACE = 'golv';
+export const isCityBox = (room) => !!room && room.width === CITY.width && room.depth === CITY.depth;
+// Merge CITY_PEEL over PEEL for geometry when planning / posing in the city outside.
+export function peelCfg(room = ROOM) { return isCityBox(room) ? { ...PEEL, ...CITY_PEEL } : PEEL; }
 
 // ---------- Deterministic random numbers from a seed ----------
 function hash32(s) { let h = 0x811c9dc5; for (const ch of String(s)) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193); } return h >>> 0; }
@@ -83,37 +106,46 @@ export function pathParams(seed) {
 // foot of the slap, out on the floor in proportion to the start height (a wall slap at 0.3 m lands
 // ~0.37 m from the wall, one at 3.5 m ~1.65 m out), right under a ceiling slap, just short of a floor
 // sticker. A floor slap is born just above the floor sticker and settles a bit short of it.
-export function peelPlan(seed, from, target, room = ROOM) {
+export function peelPlan(seed, from, target, room = ROOM, normal = null) {
+  const C = peelCfg(room), city = isCityBox(room);
   const r = seeded('land:' + seed);
   const side = slapSide(from, target);
-  const mx = room.width / 2 - PEEL.wallMargin, mz = room.depth / 2 - PEEL.wallMargin;
+  const mx = room.width / 2 - C.wallMargin, mz = room.depth / 2 - C.wallMargin;
   const hx = clamp(from.x, -mx, mx), hz = clamp(from.z, -mz, mz);
   let dx = target[0] - hx, dz = target[2] - hz;
   const D = Math.hypot(dx, dz);
   if (D > 0.05) { dx /= D; dz /= D; } else [dx, dz] = forwardOf(from.yaw); // rakt upp/ner: framåt
   const floor = target[1] < 0.15;
   const ceiling = !floor && target[1] > (room.height ?? 4) - 0.2;
-  // Which way is "out from the wall": the wall's inward normal (orthogonal), else back towards the slapper.
-  const wx = room.width / 2 - PEEL.wallSnap, wz = room.depth / 2 - PEEL.wallSnap;
-  const onWall = !floor && !ceiling && (Math.abs(target[0]) >= wx || Math.abs(target[2]) >= wz);
-  let ox = -dx, oz = -dz;
-  if (onWall) {
-    const ex = Math.abs(target[0]) - wx, ez = Math.abs(target[2]) - wz;
-    if (ex >= ez) { ox = -Math.sign(target[0]) || -1; oz = 0; } else { ox = 0; oz = -Math.sign(target[2]) || -1; }
+  // Which way is "out from the wall": prefer the slap's surface normal (city buildings aren't the outer
+  // box), else the room-box inward normal, else back towards the slapper.
+  let ox = -dx, oz = -dz, onWall = false;
+  const nLen = Array.isArray(normal) ? Math.hypot(normal[0], normal[2]) : 0;
+  if (!floor && !ceiling && nLen > 0.45) {
+    onWall = true; ox = normal[0] / nLen; oz = normal[2] / nLen;
+  } else if (!city && !floor && !ceiling) {
+    const wx = room.width / 2 - C.wallSnap, wz = room.depth / 2 - C.wallSnap;
+    onWall = Math.abs(target[0]) >= wx || Math.abs(target[2]) >= wz;
+    if (onWall) {
+      const ex = Math.abs(target[0]) - wx, ez = Math.abs(target[2]) - wz;
+      if (ex >= ez) { ox = -Math.sign(target[0]) || -1; oz = 0; } else { ox = 0; oz = -Math.sign(target[2]) || -1; }
+    }
   }
   // Birth: for a wall slap, push out along the wall normal (clearer orthogonal launch); else toward the slapper.
-  const off = Math.min(PEEL.birthOff, onWall ? PEEL.birthOff : D);
-  const sy = floor ? PEEL.birthFloorLift : clamp(target[1], PEEL.birthFloorLift, (room.height ?? 4) - PEEL.birthCeilingGap);
-  const bx = onWall ? target[0] + ox * off : target[0] - dx * off;
-  const bz = onWall ? target[2] + oz * off : target[2] - dz * off;
+  const off = Math.min(C.birthOff, onWall ? C.birthOff : D);
+  const sy = floor ? C.birthFloorLift : clamp(target[1], C.birthFloorLift, (room.height ?? 4) - C.birthCeilingGap);
+  let bx = onWall ? target[0] + ox * off : target[0] - dx * off;
+  let bz = onWall ? target[2] + oz * off : target[2] - dz * off;
+  bx = clamp(bx, -mx, mx); bz = clamp(bz, -mz, mz);
+  if (city) [bx, bz] = pushOut(bx, bz, C.buildingMargin);
   const start = [clamp(bx, -mx, mx), sy, clamp(bz, -mz, mz)];
   let back, scatter;
-  if (floor) { back = Math.min(PEEL.footBackFloor, D); scatter = PEEL.footScatter; }
+  if (floor) { back = Math.min(C.footBackFloor, D); scatter = C.footScatter; }
   else {
-    const travel = PEEL.travelBase + PEEL.travelPerM * sy;
+    const travel = C.travelBase + C.travelPerM * sy;
     back = onWall ? travel : Math.min(travel, D); // a ceiling slap: still lands around under it
     // Wall: tighter scatter so the paper reads as flying straight out from the wall.
-    scatter = onWall ? (PEEL.scatterBase * 0.45 + PEEL.scatterPerM * sy * 0.35) : (PEEL.scatterBase + PEEL.scatterPerM * sy);
+    scatter = onWall ? (C.scatterBase * 0.45 + C.scatterPerM * sy * 0.35) : (C.scatterBase + C.scatterPerM * sy);
   }
   const ang = r() * Math.PI * 2, rad = Math.sqrt(r()) * scatter;
   // Wall scatter mostly along the wall (perpendicular to the normal), not back into it.
@@ -123,7 +155,11 @@ export function peelPlan(seed, from, target, room = ROOM) {
     sx = px * (r() * 2 - 1) * scatter;
     sz = pz * (r() * 2 - 1) * scatter;
   }
-  const x = clamp(target[0] + ox * back + sx, -mx, mx), z = clamp(target[2] + oz * back + sz, -mz, mz);
+  let x = target[0] + ox * back + sx, z = target[2] + oz * back + sz;
+  x = clamp(x, -mx, mx); z = clamp(z, -mz, mz);
+  // City: land on the open ground, never inside a house (pushOut), not through outer walls.
+  if (city) [x, z] = pushOut(x, z, C.buildingMargin);
+  x = clamp(x, -mx, mx); z = clamp(z, -mz, mz);
   const yaw = r() * Math.PI * 2;
   return { start: start.map(round), x: round(x), z: round(z), yaw: round(yaw), side };
 }
@@ -141,24 +177,27 @@ export function peelFrame(yaw) { return { u: [Math.cos(yaw), -Math.sin(yaw)], v:
 
 // Where the peel is at u = 0..1 of its fall. peel = { seed, start, x, z, yaw }.
 export function peelPose(peel, u, params = pathParams(peel.seed), room = ROOM) {
+  const C = peelCfg(room), city = isCityBox(room);
   u = clamp(u, 0, 1);
   const [sx, sy, sz] = peel.start, ex = peel.x, ez = peel.z;
   const dx = ex - sx, dz = ez - sz, dist = Math.hypot(dx, dz) || 1e-6, px = -dz / dist, pz = dx / dist;
   // Curved drift (quadratic) + a flutter sideways that fades out.
   const bend = 4 * u * (1 - u) * params.curve * Math.min(dist, 1); // longer falls don't swing wider
-  const sway = Math.sin(params.swayPhase + u * params.swayCycles * Math.PI * 2) * PEEL.swayAmp * (1 - u) * (1 - u) - Math.sin(params.swayPhase) * PEEL.swayAmp * (1 - u) * (1 - u) * (1 - u);
+  const sway = Math.sin(params.swayPhase + u * params.swayCycles * Math.PI * 2) * C.swayAmp * (1 - u) * (1 - u) - Math.sin(params.swayPhase) * C.swayAmp * (1 - u) * (1 - u) * (1 - u);
   const e = u * u * (3 - 2 * u) * 0.55 + u * 0.45; // drifts out fast-ish, settles softly
   let x = sx + dx * e + px * (bend + sway), z = sz + dz * e + pz * (bend + sway);
   // Height: floats a little, then sinks; lands exactly on the floor at u = 1.
   const fall = u * (0.35 + 0.65 * u);
-  let y = lerp(sy, PEEL.floorY, fall) + Math.sin(u * Math.PI) * 0.04 * clamp(sy / PEEL.floatRef, 0, 1);
-  // Stay inside the room box: clamp (slide along walls / floor / ceiling) so peels never go through.
-  const mx = room.width / 2 - PEEL.pathMargin, mz = room.depth / 2 - PEEL.pathMargin;
-  const hi = (room.height ?? 4) - PEEL.birthCeilingGap;
-  x = clamp(x, -mx, mx); z = clamp(z, -mz, mz); y = clamp(y, PEEL.floorY, hi);
+  let y = lerp(sy, C.floorY, fall) + Math.sin(u * Math.PI) * 0.04 * clamp(sy / C.floatRef, 0, 1);
+  // Stay inside the space: room box clamp, or city outer bounds + pushOut of buildings.
+  const mx = room.width / 2 - C.pathMargin, mz = room.depth / 2 - C.pathMargin;
+  const hi = (room.height ?? 4) - C.birthCeilingGap;
+  x = clamp(x, -mx, mx); z = clamp(z, -mz, mz);
+  if (city) [x, z] = pushOut(x, z, C.buildingMargin);
+  x = clamp(x, -mx, mx); z = clamp(z, -mz, mz); y = clamp(y, C.floorY, hi);
   // Tumbling that unwinds to flat, plus a fading rock.
   const k = (1 - u) ** 1.6;
-  const tumble = qAxis(params.axis, params.turns * Math.PI * 2 * k + Math.sin(u * params.swayCycles * Math.PI * 2) * PEEL.flutterTilt * params.flutter * k);
+  const tumble = qAxis(params.axis, params.turns * Math.PI * 2 * k + Math.sin(u * params.swayCycles * Math.PI * 2) * C.flutterTilt * params.flutter * k);
   const q = qMul(flatQuat(peel.yaw), tumble);
   return { p: [x, y, z], q };
 }

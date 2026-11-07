@@ -261,12 +261,17 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   }
 
   // Peels på/av. canEdit som för utseendet. Svar: 'ok', 'notfound' eller 'forbidden'.
+  // City outside (Jens, Nov 2026): peels are ALWAYS on in the experience; the toggle can't turn them off.
   async function setPeelsOn(id, on, canEdit) {
     return withLock(id, async () => {
       let room = await loadRoom(id);
       if (!room && autoRoom(id)) room = normalize(id, { createdAt: iso() });
       if (!room) return 'notfound';
       if (!canEdit(room)) return 'forbidden';
+      if (CITY.isCityOutside(id)) {
+        if (!on) return 'forbidden';
+        room.peelsOn = true; await saveRoom(room); return 'ok';
+      }
       if (on) room.peelsOn = true; else delete room.peelsOn;
       await saveRoom(room);
       return 'ok';
@@ -318,7 +323,10 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   async function addPeel(id, peel, max = 300) {
     return withLock(id, async () => {
       const room = await loadRoom(id);
-      if (!room || !room.peelsOn) return null;
+      // City outside: peels always on (Jens, Nov 2026) – persist the flag so the list is kept.
+      if (!room) return null;
+      if (!room.peelsOn && !CITY.isCityOutside(id)) return null;
+      if (CITY.isCityOutside(id) && !room.peelsOn) room.peelsOn = true;
       room.peels = Array.isArray(room.peels) ? room.peels : [];
       prunePeelsList(room); // drop expired quietly; clients also fade locally after lifeMs
       const p = { order: (room.peels.at(-1)?.order ?? 0) + 1, createdAt: iso(), ...peel };
@@ -333,11 +341,12 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   async function peelState(id) {
     return withLock(id, async () => {
       const r = await loadRoom(id);
-      if (!r) return { on: false, peels: [], expired: [] };
+      // City outside: always on, even before the room file exists / first slap.
+      if (!r) return { on: CITY.isCityOutside(id), peels: [], expired: [] };
       r.peels = Array.isArray(r.peels) ? r.peels : [];
       const expired = prunePeelsList(r);
       if (expired.length) await saveRoom(r);
-      return { on: !!r.peelsOn, peels: r.peels, expired };
+      return { on: CITY.isCityOutside(id) || !!r.peelsOn, peels: r.peels, expired };
     });
   }
   // Explicit prune (e.g. after loading a room snapshot for a joining client).

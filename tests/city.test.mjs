@@ -197,7 +197,7 @@ try {
   const peels = await fetch(`${S.base}/api/rooms/stad/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"on":true}' });
   const cam = await fetch(`${S.base}/api/rooms/stad/cameras`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"p":[0,1.6,0]}' });
   const camHouse = await fetch(`${S.base}/api/rooms/stad-3/cameras`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"p":[0,1.6,0],"yaw":0,"pitch":0}' });
-  ok('peels and cameras: not in the City (400); in a house they work as in any room', () => { assert.equal(peels.status, 400); assert.equal(cam.status, 400); assert.equal(camHouse.status, 200); });
+  ok('city outside: peels always on (PUT on → 200); cameras still not (400); in a house cameras work', () => { assert.equal(peels.status, 200); assert.equal(cam.status, 400); assert.equal(camHouse.status, 200); });
   const recent = await (await fetch(`${S.base}/api/rooms/recent?ids=stad-3,${cid}-2`)).json();
   ok('a house is nobody\'s own room (not in "recent")', () => { assert.deepEqual(recent.missing, ['stad-3', `${cid}-2`]); });
   // the Join list: people in a city room → the city's name with it

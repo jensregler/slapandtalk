@@ -16,8 +16,9 @@ const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quatern
 const FLAT = new THREE.Quaternion();
 
 export class PeelLayer {
-  constructor(scene, { now = () => performance.now() } = {}) {
-    this.now = now;
+  // room = the space's box (shared/room.json or shared/city.mjs CITY) so peelPose clamps correctly.
+  constructor(scene, { now = () => performance.now(), room = null } = {}) {
+    this.now = now; this.room = room;
     this.scene = scene; this.root = new THREE.Group(); this.root.name = 'peels'; this.root.visible = false; scene.add(this.root);
     this.on = false;
     this.groups = new Map(); // imageId -> { mesh, edge, items: [peel], tex, cap }
@@ -74,7 +75,7 @@ export class PeelLayer {
     const e = this.peels.get(it.id); if (!e) return;
     const P = e.peel;
     const u = e.landed ? 1 : Math.max(0, Math.min(1, (now - e.born) / (e.params.dur * 1000)));
-    const pose = peelPose(P, u, e.params);
+    const pose = peelPose(P, u, e.params, this.room || undefined);
     // Lifetime fade (last fadeMs): shrink to nothing, then update() removes it.
     const life = { createdAt: e.createdAt, born: e.life0 };
     const op = peelOpacity(life, typeof now === 'number' ? (e.lifeClock ? e.lifeClock(now) : Date.now()) : Date.now());
@@ -96,9 +97,10 @@ export class PeelLayer {
     const params = pathParams(peel.seed);
     if (born != null) animate = this.now() - born < params.dur * 1000;
     const life0 = Date.now(); // wall clock for the 6 s lifetime (replay uses born for the fall only)
-    const e = { peel, image, born: born ?? this.now(), params, landed: !animate, by, life0, createdAt: peel.createdAt || null,
-      // Map performance.now()/replay now → wall clock so fade stays in sync during replay seeks.
-      lifeClock: (n) => life0 + Math.max(0, n - (born ?? this.now())) };
+    const e = { peel, image, born: born ?? this.now(), params, landed: !animate, by, life0, createdAt: peel.createdAt || null };
+    // Replay: map now() → wall clock. Live: Date.now() (NOT `born ?? this.now()` in a closure – that
+    // re-read this.now() every frame and froze the age at 0, so peels never expired).
+    e.lifeClock = born != null ? (n) => life0 + Math.max(0, n - e.born) : () => Date.now();
     this.peels.set(peel.id, e);
     let g;
     try { g = await this.group(image); } catch { if (this.peels.get(peel.id) === e) this.peels.delete(peel.id); return; }
@@ -120,7 +122,7 @@ export class PeelLayer {
   confirm(tempId, peel) {
     const e = this.peels.get(tempId); if (!e) return false;
     this.peels.delete(tempId);
-    e.peel = { ...peel }; this.peels.set(peel.id, e);
+    e.peel = { ...peel }; e.createdAt = peel.createdAt || e.createdAt; this.peels.set(peel.id, e);
     const g = this.groups.get(e.image.id); const it = g?.items.find((x) => x.id === tempId); if (it) it.id = peel.id;
     if (this.falling.delete(tempId)) this.falling.add(peel.id);
     return true;

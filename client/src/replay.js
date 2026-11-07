@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { buildCityRoom } from './city.js';
-import { isCityOutside } from '../../shared/city.mjs';
+import { CITY, isCityOutside } from '../../shared/city.mjs';
 import { PresetLayer } from './preset.js';
 import { applyStyle, normalizeStyle, DEFAULT_STYLE, tickRoomFabric } from './roomstyle.js';
 import { StampLayer, StampPreview } from './stamps.js';
@@ -60,7 +60,7 @@ const stamps = new StampLayer(scene, room.surfaces);
 const cams = new CameraLayer(scene);
 // Peels (backing paper): in the same scene, so every view, the finished video and 📷 photos have them.
 // Its clock is the replay time, so a fall looks the same at every play, seek and scrub.
-const peelLayer = new PeelLayer(scene, { now: () => (rp.snap ? rp.snap.t : 0) });
+const peelLayer = new PeelLayer(scene, { now: () => (rp.snap ? rp.snap.t : 0), room: isCityOutside(ROOM) ? CITY : null });
 const avatars = new Map(); // id -> { avatar, last: Vector3, speed }
 let model = null;
 loadAvatarModel().then((m) => { model = m; }).catch(() => {});
