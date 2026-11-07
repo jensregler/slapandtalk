@@ -1638,8 +1638,9 @@ var everLocked = false; // eslint-disable-line no-var
 // var: the mousedown handler reads it; no Pointer Lock API at all = broken from the start.
 var lockBroken = typeof HTMLCanvasElement !== 'undefined' && !HTMLCanvasElement.prototype.requestPointerLock; // eslint-disable-line no-var
 function resumeGame() { setResuming(true); tryLock(); }
-// The topmost thing Esc should close, or null.
-function escTarget() {
+// Topmost panel/dialog Esc should close (not the Esc button row). Null when nothing is up.
+// Priority: always close a panel before toggling the Esc buttons (Jens, Nov 2026).
+function escTopPanel() {
   if (placingCam) return () => cancelPlacingCam();
   if (camView) return () => exitCamView();
   if (fullUi?.isOpen()) return () => fullUi.close();
@@ -1649,31 +1650,46 @@ function escTarget() {
   if (sp.open) return () => closeStylePanel(true);
   if (!$('more-panel').hidden) return () => closeMore();
   if (!$('room-menu').hidden) return () => closeRoomMenu();
-  if (escMenu?.isOpen()) return () => escMenu.close({ resume: true });
+  if (!$('menu-choice').hidden) return () => closeChoice();
+  if (doorOpen()) return () => $('df-cancel')?.click();
+  if (nameTagOpen()) return () => $('nt-exit')?.click();
+  if (cityPickOpen()) return () => $('cp-x')?.click();
+  if (townHallOpen()) return () => $('th-x')?.click();
   if (credit.id) return () => hideCredit();
   return null;
+}
+// True only for real text fields – a <select> in Sound settings must not eat Esc (panel should close).
+function isEscTextField(e) {
+  const t = e.target;
+  if (!t || !t.closest) return false;
+  if (t.closest('textarea, [contenteditable=""], [contenteditable="true"]')) return true;
+  const inp = t.closest('input');
+  return !!inp && !['range', 'checkbox', 'radio', 'button', 'file', 'color'].includes(inp.type);
 }
 function onEscape(e) {
   if (e.key !== 'Escape' || e.defaultPrevented) return;
   if (arrayDrag) { e.preventDefault(); cancelArray(); return; } // Esc while dragging: no copies (the first sticker stays)
   if (endDlg.open || linkDlg.open) return;          // <dialog> closes itself on Esc
   if (together.chatOpen()) return;                   // the chat input closes itself (together.js)
-  if (isTyping(e)) { e.target.blur(); return; }      // first Esc just leaves the text field
-  const close = escTarget();
+  if (isEscTextField(e)) { e.target.blur(); return; } // first Esc just leaves the text field
+  // 1) Close the topmost open panel/dialog – do NOT spawn the button row on the same press.
+  const close = escTopPanel();
   if (close) { e.preventDefault(); close(); return; }
-  if (isTouch) return;
+  if (isTouch) return;                               // touch uses the Menu button (same priority there)
   if (controls.locked) return;                       // the browser unlocks; onLockChange opens the Esc menu
-  // The Esc that just unlocked: open the big-button menu (don't resume yet).
   if (e.repeat) return;
+  // 2) Same Esc that just unlocked: keep / spawn the button row (don't resume yet).
   if (performance.now() - escGate.unlockedAt < 500) {
     e.preventDefault();
     if (!escMenu?.isOpen()) escMenu?.open();
     return;
   }
+  // 3) No panel up: toggle the button row. Esc with it open resumes the game; Esc with nothing
+  //    open shows the buttons (not a silent resumeGame – Jens: panel → Esc closes → Esc shows buttons).
   e.preventDefault();
-  if (resuming) { setResuming(false); escMenu?.open(); }
-  else if (escMenu?.isOpen()) escMenu.close({ resume: true });
-  else resumeGame();
+  if (resuming) setResuming(false);
+  if (escMenu?.isOpen()) escMenu.close({ resume: true });
+  else escMenu?.open();
 }
 addEventListener('keydown', onEscape);
 controls.onLockChange = (locked) => {
@@ -1688,7 +1704,8 @@ controls.onLockChange = (locked) => {
   $('crosshair').hidden = !locked;
   if (!locked) { preview.hide(); hideCredit(); } // Esc (leaving the room) hides the artist credit
   // Real Esc out of the game → spawn the big-button menu (not a soft unlock for a panel).
-  if (realEsc) escMenu?.open();
+  // Never over an open panel (e.g. Sound settings opened from a soft unlock).
+  if (realEsc && !escTopPanel()) escMenu?.open();
 };
 
 // 'My avatar' open: drag (mouse or one finger) on the room = spin my avatar round.
@@ -2570,7 +2587,10 @@ escMenu = initEscMenu({
   onExit: () => menuActions.exit(),
   onName: () => menuActions.nametag(),
   onClose: () => resumeGame(),
+  // Touch Menu / open(): close the top panel first; only show buttons when nothing is open.
+  closeTop: () => { const c = escTopPanel(); if (c) { c(); return true; } return false; },
 });
+
 
 // The name-tag roll (knappar/editor.png): the "my name is" drawing tool (nametag.js). The finished tag
 // is uploaded as my sticker and takes the place of the wheel sticker I chose (klibb.swaps, applySwaps).

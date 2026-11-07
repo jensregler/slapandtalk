@@ -54,7 +54,19 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       full: !!document.querySelector('#full-panel:not([hidden])'),
     }));
     check('SOUND closes the Esc menu and opens sound settings (or the full-version panel)', !snd.menu && (snd.sound || snd.full), snd);
-    await P.keyboard.press('Escape'); await sleep(300);
+
+    // Esc priority: panel open → Esc closes panel, buttons stay hidden; Esc again → buttons.
+    await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; });
+    await P.keyboard.press('Escape'); await sleep(350);
+    const afterPanelEsc = await P.evaluate(() => ({
+      menu: window.klibb.escMenu().isOpen(),
+      sound: !document.getElementById('sound-panel').hidden,
+      full: !!document.querySelector('#full-panel:not([hidden])'),
+    }));
+    check('Esc while Sound settings open closes the panel and does NOT show the button row', !afterPanelEsc.menu && !afterPanelEsc.sound && !afterPanelEsc.full, afterPanelEsc);
+    await P.keyboard.press('Escape'); await sleep(350);
+    const afterSecondEsc = await P.evaluate(() => window.klibb.escMenu().info());
+    check('Esc again (nothing open) shows the Esc button row', afterSecondEsc.open === true, afterSecondEsc);
 
     // Re-open and try AVATAR
     await P.evaluate(() => window.klibb.escMenu().open()); await sleep(200);

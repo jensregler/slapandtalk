@@ -1,13 +1,16 @@
 // Esc / touch menu: three (plus a few) big buttons that "spawn" when you leave the game.
 // Replaces the old menu stickers (character / radio / room / door / exit / nametag).
 // Desktop: Esc unlocks the pointer → this overlay pops in. Esc again or a tap on the scrim closes it
-// and tries to go back into the room. Touch: the same overlay opens from the stack's Menu button
+// and tries to go back into the room. Touch: the same overlay from the stack's Menu button
 // (and the three bottom editing buttons still work).
+// Esc priority (main.js): close the topmost panel first; only when nothing is open do we toggle
+// this button row. open()/Menu refuse to appear over an open panel (closeTop).
 const $ = (id) => document.getElementById(id);
 
 export function initEscMenu({
   onSound, onAvatar, onRoom, onCity, onExit, onName,
   onClose = () => {},
+  closeTop = () => false, // () => true if a panel was closed (Esc priority)
   isTouch = false,
 } = {}) {
   const root = $('esc-menu');
@@ -55,15 +58,24 @@ export function initEscMenu({
   }
   scrim.addEventListener('pointerdown', (e) => { e.preventDefault(); setOpen(false, { resume: true }); });
 
-  // Touch: the stack's Menu item opens the same overlay.
+  // Touch: the stack's Menu item – same Esc priority: close top panel first, else toggle buttons.
   const sm = $('sm-esc');
-  if (sm) sm.addEventListener('click', (e) => { e.preventDefault(); setOpen(true); });
+  if (sm) sm.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (closeTop()) return;
+    if (open) setOpen(false, { resume: true });
+    else setOpen(true);
+  });
 
   return {
-    open: () => setOpen(true),
+    open: () => { if (closeTop()) return; setOpen(true); },
     close: (opts) => setOpen(false, opts),
     isOpen: () => open,
-    toggle: () => (open ? setOpen(false, { resume: true }) : setOpen(true)),
+    toggle: () => {
+      if (closeTop()) return;
+      if (open) setOpen(false, { resume: true });
+      else setOpen(true);
+    },
     // tests / klibb
     info: () => ({ open, touch: !!isTouch, buttons: [...root.querySelectorAll('[data-esc]')].map((b) => b.dataset.esc) }),
   };
