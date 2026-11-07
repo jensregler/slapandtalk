@@ -13,6 +13,11 @@ const check = (name, ok, extra) => {
 };
 
 (async () => {
+  const { FILMS_ENABLED } = await import('../shared/features.mjs');
+  if (!FILMS_ENABLED) {
+    console.log('highlight e2e: SKIPPED (FILMS_ENABLED=false – closed room; flip shared/features.mjs to re-enable)');
+    process.exit(0);
+  }
   const S = await startServer(PORT, { DEMO_PROFILE: '0', OPEN_ACCESS: '1' });
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
   const errors = [];

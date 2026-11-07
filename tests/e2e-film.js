@@ -13,6 +13,11 @@ let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
 const savePng = (file, dataUrl) => fs.writeFileSync(path.join(SHOTS, file), Buffer.from(dataUrl.split(',')[1], 'base64'));
 (async () => {
+  const { FILMS_ENABLED } = await import('../shared/features.mjs');
+  if (!FILMS_ENABLED) {
+    console.log('film e2e: SKIPPED (FILMS_ENABLED=false – closed room; flip shared/features.mjs to re-enable)');
+    process.exit(0);
+  }
   fs.mkdirSync(SHOTS, { recursive: true });
   const S = await startServer(PORT, { DEMO_PROFILE: '0', OPEN_ACCESS: '1' });
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });

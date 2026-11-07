@@ -86,14 +86,20 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await P.waitForFunction(() => window.klibb.door().open, null, { timeout: 10000 }).catch(() => {}); await sleep(300);
     st = await P.evaluate(() => window.klibb.door());
     check('…save → back to the pac, drawn on', st.open && st.step === 'pac' && st.drawn && !(await P.evaluate(() => window.klibb.nameTag().open)), st);
-    // "to city →" = the city picker (t479u): start a city and name it, then in
-    // pt536u (5 Nov 2026): first my session's film is made (#film-ui); Skip goes straight on to the picker
+    // "to city →" = the city picker (t479u). When FILMS_ENABLED (shared/features.mjs) the session
+    // film / highlight reel run first; when false (closed room) we go straight to the picker.
+    const { FILMS_ENABLED } = await import('../shared/features.mjs');
     await P.click('#df-city');
-    await P.waitForSelector('#film-ui:not([hidden]) #fu-skip', { timeout: 15000 }).catch(() => {});
-    check('"to city →" first makes my film (the film screen, with Skip) (pt536u)', await P.isVisible('#fu-skip'));
-    await P.click('#fu-skip'); await sleep(500);
+    if (FILMS_ENABLED) {
+      await P.waitForSelector('#film-ui:not([hidden]) #fu-skip', { timeout: 15000 }).catch(() => {});
+      check('"to city →" first makes my film (the film screen, with Skip) (pt536u)', await P.isVisible('#fu-skip'));
+      await P.click('#fu-skip'); await sleep(500);
+    } else {
+      await sleep(800);
+      check('"to city →" goes straight to the city picker (FILMS_ENABLED=false)', !(await P.isVisible('#film-ui')) && !(await P.isVisible('#highlight-ui')) && await P.evaluate(() => !!window.klibb.city().pick.open));
+    }
     const pick = await P.evaluate(() => window.klibb.city().pick);
-    check('…Skip → the city picker (t479u), the film screen gone', pick.open && !(await P.isVisible('#film-ui')), pick);
+    check('…the city picker (t479u), no film screen', pick.open && !(await P.isVisible('#film-ui')) && !(await P.isVisible('#highlight-ui')), pick);
     await P.click('#cp-new'); await P.fill('#cp-name', 'Door town');
     await Promise.all([P.waitForURL(/room=stad-[a-z0-9]{6}$/, { timeout: 20000 }).catch(() => {}), P.click('#cp-go')]);
     await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }).catch(() => {}); await sleep(1500);

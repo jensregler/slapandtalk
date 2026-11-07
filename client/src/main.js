@@ -69,6 +69,7 @@ import { HighlightStore } from './highlightstore.js';
 import { offerHighlightReel, highlightState, highlightBlob, highlightPreview } from './highlightui.js';
 import { findCrossCameraMoments, reelCameras, cityBounds as highlightCityBounds } from '../../shared/highlight.mjs';
 import { roomBounds as highlightRoomBounds } from '../../shared/autocam.mjs';
+import { FILMS_ENABLED } from '../../shared/features.mjs';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -95,11 +96,14 @@ const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
 // ordinary box rooms you walk into, started in order. In all of them ("in the city", IN_CITY) the wheel
 // holds only what you brought (citymode.js). THIS_CITY = the city's own id (its outside).
 const CITY_OUTSIDE = isCityOutside(ROOM), IN_CITY = isCityRoom(ROOM), THIS_CITY = cityOf(ROOM);
-const filmLog = IN_CITY ? null : new FilmLog(ROOM); // the session film (filmThenCity)
-const highlightLog = new HighlightLog(ROOM); // room AND city – automatic cameraman moments
-const highlightStore = new HighlightStore(ROOM);
-if (!highlightLog.has('start')) highlightLog.add('start', { room: ROOM, city: !!IN_CITY });
-const highlightCrew = reelCameras(CITY_OUTSIDE ? highlightCityBounds() : highlightRoomBounds(), { city: !!CITY_OUTSIDE, seed: ROOM });
+// FILMS_ENABLED (shared/features.mjs): closed room – code/media stay, no film or reel in the experience.
+const filmLog = (FILMS_ENABLED && !IN_CITY) ? new FilmLog(ROOM) : null; // the session film (filmThenCity)
+const highlightLog = FILMS_ENABLED ? new HighlightLog(ROOM) : null; // room AND city – automatic cameraman moments
+const highlightStore = FILMS_ENABLED ? new HighlightStore(ROOM) : null;
+const highlightCrew = FILMS_ENABLED
+  ? reelCameras(CITY_OUTSIDE ? highlightCityBounds() : highlightRoomBounds(), { city: !!CITY_OUTSIDE, seed: ROOM })
+  : [];
+if (highlightLog && !highlightLog.has('start')) highlightLog.add('start', { room: ROOM, city: !!IN_CITY });
 if (filmLog && !filmLog.has('start')) filmLog.add('start', { room: ROOM });
 // leaving a city drops the packs a free player took; a new visit to a city starts with only my pack
 const carryReady = IN_CITY ? enterCity(THIS_CITY) : leaveCity();
@@ -863,7 +867,7 @@ async function slapAt(ndc, info, onStart, auto = null) {
   pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, ...(auto ? { burst: auto.burst } : {}) });
   stamps.add(temp, design).then(updateCount);
   // Highlight reel: log my sticker + neighbours (homage) + cross-camera cameos.
-  if (!auto || auto.first !== false) {
+  if (highlightLog && (!auto || auto.first !== false)) {
     const [dw, dh] = stampDims(design, slapSize);
     const others = [...stamps.meshes.values()].map((m) => m.userData.stamp).filter((s) => s && !s.pending && !highlightLog.isMine(s.id) && s.id !== tempId);
     for (const o of others) {
@@ -939,9 +943,11 @@ function confirmSlap(nonce, stamp, image) {
   pendingSlaps.delete(nonce);
   if (p.peel) { stamps.gone.add(p.tempId); stamps.gone.add(stamp.id); peelWhenSaved.add(stamp.id); return; }
   if (!stamps.confirm(p.tempId, stamp, image)) stamps.add(stamp, image).then(updateCount);
-  highlightLog.noteMine(stamp.id);
-  // Keep the stick event's id in sync with the server id (homage dedupe).
-  for (const e of highlightLog.list) if (e.e === 'stick' && e.id === p.tempId) e.id = stamp.id;
+  if (highlightLog) {
+    highlightLog.noteMine(stamp.id);
+    // Keep the stick event's id in sync with the server id (homage dedupe).
+    for (const e of highlightLog.list) if (e.e === 'stick' && e.id === p.tempId) e.id = stamp.id;
+  }
 }
 function dropPending(nonce) {
   const p = pendingSlaps.get(nonce);
@@ -2488,6 +2494,8 @@ const doorOpts = () => ({ S, toast, choices: () => (IN_CITY ? state.library.filt
 // film is only made here (an offscreen render while the bar runs); any failure or Skip → the City.
 function filmThenCity() {
   const toCity = () => openCityPick({ toast, go: (id) => { location.href = roomUrl(id); } });
+  // Closed room (FILMS_ENABLED=false): straight to the city picker – no reel, no session film.
+  if (!FILMS_ENABLED) { toCity(); return; }
   const afterReel = () => {
     highlightLog.clear();
     if (!filmLog || window.klibb?.noFilm) { toCity(); return; }
@@ -2512,7 +2520,8 @@ function stickersForReel() {
   return out;
 }
 function leaveWithHighlight(go) {
-  if (window.klibb?.noHighlight) { highlightLog.clear(); go(); return; }
+  // Closed room (FILMS_ENABLED=false): leave straight away – no highlight reel after the city / exit.
+  if (!FILMS_ENABLED || window.klibb?.noHighlight) { highlightLog?.clear(); go(); return; }
   offerHighlightReel({
     events: highlightLog.events(), roomId: ROOM, style: state.style, city: !!CITY_OUTSIDE || !!IN_CITY,
     place: IN_CITY ? 'city' : 'room',
@@ -2539,7 +2548,7 @@ if (IN_CITY) carryReady.then(() => setTimeout(() => { if (!localStorage.getItem(
 function exitChoices() {
   const out = [];
   if (IN_CITY && !CITY_OUTSIDE) out.push({ id: 'to-city', text: S.cityBackToCity, go: () => { location.href = roomUrl(THIS_CITY) + '&at=' + ROOM; } });
-  // Leaving the city (or exiting to menu from a room): offer the highlight reel first.
+  // Leaving the city (or exiting to menu from a room): highlight reel when FILMS_ENABLED, else straight out.
   out.push({ id: 'exit-menu', text: S.exitToMenu, go: () => leaveWithHighlight(() => { location.href = `${location.origin}/?start=1`; }) }, { id: 'back', text: S.choiceBack });
   return out;
 }
@@ -2571,7 +2580,7 @@ function openNameTag() {
   closeMore(); closeRoomMenu(); controls.unlock?.();
   // a free chair close by (3D props): I sit down at the table and draw – the others see it
   propsUi.sitToDraw();
-  highlightLog.add('draw', { playerId: together.net.id || 'me', p: [camera.position.x, camera.position.y, camera.position.z] });
+  highlightLog?.add('draw', { playerId: together.net.id || 'me', p: [camera.position.x, camera.position.y, camera.position.z] });
   openNameTagTool({
     S, toast,
     onClose: () => propsUi.standUp(),
@@ -3076,7 +3085,7 @@ var voice = new Voice({ // eslint-disable-line no-var
       const who = id === 'me' ? (together.net.id || 'me') : id;
       const p = id === 'me' ? [camera.position.x, camera.position.y, camera.position.z]
         : (() => { const o = together.players.get?.(id); const pos = o?.avatar?.root?.position; return pos ? [pos.x, pos.y + 1.5, pos.z] : [0, 1.55, 0]; })();
-      highlightLog.add('voice', { playerId: who, p, level });
+      highlightLog?.add('voice', { playerId: who, p, level });
     }
   },
   onState: (st) => { renderMic(st); personalSet(VOICE_MIC_KEY, st === 'on' || st === 'muted' ? st : null); },
@@ -3329,9 +3338,10 @@ if ('serviceWorker' in navigator) {
 
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 window.klibb = {
+  filmsEnabled: FILMS_ENABLED,
   filmLog: () => filmLog, filmState, filmBlob, filmThenCity: () => filmThenCity(),
   highlightLog: () => highlightLog, highlightStore: () => highlightStore, highlightState, highlightBlob,
-  highlightPreview: (size) => highlightPreview({ events: highlightLog.events(), roomId: ROOM, style: state.style, stickers: stickersForReel(), city: !!CITY_OUTSIDE, size }),
+  highlightPreview: (size) => highlightLog ? highlightPreview({ events: highlightLog.events(), roomId: ROOM, style: state.style, stickers: stickersForReel(), city: !!CITY_OUTSIDE, size }) : null,
   offerHighlight: () => leaveWithHighlight(() => {}), highlightCrew: () => highlightCrew,
   filmPreview: async (size) => filmPreview({ ...(await filmOpts()), size }), // tests/stills: a frame of the film at any time
   props: propsUi, propsMode, setProps,

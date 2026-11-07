@@ -75,7 +75,9 @@ const EXIT = 'a03b0ba5768979e6';
     await P.click('#df-next'); await sleep(900);
     await P.fill('#df-name', 'Jens pack');
     await P.click('#df-city');
-    await P.waitForSelector('#film-ui:not([hidden]) #fu-skip', { timeout: 15000 }).catch(() => {}); // pt536u: the film first – skip it
+    // pt536u film / highlight reel only when FILMS_ENABLED; otherwise straight to the picker.
+    await P.waitForSelector('#film-ui:not([hidden]) #fu-skip, #highlight-ui:not([hidden]), #cp-new', { timeout: 15000 }).catch(() => {});
+    if (await P.isVisible('#hu-skipall')) await P.click('#hu-skipall');
     if (await P.isVisible('#fu-skip')) await P.click('#fu-skip');
     await sleep(900);
     let pk = await P.evaluate(() => window.klibb.city().pick);
