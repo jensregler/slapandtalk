@@ -1,5 +1,5 @@
 // E2E (Jens, 5 Nov 2026): the sampler layer, LFOs ("Add LFO?" + nesting + audio rate), sequencer layers,
-// the radio (knob = morph, power, tempo up to "11", bird, wind, four voices), per-room per-player
+// the Master block (blend = morph, power, tempo up to "11", bird, wind, four voices), per-room per-player
 // presets on the server, the auto-slap gone. Own server (8911). Screenshots → /workspace/sampler-layer-shots.
 const { chromium, devices } = require('playwright');
 const path = require('path');
@@ -38,10 +38,10 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     // ---------- auto-slap is gone ----------
     const gone = await A.evaluate(() => ({ box: !!document.getElementById('auto-box'), chip: !!document.getElementById('auto-chip'), api: window.klibb.autoSlap(), old: localStorage.getItem('klibb.autoslap') }));
     check('auto-slap removed: no editor, no chip, no trigger (old settings dropped)', !gone.box && !gone.chip && gone.api === null && gone.old === null, gone);
-    // ---------- open Sound settings: the radio on top ----------
+    // ---------- open Sound settings: Master block on top ----------
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(400);
     const r0 = await A.evaluate(() => ({ radio: !!document.querySelector('#snd-radio #radio-box'), knob: !!document.getElementById('radio-knob'), read: document.getElementById('radio-read').textContent, bpm: window.klibb.radio().state.bpm, tempo: window.klibb.radio().tempo() }));
-    check('Sound settings opens with the radio on top (knob, power, tempo 90 BPM)', r0.radio && r0.knob && r0.bpm === 90, r0);
+    check('Sound settings opens with Master on top (blend, power, tempo 90 BPM)', r0.radio && r0.knob && r0.bpm === 90, r0);
     check(`…this room's clock is slightly off 90 (deterministic): ${r0.tempo.bpm} BPM, phase ${r0.tempo.phaseMs} ms`, Math.abs(r0.tempo.bpm - 90) <= 0.3 && r0.tempo.phaseMs >= 0 && r0.tempo.phaseMs <= 12, r0.tempo);
     // ---------- sampler layer ----------
     await A.click('#snd-add-sampler'); await sleep(200);
@@ -148,7 +148,7 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     console.log('    (patch JSON bytes before save:', await A.evaluate(() => JSON.stringify(window.klibb.soundUi().state().patches).length), ')');
     await A.click('#snd-save'); await sleep(1500);
     const srv = await A.evaluate(async (R) => { const r = await fetch(`/api/rooms/${R}/sound`, { headers: { 'X-Sound-Owner': localStorage.getItem('klibb.soundOwner') } }); return (await r.json()).preset; }, R);
-    check('Save stores the preset for THIS room on the server (patches incl. sampler + LFOs + sequencer, radio)', srv && srv.patches && srv.patches.slap.layers.some((l) => l.kind === 'sampler') && srv.patches.slap.mods.length === 6 && srv.patches.step.layers.some((l) => l.seq && l.seq.len === 7) && srv.radio.on === true, srv && { keys: Object.keys(srv), pk: srv.patches && Object.keys(srv.patches), size: JSON.stringify(srv).length });
+    check('Save stores the preset for THIS room on the server (patches incl. sampler + LFOs + sequencer, master/radio)', srv && srv.patches && srv.patches.slap.layers.some((l) => l.kind === 'sampler') && srv.patches.slap.mods.length === 6 && srv.patches.step.layers.some((l) => l.seq && l.seq.len === 7) && srv.radio.on === true, srv && { keys: Object.keys(srv), pk: srv.patches && Object.keys(srv.patches), size: JSON.stringify(srv).length });
     const other = await B.evaluate(async (R) => { const r = await fetch(`/api/rooms/${R}/sound`, { headers: { 'X-Sound-Owner': localStorage.getItem('klibb.soundOwner') } }); return { preset: (await r.json()).preset, mine: window.klibb.soundMine(), sees: window.klibb.players()[0].look.sound }; }, R);
     check('per player: B in the same room has no preset, keeps the original sound, and only sees A\'s seed', other.preset === null && !other.mine.patches && other.sees && !other.sees.patches, other);
     const noKey = await (await fetch(`${S.base}/api/rooms/${R}/sound`)).status;
@@ -185,27 +185,27 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await A.evaluate(() => window.klibb.radio().set({ voices: { on: true } })); await sleep(2800);
     const loops = await A.evaluate(() => { const r = window.klibb.radio(); return r.voiceLog.slice(-40); });
     const keys = new Set(loops.map((e) => e.key));
-    check('radio on: the step sequencer layer and the four voices run on the master clock', keys.has('step' + 2) && ['v0', 'v1', 'v2', 'v3'].every((k) => keys.has(k)), [...keys]);
-    // ---------- knob = morph ----------
+    check('Master on: the step sequencer layer and the four voices run on the master clock', keys.has('step' + 2) && ['v0', 'v1', 'v2', 'v3'].every((k) => keys.has(k)), [...keys]);
+    // ---------- blend = morph ----------
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
     const kb0 = await A.evaluate(() => window.klibb.radio().state.knob);
     await A.focus('#radio-knob'); for (let i = 0; i < 5; i++) await A.keyboard.press('ArrowLeft'); await sleep(200);
     const kstate = () => A.evaluate(() => ({ knob: window.klibb.radio().state.knob, s: window.klibb.soundObj().radio, read: document.getElementById('radio-read').textContent, p: window.klibb.soundObj().patchFor('slap', window.klibb.soundObj().mine), vol: window.klibb.soundObj().volume }));
     const kb = await kstate();
-    check('radio knob = morph (not volume): starts on "Mine" (½); a quarter turn back → half way from the original toward my preset', kb0 === 0.5 && Math.abs(kb.knob - 0.25) < 1e-6 && /50 % toward my sound/.test(kb.read) && Math.abs(kb.p.morph - 0.5) < 1e-6, { kb0, knob: kb.knob, read: kb.read, morph: kb.p.morph });
+    check('blend = morph (not volume): starts on "Mine" (½); nudge back → half way from the original toward my preset', kb0 === 0.5 && Math.abs(kb.knob - 0.25) < 1e-6 && /50 % toward my sound/.test(kb.read) && Math.abs(kb.p.morph - 0.5) < 1e-6, { kb0, knob: kb.knob, read: kb.read, morph: kb.p.morph });
     for (let i = 0; i < 16; i++) await A.keyboard.press('ArrowRight'); await sleep(200);
     const ks = await kstate();
-    check('…turned all the way up: SEEK – every changed setting goes on past my preset (×2, clamped, pitch on the grid); the volume is untouched', ks.knob === 1 && /Seek: 100 % past/.test(ks.read) && ks.p.morph === 2 && ks.vol === kb.vol, { knob: ks.knob, read: ks.read, morph: ks.p.morph });
+    check('…turned all the way up (Further): every changed setting goes on past my preset (×2, clamped, pitch on the grid); the volume is untouched', ks.knob === 1 && /100 % past my sound/.test(ks.read) && ks.p.morph === 2 && ks.vol === kb.vol, { knob: ks.knob, read: ks.read, morph: ks.p.morph });
     await A.evaluate(() => window.klibb.radio().set({ knob: 0.75 })); await sleep(150);
     await A.evaluate(() => document.getElementById('radio-box').scrollIntoView());
-    await (await A.$('#radio-box')).screenshot({ path: path.join(SHOTS, '05-radio-knob-morph.png') });
+    await (await A.$('#radio-box')).screenshot({ path: path.join(SHOTS, '05-master-blend.png') });
     await A.evaluate(() => window.klibb.radio().set({ knob: 0.5 }));
     // ---------- tempo to "11" ----------
     await A.$eval('#radio-bpm', (r) => { r.value = '1000'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
     await sleep(1500);
     const fast = await A.evaluate(() => ({ bpm: window.klibb.radio().state.bpm, out: document.querySelector('#radio-tempo output').textContent, tone: window.klibb.radio().voiceLog.filter((e) => e.tone).length }));
     check('tempo knob to "11": 120 000 BPM (2 kHz, snapped to the semitone grid), loops become tones (worklet gate)', fast.bpm > 100000 && /Hz tone/.test(fast.out) && fast.tone > 0, fast);
-    await (await A.$('#radio-box')).screenshot({ path: path.join(SHOTS, '06-radio-tempo-eleven.png') });
+    await (await A.$('#radio-box')).screenshot({ path: path.join(SHOTS, '06-master-tempo-eleven.png') });
     await A.evaluate(() => { window.klibb.radio().set({ bpm: 90, voices: { on: false } }); });
     // ---------- bird + wind ----------
     await A.evaluate(() => { window.klibb.radio().set({ bird: { on: true }, wind: { on: true } }); });
@@ -213,12 +213,12 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     const amb = await A.evaluate(() => { const a = window.klibb.radio().amb; const ph = a.phrase('e2e'); return { bird: a.bird.on, phrases: a.bird.phrases, kind: ph && ph.kind, falling: ph && ph.notes.every((n) => n.f1 < n.f0), wind: a.wind.on, gusts: a.wind.gusts }; });
     check('bird (synthesized, falling Norrland phrases) and wind (filtered noise, gusts) on', amb.bird && amb.phrases >= 1 && amb.falling && amb.wind && amb.gusts >= 1, amb);
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
-    await A.screenshot({ path: path.join(SHOTS, '07-sound-panel-radio-full.png') });
+    await A.screenshot({ path: path.join(SHOTS, '07-sound-panel-master-full.png') });
     // ---------- reload: the room preset comes back from the server ----------
     await A.evaluate((R) => { sessionStorage.removeItem('klibb.sound'); sessionStorage.removeItem(`klibb.radio@${R}`); }, R);
     await A.reload(); await A.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }); await A.evaluate(() => window.klibb.radioReady()); await sleep(500);
     const back = await A.evaluate(() => ({ mine: window.klibb.soundMine(), radio: window.klibb.radio().state }));
-    check('reload (fresh tab copy): this room\'s preset is loaded from the server, radio as it was', back.mine.patches && back.mine.patches.slap.layers.some((l) => l.kind === 'sampler') && back.radio.knob === 0.5 && back.radio.bird.on, back.radio);
+    check('reload (fresh tab copy): this room\'s preset is loaded from the server, Master as it was', back.mine.patches && back.mine.patches.slap.layers.some((l) => l.kind === 'sampler') && back.radio.knob === 0.5 && back.radio.bird.on, back.radio);
     // another room starts from the original
     const made2 = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preset: false }) })).json();
     await A.goto(`${S.base}/?room=${made2.room.id}`); await A.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }); await A.evaluate(() => window.klibb.radioReady()); await sleep(300);
@@ -245,11 +245,11 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     // between two quarters: a blend
     const mid = await go(-32, -16);
     check('…on the street between two quarters (delay ↔ flanger) both blend', mid.now.zones.delay > 0.3 && mid.now.zones.flanger > 0.3 && mid.live.a > 0.1 && mid.live.mod > 0.2, mid.now.zones);
-    // the radio knob (my sound) and the place (the bus) are independent
+    // the blend (my sound) and the place (the bus) are independent
     const before = await C.evaluate(() => JSON.stringify(window.klibb.place().now));
     await C.evaluate(() => window.klibb.radio().set({ knob: 0.1 })); await sleep(400);
     const after = await C.evaluate(() => ({ place: JSON.stringify(window.klibb.place().now), morph: window.klibb.soundObj().radio.knob }));
-    check('…turning my radio knob changes my sound only – the place effect stays as it is', before === after.place && after.morph === 0.1);
+    check('…turning Blend changes my sound only – the place effect stays as it is', before === after.place && after.morph === 0.1);
     await C.evaluate(() => window.klibb.radio().set({ knob: 0.5 }));
     // a house: neutral
     await C.goto(`${S.base}/?room=stad-1`); await C.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }); await C.mouse.click(600, 400); await sleep(800);
@@ -268,6 +268,6 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     check('no page errors', errors.length === 0, errors);
   } catch (e) { failed++; console.log('  ✗ crashed: ' + (e.stack || e)); }
   await browser.close(); S.child.kill();
-  console.log(`\nSampler/radio e2e: ${passed} passed, ${failed} failed`);
+  console.log(`\nSampler/Master e2e: ${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

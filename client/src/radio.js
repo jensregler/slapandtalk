@@ -1,8 +1,7 @@
-// The radio (Jens, 5 Nov 2026; shared/radio.mjs): the redio sticker opens Sound settings, and at the
-// top of it sits the radio itself – the picture, with its big knob as MORPH + SEEK – not a volume (left = Ulla's
-// original sound, middle = my preset for this room, right = on past it), a power button, and the background bird, wind
-// and the four voices. Everything here is mine only: saved per room + per player on the server
-// (a private random key in this browser), never broadcast.
+// Master / blend block (was "the radio"; Jens, 5 Nov 2026 + Nov 2026: no radio metaphor).
+// Sound settings opens with a plain Master section: on/off, Blend (original → mine → further),
+// Tempo, Bird / Wind / Four voices. Same saved shape (shared/radio.mjs cleanRadio). Mine only:
+// per room + per player on the server (private key in this browser), never broadcast.
 import { cleanRadio, cleanPreset, FOUR_VOICES, RADIO, bpmToKnob, knobToBpm } from '../../shared/radio.mjs';
 import { roomTempo, loopSteps, barMsAt, barsAtTime, MASTER } from '../../shared/clock.mjs';
 import { SOUNDS, retune } from '../../shared/synth.mjs';
@@ -94,66 +93,119 @@ function sustain(p, len) {
   return { ...p, layers: p.layers.map((l) => ({ ...l, a: Math.min(l.a, 0.005), d: 0.01, s: 1, hold: Math.min(3, len), r: 0.03, delay: 0, ...(l.kind === 'sampler' ? { whole: false, loop: true } : {}) })) };
 }
 
-// ---------- The radio block (top of Sound settings) ----------
-// imgUrl: the redio sticker's picture. The knob sits where the picture's volume knob is.
-// Knob: 0 = original, ½ = my sound (a click-stop), 1 = seek on past my sound (knobToMorph).
+// ---------- Master / blend block (top of Sound settings) ----------
+// Used to be a radio picture with a SEEK knob. Jens (Nov 2026): treat it as a normal synth row –
+// plain sliders, every control visible, no hidden metaphor. Saved shape is still { on, knob, bpm,
+// bird, wind, voices } (cleanRadio) so old presets load unchanged.
 export const detent = (k) => { k = Math.min(1, Math.max(0, k)); return Math.abs(k - 0.5) < 0.03 ? 0.5 : k; };
 export function knobText(st) {
   const k = st.knob;
-  if (!st.on) return 'Radio off – the original sound';
+  if (!st.on) return 'Master off – original sound only';
   if (k <= 0) return 'Original sound';
   if (Math.abs(k - 0.5) < 1e-6) return 'My sound (this room)';
   if (k < 0.5) return `${Math.round(k * 200)} % toward my sound`;
-  return `Seek: ${Math.round((k - 0.5) * 200)} % past my sound`;
+  return `${Math.round((k - 0.5) * 200)} % past my sound (stronger)`;
 }
-const KNOB_AT = { x: 0.352, y: 0.738, size: 0.095 }; // (fractions of the picture: the lower-left knob)
 export function radioBlock({ radio, imgUrl, el }) {
+  void imgUrl; // kept in the signature for callers; the picture is gone
   const st = radio.state;
-  const box = el('section', 'radio-box'); box.id = 'radio-box';
-  const pic = el('div', 'radio-pic'); pic.style.backgroundImage = imgUrl ? `url("${imgUrl}")` : '';
-  if (!st.on) pic.classList.add('off');
-  const knob = el('div', 'radio-knob'); knob.id = 'radio-knob'; knob.tabIndex = 0; knob.setAttribute('role', 'slider');
-  knob.setAttribute('aria-label', 'Morph and seek: original, my sound, then further'); knob.setAttribute('aria-valuemin', '0'); knob.setAttribute('aria-valuemax', '100');
-  Object.assign(knob.style, { left: `${KNOB_AT.x * 100}%`, top: `${KNOB_AT.y * 100}%`, width: `${KNOB_AT.size * 100}%` });
-  const face = el('div', 'radio-knob-face'); face.appendChild(el('div', 'radio-knob-mark')); knob.appendChild(face);
-  const read = el('div', 'radio-read'); read.id = 'radio-read';
+  const box = el('fieldset', 'snd-layer radio-box'); box.id = 'radio-box';
+  const leg = el('legend', null, 'Master'); box.appendChild(leg);
+  box.appendChild(el('p', 'hint', 'Blend, tempo and background for this room. Same settings as before – just laid out like the rest of the synth.'));
+
+  // ----- On / off -----
+  const powerRow = el('div', 'snd-sel');
+  const power = el('button', 'radio-power', st.on ? '⏻ Master ON' : '⏻ Master OFF');
+  power.type = 'button'; power.id = 'radio-power'; power.setAttribute('aria-pressed', String(st.on));
+  power.onclick = () => {
+    radio.set({ on: !radio.state.on });
+    power.textContent = radio.state.on ? '⏻ Master ON' : '⏻ Master OFF';
+    power.setAttribute('aria-pressed', String(radio.state.on));
+    show();
+  };
+  powerRow.appendChild(power); box.appendChild(powerRow);
+
+  // ----- Blend (was the radio knob / SEEK) -----
+  const blendWrap = el('div', 'snd-group');
+  blendWrap.appendChild(el('small', null, 'Blend'));
+  const ends = el('div', 'radio-ends');
+  ends.append(el('span', null, 'Original'), el('span', null, 'Mine'), el('span', null, 'Further'));
+  blendWrap.appendChild(ends);
+  const blendRow = el('div', 'snd-sl'); blendRow.dataset.param = 'blend';
+  blendRow.appendChild(el('span', null, 'Blend'));
+  const knob = el('input'); knob.type = 'range'; knob.min = 0; knob.max = 100; knob.step = 1;
+  knob.id = 'radio-knob'; knob.setAttribute('role', 'slider');
+  knob.setAttribute('aria-label', 'Blend: original, my sound, then further');
+  knob.setAttribute('aria-valuemin', '0'); knob.setAttribute('aria-valuemax', '100');
+  knob.value = String(Math.round(st.knob * 100));
+  const read = el('output'); read.id = 'radio-read';
   const show = () => {
-    const k = radio.state.knob, deg = -135 + 270 * k;
-    face.style.transform = `rotate(${deg}deg)`; knob.setAttribute('aria-valuenow', String(Math.round(k * 100)));
+    const k = radio.state.knob;
+    knob.value = String(Math.round(k * 100));
+    knob.setAttribute('aria-valuenow', String(Math.round(k * 100)));
     read.textContent = knobText(radio.state);
   };
-  let drag = null;
-  knob.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); knob.setPointerCapture(e.pointerId); drag = { y: e.clientY, x: e.clientX, k: radio.state.knob }; });
-  knob.addEventListener('pointermove', (e) => { if (!drag) return; const d = (e.clientX - drag.x - (e.clientY - drag.y)) / 220; radio.set({ knob: detent(drag.k + d) }, { save: false }); show(); });
-  const end = () => { if (drag) { drag = null; radio.set({}, { save: true }); } };
-  knob.addEventListener('pointerup', end); knob.addEventListener('pointercancel', end);
-  knob.addEventListener('keydown', (e) => { const d = { ArrowRight: 0.05, ArrowUp: 0.05, ArrowLeft: -0.05, ArrowDown: -0.05 }[e.key]; if (d == null) return; e.preventDefault(); e.stopPropagation(); radio.set({ knob: Math.min(1, Math.max(0, radio.state.knob + d)) }); show(); });
-  knob.addEventListener('wheel', (e) => { e.preventDefault(); radio.set({ knob: Math.min(1, Math.max(0, radio.state.knob - Math.sign(e.deltaY) * 0.05)) }); show(); }, { passive: false });
-  pic.appendChild(knob);
-  const ends = el('div', 'radio-ends'); ends.append(el('span', null, '◀ Original'), el('span', null, 'Mine'), el('span', null, 'Next ▶'));
-  const power = el('button', 'radio-power', st.on ? '⏻ Radio ON' : '⏻ Radio OFF'); power.type = 'button'; power.id = 'radio-power';
-  power.setAttribute('aria-pressed', String(st.on));
-  power.onclick = () => { radio.set({ on: !radio.state.on }); power.textContent = radio.state.on ? '⏻ Radio ON' : '⏻ Radio OFF'; power.setAttribute('aria-pressed', String(radio.state.on)); pic.classList.toggle('off', !radio.state.on); show(); };
-  box.append(pic, ends, read, power);
-  // the master tempo: 90 BPM default, log taper up to audio rate – "11" at the top
-  const tp = el('div', 'radio-tempo'); tp.id = 'radio-tempo';
-  const tl = el('span', null, 'Tempo'); const tr = el('input'); tr.type = 'range'; tr.min = 0; tr.max = 1000; tr.step = 1; tr.id = 'radio-bpm';
+  knob.oninput = () => { radio.set({ knob: detent(Number(knob.value) / 100) }, { save: false }); show(); };
+  knob.onchange = () => radio.set({});
+  // Keep keyboard nudging (tests + accessibility)
+  knob.addEventListener('keydown', (e) => {
+    const d = { ArrowRight: 0.05, ArrowUp: 0.05, ArrowLeft: -0.05, ArrowDown: -0.05 }[e.key];
+    if (d == null) return;
+    e.preventDefault(); e.stopPropagation();
+    radio.set({ knob: Math.min(1, Math.max(0, radio.state.knob + d)) }); show();
+  });
+  blendRow.append(knob, read); blendWrap.appendChild(blendRow); box.appendChild(blendWrap);
+
+  // ----- Tempo -----
+  const tp = el('div', 'snd-group'); tp.id = 'radio-tempo';
+  tp.appendChild(el('small', null, 'Tempo'));
+  const trow = el('div', 'snd-sl');
+  trow.appendChild(el('span', null, 'Tempo'));
+  const tr = el('input'); tr.type = 'range'; tr.min = 0; tr.max = 1000; tr.step = 1; tr.id = 'radio-bpm';
   tr.value = Math.round(bpmToKnob(st.bpm) * 1000); tr.setAttribute('aria-label', 'Tempo');
-  const to = el('output'); const eleven = el('span', 'radio-eleven', '11');
-  const tshow = () => { const b = radio.state.bpm, hz = b / 60; to.textContent = hz >= RADIO.gridFromHz ? `${Math.round(b).toLocaleString('en')} BPM · ${hz.toFixed(hz < 100 ? 1 : 0)} Hz tone` : `${b.toFixed(b < 200 ? 1 : 0)} BPM`; };
+  const to = el('output');
+  const tshow = () => {
+    const b = radio.state.bpm, hz = b / 60;
+    to.textContent = hz >= RADIO.gridFromHz
+      ? `${Math.round(b).toLocaleString('en')} BPM · ${hz.toFixed(hz < 100 ? 1 : 0)} Hz tone`
+      : `${b.toFixed(b < 200 ? 1 : 0)} BPM`;
+  };
   tr.oninput = () => { radio.set({ bpm: knobToBpm(Number(tr.value) / 1000) }, { save: false }); tshow(); };
   tr.onchange = () => radio.set({});
-  const t90 = el('button', 'radio-90', '90'); t90.type = 'button'; t90.title = 'Back to 90 BPM'; t90.onclick = () => { radio.set({ bpm: 90 }); tr.value = Math.round(bpmToKnob(90) * 1000); tshow(); };
-  tp.append(tl, tr, eleven, to, t90); tshow(); box.appendChild(tp);
+  trow.append(tr, to); tp.appendChild(trow);
+  const tbtns = el('div', 'snd-sel');
+  const t90 = el('button', 'radio-90', '90 BPM'); t90.type = 'button'; t90.title = 'Back to 90 BPM';
+  t90.onclick = () => { radio.set({ bpm: 90 }); tr.value = Math.round(bpmToKnob(90) * 1000); tshow(); };
+  const eleven = el('span', 'radio-eleven', '↑ 11'); eleven.title = 'Top of the tempo range';
+  tbtns.append(t90, eleven); tp.appendChild(tbtns); tshow(); box.appendChild(tp);
+
+  // ----- Background / voices (every control visible) -----
+  const ambWrap = el('div', 'snd-group');
+  ambWrap.appendChild(el('small', null, 'Background'));
   for (const [key, label] of [['bird', '🐦 Bird'], ['wind', '🌬 Wind'], ['voices', '🎶 Four voices']]) {
-    const row = el('div', 'radio-amb'); row.dataset.amb = key;
-    const b = el('button', 'radio-toggle', `${label}: ${st[key].on ? 'on' : 'off'}`); b.type = 'button'; b.setAttribute('aria-pressed', String(st[key].on));
-    b.onclick = () => { const on = !radio.state[key].on; radio.set({ [key]: { on } }); b.textContent = `${label}: ${on ? 'on' : 'off'}`; b.setAttribute('aria-pressed', String(on)); };
-    const r = el('input'); r.type = 'range'; r.min = 0; r.max = 100; r.value = Math.round(st[key].vol * 100); r.setAttribute('aria-label', `${label} volume`);
+    const row = el('div', 'radio-amb snd-sl'); row.dataset.amb = key;
+    const b = el('button', 'radio-toggle', `${label}: ${st[key].on ? 'on' : 'off'}`);
+    b.type = 'button'; b.setAttribute('aria-pressed', String(st[key].on));
+    b.onclick = () => {
+      const on = !radio.state[key].on;
+      radio.set({ [key]: { on } });
+      b.textContent = `${label}: ${on ? 'on' : 'off'}`;
+      b.setAttribute('aria-pressed', String(on));
+    };
+    const r = el('input'); r.type = 'range'; r.min = 0; r.max = 100; r.value = Math.round(st[key].vol * 100);
+    r.setAttribute('aria-label', `${label} amount`);
     r.oninput = () => radio.set({ [key]: { vol: Number(r.value) / 100 } }, { save: false });
     r.onchange = () => radio.set({});
-    row.append(b, r); box.appendChild(row);
+    const out = el('output', null, `${Math.round(st[key].vol * 100)} %`);
+    r.addEventListener('input', () => { out.textContent = `${r.value} %`; });
+    row.append(b, r, out); ambWrap.appendChild(row);
   }
+  // List the four voices so they are not hidden behind a single toggle.
+  const vList = el('p', 'hint radio-voices-list');
+  vList.textContent = 'Four voices: ' + FOUR_VOICES.map((v) => `${v.name} (${v.steps} steps)`).join(' · ');
+  ambWrap.appendChild(vList);
+  box.appendChild(ambWrap);
+
   show();
   return box;
 }

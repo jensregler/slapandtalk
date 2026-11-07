@@ -191,7 +191,7 @@ const FX_UNITS = [['reverb', 'Reverb'], ['delay', 'Delay'], ['filter', 'Filter']
 const TAB_NAMES = { slap: 'Slap', peel: 'Peel', nope: 'Nope', step: 'Steps', duff: 'Duff', fx: 'Effects' };
 
 // musicVol: { get, set, def } – the Music vol slider in the header (this device; main.js), so Reset can put it back too.
-// radioBlock: () => element (radio.js) shown at the top. onSave(clean) also stores this room's preset.
+// radioBlock: () => Master section (radio.js) shown at the top. onSave(clean) also stores this room's preset.
 export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, musicVol = null, radioBlock = null }) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const st = { open: false, tab: 'slap', patches: {}, fx: null, rolls: 0 };
@@ -437,7 +437,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       grid.appendChild(c);
     });
     box.appendChild(grid);
-    box.appendChild(el('p', 'hint', 'Runs on the master clock while the radio is on. Give layers different step counts (3, 4, 5, 7 …) for a polyrhythm.'));
+    box.appendChild(el('p', 'hint', 'Runs on the master clock while Master is on. Give layers different step counts (3, 4, 5, 7 …) for a polyrhythm.'));
     return box;
   }
   // ---------- The sampler layer ----------
@@ -595,7 +595,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     }
     const k = st.tab, p = st.patches[k];
     const changed = diffPatch(base(k), p).length;
-    body.appendChild(el('p', 'snd-diff', changed ? `${changed} setting${changed === 1 ? '' : 's'} changed from the original – the radio knob morphs between them (and past them: Next)` : 'The original sound (nothing changed yet)'));
+    body.appendChild(el('p', 'snd-diff', changed ? `${changed} setting${changed === 1 ? '' : 's'} changed from the original – the Blend slider morphs between them (and past them: Further)` : 'The original sound (nothing changed yet)'));
     body.appendChild(slider('level', SYNTH.gain, p.gain, (v) => { p.gain = v; edited(k); }, { patch: p, to: 'G.gain', sound: k }));
     body.lastChild.querySelector('span').textContent = 'Volume';
     if (k === 'step') body.appendChild(runBlock());
