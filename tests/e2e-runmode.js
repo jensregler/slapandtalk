@@ -57,10 +57,18 @@ const KEY = 'run-e2e-full-key';
     // ---------- Run mode settings (Steps tab) ----------
     await A.evaluate(() => { window.klibb.soundUi().open(); });
     await A.evaluate(() => document.querySelector('#snd-tabs [data-tab="step"]').click());
-    const ui = await A.evaluate(() => ({ box: !!document.getElementById('snd-run'), t: document.getElementById('run-tempo-val')?.textContent, p: document.getElementById('run-pitch-val')?.textContent, lock: document.getElementById('run-lock')?.checked,
-      tmin: document.getElementById('run-tempo')?.min, tmax: document.getElementById('run-tempo')?.max, tstep: document.getElementById('run-tempo')?.step }));
-    check('Steps tab has the Run mode section with defaults (+100% · 2:1, +75% fifth up, lock on)', ui.box && ui.t === '+100% · 2:1' && ui.p === '+75% · +7 st (fifth up)' && ui.lock && ui.tmin === '-200' && ui.tmax === '200' && ui.tstep === '12.5', ui);
-    await A.evaluate(() => { const s = document.getElementById('run-tempo'); s.value = '50'; s.dispatchEvent(new Event('input', { bubbles: true })); const p = document.getElementById('run-pitch'); p.value = '-5'; p.dispatchEvent(new Event('input', { bubbles: true })); });
+    const ui = await A.evaluate(() => ({ box: !!document.getElementById('snd-run'),
+      walk: document.getElementById('walk-tempo-val')?.textContent,
+      t: document.getElementById('run-tempo-val')?.textContent, p: document.getElementById('run-pitch-val')?.textContent,
+      lock: document.getElementById('run-lock'),
+      tmin: document.getElementById('run-tempo')?.min, tmax: document.getElementById('run-tempo')?.max, tstep: document.getElementById('run-tempo')?.step,
+      bpm: window.klibb.radio().state.bpm }));
+    check('Steps tab: Walk tempo (~90 BPM), Run tempo (+100% · 2:1), Pitch correction (+75% fifth); no lock UI',
+      ui.box && /90/.test(ui.walk || '') && ui.t === '+100% · 2:1' && ui.p === '+75% · +7 st (fifth up)' && !ui.lock && ui.tmin === '-200' && ui.tmax === '200' && ui.tstep === '12.5' && ui.bpm === 90, ui);
+    await A.evaluate(() => { const w = document.getElementById('walk-tempo'); w.value = '500'; w.dispatchEvent(new Event('input', { bubbles: true })); });
+    const walkBpm = await A.evaluate(() => window.klibb.radio().state.bpm);
+    check('Walk tempo slider moves the room clock (radio.bpm)', walkBpm > 90 && walkBpm < 5000, walkBpm);
+    await A.evaluate(() => { window.klibb.radio().set({ bpm: 90 }); const s = document.getElementById('run-tempo'); s.value = '50'; s.dispatchEvent(new Event('input', { bubbles: true })); const p = document.getElementById('run-pitch'); p.value = '-5'; p.dispatchEvent(new Event('input', { bubbles: true })); });
     const ui2 = await A.evaluate(() => ({ t: document.getElementById('run-tempo-val').textContent, p: document.getElementById('run-pitch-val').textContent }));
     check('the sliders show the mapping (+50% · 3:2, −200% octave down)', ui2.t === '+50% · 3:2' && ui2.p === '-200% · -12 st (octave down)', ui2);
     await A.evaluate(() => document.getElementById('snd-save').click());

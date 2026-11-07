@@ -40,8 +40,12 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     check('auto-slap removed: no editor, no chip, no trigger (old settings dropped)', !gone.box && !gone.chip && gone.api === null && gone.old === null, gone);
     // ---------- open Sound settings: Master block on top ----------
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(400);
-    const r0 = await A.evaluate(() => ({ radio: !!document.querySelector('#snd-radio #radio-box'), knob: !!document.getElementById('radio-knob'), read: document.getElementById('radio-read').textContent, bpm: window.klibb.radio().state.bpm, tempo: window.klibb.radio().tempo() }));
-    check('Sound settings opens with Master on top (blend, power, tempo 90 BPM)', r0.radio && r0.knob && r0.bpm === 90, r0);
+    const r0 = await A.evaluate(() => ({ radio: !!document.querySelector('#snd-radio #radio-box'), vol: !!document.getElementById('master-vol'), city: !!document.getElementById('city-sound'),
+      knobEl: !!document.getElementById('radio-knob'), bpmEl: !!document.getElementById('radio-bpm'),
+      bpm: window.klibb.radio().state.bpm, cityV: window.klibb.radio().state.city, knob: window.klibb.radio().state.knob, on: window.klibb.radio().state.on,
+      tempo: window.klibb.radio().tempo(), headerVol: document.getElementById('music-vol-row')?.hidden }));
+    check('Sound settings Master: volume + city sound only (no blend/tempo/power UI); bpm 90, city 0, on+knob forced my-sound',
+      r0.radio && r0.vol && r0.city && !r0.knobEl && !r0.bpmEl && r0.bpm === 90 && r0.cityV === 0 && r0.knob === 0.5 && r0.on === true && r0.headerVol === true, r0);
     check(`…this room's clock is slightly off 90 (deterministic): ${r0.tempo.bpm} BPM, phase ${r0.tempo.phaseMs} ms`, Math.abs(r0.tempo.bpm - 90) <= 0.3 && r0.tempo.phaseMs >= 0 && r0.tempo.phaseMs <= 12, r0.tempo);
     // ---------- sampler layer ----------
     await A.click('#snd-add-sampler'); await sleep(200);
@@ -186,32 +190,31 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     const loops = await A.evaluate(() => { const r = window.klibb.radio(); return r.voiceLog.slice(-40); });
     const keys = new Set(loops.map((e) => e.key));
     check('Master on: the step sequencer layer and the four voices run on the master clock', keys.has('step' + 2) && ['v0', 'v1', 'v2', 'v3'].every((k) => keys.has(k)), [...keys]);
-    // ---------- blend = morph ----------
+    // ---------- Master: volume + city sound; blend/knob forced; walk tempo on Steps ----------
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
-    const kb0 = await A.evaluate(() => window.klibb.radio().state.knob);
-    await A.focus('#radio-knob'); for (let i = 0; i < 5; i++) await A.keyboard.press('ArrowLeft'); await sleep(200);
-    const kstate = () => A.evaluate(() => ({ knob: window.klibb.radio().state.knob, s: window.klibb.soundObj().radio, read: document.getElementById('radio-read').textContent, p: window.klibb.soundObj().patchFor('slap', window.klibb.soundObj().mine), vol: window.klibb.soundObj().volume }));
-    const kb = await kstate();
-    check('blend = morph (not volume): starts on "Mine" (½); nudge back → half way from the original toward my preset', kb0 === 0.5 && Math.abs(kb.knob - 0.25) < 1e-6 && /50 % toward my sound/.test(kb.read) && Math.abs(kb.p.morph - 0.5) < 1e-6, { kb0, knob: kb.knob, read: kb.read, morph: kb.p.morph });
-    for (let i = 0; i < 16; i++) await A.keyboard.press('ArrowRight'); await sleep(200);
-    const ks = await kstate();
-    check('…turned all the way up (Further): every changed setting goes on past my preset (×2, clamped, pitch on the grid); the volume is untouched', ks.knob === 1 && /100 % past my sound/.test(ks.read) && ks.p.morph === 2 && ks.vol === kb.vol, { knob: ks.knob, read: ks.read, morph: ks.p.morph });
-    await A.evaluate(() => window.klibb.radio().set({ knob: 0.75 })); await sleep(150);
-    await A.evaluate(() => document.getElementById('radio-box').scrollIntoView());
-    await (await A.$('#radio-box')).screenshot({ path: path.join(SHOTS, '05-master-blend.png') });
-    await A.evaluate(() => window.klibb.radio().set({ knob: 0.5 }));
-    // ---------- tempo to "11" ----------
-    await A.$eval('#radio-bpm', (r) => { r.value = '1000'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
-    await sleep(1500);
-    const fast = await A.evaluate(() => ({ bpm: window.klibb.radio().state.bpm, out: document.querySelector('#radio-tempo output').textContent, tone: window.klibb.radio().voiceLog.filter((e) => e.tone).length }));
-    check('tempo knob to "11": 120 000 BPM (2 kHz, snapped to the semitone grid), loops become tones (worklet gate)', fast.bpm > 100000 && /Hz tone/.test(fast.out) && fast.tone > 0, fast);
-    await (await A.$('#radio-box')).screenshot({ path: path.join(SHOTS, '06-master-tempo-eleven.png') });
-    await A.evaluate(() => { window.klibb.radio().set({ bpm: 90, voices: { on: false } }); });
-    // ---------- bird + wind ----------
+    const forced = await A.evaluate(() => { window.klibb.radio().set({ knob: 0, on: false }); return window.klibb.radio().state; });
+    check('blend/power dormant: cleanRadio forces on + knob 0.5 (my sound)', forced.on === true && forced.knob === 0.5, forced);
+    await A.$eval('#master-vol', (r) => { r.value = '40'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+    const vol = await A.evaluate(() => ({ v: window.klibb.soundObj().volume, ui: document.getElementById('master-vol').value, hidden: document.getElementById('music-vol').value }));
+    check('Master volume is the ears gain (Music vol merged)', Math.abs(vol.v - 0.4) < 1e-6 && vol.ui === '40' && vol.hidden === '40', vol);
+    await A.$eval('#city-sound', (r) => { r.value = '55'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+    const city = await A.evaluate(() => ({ c: window.klibb.radio().state.city, out: document.getElementById('city-sound-val').textContent, placeCity: window.klibb.soundObj().engine?.place?.city }));
+    check('City sound 0–100 sets radio.city (dry/wet of city FX)', Math.abs(city.c - 0.55) < 1e-6 && /55 %/.test(city.out), city);
+    await (await A.$('#radio-box')).screenshot({ path: path.join(SHOTS, '05-master-volume-city.png') });
+    // Walk tempo lives on Steps (was Master tempo)
+    await A.click('#snd-tabs [data-tab="step"]'); await sleep(200);
+    const walkUi = await A.evaluate(() => ({ walk: !!document.getElementById('walk-tempo'), run: !!document.getElementById('run-tempo'), pitch: !!document.getElementById('run-pitch'), lock: !!document.getElementById('run-lock') }));
+    check('Steps tab: Walk tempo, Run tempo, Pitch correction (no lock UI)', walkUi.walk && walkUi.run && walkUi.pitch && !walkUi.lock, walkUi);
+    await A.$eval('#walk-tempo', (r) => { r.value = '1000'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+    await sleep(400);
+    const fast = await A.evaluate(() => ({ bpm: window.klibb.radio().state.bpm, out: document.getElementById('walk-tempo-val').textContent }));
+    check('Walk tempo to top: ~120 000 BPM (semitone grid)', fast.bpm > 100000 && /BPM/.test(fast.out), fast);
+    await A.evaluate(() => { window.klibb.radio().set({ bpm: 90, voices: { on: false }, city: 0 }); window.klibb.soundObj().setVolume(1); });
+    // bird + wind still work via API (UI dormant)
     await A.evaluate(() => { window.klibb.radio().set({ bird: { on: true }, wind: { on: true } }); });
     await sleep(500);
     const amb = await A.evaluate(() => { const a = window.klibb.radio().amb; const ph = a.phrase('e2e'); return { bird: a.bird.on, phrases: a.bird.phrases, kind: ph && ph.kind, falling: ph && ph.notes.every((n) => n.f1 < n.f0), wind: a.wind.on, gusts: a.wind.gusts }; });
-    check('bird (synthesized, falling Norrland phrases) and wind (filtered noise, gusts) on', amb.bird && amb.phrases >= 1 && amb.falling && amb.wind && amb.gusts >= 1, amb);
+    check('bird/wind engine paths still work (API; Master UI dormant)', amb.bird && amb.phrases >= 1 && amb.falling && amb.wind && amb.gusts >= 1, amb);
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
     await A.screenshot({ path: path.join(SHOTS, '07-sound-panel-master-full.png') });
     // ---------- reload: the room preset comes back from the server ----------

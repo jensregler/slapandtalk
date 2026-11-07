@@ -40,7 +40,7 @@ const CUSTOM = {
     const bSees0 = await B.evaluate(() => window.klibb.players()[0].look.sound);
     check('before: A has custom sounds + effects (personal: B gets only A\'s seed, never the settings – Jens, 2 Nov 2026)', !!before.patches && Object.keys(before.patches).length === 4 && before.fx && before.fx.crush.bits === 3 && bSees0 && !bSees0.patches && !bSees0.fx, { before: before && Object.keys(before), bSees0 });
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
-    check('…Music vol slider at 35', await A.inputValue('#music-vol') === '35');
+    check('…Master volume at 35 (Music vol merged into Master; header input synced/hidden)', await A.inputValue('#music-vol') === '35' && await A.evaluate(() => document.getElementById('music-vol-row')?.hidden === true));
     const fxBefore = await A.evaluate(() => { const st = window.klibb.soundUi().state(); return JSON.stringify(st.fx); });
     const tabLabels = await A.$$eval('#snd-tabs button', (b) => b.map((x) => x.textContent));
     check('sound settings tabs: Slap, Peel, Steps only (no Nope, Duff, Effects)', tabLabels.join() === 'Slap,Peel,Steps', tabLabels);
@@ -55,14 +55,14 @@ const CUSTOM = {
     check('Reset: every sound (Slap, Peel, Steps, Duff) back to my default, no own effects, nothing custom', Object.values(r.tabs).every(Boolean) && r.custom.length === 0, r);
     check('…Effects data back to default (tab hidden; city drives fx – state still resets)', r.fx && r.fxJson !== fxBefore, { before: fxBefore, after: r.fxJson, fx: r.fx });
     check('…visible tabs still only Slap/Peel/Steps', r.visible.join() === 'slap,peel,step', r.visible);
-    check('…Music vol slider back to 100 and the sound follows (master volume 1)', r.mv === '100' && await A.evaluate(() => sessionStorage.getItem('klibb.musicVol')) === '1', r.mv);
+    check('…Master volume back to 100 and the sound follows (master volume 1)', r.mv === '100' && await A.evaluate(() => sessionStorage.getItem('klibb.musicVol')) === '1', r.mv);
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(150);
     const stepUi = await A.evaluate(() => { const v = document.querySelector('#snd-body .snd-sl[data-param="level"] output').textContent; const seed = localStorage.getItem('klibb.soundSeed'); const sh = window.klibb.synthShared(); return { v, want: Math.round(sh.variant(sh.DEFAULT_PATCHES.step, seed, 'step').gain * 100) + '%' }; });
     check('…the Steps tab shows its default (Volume slider)', stepUi.v === stepUi.want, stepUi);
     await A.screenshot({ path: path.join(SHOTS, '40-sound-reset.png') });
     // Cancel after Reset: nothing saved, Music vol back to 35
     await A.click('#snd-cancel'); await sleep(200);
-    check('Cancel after Reset: nothing saved, Music vol back where it was', await A.evaluate((R) => !!sessionStorage.getItem('klibb.sound') && sessionStorage.getItem('klibb.musicVol') === '0.35' && document.getElementById('music-vol').value === '35', R));
+    check('Cancel after Reset: nothing saved, Master volume back where it was', await A.evaluate((R) => !!sessionStorage.getItem('klibb.sound') && sessionStorage.getItem('klibb.musicVol') === '0.35' && document.getElementById('music-vol').value === '35', R));
     // Reset + Save
     await A.evaluate(() => window.klibb.soundUi().open()); await A.click('#snd-reset'); await sleep(200); await A.click('#snd-save'); await sleep(1200);
     const saved = await A.evaluate((R) => ({ ls: sessionStorage.getItem('klibb.sound'), vol: sessionStorage.getItem('klibb.musicVol'), mine: window.klibb.soundMine() }), R);

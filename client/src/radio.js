@@ -1,7 +1,7 @@
-// Master / blend block (was "the radio"; Jens, 5 Nov 2026 + Nov 2026: no radio metaphor).
-// Sound settings opens with a plain Master section: on/off, Blend (original → mine → further),
-// Tempo, Bird / Wind / Four voices. Same saved shape (shared/radio.mjs cleanRadio). Mine only:
-// per room + per player on the server (private key in this browser), never broadcast.
+// Master block (was "the radio"; Jens Nov 2026 rebuild).
+// Sound settings Master shows only: master volume (ears) + City sound (0–100 dry↔wet of city FX).
+// Older controls (on/off, Blend, Tempo, Bird/Wind/Four voices) stay in cleanRadio / Radio engine
+// paths but have no UI; on+knob are forced to "my sound" by cleanRadio. Walk tempo lives on Steps.
 import { cleanRadio, cleanPreset, FOUR_VOICES, RADIO, bpmToKnob, knobToBpm } from '../../shared/radio.mjs';
 import { roomTempo, loopSteps, barMsAt, barsAtTime, MASTER } from '../../shared/clock.mjs';
 import { SOUNDS, retune } from '../../shared/synth.mjs';
@@ -37,6 +37,8 @@ export class Radio {
     const s = this.state;
     this.state = cleanRadio({ ...s, ...patch, bird: { ...s.bird, ...(patch.bird || {}) }, wind: { ...s.wind, ...(patch.wind || {}) }, voices: { ...s.voices, ...(patch.voices || {}) } });
     this.sound.setRadio(this.state); this.apply();
+    // City sound amount is read by placeTick (outdoors only). Stash for the next tick.
+    if (patch && 'city' in patch && this.sound.engine?.place) this.sound.engine.place.city = this.state.city;
     if (save) this.onChange(this.state);
     return this.state;
   }
@@ -93,12 +95,12 @@ function sustain(p, len) {
   return { ...p, layers: p.layers.map((l) => ({ ...l, a: Math.min(l.a, 0.005), d: 0.01, s: 1, hold: Math.min(3, len), r: 0.03, delay: 0, ...(l.kind === 'sampler' ? { whole: false, loop: true } : {}) })) };
 }
 
-// ---------- Master / blend block (top of Sound settings) ----------
-// Used to be a radio picture with a SEEK knob. Jens (Nov 2026): treat it as a normal synth row –
-// plain sliders, every control visible, no hidden metaphor. Saved shape is still { on, knob, bpm,
-// bird, wind, voices } (cleanRadio) so old presets load unchanged.
+// ---------- Master block (top of Sound settings) ----------
+// Volume = Music vol (final output gain). City sound = dry/wet of the city place bus
+// (reverb + delay sends; 0 = dry own sounds, 100 = wet only). Dormant fields stay in radio.state.
 export const detent = (k) => { k = Math.min(1, Math.max(0, k)); return Math.abs(k - 0.5) < 0.03 ? 0.5 : k; };
 export function knobText(st) {
+  // Kept for tests / old callers; Blend UI is gone.
   const k = st.knob;
   if (!st.on) return 'Master off – original sound only';
   if (k <= 0) return 'Original sound';
@@ -106,107 +108,54 @@ export function knobText(st) {
   if (k < 0.5) return `${Math.round(k * 200)} % toward my sound`;
   return `${Math.round((k - 0.5) * 200)} % past my sound (stronger)`;
 }
-export function radioBlock({ radio, imgUrl, el }) {
-  void imgUrl; // kept in the signature for callers; the picture is gone
+export function citySoundText(city) {
+  const p = Math.round(Math.min(1, Math.max(0, Number(city) || 0)) * 100);
+  if (p <= 0) return '0 % – dry (own sounds, no city FX)';
+  if (p >= 100) return '100 % – city FX only (wet)';
+  return `${p} % city FX`;
+}
+// musicVol: { get, set, def } – same object main.js uses for Music vol (merged into Master).
+export function radioBlock({ radio, imgUrl, el, musicVol = null }) {
+  void imgUrl;
   const st = radio.state;
   const box = el('fieldset', 'snd-layer radio-box'); box.id = 'radio-box';
-  const leg = el('legend', null, 'Master'); box.appendChild(leg);
-  box.appendChild(el('p', 'hint', 'Blend, tempo and background for this room. Same settings as before – just laid out like the rest of the synth.'));
+  box.appendChild(el('legend', null, 'Master'));
+  box.appendChild(el('p', 'hint', 'Volume in your ears, and how much of the city effects you hear.'));
 
-  // ----- On / off -----
-  const powerRow = el('div', 'snd-sel');
-  const power = el('button', 'radio-power', st.on ? '⏻ Master ON' : '⏻ Master OFF');
-  power.type = 'button'; power.id = 'radio-power'; power.setAttribute('aria-pressed', String(st.on));
-  power.onclick = () => {
-    radio.set({ on: !radio.state.on });
-    power.textContent = radio.state.on ? '⏻ Master ON' : '⏻ Master OFF';
-    power.setAttribute('aria-pressed', String(radio.state.on));
-    show();
+  // ----- Master volume (was Music vol in the header) -----
+  const volRow = el('div', 'snd-sl'); volRow.dataset.param = 'master-vol';
+  volRow.appendChild(el('span', null, 'Volume'));
+  const vol = el('input'); vol.type = 'range'; vol.min = 0; vol.max = 100; vol.step = 1; vol.id = 'master-vol';
+  vol.setAttribute('aria-label', 'Master volume');
+  const vol0 = musicVol ? musicVol.get() : 1;
+  vol.value = String(Math.round(vol0 * 100));
+  const volOut = el('output', null, `${Math.round(vol0 * 100)} %`); volOut.id = 'master-vol-val';
+  const syncVol = (v) => {
+    const x = Math.min(1, Math.max(0, v));
+    vol.value = String(Math.round(x * 100));
+    volOut.textContent = `${Math.round(x * 100)} %`;
+    if (musicVol) musicVol.set(x);
   };
-  powerRow.appendChild(power); box.appendChild(powerRow);
+  vol.oninput = () => syncVol(Number(vol.value) / 100);
+  volRow.append(vol, volOut); box.appendChild(volRow);
 
-  // ----- Blend (was the radio knob / SEEK) -----
-  const blendWrap = el('div', 'snd-group');
-  blendWrap.appendChild(el('small', null, 'Blend'));
-  const ends = el('div', 'radio-ends');
-  ends.append(el('span', null, 'Original'), el('span', null, 'Mine'), el('span', null, 'Further'));
-  blendWrap.appendChild(ends);
-  const blendRow = el('div', 'snd-sl'); blendRow.dataset.param = 'blend';
-  blendRow.appendChild(el('span', null, 'Blend'));
-  const knob = el('input'); knob.type = 'range'; knob.min = 0; knob.max = 100; knob.step = 1;
-  knob.id = 'radio-knob'; knob.setAttribute('role', 'slider');
-  knob.setAttribute('aria-label', 'Blend: original, my sound, then further');
-  knob.setAttribute('aria-valuemin', '0'); knob.setAttribute('aria-valuemax', '100');
-  knob.value = String(Math.round(st.knob * 100));
-  const read = el('output'); read.id = 'radio-read';
-  const show = () => {
-    const k = radio.state.knob;
-    knob.value = String(Math.round(k * 100));
-    knob.setAttribute('aria-valuenow', String(Math.round(k * 100)));
-    read.textContent = knobText(radio.state);
-  };
-  knob.oninput = () => { radio.set({ knob: detent(Number(knob.value) / 100) }, { save: false }); show(); };
-  knob.onchange = () => radio.set({});
-  // Keep keyboard nudging (tests + accessibility)
-  knob.addEventListener('keydown', (e) => {
-    const d = { ArrowRight: 0.05, ArrowUp: 0.05, ArrowLeft: -0.05, ArrowDown: -0.05 }[e.key];
-    if (d == null) return;
-    e.preventDefault(); e.stopPropagation();
-    radio.set({ knob: Math.min(1, Math.max(0, radio.state.knob + d)) }); show();
-  });
-  blendRow.append(knob, read); blendWrap.appendChild(blendRow); box.appendChild(blendWrap);
+  // ----- City sound (dry ↔ wet of city place FX) -----
+  const cityWrap = el('div', 'snd-group');
+  cityWrap.appendChild(el('small', null, 'City sound'));
+  const cityRow = el('div', 'snd-sl'); cityRow.dataset.param = 'city-sound';
+  cityRow.appendChild(el('span', null, 'City sound'));
+  const city = el('input'); city.type = 'range'; city.min = 0; city.max = 100; city.step = 1; city.id = 'city-sound';
+  city.setAttribute('aria-label', 'City sound: dry to wet city effects');
+  city.value = String(Math.round((st.city || 0) * 100));
+  const cityOut = el('output'); cityOut.id = 'city-sound-val';
+  const showCity = () => { cityOut.textContent = citySoundText(radio.state.city); city.value = String(Math.round((radio.state.city || 0) * 100)); };
+  city.oninput = () => { radio.set({ city: Number(city.value) / 100 }, { save: false }); showCity(); };
+  city.onchange = () => radio.set({});
+  cityRow.append(city, cityOut); cityWrap.appendChild(cityRow);
+  cityWrap.appendChild(el('p', 'hint', '0 = your sounds dry. 100 = only through the city reverb and delay.'));
+  box.appendChild(cityWrap);
 
-  // ----- Tempo -----
-  const tp = el('div', 'snd-group'); tp.id = 'radio-tempo';
-  tp.appendChild(el('small', null, 'Tempo'));
-  const trow = el('div', 'snd-sl');
-  trow.appendChild(el('span', null, 'Tempo'));
-  const tr = el('input'); tr.type = 'range'; tr.min = 0; tr.max = 1000; tr.step = 1; tr.id = 'radio-bpm';
-  tr.value = Math.round(bpmToKnob(st.bpm) * 1000); tr.setAttribute('aria-label', 'Tempo');
-  const to = el('output');
-  const tshow = () => {
-    const b = radio.state.bpm, hz = b / 60;
-    to.textContent = hz >= RADIO.gridFromHz
-      ? `${Math.round(b).toLocaleString('en')} BPM · ${hz.toFixed(hz < 100 ? 1 : 0)} Hz tone`
-      : `${b.toFixed(b < 200 ? 1 : 0)} BPM`;
-  };
-  tr.oninput = () => { radio.set({ bpm: knobToBpm(Number(tr.value) / 1000) }, { save: false }); tshow(); };
-  tr.onchange = () => radio.set({});
-  trow.append(tr, to); tp.appendChild(trow);
-  const tbtns = el('div', 'snd-sel');
-  const t90 = el('button', 'radio-90', '90 BPM'); t90.type = 'button'; t90.title = 'Back to 90 BPM';
-  t90.onclick = () => { radio.set({ bpm: 90 }); tr.value = Math.round(bpmToKnob(90) * 1000); tshow(); };
-  const eleven = el('span', 'radio-eleven', '↑ 11'); eleven.title = 'Top of the tempo range';
-  tbtns.append(t90, eleven); tp.appendChild(tbtns); tshow(); box.appendChild(tp);
-
-  // ----- Background / voices (every control visible) -----
-  const ambWrap = el('div', 'snd-group');
-  ambWrap.appendChild(el('small', null, 'Background'));
-  for (const [key, label] of [['bird', '🐦 Bird'], ['wind', '🌬 Wind'], ['voices', '🎶 Four voices']]) {
-    const row = el('div', 'radio-amb snd-sl'); row.dataset.amb = key;
-    const b = el('button', 'radio-toggle', `${label}: ${st[key].on ? 'on' : 'off'}`);
-    b.type = 'button'; b.setAttribute('aria-pressed', String(st[key].on));
-    b.onclick = () => {
-      const on = !radio.state[key].on;
-      radio.set({ [key]: { on } });
-      b.textContent = `${label}: ${on ? 'on' : 'off'}`;
-      b.setAttribute('aria-pressed', String(on));
-    };
-    const r = el('input'); r.type = 'range'; r.min = 0; r.max = 100; r.value = Math.round(st[key].vol * 100);
-    r.setAttribute('aria-label', `${label} amount`);
-    r.oninput = () => radio.set({ [key]: { vol: Number(r.value) / 100 } }, { save: false });
-    r.onchange = () => radio.set({});
-    const out = el('output', null, `${Math.round(st[key].vol * 100)} %`);
-    r.addEventListener('input', () => { out.textContent = `${r.value} %`; });
-    row.append(b, r, out); ambWrap.appendChild(row);
-  }
-  // List the four voices so they are not hidden behind a single toggle.
-  const vList = el('p', 'hint radio-voices-list');
-  vList.textContent = 'Four voices: ' + FOUR_VOICES.map((v) => `${v.name} (${v.steps} steps)`).join(' · ');
-  ambWrap.appendChild(vList);
-  box.appendChild(ambWrap);
-
-  show();
+  showCity();
   return box;
 }
 export { cleanPreset };

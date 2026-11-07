@@ -79,26 +79,38 @@ export class SynthEngine {
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.5; lp.frequency.value = Math.min(20000, ctx.sampleRate / 2 - 100);
     const node = this.workletOk ? makePlace(T.getContext()) : null;
     const mix = ctx.createGain();
+    // dryGain: City sound crossfade (Jens Nov 2026) – 1 = dry own sounds, 0 = wet-only through city FX
+    const dryGain = ctx.createGain(); dryGain.gain.value = 1;
     const intoEars = (n) => { try { T.connect(n, ears); } catch { try { n.connect(ears.input || ears); } catch { /* ok */ } } };
     const tap = (max) => { const d = ctx.createDelay(max), fb = ctx.createGain(), send = ctx.createGain(); fb.gain.value = 0; send.gain.value = 0; mix.connect(send); send.connect(d); d.connect(fb); fb.connect(d); intoEars(d); return { d, fb, send }; };
     const verb = (decay, pre) => { const v = new T.Reverb({ decay, preDelay: pre, wet: 1 }), send = ctx.createGain(); send.gain.value = 0; mix.connect(send); T.connect(send, v); intoEars(v); return { v, send }; };
     try { this.out.disconnect(); } catch { /* ok */ } // was out → ears
     T.connect(this.out, lp);
     if (node) { lp.connect(node); node.connect(mix); } else lp.connect(mix);
-    intoEars(mix);
-    this.place = { lp, node, mix, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), last: null, sets: 0 };
+    mix.connect(dryGain); intoEars(dryGain);
+    this.place = { lp, node, mix, dryGain, city: 0, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), last: null, sets: 0 };
     return this.place;
   }
   // v: the values from cityFxAt (or PLACE_NEUTRAL). Neutral before the bus exists = nothing to do.
-  setPlace(v, { slew = 0.25, neutral = false } = {}) {
+  setPlace(v, { slew = 0.25, neutral = false, city = undefined } = {}) {
     if (!v) return false;
     if (!this.place && (neutral || this.workletOk === undefined)) return false; // neutral and no bus yet: stay untouched; worklet still loading: next tick
     const P = this.placeBus(), t = this.raw.currentTime, to = (param, x) => { if (Number.isFinite(x)) param.setTargetAtTime(x, t, slew); };
+    // city 0..1: dry↔wet of reverb/delay (and other place sends). 0 = dry only, 1 = wet only.
+    if (city !== undefined && Number.isFinite(city)) P.city = Math.min(1, Math.max(0, city));
+    const c = P.city || 0;
+    to(P.dryGain.gain, 1 - c);
     to(P.lp.frequency, Math.min(v.cutoff, this.raw.sampleRate / 2 - 100));
-    to(P.a.d.delayTime, v.delayTime); to(P.a.fb.gain, v.delayFb); to(P.a.send.gain, v.delayWet);
-    to(P.b.d.delayTime, v.delay2Time); to(P.b.fb.gain, v.delay2Fb); to(P.b.send.gain, v.delay2Wet);
-    to(P.small.send.gain, v.verbWet * (1 - v.verbSize)); to(P.big.send.gain, v.verbWet * v.verbSize);
-    if (P.node) for (const k of ['modMix', 'modBase', 'modDepth', 'modRate', 'modFb', 'decim', 'bits', 'decimMix', 'stutter', 'stutterLen', 'chop', 'freqHz', 'freqMix']) { const prm = P.node.parameters.get(k); if (prm) to(prm, v[k]); }
+    to(P.a.d.delayTime, v.delayTime); to(P.a.fb.gain, v.delayFb); to(P.a.send.gain, (v.delayWet || 0) * c);
+    to(P.b.d.delayTime, v.delay2Time); to(P.b.fb.gain, v.delay2Fb); to(P.b.send.gain, (v.delay2Wet || 0) * c);
+    to(P.small.send.gain, (v.verbWet || 0) * (1 - v.verbSize) * c); to(P.big.send.gain, (v.verbWet || 0) * v.verbSize * c);
+    if (P.node) for (const k of ['modMix', 'modBase', 'modDepth', 'modRate', 'modFb', 'decim', 'bits', 'decimMix', 'stutter', 'stutterLen', 'chop', 'freqHz', 'freqMix']) {
+      const prm = P.node.parameters.get(k); if (!prm) continue;
+      let x = v[k];
+      // Mix-ish params also scale with city so 0 is truly dry
+      if (k === 'modMix' || k === 'decimMix' || k === 'freqMix' || k === 'stutter' || k === 'chop') x = (x || 0) * c;
+      to(prm, x);
+    }
     P.last = v; P.sets++;
     return true;
   }
