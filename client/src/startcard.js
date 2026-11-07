@@ -4,6 +4,7 @@
 // Empty room = POST /api/rooms { preset:false }. Preset = POST { preset:id }. Join = /?room=<id>.
 // Direct ?room= links still work (boot.js). No CODE button (t591u).
 import { cleanInsta } from '../../shared/insta.mjs';
+import { CITY_BUILD_PHASE, BUILD_CITY } from '../../shared/city.mjs';
 import { clearMineForNewRoom } from './designs.js';
 import { S } from './strings.js';
 import { resetPersonalSound } from './soundui.js';
@@ -184,7 +185,17 @@ export function showStartCard() {
     frame.dataset.screen = 'main';
     const newBtn = opt('sc-new', 'NEW GAME', 'sc-opt-main');
     const joinBtn = opt('sc-join', 'JOIN EXISTING', 'sc-opt-main');
-    body.append(el('div', { className: 'sc-stack' }, [newBtn, joinBtn]));
+    const kids = [newBtn, joinBtn];
+    // Build phase: Jens decorates stad-byggen (props + stickers autosave into the city preset).
+    // Not on the Join list – only this button / its URL. Full version (OPEN_ACCESS) can place
+    // props there without being admin; admin still needed in the play city.
+    if (CITY_BUILD_PHASE) {
+      const buildBtn = opt('sc-build', 'BUILD CITY', 'sc-opt-main');
+      buildBtn.title = 'Decorate the city (props & stickers save into the city preset)';
+      buildBtn.onclick = () => { location.href = `${location.pathname}?room=${encodeURIComponent(BUILD_CITY)}`; };
+      kids.push(buildBtn);
+    }
+    body.append(el('div', { className: 'sc-stack' }, kids));
     newBtn.onclick = newGame;
     joinBtn.onclick = joinScreen;
     newBtn.focus();

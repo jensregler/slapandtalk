@@ -46,12 +46,15 @@ async function toMain(page) {
       frame: !!document.querySelector('#start-card .sc-frame'),
       newTxt: document.getElementById('sc-new')?.textContent,
       joinTxt: document.getElementById('sc-join')?.textContent,
+      buildTxt: document.getElementById('sc-build')?.textContent,
       bar: getComputedStyle(document.querySelector('.sc-bar-top')).backgroundColor,
       main: !!window.klibb,
     }));
     check('main: NEW GAME + JOIN EXISTING on black square with red bars',
       main.frame && main.newTxt === 'NEW GAME' && main.joinTxt === 'JOIN EXISTING' && !main.main
       && /rgb\(160,\s*12,\s*36\)/.test(main.bar), main);
+    check('main: BUILD CITY (build phase – props/stickers save into the city preset)',
+      main.buildTxt === 'BUILD CITY', main);
 
     await p.click('#sc-new'); await sleep(250);
     await p.screenshot({ path: '/workspace/menu-3.png' });
@@ -69,6 +72,18 @@ async function toMain(page) {
     await p.click('#sc-back'); await sleep(200);
     await p.click('#sc-back'); await sleep(200);
     check('BACK returns to main', await p.evaluate(() => !!document.getElementById('sc-join')));
+
+    // BUILD CITY → the build city URL (props editable without admin during OPEN_ACCESS)
+    const buildNav = await (await b.newContext({ viewport: { width: 900, height: 1000 } })).newPage();
+    buildNav.on('pageerror', (e) => errs.push('build: ' + e.message));
+    await buildNav.goto(`${S.base}/?start=1`);
+    await toMain(buildNav); await sleep(150);
+    await Promise.all([
+      buildNav.waitForURL(/room=stad-byggen/, { timeout: 15000 }),
+      buildNav.click('#sc-build'),
+    ]);
+    check('BUILD CITY opens ?room=stad-byggen', /room=stad-byggen/.test(buildNav.url()), buildNav.url());
+    await buildNav.close();
 
     await p.click('#sc-join'); await p.waitForSelector('#sc-list .sc-room, #sc-list .sc-empty', { timeout: 15000 }); await sleep(400);
     await p.screenshot({ path: '/workspace/menu-5.png' });

@@ -4,6 +4,7 @@
 // it: a colour picker (saturation/value square + hue bar), brush size, brush type (solid / opaque /
 // dripping). "save" asks which sticker in the wheel the tag replaces, then hands the finished PNG
 // back (main.js uploads it as my sticker); "exit" closes it without saving.
+import { bindHoldRepeat } from './holdrepeat.js';
 const TW = 800, TH = 536; // the blanks are 1623x1085 → 800 wide
 let W = TW, H = TH; // the canvas size now (the door's Priority Mail pac is portrait: opts.size)
 export const BLANKS = Array.from({ length: 10 }, (_, i) => `/nametags/blank${i + 1}.webp`);
@@ -81,8 +82,9 @@ function build() {
     box.dataset.blank = String(st.i + 1);
   }
   for (let k = 0; k < BLANKS.length; k++) { const d = document.createElement('span'); d.onclick = () => showBlank(k); $('nt-dots').appendChild(d); }
-  $('nt-prev').onclick = () => showBlank(st.i - 1);
-  $('nt-next').onclick = () => showBlank(st.i + 1);
+  // Hold-to-repeat: keep flipping blanks while the arrow is held (touch + mouse).
+  bindHoldRepeat($('nt-prev'), () => showBlank(st.i - 1));
+  bindHoldRepeat($('nt-next'), () => showBlank(st.i + 1));
 
   // ---- colour ----
   const sv = $('nt-sv').getContext('2d'), hue = $('nt-hue').getContext('2d');

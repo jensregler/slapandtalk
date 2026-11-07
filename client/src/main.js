@@ -54,7 +54,7 @@ import { menuOf, runMenuSticker, MENU_IDS, RETIRED_MENU_IDS } from './menusticke
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
 import { CITY_FX, cityFxAt, placeNeutral, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
-import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, isBuildCity } from '../../shared/city.mjs';
+import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
 import { initProps } from './propsmode.js';
@@ -1091,21 +1091,37 @@ function peelArrayOp(op) {
   return op.done.then(() => op.a.result).then(() => peelSettled()).then(() => true);
 }
 
-// ---------- Admin (dold): öppna sidan med ?admin=NYCKEL ----------
+// ---------- Admin (dold): öppna sidan med ?admin=NYCKEL (or bare ?admin → prompt) ----------
+// Kept in this browser (localStorage + sessionStorage) after a successful check, so a new tab or
+// restart still knows Jens is admin – the key itself never ships in client code or chat.
+// Bare ?admin (no ?room=) during the build phase opens the build city, where Props stick into the
+// default city preset (shared/city.mjs BUILD_CITY).
+const ADMIN_STORE = 'klibb.admin';
+const adminGet = () => { try { return sessionStorage.getItem(ADMIN_STORE) || localStorage.getItem(ADMIN_STORE); } catch { return sessionStorage.getItem(ADMIN_STORE); } };
+const adminSet = (t) => { try { sessionStorage.setItem(ADMIN_STORE, t); localStorage.setItem(ADMIN_STORE, t); } catch { try { sessionStorage.setItem(ADMIN_STORE, t); } catch { /* private */ } } };
+const adminClear = () => { try { sessionStorage.removeItem(ADMIN_STORE); localStorage.removeItem(ADMIN_STORE); } catch { try { sessionStorage.removeItem(ADMIN_STORE); } catch { /* private */ } } };
 async function initAdmin() {
   if (params.has('admin')) {
     const t = params.get('admin') || prompt(S.adminPrompt) || '';
-    sessionStorage.setItem('klibb.admin', t);
+    adminSet(t);
     params.delete('admin');
-    history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : ''));
+    // No room yet + build phase: go to the build city (props there autosave into the city preset).
+    if (!params.has('room') && CITY_BUILD_PHASE) {
+      history.replaceState(null, '', `${location.pathname}?room=${encodeURIComponent(BUILD_CITY)}`);
+      location.reload();
+      return;
+    }
+    history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : '') + location.hash);
   }
-  const token = sessionStorage.getItem('klibb.admin');
+  const token = adminGet();
   if (!token) return;
   const { ok } = await api.checkAdmin(token).catch(() => ({ ok: false }));
-  if (!ok) { sessionStorage.removeItem('klibb.admin'); toast(S.adminWrong); return; }
+  if (!ok) { adminClear(); toast(S.adminWrong); return; }
+  adminSet(token); // sync both stores after a good check (e.g. only session had it)
   state.adminToken = token;
   $('admin-banner').hidden = false;
   updateStyleUi(); renderRecs();
+  syncNatureMode(); // Props button may appear now that we are admin
 }
 
 // Admin: save this room as a preset (Jens designs rooms with the nature stickers and gives the room
@@ -1750,16 +1766,16 @@ if (!isTouch) {
     if (propsMode()) { // the Props wheel: Q/E turn, R/F the next/previous prop, Delete removes the selected one, Esc lets go
       if (e.code === 'KeyQ') propsUi.turn(1);
       if (e.code === 'KeyE') propsUi.turn(-1);
-      if (e.code === 'KeyR' && !e.repeat) propsUi.step(1);
-      if (e.code === 'KeyF' && !e.repeat) propsUi.step(-1);
+      if (e.code === 'KeyR') propsUi.step(1); // hold = keep spinning the Props wheel
+      if (e.code === 'KeyF') propsUi.step(-1);
       if ((e.code === 'Delete' || e.code === 'Backspace') && propsUi.selected()) propsUi.removeSelected();
       if (e.code === 'Escape' && propsUi.selected()) propsUi.deselect();
       return;
     }
     if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
     if (state.mode === 'slap' && e.code === 'KeyE') setRot(state.rotation + 15);
-    if (e.code === 'KeyR' && !e.repeat && !e.ctrlKey && !e.metaKey) nextDesign();
-    if (e.code === 'KeyF' && !e.repeat && !e.ctrlKey && !e.metaKey) prevDesign(); // F = förra designen (spegel av R)
+    if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) nextDesign(); // hold = keep spinning (key repeat)
+    if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey) prevDesign(); // F = previous design; hold = keep spinning
   });
 } else {
   // Touch (Jens, 28 Oct 2026): with a sticker in hand (sharp), ONE finger on the room AIMS it: the

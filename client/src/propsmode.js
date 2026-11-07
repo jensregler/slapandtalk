@@ -18,6 +18,7 @@ import { makeProp, preloadProps, highlightOf, collisionBoxes } from './props3d.j
 import { createPropCollider, cuboidBoxes } from '../../shared/propcollide.mjs';
 import { facesFromSurfaces } from './fold.js';
 import { createWheel } from './wheel.js';
+import { bindHoldRepeat } from './holdrepeat.js';
 import { PROP_KINDS, KIND_IDS, cleanProp, newPropId, seatOf, nearestSeat, PROP_SCALE, BOX_LIMITS, BOX_COLOURS, MAX_PROPS } from '../../shared/props.mjs';
 
 const SNAP = Math.PI / 12; // Q/E turn 15°
@@ -362,8 +363,11 @@ export function initProps(o) {
       scaleRow: q('pp-scale-row'), boxRow: q('pp-box'), colours: q('pp-colours') };
     for (const a of ['sx', 'sy', 'sz']) { u[a] = q('pp-' + a); u[a + 'n'] = q(`pp-${a}n`); }
     q('pp-done').onclick = () => { deselect(); controls.lock?.(); };
-    q('pp-left').onclick = () => turn(1); q('pp-right').onclick = () => turn(-1);
-    q('pp-smaller').onclick = () => scaleBy(1 / 1.1); q('pp-bigger').onclick = () => scaleBy(1.1);
+    // Hold-to-repeat (Jens: wheels keep spinning while pressed) – Turn ⟲/⟳ and Size −/+.
+    bindHoldRepeat(q('pp-left'), () => turn(1));
+    bindHoldRepeat(q('pp-right'), () => turn(-1));
+    bindHoldRepeat(q('pp-smaller'), () => scaleBy(1 / 1.1));
+    bindHoldRepeat(q('pp-bigger'), () => scaleBy(1.1));
     u.scale.oninput = () => change((p) => ({ ...p, s: Number(u.scale.value) }));
     for (const a of ['sx', 'sy', 'sz']) {
       u[a].oninput = () => change((p) => ({ ...p, [a]: Number(u[a].value) }));
