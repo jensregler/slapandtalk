@@ -1097,6 +1097,27 @@ body.touch #props-panel { right: 8px; left: 8px; width: auto; top: 8px; transfor
 .lfo-pop button { font-size: 18px !important; min-height: 48px !important; padding: 6px 16px; border-radius: 10px; }
 .lfo-pop button.primary { background: #7fd1ff; color: #000; border: 0; }
 @keyframes lfopop { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* Layer LFO ask (t600u): big floating button beside the table – does not reflow the sliders */
+.lfo-ask {
+  position: fixed; z-index: 20; min-width: 96px; min-height: 56px !important; padding: 10px 22px;
+  border: 3px solid #fff; border-radius: 14px; background: #1a8cff; color: #fff;
+  font-size: 28px !important; font-weight: 900; letter-spacing: 0.02em; line-height: 1;
+  box-shadow: 0 6px 22px rgba(0,0,0,.55); cursor: pointer; touch-action: manipulation;
+  animation: lfopop .18s ease-out;
+}
+.lfo-ask:focus-visible { outline: 4px solid #ffd23f; outline-offset: 3px; }
+.snd-lfo-under {
+  margin: 4px 0 10px; padding: 8px 10px 10px; border: 2px solid #2d6c8f; border-radius: 10px;
+  background: rgba(15, 53, 80, .55);
+}
+.snd-lfo-under-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; }
+.snd-lfo-under-head small { font-size: 15px; font-weight: 700; color: #7fd1ff; }
+.snd-lfo-under-head select { font-size: 16px; min-height: 40px; }
+.snd-lfo-off {
+  margin-left: auto; min-width: 48px; min-height: 48px !important; font-size: 22px !important;
+  font-weight: 800; border-radius: 10px; background: #4a2020; border: 2px solid #ff8a8a; color: #fff;
+}
+.snd-lfo-under .snd-sl { grid-template-columns: 112px 1fr 120px; }
 /* the radio */
 .radio-box { border: 2px solid #6b4a2b; border-radius: 14px; padding: 10px; margin: 8px 0 12px; background: #1b140e; }
 .radio-pic { position: relative; width: 100%; aspect-ratio: 576 / 387; background: #2a2a2a center / contain no-repeat; border-radius: 10px; transition: filter .2s; }

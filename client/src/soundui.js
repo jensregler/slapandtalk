@@ -176,6 +176,17 @@ const GROUPS = [
   ['Decimate', ['decim', 'crush']],
   ['LFO', ['lfoRate', 'lfoDepth']],
 ];
+// Layer LFO ask-button UX (Jens t600u): after moving a targetable slider, a floating "LFO?" appears
+// beside the table (no layout shift). Accept → assign l.lfo + put Rate/Depth under that slider.
+// Simple layer LFO targets only pitch/cutoff/amp (one per layer). Nesting LFO→LFO is the advanced
+// mods system (shared/lfo.mjs), not this per-layer oscillator.
+export const SLIDER_TO_LFO = { freq: 'pitch', note: 'pitch', cutoff: 'cutoff', level: 'amp' };
+export function lfoSliderFor(l, target) {
+  if (target === 'pitch') return l.kind === 'sampler' ? 'note' : 'freq';
+  if (target === 'cutoff') return 'cutoff';
+  if (target === 'amp') return 'level';
+  return null;
+}
 const FX_UNITS = [['reverb', 'Reverb'], ['delay', 'Delay'], ['filter', 'Filter'], ['crush', 'Bitcrush'], ['dist', 'Distortion']];
 const TAB_NAMES = { slap: 'Slap', peel: 'Peel', nope: 'Nope', step: 'Steps', duff: 'Duff', fx: 'Effects' };
 
@@ -198,11 +209,13 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   // Closed without saving (✕ / Cancel): a Music vol that only Reset changed goes back too.
   function close(saved = false) {
     if (!saved && st.volReset && musicVol && st.vol0 != null) { musicVol.set(st.vol0); st.volReset = false; }
+    closeAsk(); closePop();
     st.open = false; $('sound-panel').hidden = true; onOpenChange(false);
   }
 
-  // lfo: { patch, to, sound } – when the control is released after a change, offer "Add LFO?" (lfoPop)
-  function slider(k, range, value, onInput, lfo = null) {
+  // lfo: { patch, to, sound } – when the control is released after a change, offer advanced "Add LFO?" (lfoPop)
+  // layerAsk: { patch, layer, sound, param } – also offer the simple layer "LFO?" ask-button (t600u)
+  function slider(k, range, value, onInput, lfo = null, layerAsk = null) {
     const row = el('div', 'snd-sl'); row.dataset.param = k;
     const lab = el('span', null, LABELS[k] || k);
     const r = el('input'); r.type = 'range'; r.min = 0; r.max = STEPS; r.step = 1; r.value = toSlider(k, range, value);
@@ -220,18 +233,66 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       }
       out.textContent = fmt(k, v); onInput(v);
     };
-    if (lfo) {
-      row.dataset.mod = lfo.to;
-      if ((lfo.patch.mods || []).some((m) => m.to === lfo.to)) row.classList.add('has-lfo');
+    if (lfo || layerAsk) {
+      if (lfo) {
+        row.dataset.mod = lfo.to;
+        if ((lfo.patch.mods || []).some((m) => m.to === lfo.to)) row.classList.add('has-lfo');
+      }
       let before = r.value;
       const grab = () => { before = r.value; };
       r.addEventListener('pointerdown', grab); r.addEventListener('touchstart', grab, { passive: true }); r.addEventListener('focus', grab);
       // 'change' fires on release (mouse up, touch end on iPhone, keys)
-      r.addEventListener('change', () => { if (r.value !== before) { before = r.value; lfoPop(row, lfo); } });
+      r.addEventListener('change', () => {
+        if (r.value === before) return;
+        before = r.value;
+        // Layer "LFO?" covers pitch/cutoff/amp without reflowing the table. Skip the advanced
+        // insert-pop on the same gesture (that one still appears for q/detune/decim/… and nesting).
+        if (layerAsk) { layerLfoAsk(row, layerAsk); return; }
+        if (lfo) lfoPop(row, lfo);
+      });
     }
     row.append(lab, r, out); return row;
   }
-  // ---------- "Add LFO?" (Jens, 5 Nov 2026) ----------
+  // ---------- Layer "LFO?" ask (Jens t600u) – floating beside the table, no layout shift ----------
+  let ask = null, askOutside = null;
+  function closeAsk() {
+    if (askOutside) { document.removeEventListener('pointerdown', askOutside, true); askOutside = null; }
+    if (ask) { ask.remove(); ask = null; }
+  }
+  function layerLfoAsk(row, { patch, layer: li, sound: k, param }) {
+    const target = SLIDER_TO_LFO[param];
+    if (!target || !LFO_TARGETS.includes(target)) return;
+    const l = patch.layers[li]; if (!l) return;
+    // Already on this target: nothing to ask (Rate/Depth already sit under the slider).
+    if (l.lfo === target) return;
+    closeAsk(); closePop();
+    const panel = $('sound-panel'); if (!panel) return;
+    ask = el('button', 'lfo-ask', 'LFO?'); ask.type = 'button'; ask.id = 'lfo-ask';
+    ask.setAttribute('aria-label', `Add LFO to ${LABELS[param] || param}`);
+    ask.dataset.target = target; ask.dataset.layer = String(li); ask.dataset.param = param;
+    // Pin beside the sound table (panel), vertically near the slider (clamped to the visible panel).
+    const pr = panel.getBoundingClientRect(), rr = row.getBoundingClientRect();
+    const mid = rr.top + rr.height / 2 - 28;
+    const top = Math.max(Math.max(8, pr.top), Math.min(Math.min(window.innerHeight, pr.bottom) - 64, mid));
+    ask.style.position = 'fixed';
+    ask.style.left = `${Math.min(window.innerWidth - 120, Math.max(8, pr.right + 8))}px`;
+    ask.style.top = `${top}px`;
+    ask.style.zIndex = '20';
+    ask.onclick = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      l.lfo = target;
+      if (!(l.lfoDepth > 0)) l.lfoDepth = 0.35;
+      closeAsk();
+      edited(k, true);
+      toast(`LFO → ${target}`, 1400);
+    };
+    // Anything else (tap/click outside the button) = no.
+    askOutside = (e) => { if (ask && !ask.contains(e.target)) closeAsk(); };
+    // Defer so the releasing pointer that opened the ask does not instantly dismiss it.
+    setTimeout(() => { if (askOutside) document.addEventListener('pointerdown', askOutside, true); }, 0);
+    document.body.appendChild(ask);
+  }
+  // ---------- Advanced "Add LFO?" / follower (Jens, 5 Nov 2026) – separate nested-mods system ----------
   let pop = null, popTimer = null;
   function closePop() { clearTimeout(popTimer); if (pop) { pop.remove(); pop = null; } }
   function lfoPop(row, { patch, to, sound: k }) {
@@ -283,33 +344,45 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     if (l.kind === 'mic') { /* no wave/noise colour */ } else if (l.kind === 'osc') sel.append(select('Wave', WAVES, l.wave, (v) => { l.wave = v; edited(k); }, { sawtooth: 'saw' }));
     else sel.append(select('Noise', NOISES, l.noise, (v) => { l.noise = v; edited(k); }));
     sel.append(select('Filter', FILTERS, l.filter, (v) => { l.filter = v; edited(k); }));
-    // LFO target next to wave/filter (t587u). Turning one on with depth 0 used to do nothing audible.
-    sel.append(select('LFO', LFO_TARGETS, l.lfo, (v) => {
-      l.lfo = v;
-      if (v !== 'none' && !(l.lfoDepth > 0)) l.lfoDepth = 0.35;
-      edited(k, true);
-    }, { none: 'LFO off', pitch: 'LFO → pitch', cutoff: 'LFO → cutoff', amp: 'LFO → amp' }));
-    if (l.lfo !== 'none') sel.append(select('LFO wave', WAVES, l.lfoWave, (v) => { l.lfoWave = v; edited(k); }, { sawtooth: 'saw' }));
     if (p.layers.length > 1) sel.appendChild(removeLayerBtn(p, i, k));
     box.appendChild(sel);
-    // LFO rate/depth right under the selector (was buried at the bottom of the layer).
-    if (l.lfo !== 'none') {
-      const g = el('div', 'snd-group snd-lfo-top'); g.appendChild(el('small', null, 'LFO'));
-      for (const key of ['lfoRate', 'lfoDepth']) g.appendChild(layerSlider(p, i, k, key));
-      box.appendChild(g);
-    }
     if (l.kind === 'mic') box.appendChild(micBlock());
     box.appendChild(seqBlock(p, i, k));
+    const under = lfoSliderFor(l, l.lfo); // which slider gets Rate/Depth under it (t600u)
+    let lfoPlaced = false;
     for (const [title, keys] of GROUPS) {
-      if (title === 'LFO') continue; // rendered above, next to the LFO selector
+      if (title === 'LFO') continue; // Rate/Depth sit under the target slider, not in their own group
       const g = el('div', 'snd-group'); g.appendChild(el('small', null, title));
       for (const key of keys) {
         if ((l.kind === 'noise' || l.kind === 'mic') && ['freq', 'detune', 'unison', 'spread', 'sub', 'pitchAmt', 'pitchTime'].includes(key)) continue;
-        g.appendChild(layerSlider(p, i, k, key));
+        const row = layerSlider(p, i, k, key);
+        if (under && key === under) row.classList.add('has-lfo');
+        g.appendChild(row);
+        if (under && key === under) { appendLayerLfoRows(g, p, i, k); lfoPlaced = true; }
       }
       if (g.childElementCount > 1) box.appendChild(g);
     }
+    // Fallback when the target slider is hidden on this kind (e.g. pitch LFO on a noise layer).
+    if (l.lfo !== 'none' && !lfoPlaced) {
+      const g = el('div', 'snd-group'); g.appendChild(el('small', null, 'LFO'));
+      appendLayerLfoRows(g, p, i, k); box.appendChild(g);
+    }
     return box;
+  }
+  // Rate + Depth + wave + off, inserted directly under the slider the layer LFO is assigned to.
+  function appendLayerLfoRows(g, p, i, k) {
+    const l = p.layers[i];
+    const wrap = el('div', 'snd-lfo-under'); wrap.dataset.lfoUnder = l.lfo;
+    const head = el('div', 'snd-lfo-under-head');
+    head.appendChild(el('small', null, `〰 LFO → ${l.lfo}`));
+    head.appendChild(select('LFO wave', WAVES, l.lfoWave, (v) => { l.lfoWave = v; edited(k); }, { sawtooth: 'saw' }));
+    const off = el('button', 'snd-lfo-off', '✕'); off.type = 'button'; off.id = `lfo-off-${i}`;
+    off.title = 'Turn LFO off'; off.setAttribute('aria-label', 'Turn LFO off');
+    off.onclick = () => { l.lfo = 'none'; edited(k, true); };
+    head.appendChild(off);
+    wrap.appendChild(head);
+    for (const key of ['lfoRate', 'lfoDepth']) wrap.appendChild(layerSlider(p, i, k, key));
+    g.appendChild(wrap);
   }
   // ---------- The mic layer (Jens, 5 Nov 2026) ----------
   // The page's one mic (mic.js). It is asked for only here: when a mic layer is made or switched on.
@@ -334,7 +407,11 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   }
   function layerSlider(p, i, k, key, after = null) {
     const l = p.layers[i];
-    return slider(key, rangeOf(key), l[key] ?? LAYER_DEF[key], (v) => { l[key] = v; edited(k); if (after) after(v); }, { patch: p, to: `L${i}.${key}`, sound: k });
+    const ask = SLIDER_TO_LFO[key] ? { patch: p, layer: i, sound: k, param: key } : null;
+    // lfoRate/lfoDepth: no simple ask (one layer LFO cannot modulate itself). Advanced mods still
+    // offer nesting when those rows appear in the mods block (rate/depth there use mod targets).
+    return slider(key, rangeOf(key), l[key] ?? LAYER_DEF[key], (v) => { l[key] = v; edited(k); if (after) after(v); },
+      { patch: p, to: `L${i}.${key}`, sound: k }, ask);
   }
   // ---------- Sequencer (any layer; the old auto-slap's step sequencer, shared/autoslap.mjs schema) ----------
   // The layer then RUNS on the master clock while the radio is on (radio.js), instead of on the trigger.
@@ -370,19 +447,8 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     box.appendChild(el('legend', null, `Layer ${i + 1} · 🎵 Sampler`));
     const sel = el('div', 'snd-sel');
     sel.append(select('Filter', FILTERS, l.filter, (v) => { l.filter = v; edited(k); }));
-    sel.append(select('LFO', LFO_TARGETS, l.lfo, (v) => {
-      l.lfo = v;
-      if (v !== 'none' && !(l.lfoDepth > 0)) l.lfoDepth = 0.35;
-      edited(k, true);
-    }, { none: 'LFO off', pitch: 'LFO → pitch', cutoff: 'LFO → cutoff', amp: 'LFO → amp' }));
-    if (l.lfo !== 'none') sel.append(select('LFO wave', WAVES, l.lfoWave, (v) => { l.lfoWave = v; edited(k); }, { sawtooth: 'saw' }));
     if (p.layers.length > 1) sel.appendChild(removeLayerBtn(p, i, k));
     box.appendChild(sel);
-    if (l.lfo !== 'none') {
-      const g = el('div', 'snd-group snd-lfo-top'); g.appendChild(el('small', null, 'LFO'));
-      for (const key of ['lfoRate', 'lfoDepth']) g.appendChild(layerSlider(p, i, k, key));
-      box.appendChild(g);
-    }
     box.appendChild(seqBlock(p, i, k));
     // file: drag-and-drop (desktop) or the picker (iPhone: Files, Voice Memos via Files, iCloud …)
     const drop = el('div', 'smp-drop'); drop.dataset.drop = 'sampler';
@@ -424,15 +490,24 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     }
     box.appendChild(sw);
     if (l.loop && l.whole) box.appendChild(el('p', 'hint', 'Looping: the envelope (Hold + Release) decides how long it plays.'));
+    const under = lfoSliderFor(l, l.lfo);
+    let lfoPlaced = false;
     for (const [title, keys] of SAMPLER_GROUPS) {
-      if (title === 'LFO') continue; // rendered above, next to the LFO selector
+      if (title === 'LFO') continue; // Rate/Depth sit under the target slider
       const g = el('div', 'snd-group'); g.appendChild(el('small', null, title));
       for (const key of keys) {
         if (!l.loop && ['loopStart', 'loopEnd', 'xfade'].includes(key)) continue;
         if (l.whole && !l.loop && ['d', 's', 'hold'].includes(key)) continue;
-        g.appendChild(layerSlider(p, i, k, key, ['start', 'end', 'loopStart', 'loopEnd'].includes(key) ? draw : null));
+        const row = layerSlider(p, i, k, key, ['start', 'end', 'loopStart', 'loopEnd'].includes(key) ? draw : null);
+        if (under && key === under) row.classList.add('has-lfo');
+        g.appendChild(row);
+        if (under && key === under) { appendLayerLfoRows(g, p, i, k); lfoPlaced = true; }
       }
       if (g.childElementCount > 1) box.appendChild(g);
+    }
+    if (l.lfo !== 'none' && !lfoPlaced) {
+      const g = el('div', 'snd-group'); g.appendChild(el('small', null, 'LFO'));
+      appendLayerLfoRows(g, p, i, k); box.appendChild(g);
     }
     return box;
   }
@@ -505,7 +580,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   function edited(k, rerender = false) { if (k !== 'fx') st.custom.add(k); if (rerender) render(); }
 
   function render() {
-    closePop();
+    closeAsk(); closePop();
     const body = $('snd-body'); body.innerHTML = '';
     const rb = $('snd-radio'); if (rb) { rb.innerHTML = ''; if (radioBlock) rb.appendChild(radioBlock()); }
     const tabs = $('snd-tabs'); tabs.innerHTML = '';

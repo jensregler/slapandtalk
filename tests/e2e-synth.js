@@ -49,11 +49,19 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     const panel = await A.evaluate(() => ({ layers: document.querySelectorAll('#snd-body .snd-layer').length, sliders: [...document.querySelectorAll('#snd-body .snd-sl')].map((r) => r.dataset.param),
       selects: [...document.querySelectorAll('#snd-body select')].map((s) => s.dataset.name) }));
     assert(tabs.join() === 'Slap,Peel,Nope,Steps,Duff,Effects' && panel.layers === 3 && ['cutoff', 'q', 'a', 'd', 's', 'r', 'freq', 'pitchAmt', 'level', 'drive'].every((k) => panel.sliders.includes(k))
-      && ['Source', 'Wave', 'Filter', 'LFO'].every((k) => panel.selects.includes(k)),
-      `synth panel per sound (${tabs.join(', ')}): the slap has its 3 layers with source/wave/filter/LFO and ${panel.sliders.length} sliders (pitch, sweep, ADSR, cutoff, Q, filter env, level, drive…)`);
-    // Tweak: slap layer 1 cutoff + an LFO on layer 2
+      && ['Source', 'Wave', 'Filter'].every((k) => panel.selects.includes(k)),
+      `synth panel per sound (${tabs.join(', ')}): the slap has its 3 layers with source/wave/filter and ${panel.sliders.length} sliders (pitch, sweep, ADSR, cutoff, Q, filter env, level, drive…)`);
+    // Tweak: slap layer 1 cutoff + layer-2 pitch LFO via the LFO? ask button (t600u)
     await A.$eval('#snd-body .snd-layer[data-layer="0"] .snd-sl[data-param="cutoff"] input', (r) => { r.value = '700'; r.dispatchEvent(new Event('input', { bubbles: true })); });
-    await A.selectOption('#snd-body .snd-layer[data-layer="1"] select[data-name="LFO"]', 'pitch');
+    await A.$eval('#snd-body .snd-layer[data-layer="1"] .snd-sl[data-param="freq"] input', (r) => {
+      r.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      r.value = String(Number(r.value) + 40);
+      r.dispatchEvent(new Event('input', { bubbles: true }));
+      r.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await A.waitForSelector('#lfo-ask');
+    await A.click('#lfo-ask');
+    await A.waitForSelector('#snd-body .snd-layer[data-layer="1"] .snd-lfo-under');
     await A.$eval('#snd-body .snd-layer[data-layer="1"] .snd-sl[data-param="lfoDepth"] input', (r) => { r.value = '400'; r.dispatchEvent(new Event('input', { bubbles: true })); });
     const pv = await A.evaluate(() => window.klibb.soundUi().preview());
     assert(pv === true, '▶ Preview plays the edited patch');

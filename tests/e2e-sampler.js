@@ -74,18 +74,19 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await A.evaluate(() => document.querySelector('#snd-body .snd-sampler').scrollIntoView());
     await sleep(300);
     await (await A.$('#sound-panel')).screenshot({ path: path.join(SHOTS, '01-sampler-layer-loaded.png') });
-    // ---------- "Add LFO?" ----------
-    const cut = '#snd-body .snd-layer[data-layer="0"] .snd-sl[data-param="cutoff"] input';
-    await A.$eval(cut, (r) => { r.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); r.value = '600'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+    // ---------- "Add LFO?" (advanced mods) ----------
+    // Use Resonance (q): pitch/cutoff/level now open the floating layer "LFO?" ask instead (t600u).
+    const res = '#snd-body .snd-layer[data-layer="0"] .snd-sl[data-param="q"] input';
+    await A.$eval(res, (r) => { r.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); r.value = '600'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
     await sleep(200);
     const pop = await A.evaluate(() => { const p = document.getElementById('lfo-pop'); return p && { text: p.textContent, to: p.dataset.to, font: getComputedStyle(p).fontSize }; });
-    check('letting go of a changed control (Cutoff) offers "Add LFO?" – large text', pop && /Add LFO or follower to Cutoff\?/.test(pop.text) && pop.to === 'L0.cutoff' && parseFloat(pop.font) >= 18, pop);
+    check('letting go of a changed control (Resonance) offers "Add LFO?" – large text', pop && /Add LFO or follower to Resonance\?/.test(pop.text) && pop.to === 'L0.q' && parseFloat(pop.font) >= 18, pop);
     await A.evaluate(() => document.getElementById('lfo-pop').scrollIntoView({ block: 'center' })); await sleep(150);
     await (await A.$('#sound-panel')).screenshot({ path: path.join(SHOTS, '02-add-lfo-popup.png') });
     await A.click('#lfo-pop-yes'); await sleep(200);
     const m1 = await A.evaluate(() => window.klibb.soundUi().state().patches.slap.mods);
-    check('…accepting adds LFO 1 → Layer 1 Cutoff (sine, 2 Hz, depth 50 %)', m1 && m1.length === 1 && m1[0].to === 'L0.cutoff' && m1[0].rate === 2 && m1[0].wave === 'sine', m1);
-    await A.$eval(cut, (r) => { r.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); r.value = '650'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+    check('…accepting adds LFO 1 → Layer 1 Resonance (triangle, 1 Hz, depth 40 %)', m1 && m1.length === 1 && m1[0].to === 'L0.q' && m1[0].rate === 1 && m1[0].wave === 'triangle', m1);
+    await A.$eval(res, (r) => { r.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); r.value = '650'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
     check('…no popup again for a control that already has an LFO', !(await A.$('#lfo-pop')));
     const level = '#snd-body .snd-layer[data-layer="0"] .snd-sl[data-param="a"] input';
     await A.$eval(level, (r) => { r.value = '300'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -139,7 +140,8 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     check('…following all my sound: the envelope rises while it plays and the big meter shows it', flm.mx > 0.02 && flm.mt > 0.02, flm);
     await A.evaluate(() => document.querySelector('.snd-follow').scrollIntoView({ block: 'center' })); await sleep(100);
     await (await A.$('#sound-panel')).screenshot({ path: path.join(SHOTS, '11-follower.png') });
-    const popF = await A.evaluate(() => { const r = document.querySelector('#snd-body .snd-layer[data-layer="0"] .snd-sl[data-param="q"] input'); if (!r) return 'no q'; r.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); r.value = String(Number(r.value) + 40); r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); return !!document.getElementById('lfo-pop-follow'); });
+    // Decimate is modulatable but not a simple layer-LFO target, so the advanced pop still appears.
+    const popF = await A.evaluate(() => { const r = document.querySelector('#snd-body .snd-layer[data-layer="0"] .snd-sl[data-param="decim"] input'); if (!r) return 'no decim'; r.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); r.value = String(Number(r.value) + 40); r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); return !!document.getElementById('lfo-pop-follow'); });
     check('…the "Add LFO?" popup also offers "📈 Follower"', popF === true, popF);
     await A.evaluate(() => document.querySelector('#lfo-pop button:last-child')?.click());
     // ---------- save = this room's preset ----------
