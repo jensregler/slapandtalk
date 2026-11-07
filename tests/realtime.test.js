@@ -40,7 +40,7 @@ function client(base, room, hello = {}) {
   const join = (room, hello) => { const c = client(base, room, hello); all.push(c); return c; };
   try {
     // ---------- Gå in, se varandra, röra sig, gå ----------
-    const a = join('rum1', { name: 'Anna', look: { outfit: 'kostym', shirt: '#e63946', hair: 'tupp' }, p: [1, 1.6, 2], y: 0.5 });
+    const a = join('rum1', { name: 'Anna', look: { outfit: 'kostym', shirt: '#e63946', hair: 'lang' }, p: [1, 1.6, 2], y: 0.5 });
     await a.ready;
     const wa = await a.wait((m) => m.t === 'welcome');
     assert(wa && !wa.full && wa.players.length === 0 && wa.max === 3, 'första spelaren kommer in i ett tomt rum');

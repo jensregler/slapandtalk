@@ -103,8 +103,16 @@ function addFabricPositions(scene) {
 }
 
 // ---------- The face (Jens, 29 Oct 2026): its own material, independent of the body (face.js) ----------
-const HEADS = new Set(Object.values(AV.hair).map((h) => h.head));
+// Mohawk (Punk_Head / hair id "tupp") retired from the menu (Jens, 7 Nov 2026). Keep it in HEADS/PARTS so its
+// meshes are still tracked and stay hidden; old saved looks with hair:"tupp" fall back via normalizeLook.
+const RETIRED_HEADS = { Punk_Head: { hair: 'Red' } };
+const HEADS = new Set([...Object.values(AV.hair).map((h) => h.head), ...Object.keys(RETIRED_HEADS)]);
 const headPart = (o) => { let p = o; while (p && !HEADS.has(p.name)) p = p.parent; return p; };
+const isEarringMesh = (o) => {
+  const m = o.material;
+  if (Array.isArray(m)) return m.some((x) => x && x.name === 'Earrings');
+  return !!(m && m.name === 'Earrings');
+};
 function addFaceGroups(scene) {
   scene.traverse((o) => {
     if (!o.isSkinnedMesh || !headPart(o)) return;
@@ -125,6 +133,7 @@ function addFaceGroups(scene) {
 const PART_ROLE = {};
 for (const o of Object.values(AV.outfits)) { PART_ROLE[o.body] = { shirt: o.shirt }; PART_ROLE[o.legs] = { pants: o.pants }; PART_ROLE[o.feet] = { shoes: o.shoes }; }
 for (const hh of Object.values(AV.hair)) PART_ROLE[hh.head] = { hair: hh.hair };
+for (const [head, r] of Object.entries(RETIRED_HEADS)) if (!PART_ROLE[head]) PART_ROLE[head] = r;
 const PARTS = new Set(Object.keys(PART_ROLE));
 function roleOf(part, mat) {
   const r = PART_ROLE[part] || {};
@@ -251,6 +260,7 @@ export class Avatar {
       o.frustumCulled = false; // skinnade meshar har fel "bounding box" när de rör sig
       o.raycast = () => {};    // gubbar ska aldrig träffas av stämpel-strålen
       (this.parts[part.name] ||= []).push(o);
+      if (isEarringMesh(o)) o.visible = false; // never show earrings (Jens, 7 Nov 2026)
       const role = roleOf(part.name, o.material.name), g = o.geometry;
       if (HEADS.has(part.name) && (o.material.name === 'Eye' || o.material.name === 'Eyebrows')) this.faceFeatures.push({ m: o, part: part.name });
       if (role === 'skinDark' && g.userData.faceAll) { o.material = o.material.clone(); o.material.name = 'Face_Darker'; this.mats.faceDark.push(o.material); }
@@ -295,7 +305,8 @@ export class Avatar {
     this.look = normalizeLook(look);
     const L = this.look, o = AV.outfits[L.outfit], hd = AV.hair[L.hair];
     const show = new Set([o.body, o.legs, o.feet, hd.head]);
-    for (const [p, list] of Object.entries(this.parts)) for (const m of list) m.visible = show.has(p);
+    // Earrings (Beach_Head / Punk_Head) always off – no menu option (Jens, 7 Nov 2026).
+    for (const [p, list] of Object.entries(this.parts)) for (const m of list) m.visible = show.has(p) && !isEarringMesh(m);
     const set = (role, hex, mul = 1) => this.mats[role].forEach((m) => { m.color.set(hex); if (mul !== 1) m.color.multiplyScalar(mul); });
     set('skin', L.skin); set('skinDark', L.skin, 0.82); set('hair', L.hairColor); set('brows', L.hairColor, 0.55);
     set('shirt', L.shirt); set('pants', L.pants); set('shoes', L.shoes || '#222222');
