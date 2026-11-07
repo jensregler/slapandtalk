@@ -5,7 +5,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
-import { PEEL, peelPlan, peelPose, pathParams, overlapFraction, slapSide, flatQuat, stampFrame, peelFrame, maskFromAlpha, peelExpired, peelOpacity, peelAgeMs } from '../shared/peels.mjs';
+import { PEEL, CITY_PEEL, peelPlan, peelPose, pathParams, overlapFraction, slapSide, flatQuat, stampFrame, peelFrame, maskFromAlpha, peelExpired, peelOpacity, peelAgeMs, isCityBox, peelCfg } from '../shared/peels.mjs';
+import { CITY, PLOTS, insideHouse } from '../shared/city.mjs';
 
 const require = createRequire(import.meta.url);
 const sharp = require('sharp');
@@ -124,6 +125,30 @@ const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
     const fading = { createdAt: new Date(Date.now() - (PEEL.lifeMs - 250)).toISOString() };
     const op = peelOpacity(fading);
     assert(op > 0 && op < 1, `sista halvsekunden: fejd (${op.toFixed(2)})`);
+  }
+
+  // City outside peels (Jens, Nov 2026): CITY_PEEL tunables + normal launch + no building pierce
+  {
+    assert(CITY_PEEL.lifeMs === 6000 && CITY_PEEL.fadeMs === 500 && CITY_PEEL.birthOff > PEEL.birthOff,
+      `CITY_PEEL: 6 s life, 0,5 s fade, birthOff ${CITY_PEEL.birthOff} > room ${PEEL.birthOff}`);
+    assert(isCityBox(CITY) && !isCityBox(ROOM) && peelCfg(CITY).birthOff === CITY_PEEL.birthOff, 'peelCfg skiljer city / rum');
+    const hall = PLOTS.find((p) => p.hall);
+    const wallZ = hall.house.z + hall.house.d / 2;
+    const target = [0, 3, wallZ], from = { x: 0, z: wallZ + 3, yaw: Math.PI };
+    const a = peelPlan('cityhall', from, target, CITY, [0, 0, 1]);
+    const b = peelPlan('cityhall', from, target, CITY, [0, 0, 1]);
+    assert(JSON.stringify(a) === JSON.stringify(b), 'city: samma seed = samma landning');
+    assert(a.start[2] > wallZ && a.z > wallZ + 1.0, `city: föds och landar ut från väggen (född ${(a.start[2] - wallZ).toFixed(2)} m, landar ${(a.z - wallZ).toFixed(2)} m)`);
+    assert(!insideHouse(a.x, a.z, CITY_PEEL.buildingMargin), 'city: landar inte inne i ett hus');
+    let midOk = 0;
+    for (let k = 0; k <= 20; k++) {
+      const q = peelPose({ seed: 'cityhall', ...a }, k / 20, undefined, CITY);
+      if (!insideHouse(q.p[0], q.p[2], CITY_PEEL.buildingMargin) && Math.abs(q.p[0]) <= CITY.width / 2 && Math.abs(q.p[2]) <= CITY.depth / 2) midOk++;
+    }
+    assert(midOk === 21, `city: banan går inte genom hus (${midOk}/21)`);
+    // Without a normal, a slap far from the outer box still lands near the slap (not pulled to ±48 m walls)
+    const open = peelPlan('opencity', { x: 5, z: 20, yaw: 0 }, [5, 1.5, 18], CITY, null);
+    assert(Math.hypot(open.x - 5, open.z - 18) < 3, 'city utan normal: landar nära slappen, inte mot ytterväggen');
   }
 
 }
@@ -250,6 +275,42 @@ try {
   const clr0 = await call('POST', `/api/rooms/${R}/peels/clear`, {});
   const clr = await call('POST', `/api/rooms/${R}/peels/clear`, {}, { 'x-room-key': KEY });
   assert(clr0.status === 403 && clr.status === 200 && clr.removed === PEEL.maxPerRoom && (await call('GET', `/api/rooms/${R}/stamps`)).peels.length === 0, '🧹 sopa golvet: bara skaparen/admin, och allt papper försvinner');
+
+  // ---------- City outside: peels always on, launch from normal, expire in ~6 s ----------
+  {
+    const stadInfo = await call('GET', '/api/rooms/stad');
+    assert(stadInfo.room.peels === true, 'Staden: peels är alltid på (info.peels)');
+    const offStad = await call('PUT', '/api/rooms/stad/peels', { on: false }, { 'x-admin-token': 'hemligt-test' });
+    assert(offStad.status === 403, 'Staden: admin kan inte stänga av peels');
+    // Ensure a city client is seated (reachability / by)
+    const c = client('stad'); await c.ready; const cid = (await c.wait((m) => m.t === 'welcome')).id;
+    c.ws.send(JSON.stringify({ t: 'move', p: [0, 1.6, 11], y: Math.PI, pi: 0 })); await sleep(60);
+    const hall = PLOTS.find((p) => p.hall);
+    const wallZ = hall.house.z + hall.house.d / 2;
+    const citySlap = await call('POST', '/api/rooms/stad/stamps', {
+      imageId: img.id, size: 0.4, position: [0, 2.5, wallZ], normal: [0, 0, 1], quaternion: [0, 0, 0, 1],
+      surface: 'hall-s', by: cid, nonce: 'citypeel01', peelFrom: { p: [0, 11], yaw: Math.PI },
+    });
+    assert(citySlap.status === 200 && citySlap.peel, `Staden: en slap ger ett papper (${citySlap.status})`);
+    assert(citySlap.peel.z > wallZ && !insideHouse(citySlap.peel.x, citySlap.peel.z, CITY_PEEL.buildingMargin),
+      `Staden: pappret landar ut från väggen (${(citySlap.peel.z - wallZ).toFixed(2)} m), inte i huset`);
+    const expectCity = peelPlan('citypeel01', { x: 0, z: 11, yaw: Math.PI }, [0, 2.5, wallZ], CITY, [0, 0, 1]);
+    assert(citySlap.peel.x === expectCity.x && citySlap.peel.z === expectCity.z, 'Staden: serverns landning = peelPlan(CITY, normal)');
+    // Force expiry by rewriting createdAt into the past (editRoom mutates the live room).
+    const aged = await store.editRoom('stad', (room) => {
+      const peel = (room.peels || []).find((x) => x.id === citySlap.stamp.id);
+      assert(peel, 'Staden: pappret sparades');
+      peel.createdAt = new Date(Date.now() - 7000).toISOString();
+      return { ok: true };
+    });
+    assert(aged && aged.ok, 'Staden: createdAt backdaterad');
+    const gone = await store.expirePeels('stad');
+    assert(gone.includes(citySlap.stamp.id), 'Staden: pappret försvinner efter lifeMs (server expire)');
+    const afterExp = await call('GET', '/api/rooms/stad/stamps');
+    assert(!afterExp.peels.some((x) => x.id === citySlap.stamp.id), 'Staden: expired peel syns inte i snapshot');
+    // Peel the stamp so the city stays tidy for other tests sharing the same store dir... actually we use a fresh dir.
+    await call('POST', '/api/rooms/stad/peel', { items: [{ id: citySlap.stamp.id, token: citySlap.peelToken }], by: cid });
+  }
 } finally {
   for (const c of clients) try { c.ws.close(); } catch { /* */ }
   rt.close?.(); server.close(); fs.rmSync(dir, { recursive: true, force: true });

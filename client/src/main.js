@@ -56,7 +56,7 @@ import { SlapFx } from './slapfx.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
 import { CITY_FX, cityFxAt, placeNeutral, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
-import { CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity } from '../../shared/city.mjs';
+import { CITY, CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
 import { initProps } from './propsmode.js';
@@ -128,7 +128,7 @@ const stamps = new StampLayer(scene, room.surfaces);
 // Mina peel-bara klibbor förblir egna meshar; äldre målas in i väggarna (se stamps.js).
 stamps.keepLive = () => roomHistory(ROOM).map((h) => h.stampId);
 // Peels: baksidespappret som faller till golvet vid varje slap (när rummet har det på), peels.js.
-const peelLayer = new PeelLayer(scene);
+const peelLayer = new PeelLayer(scene, { room: CITY_OUTSIDE ? CITY : null });
 const slapFx = new SlapFx(scene);
 // The backing paper lands: a soft "duff", louder and lower the bigger the paper, in the
 // slapper's own sound (their look.sound), from where it landed.
@@ -857,7 +857,7 @@ async function slapAt(ndc, info, onStart, auto = null) {
   const tempPeel = 'tmp-' + nonce;
   if (peelLayer.on && dropsPeel(design)) {
     const [pw, ph] = stampDims(design, slapSize);
-    peelLayer.add({ id: tempPeel, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, { x: camera.position.x, z: camera.position.z, yaw: controls.yaw }, body.position) }, design, { animate: true, by: 'me' });
+    peelLayer.add({ id: tempPeel, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, { x: camera.position.x, z: camera.position.z, yaw: controls.yaw }, body.position, CITY_OUTSIDE ? CITY : undefined, body.normal) }, design, { animate: true, by: 'me' });
   }
   let settle; const settled = new Promise((r) => { settle = r; });
   pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, ...(auto ? { burst: auto.burst } : {}) });
@@ -1032,7 +1032,7 @@ function commitArray() {
     if (peelLayer.on && dropsPeel(design) && papers < PEELS_PER_ARRAY) {
       papers++;
       const pw = it.w || d.w, ph = it.h || d.h;
-      peelLayer.add({ id: tempId, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, from, position) }, design, { animate: true, by: 'me' });
+      peelLayer.add({ id: tempId, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, from, position, CITY_OUTSIDE ? CITY : undefined, a.normal.toArray()) }, design, { animate: true, by: 'me' });
     }
     op.temps.push({ i, nonce, tempId, size: copySize, area: (it.w || d.w) * (it.h || d.h) });
   }
@@ -2000,7 +2000,8 @@ function updateStyleUi() {
 // Peels-knappen i Room ▾: bara för den som får ändra rummet (skaparen eller admin).
 function updatePeelUi() {
   const box = document.getElementById('peels-box'); if (!box) return;
-  box.hidden = !canEditStyle();
+  // City outside: peels are always on (no toggle). Room peels: creator/admin only.
+  box.hidden = CITY_OUTSIDE || !canEditStyle();
   $('peels-on').checked = peelLayer.on;
   $('peels-clear').hidden = !peelLayer.on;
 }
@@ -2019,6 +2020,8 @@ $('peels-on').onchange = async (e) => {
 // Whoever may change the room (its key or admin; the box is only theirs) turns it back on at load;
 // they can still switch it off for the rest of the visit. Peel mechanics unchanged.
 async function peelsOnAtLoad(info) {
+  // City outside: always on for everyone (server reports peels:true; no PUT needed).
+  if (CITY_OUTSIDE) { peelLayer.setOn(true); updatePeelUi(); return; }
   if (info?.peels || DEMO || !canEditStyle()) return;
   try { await api.setPeels(ROOM, true, { key: roomKeys()[ROOM], admin: state.adminToken }); peelLayer.setOn(true); } catch { /* offline / no right: as it was */ }
   updatePeelUi();

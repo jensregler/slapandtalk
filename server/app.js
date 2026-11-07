@@ -320,7 +320,7 @@ const cleanRoomName = (v) => Array.from(String(v ?? '').normalize('NFC').replace
 // device id (history.js deviceId) – never the id itself, never shown.
 const DEVICE_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const whoOf = (dev) => (typeof dev === 'string' && DEVICE_RE.test(dev) ? hashToken('d:' + dev).slice(0, 24) : null);
-const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt, style: styleOf(r), peels: !!r.peelsOn,
+const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt, style: styleOf(r), peels: CITY.isCityOutside(r.id) || !!r.peelsOn,
   ...(r.name ? { name: r.name } : {}), visitors: Array.isArray(r.visitors) ? r.visitors.length : 0, stickers: Array.isArray(r.stamps) ? r.stamps.length : 0,
   ...(r.groove ? { groove: r.groove } : {}), ...(r.preset && r.preset.faces ? { preset: r.preset } : {}),
   quickTtlHours: r.type === 'quick' ? quickTtlHours : null, ...(r.demo && r.demo.expiresAt ? { expiresAt: r.demo.expiresAt } : {}) });
@@ -478,12 +478,13 @@ app.delete('/api/admin/citypresets/:id', wrap(async (req, res) => {
   if (!adminOnly(req, res)) return;
   res.json({ ok: await cityPresets.remove(req.params.id) });
 }));
-// Not in a city's outside (yet): it isn't a box, and these all work on the room's box (peels fall to its
-// floor, cameras and cameramen walk its walls, hidden stickers are found on its six faces; recording
-// still works, but the replay draws a box room – open question). Only admin
-// could do these in the City anyway: everyone else still gets the old 403 ("Only admin can … in the City").
+// Not in a city's outside (yet) for cameras / clear-hidden: it isn't a box (cameras and cameramen walk
+// its walls, hidden stickers are found on its six faces; recording still works, but the replay draws a
+// box room – open question). Peels ARE on in the city now (Jens, Nov 2026: shared/peels.mjs CITY_PEEL) –
+// always on for everyone, land on the city ground via the slap normal + pushOut. Only admin could do
+// cameras/clear-hidden in the City anyway: everyone else still gets the old 403.
 app.use((req, res, next) => {
-  const m = /^\/api\/rooms\/([a-z0-9-]+)\/(peels|cameras|clear-hidden)(\/|$)/.exec(req.path);
+  const m = /^\/api\/rooms\/([a-z0-9-]+)\/(cameras|clear-hidden)(\/|$)/.exec(req.path);
   if (req.method !== 'GET' && m && CITY.isCityOutside(m[1]) && isAdmin(req)) return res.status(400).json({ error: 'Not in the City (yet)', city: true });
   next();
 });
@@ -643,10 +644,10 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
     if (m) images[s.imageId] = m;
     return !!m;
   }).map(publicStamp);
-  // Baksidespapper på golvet (bara när rummet har peels på). Bilden behövs för formen.
+  // Baksidespapper på golvet (när rummet har peels på – always in the city's outside). Bilden behövs för formen.
   // Drop expired peels (lifeMs) before sending – old clients never see them on load either.
   let peels = [];
-  if (room.peelsOn && Array.isArray(room.peels) && room.peels.length) {
+  if ((room.peelsOn || CITY.isCityOutside(id)) && Array.isArray(room.peels) && room.peels.length) {
     const expired = await store.expirePeels(id);
     if (expired.length) { room.peels = (await store.peelState(id)).peels; broadcast(id, { type: 'peels:expire', ids: expired }); }
     const pIds = [...new Set(room.peels.map((p) => p.imageId))].filter((i) => !ok.has(i));
@@ -761,9 +762,10 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   let peel = null;
   // Nature stickers drop no backing paper at all (Jens, 28 Oct 2026: they get too large).
   if (!nature && (peelSt.on || (await store.peelState(room)).on)) {
-    const from = cleanFrom(b.peelFrom) || fallbackFrom(b.position, b.normal);
+    const box = CITY.roomBox(room);
+    const from = cleanFrom(b.peelFrom, box) || fallbackFrom(b.position, b.normal, box);
     const seed = nonce && /^[A-Za-z0-9_-]{1,40}$/.test(nonce) ? nonce : saved.id;
-    const { side, ...plan } = P.peelPlan(seed, from, b.position);
+    const { side, ...plan } = P.peelPlan(seed, from, b.position, box, b.normal);
     const [w, h] = P.stampDims(image, stamp.size);
     peel = await store.addPeel(room, { id: saved.id, imageId: image.id, w: Math.round(w * 1e4) / 1e4, h: Math.round(h * 1e4) / 1e4, seed, ...plan }, P.PEEL.maxPerRoom);
   }
@@ -863,7 +865,8 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
   const rows = [];
   let papers = 0;
   const on = !isNatureImage(N, image) && (peelSt.on || (await store.peelState(room)).on); // nature stickers: no backing paper (Jens, 28 Oct 2026)
-  const from = on ? (cleanFrom(b.peelFrom) || fallbackFrom(anchor.position, anchor.normal)) : null;
+  const box = CITY.roomBox(room);
+  const from = on ? (cleanFrom(b.peelFrom, box) || fallbackFrom(anchor.position, anchor.normal, box)) : null;
   for (const s of saved) {
     const i = byOrder.get(s.id), stamp = publicStamp(s);
     const n = nonce ? `${nonce}x${i}` : undefined;
@@ -871,7 +874,7 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
     if (on && papers < A.PEELS_PER_ARRAY) {
       papers++;
       const seed = n || s.id;
-      const { side, ...plan } = P.peelPlan(seed, from, s.position);
+      const { side, ...plan } = P.peelPlan(seed, from, s.position, box, anchor.normal);
       const it = itemByI.get(i);
       const pw = it ? it.w : w, ph = it ? it.h : h;
       peel = await store.addPeel(room, { id: s.id, imageId: image.id, w: Math.round(pw * 1e4) / 1e4, h: Math.round(ph * 1e4) / 1e4, seed, ...plan }, P.PEEL.maxPerRoom);
@@ -892,16 +895,16 @@ function roomIsFullFor(req, room, b) {
   return !!(seat && seat.full && !seat.player);
 }
 function roomFullText(room) { const s = roomSeat(room, null); return `This room is full (${s && s.max} people max – one wall each). You can watch until someone leaves.`; }
-function cleanFrom(f) {
+function cleanFrom(f, box = ROOM_SIZE) {
   if (!f || typeof f !== 'object' || !isVec(f.p, 2) || !isNum(f.yaw)) return null;
-  const hx = ROOM_SIZE.width / 2, hz = ROOM_SIZE.depth / 2;
+  const hx = box.width / 2, hz = box.depth / 2;
   return { x: Math.min(hx, Math.max(-hx, f.p[0])), z: Math.min(hz, Math.max(-hz, f.p[1])), yaw: f.yaw };
 }
-function fallbackFrom(pos, n) {
+function fallbackFrom(pos, n, box = ROOM_SIZE) {
   const horiz = Math.hypot(n[0], n[2]);
   const nx = horiz > 0.3 ? n[0] / horiz : 0, nz = horiz > 0.3 ? n[2] / horiz : 1;
   const x = pos[0] + nx * 0.8, z = pos[2] + nz * 0.8;
-  return cleanFrom({ p: [x, z], yaw: Math.atan2(nx, nz) });
+  return cleanFrom({ p: [x, z], yaw: Math.atan2(nx, nz) }, box);
 }
 // Formen (alfamask) per design, för överlappet på golvet. Cachas (en design ändras aldrig).
 const maskCache = new Map();
@@ -930,7 +933,8 @@ async function floorOverlap(P, image, b, peels) {
   return P.overlapFraction(sticker, withMasks);
 }
 
-// Peels på/av (rummets skapare med rumsnyckeln, eller admin; Staden bara admin). { on: true|false }
+// Peels på/av (rummets skapare med rumsnyckeln, eller admin; Staden bara admin).
+// City outside: always on (shared/peels.mjs CITY_PEEL); turning them off is refused.
 app.put('/api/rooms/:room/peels', rateLimit(30), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
   const id = roomParam(req, res); if (!id) return;
