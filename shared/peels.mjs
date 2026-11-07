@@ -35,6 +35,13 @@ export const PEEL = {
   wallMargin: 0.12,         // m: lands at least this far from the walls
   maskSize: 32,             // silhouette grid (alpha mask) per design
   overlapSamples: 100,      // samples per side of the new sticker when measuring overlap
+  // Lifetime (Jens, Nov 2026): peels live lifeMs then fade out over fadeMs and are removed
+  // (client + server). Old clients that ignore peels:expire just keep showing them until reload.
+  lifeMs: 6000,
+  fadeMs: 500,
+  // Keep the mid-fall flutter inside the room: sway/curve are clamped against the walls so the
+  // paper slides along a surface instead of going through it.
+  pathMargin: 0.08,         // m: mid-path stay this far inside the walls
 };
 export const FLOOR_SURFACE = 'golv';
 
@@ -85,25 +92,38 @@ export function peelPlan(seed, from, target, room = ROOM) {
   const D = Math.hypot(dx, dz);
   if (D > 0.05) { dx /= D; dz /= D; } else [dx, dz] = forwardOf(from.yaw); // rakt upp/ner: framåt
   const floor = target[1] < 0.15;
-  const off = Math.min(PEEL.birthOff, D);
-  const sy = floor ? PEEL.birthFloorLift : clamp(target[1], PEEL.birthFloorLift, (room.height ?? 4) - PEEL.birthCeilingGap);
-  const start = [clamp(target[0] - dx * off, -mx, mx), sy, clamp(target[2] - dz * off, -mz, mz)];
-  // Which way is "out from the wall": the wall's inward normal for a wall slap, else back towards the slapper.
+  const ceiling = !floor && target[1] > (room.height ?? 4) - 0.2;
+  // Which way is "out from the wall": the wall's inward normal (orthogonal), else back towards the slapper.
   const wx = room.width / 2 - PEEL.wallSnap, wz = room.depth / 2 - PEEL.wallSnap;
-  const onWall = !floor && (Math.abs(target[0]) >= wx || Math.abs(target[2]) >= wz);
-  let ox = -dx, oz = -dz, back, scatter;
+  const onWall = !floor && !ceiling && (Math.abs(target[0]) >= wx || Math.abs(target[2]) >= wz);
+  let ox = -dx, oz = -dz;
+  if (onWall) {
+    const ex = Math.abs(target[0]) - wx, ez = Math.abs(target[2]) - wz;
+    if (ex >= ez) { ox = -Math.sign(target[0]) || -1; oz = 0; } else { ox = 0; oz = -Math.sign(target[2]) || -1; }
+  }
+  // Birth: for a wall slap, push out along the wall normal (clearer orthogonal launch); else toward the slapper.
+  const off = Math.min(PEEL.birthOff, onWall ? PEEL.birthOff : D);
+  const sy = floor ? PEEL.birthFloorLift : clamp(target[1], PEEL.birthFloorLift, (room.height ?? 4) - PEEL.birthCeilingGap);
+  const bx = onWall ? target[0] + ox * off : target[0] - dx * off;
+  const bz = onWall ? target[2] + oz * off : target[2] - dz * off;
+  const start = [clamp(bx, -mx, mx), sy, clamp(bz, -mz, mz)];
+  let back, scatter;
   if (floor) { back = Math.min(PEEL.footBackFloor, D); scatter = PEEL.footScatter; }
   else {
-    if (onWall) {
-      const ex = Math.abs(target[0]) - wx, ez = Math.abs(target[2]) - wz; // the wall it is nearest/past
-      if (ex >= ez) { ox = -Math.sign(target[0]); oz = 0; } else { ox = 0; oz = -Math.sign(target[2]); }
-    }
     const travel = PEEL.travelBase + PEEL.travelPerM * sy;
     back = onWall ? travel : Math.min(travel, D); // a ceiling slap: still lands around under it
-    scatter = PEEL.scatterBase + PEEL.scatterPerM * sy;
+    // Wall: tighter scatter so the paper reads as flying straight out from the wall.
+    scatter = onWall ? (PEEL.scatterBase * 0.45 + PEEL.scatterPerM * sy * 0.35) : (PEEL.scatterBase + PEEL.scatterPerM * sy);
   }
   const ang = r() * Math.PI * 2, rad = Math.sqrt(r()) * scatter;
-  const x = clamp(target[0] + ox * back + Math.cos(ang) * rad, -mx, mx), z = clamp(target[2] + oz * back + Math.sin(ang) * rad, -mz, mz);
+  // Wall scatter mostly along the wall (perpendicular to the normal), not back into it.
+  let sx = Math.cos(ang) * rad, sz = Math.sin(ang) * rad;
+  if (onWall) {
+    const px = -oz, pz = ox; // tangent in the floor plane
+    sx = px * (r() * 2 - 1) * scatter;
+    sz = pz * (r() * 2 - 1) * scatter;
+  }
+  const x = clamp(target[0] + ox * back + sx, -mx, mx), z = clamp(target[2] + oz * back + sz, -mz, mz);
   const yaw = r() * Math.PI * 2;
   return { start: start.map(round), x: round(x), z: round(z), yaw: round(yaw), side };
 }
@@ -120,7 +140,7 @@ export const flatQuat = (yaw) => qMul(qAxis([0, 1, 0], yaw), qAxis([1, 0, 0], -M
 export function peelFrame(yaw) { return { u: [Math.cos(yaw), -Math.sin(yaw)], v: [-Math.sin(yaw), -Math.cos(yaw)] }; }
 
 // Where the peel is at u = 0..1 of its fall. peel = { seed, start, x, z, yaw }.
-export function peelPose(peel, u, params = pathParams(peel.seed)) {
+export function peelPose(peel, u, params = pathParams(peel.seed), room = ROOM) {
   u = clamp(u, 0, 1);
   const [sx, sy, sz] = peel.start, ex = peel.x, ez = peel.z;
   const dx = ex - sx, dz = ez - sz, dist = Math.hypot(dx, dz) || 1e-6, px = -dz / dist, pz = dx / dist;
@@ -128,10 +148,14 @@ export function peelPose(peel, u, params = pathParams(peel.seed)) {
   const bend = 4 * u * (1 - u) * params.curve * Math.min(dist, 1); // longer falls don't swing wider
   const sway = Math.sin(params.swayPhase + u * params.swayCycles * Math.PI * 2) * PEEL.swayAmp * (1 - u) * (1 - u) - Math.sin(params.swayPhase) * PEEL.swayAmp * (1 - u) * (1 - u) * (1 - u);
   const e = u * u * (3 - 2 * u) * 0.55 + u * 0.45; // drifts out fast-ish, settles softly
-  const x = sx + dx * e + px * (bend + sway), z = sz + dz * e + pz * (bend + sway);
+  let x = sx + dx * e + px * (bend + sway), z = sz + dz * e + pz * (bend + sway);
   // Height: floats a little, then sinks; lands exactly on the floor at u = 1.
   const fall = u * (0.35 + 0.65 * u);
-  const y = lerp(sy, PEEL.floorY, fall) + Math.sin(u * Math.PI) * 0.04 * clamp(sy / PEEL.floatRef, 0, 1);
+  let y = lerp(sy, PEEL.floorY, fall) + Math.sin(u * Math.PI) * 0.04 * clamp(sy / PEEL.floatRef, 0, 1);
+  // Stay inside the room box: clamp (slide along walls / floor / ceiling) so peels never go through.
+  const mx = room.width / 2 - PEEL.pathMargin, mz = room.depth / 2 - PEEL.pathMargin;
+  const hi = (room.height ?? 4) - PEEL.birthCeilingGap;
+  x = clamp(x, -mx, mx); z = clamp(z, -mz, mz); y = clamp(y, PEEL.floorY, hi);
   // Tumbling that unwinds to flat, plus a fading rock.
   const k = (1 - u) ** 1.6;
   const tumble = qAxis(params.axis, params.turns * Math.PI * 2 * k + Math.sin(u * params.swayCycles * Math.PI * 2) * PEEL.flutterTilt * params.flutter * k);
@@ -180,3 +204,23 @@ export function overlapFraction(sticker, peels, N = PEEL.overlapSamples) {
 }
 // Is this slap on the floor (where peels can be in the way)?
 export const onFloor = (surface, normal) => surface === FLOOR_SURFACE && Array.isArray(normal) && normal[1] > 0.9;
+
+// True when a peel (with createdAt ISO or born ms) has lived past lifeMs.
+export function peelAgeMs(peel, now = Date.now()) {
+  if (!peel) return 0;
+  if (typeof peel.born === 'number') return Math.max(0, now - peel.born);
+  if (peel.createdAt) {
+    const t = Date.parse(peel.createdAt);
+    return Number.isFinite(t) ? Math.max(0, now - t) : 0;
+  }
+  return 0;
+}
+export function peelExpired(peel, now = Date.now()) { return peelAgeMs(peel, now) >= PEEL.lifeMs; }
+// Opacity 1 → 0 over the last fadeMs of the lifetime.
+export function peelOpacity(peel, now = Date.now()) {
+  const age = peelAgeMs(peel, now);
+  if (age >= PEEL.lifeMs) return 0;
+  const left = PEEL.lifeMs - age;
+  if (left >= PEEL.fadeMs) return 1;
+  return clamp(left / PEEL.fadeMs, 0, 1);
+}

@@ -29,12 +29,12 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     // slap the roll on the north wall and click it
     await P.evaluate(() => { const k = window.klibb; k.setView('first', { quiet: true }); k.moveTo(0, -1.4); k.look(0, 0.05); });
     await sleep(400);
-    await P.evaluate((id) => window.klibb.selectDesign(window.klibb.stickerDesigns().find((d) => d.id === id)), NAMETAG); await sleep(500);
+    await P.evaluate((id) => window.klibb.selectDesign(window.klibb.state.library.find((d) => d.id === id)), NAMETAG); await sleep(500);
     await P.evaluate(() => { window.klibb.controls.locked = true; window.klibb.setSize(45); window.klibb.stampAt(0, 0.2); window.klibb.controls.locked = false; });
     await sleep(900);
-    const hit = await P.evaluate(() => window.klibb.menuAt(0, 0.2));
-    check('the placed sticker roll is a menu sticker (nametag)', hit === 'nametag', hit);
-    await P.evaluate(() => window.klibb.menuClick(0, 0.2)); await sleep(800);
+    // Menu stickers are gone: open the name-tag tool from the Esc menu action (same as the NAME button).
+    check('the placed editor sticker is no longer a menu sticker', await P.evaluate(() => window.klibb.menuAt(0, 0.2)) === null);
+    await P.evaluate(() => window.klibb.menuAction('nametag')); await sleep(800);
     let st = await P.evaluate(() => window.klibb.nameTag());
     check('a click on it opens the name-tag tool on Jens\'s first blank (no code fallback needed)', st.open && st.blank === 1 && st.fallback.length === 0, st);
     await P.screenshot({ path: path.join(SHOTS, '20-nametag-open.png') });
@@ -62,10 +62,10 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const ink = await P.evaluate(() => { const c = document.getElementById('nt-ink').getContext('2d'); const d = c.getImageData(0, 0, 800, 536).data; let red = 0, semi = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200 && d[i - 3] > 180 && d[i - 2] < 60) red++; else if (d[i] > 60 && d[i] < 160) semi++; return { red, semi }; });
     check('drawing works: red solid ink, the opaque brush leaves see-through ink, brush = opaque, size 40', ink.red > 4000 && ink.semi > 4000 && st.brush === 'opaque' && st.size === 40 && /^#e[0-9a-f]|^#f[0-9a-f]/.test(st.color), { ink, st });
     await P.screenshot({ path: path.join(SHOTS, '22-nametag-drawn.png') });
-    const choices = await P.evaluate(() => window.klibb.stickerDesigns().filter((d) => !['697fceb275175f0c', '14ea2304625a5827', 'e8a93272e6311b69', 'fe62d4b007728d63', 'a03b0ba5768979e6', '910d8ca0408dcec8', 'f79189b79546d64a', 'c70d4436a5b53efc', '20c9aed10d5a98e8'].includes(d.id)).length);
+    const choices = await P.evaluate(() => window.klibb.stickerDesigns().length);
     await P.click('#nt-save'); await sleep(800);
     const grid = await P.evaluate(() => ({ shown: !document.getElementById('nt-replace').hidden, n: document.querySelectorAll('#nt-grid .nt-pick').length, first: document.querySelector('#nt-grid .nt-pick')?.dataset.id }));
-    check('"save" → "choose one to replace": the wheel\'s stickers (not the menu stickers)', grid.shown && grid.n === choices && grid.n > 50, { grid, choices });
+    check('"save" → "choose one to replace": the wheel\'s stickers', grid.shown && grid.n === choices && grid.n > 50, { grid, choices });
     await P.screenshot({ path: path.join(SHOTS, '23-nametag-choose-replace.png') });
     await P.click(`#nt-grid .nt-pick[data-id="${D71}"]`);
     await P.waitForFunction(() => !window.klibb.nameTag().open, null, { timeout: 15000 }); await sleep(800);

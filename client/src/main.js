@@ -50,7 +50,9 @@ import { initStackMenu } from './stackmenu.js';
 import { createHeldTimer } from '../../shared/heldtimer.mjs';
 import { createRoomSizer, ROOM_RANGE } from './roomsize.js';
 import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
-import { menuOf, runMenuSticker, MENU_IDS, RETIRED_MENU_IDS } from './menustickers.js';
+import { WHEEL_EXCLUDE, FORMER_MENU_IDS } from './menustickers.js';
+import { initEscMenu } from './escmenu.js';
+import { SlapFx } from './slapfx.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
 import { CITY_FX, cityFxAt, placeNeutral, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
@@ -127,6 +129,7 @@ const stamps = new StampLayer(scene, room.surfaces);
 stamps.keepLive = () => roomHistory(ROOM).map((h) => h.stampId);
 // Peels: baksidespappret som faller till golvet vid varje slap (när rummet har det på), peels.js.
 const peelLayer = new PeelLayer(scene);
+const slapFx = new SlapFx(scene);
 // The backing paper lands: a soft "duff", louder and lower the bigger the paper, in the
 // slapper's own sound (their look.sound), from where it landed.
 peelLayer.onLand = (peel, by) => {
@@ -419,10 +422,10 @@ function deckDesigns() {
   // Jens, 2 Nov 2026 / 4 Nov (t507u): 98 in the middle, 26, d74, e14 to its left, the menu stickers to its right, then the list from the back (shared/wheelorder.mjs)
   if (key !== wheelKey) {
     wheelKey = key;
-    const order = wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: MENU_IDS, exclude: RETIRED_MENU_IDS });
+    const order = wheelOrder(state.library.filter((d) => !isNat(d)), mine, { menus: [], exclude: WHEEL_EXCLUDE });
     const have = new Set(order.map((d) => d.id)), extra = kept.filter((d) => !have.has(d.id)).map((d) => ({ ...d, kept: true }));
     let list = applySwaps([...order, ...extra], swaps), n = 0;
-    list = list.filter((d) => MENU_IDS.includes(d.id) || ++n <= DECK_MAX);
+    list = list.filter((d) => { if (WHEEL_EXCLUDE.includes(d.id)) return false; return ++n <= DECK_MAX; });
     wheelCache = list;
   }
   return wheelCache;
@@ -432,12 +435,11 @@ function deckDesigns() {
 let cityKey = '', cityCache = [];
 function cityDesigns() {
   const byId = (id) => state.library.find((d) => d.id === id) || state.mine.find((d) => d.id === id) || null;
-  const exit = state.library.find((d) => d.id === CITY_EXIT_ID) || null;
   const key = [localStorage.getItem('klibb.pac')?.length, localStorage.getItem('klibb.cityTaken'), state.library.length, state.mine.length, cityPackUrl, cityPaid].join('|');
-  if (key !== cityKey) { cityKey = key; cityCache = cityWheel({ byId, exit, max: cityPaid ? DECK_MAX : 9 }); }
+  // Exit is an Esc-menu button now (no exit sticker on the city wheel).
+  if (key !== cityKey) { cityKey = key; cityCache = cityWheel({ byId, exit: null, max: cityPaid ? DECK_MAX : 9 }); }
   return cityCache;
 }
-const CITY_EXIT_ID = 'a03b0ba5768979e6'; // exit.png (menustickers.js) – the city's exit button
 var cityPackUrl = ''; // eslint-disable-line no-var
 var cityPaid = false; // eslint-disable-line no-var -- a paying player carries more than 3 packs (the Town Hall says)
 if (IN_CITY) carryReady.then(() => refreshPackPicture()).then((u) => { cityPackUrl = u || ''; cityKey = ''; const l = stickerDesigns(); if (state.selected && !keepSel(l)) select(l[0] || null); else renderDesignHud(); });
@@ -813,7 +815,7 @@ async function slapAt(ndc, info, onStart, auto = null) {
   if (!roomSizer.isDefault()) { if (!auto) toast(S.roomSizeNoSlap, 2600); return null; } // a test size: the stickers would land wrong for everyone else
   // The City (t476u): my pack and the exit button on the wheel are buttons, not stickers; a click on a
   // door (in reach) goes through it.
-  if (IN_CITY && (isPackDesign(state.selected) || state.selected.id === CITY_EXIT_ID)) { if (!auto) (isPackDesign(state.selected) ? cityPackAction() : menuActions.exit()); return null; }
+  if (IN_CITY && isPackDesign(state.selected)) { if (!auto) cityPackAction(); return null; }
   if (CITY_OUTSIDE && !auto) { const d = doorHit(ndc); if (d) { openCityDoor(d); return null; } }
   const h = hitSurface(ndc); if (!h) return null;
   if (auto && auto.check && !auto.check(h)) return null;
@@ -828,6 +830,8 @@ async function slapAt(ndc, info, onStart, auto = null) {
   pendingJitter = (Math.random() - 0.5) * 30;
   // Min gubbe slår handen mot väggen i samma bildruta som klibban syns (bara i tredjepersonsvy).
   together.selfGesture('slap', h.point, h.normal);
+  // Hit flash + discreet wind puff at the slap (client/src/slapfx.js).
+  try { slapFx.burst(h.point, h.normal, camera.position); } catch { /* fx is cosmetic */ }
   // Kom ihåg exakt vilken design som stämplas: användaren kan hinna trycka R innan svaret kommer.
   const design = state.selected;
   if (!auto || auto.first !== false) { const [dw, dh] = stampDims(design, 1); filmLog?.add('stick', { url: String(design.url || '').length < 200_000 ? design.url || '' : '', aspect: dh > 0 ? +(dw / dh).toFixed(3) : 1 }); } // the session film
@@ -1607,6 +1611,7 @@ $('enter').onclick = () => controls.lock();
 // ~1 s after the user left it with Esc. So we try, and if the lock doesn't come we still leave
 // the menu and show "Click to enter" – the next click locks (no errors, no toasts).
 var escGate = { unlockedAt: -1e9 }; // eslint-disable-line no-var
+var escMenu = null; // eslint-disable-line no-var -- assigned after menuActions (Esc big-button menu)
 let resuming = false;
 function setResuming(on) {
   resuming = !!on;
@@ -1634,9 +1639,11 @@ function escTarget() {
   if (fullUi?.isOpen()) return () => fullUi.close();
   if (!$('sound-panel').hidden) return () => soundUi.close();
   if (!$('avatar-panel').hidden) return () => $('av-cancel').click();
+  if (!$('room-panel').hidden) return () => closeRoomPanel();
   if (sp.open) return () => closeStylePanel(true);
   if (!$('more-panel').hidden) return () => closeMore();
   if (!$('room-menu').hidden) return () => closeRoomMenu();
+  if (escMenu?.isOpen()) return () => escMenu.close({ resume: true });
   if (credit.id) return () => hideCredit();
   return null;
 }
@@ -1649,22 +1656,33 @@ function onEscape(e) {
   const close = escTarget();
   if (close) { e.preventDefault(); close(); return; }
   if (isTouch) return;
-  if (controls.locked) return;                       // the browser handles this one (→ menu)
-  if (e.repeat || performance.now() - escGate.unlockedAt < 500) return; // the Esc that opened the menu
+  if (controls.locked) return;                       // the browser unlocks; onLockChange opens the Esc menu
+  // The Esc that just unlocked: open the big-button menu (don't resume yet).
+  if (e.repeat) return;
+  if (performance.now() - escGate.unlockedAt < 500) {
+    e.preventDefault();
+    if (!escMenu?.isOpen()) escMenu?.open();
+    return;
+  }
   e.preventDefault();
-  if (resuming) setResuming(false); else resumeGame();
+  if (resuming) { setResuming(false); escMenu?.open(); }
+  else if (escMenu?.isOpen()) escMenu.close({ resume: true });
+  else resumeGame();
 }
 addEventListener('keydown', onEscape);
 controls.onLockChange = (locked) => {
   if (!locked) cancelArray(); // Esc leaves pointer lock first: that cancels a sticker array too
   // Esc (the player left the game) turns auto-slap off; our own unlocks (menus, chat) and a hidden tab only pause it.
-  if (!locked && autoSlap && autoSlap.on && performance.now() - softUnlockAt > 400 && document.visibilityState === 'visible' && document.hasFocus()) autoSlap.setOn(false);
+  const realEsc = !locked && performance.now() - softUnlockAt > 400 && document.visibilityState === 'visible' && document.hasFocus();
+  if (realEsc && autoSlap && autoSlap.on) autoSlap.setOn(false);
   if (!locked) escGate.unlockedAt = performance.now();
-  if (locked) setResuming(false);
+  if (locked) { setResuming(false); escMenu?.close(); }
   document.body.classList.toggle('locked', locked);
   if (locked) { closeMore(); closeRoomMenu(); }
   $('crosshair').hidden = !locked;
   if (!locked) { preview.hide(); hideCredit(); } // Esc (leaving the room) hides the artist credit
+  // Real Esc out of the game → spawn the big-button menu (not a soft unlock for a panel).
+  if (realEsc) escMenu?.open();
 };
 
 // 'My avatar' open: drag (mouse or one finger) on the room = spin my avatar round.
@@ -2166,7 +2184,10 @@ function onRoomEvent(e) {
     }
     // Någon annans slap: deras gubbe slår handen mot väggen samtidigt som klibban dyker upp.
     // (by saknas från äldre klienter: då syns bara klibban, som förut.)
-    if (!quietCopy && typeof e.by === 'string' && e.by !== together.net.id && !stamps.meshes.has(e.stamp.id)) together.players.gesture(e.by, 'slap', e.stamp.position, e.stamp.normal);
+    if (!quietCopy && typeof e.by === 'string' && e.by !== together.net.id && !stamps.meshes.has(e.stamp.id)) {
+      together.players.gesture(e.by, 'slap', e.stamp.position, e.stamp.normal);
+      try { slapFx.burst(e.stamp.position, e.stamp.normal); } catch { /* fx */ }
+    }
     stamps.add(e.stamp, e.image).then(updateCount);
   } else if (e.type === 'stamp:remove' && e.quiet) {
     // The automatic cleanup: a sticker nobody could see any more (completely covered). No sound.
@@ -2188,6 +2209,7 @@ function onRoomEvent(e) {
     if (e.on) api.loadRoom(ROOM).then((r) => syncPeels(r.info, r.peels, r.images)).catch(() => {});
     else { peelLayer.setOn(false); updatePeelUi(); }
   } else if (e.type === 'peels:clear') peelLayer.clear();
+  else if (e.type === 'peels:expire' && Array.isArray(e.ids)) peelLayer.remove(e.ids);
   else if (e.type === 'room:groove') { /* the groove is personal now (Jens, 2 Nov 2026): a room's change is ignored */ }
   else if (e.type === 'room:style' && e.style) {
     currentStyle = normalizeStyle(e.style); updateStyleUi();
@@ -2379,10 +2401,8 @@ $('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { clo
   mv.oninput = () => sound.setVolume(Number(mv.value) / 100);
 }
 
-// ---------- Menu stickers (menustickers.js; Jens, 31 Oct 2026) ----------
-// A click/tap on a placed menu sticker opens its menu instead of slapping / showing a credit.
-// The old buttons (👤 My avatar, Sound settings, Room ▾ …) all still work.
-// Two big choices over the room (exit, door): [{ text, go }]; the last one is "back".
+// ---------- Esc menu actions (was menu stickers; Jens, Nov 2026) ----------
+// The big Esc buttons call the same actions. openChoice is still used for exit / city / door flows.
 function openChoice(what, items) {
   const box = $('menu-choice'), list = $('menu-choice-list');
   controls.unlock?.(); box.dataset.what = what; list.textContent = '';
@@ -2444,7 +2464,7 @@ async function openCityDoor(p) {
 }
 function openHall() {
   controls.unlock?.(); closeChoice();
-  openTownHall({ toast, onChange: cityWheelChanged, makePack: () => openDoorPick(doorOpts()), deck: () => deckDesigns().filter((d) => !MENU_IDS.includes(d.id)), onDeck: () => { wheelKey = ''; } });
+  openTownHall({ toast, onChange: cityWheelChanged, makePack: () => openDoorPick(doorOpts()), deck: () => deckDesigns(), onDeck: () => { wheelKey = ''; } });
   syncPaid();
 }
 // what the Town Hall says about me: a paying player carries more (their wheel is not cut at 9)
@@ -2461,7 +2481,7 @@ function walkToDoor(n) { const s = spawnOutside(houseId(THIS_CITY, n)); camera.p
 // The door's pick: "to city →" = the city picker (start a city and name it, or go into one that is
 // alive); in a city already, the new pack is simply what I carry now. Leaving my room for a city is
 // one way (Jens, t479u: it may have filled up with people) – no "back to my room".
-const doorOpts = () => ({ S, toast, choices: () => (IN_CITY ? state.library.filter((d) => !isNat(d) && !MENU_IDS.includes(d.id) && !RETIRED_MENU_IDS.includes(d.id)) : stickerDesigns().filter((d) => !MENU_IDS.includes(d.id))),
+const doorOpts = () => ({ S, toast, choices: () => (IN_CITY ? state.library.filter((d) => !isNat(d) && !WHEEL_EXCLUDE.includes(d.id)) : stickerDesigns()),
   toCity: () => { if (IN_CITY) cityWheelChanged(); else filmThenCity(); } });
 // The session film (Jens, 5 Nov 2026, pt536u): leaving the room for the City ends my film – the pack I
 // just made is its last scene – then Watch / Download / Discard, then the City picker as before. The
@@ -2531,6 +2551,18 @@ const menuActions = {
   nametag: () => openNameTag(),
   door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => openDoorPick(doorOpts()) }, { id: 'back', text: S.doorBackToRoom }]),
 };
+// Esc / touch big-button menu (replaces menu stickers).
+escMenu = initEscMenu({
+  isTouch,
+  onSound: () => menuActions.radio(),
+  onAvatar: () => menuActions.character(),
+  onRoom: () => menuActions.room(),
+  onCity: () => menuActions.door(),
+  onExit: () => menuActions.exit(),
+  onName: () => menuActions.nametag(),
+  onClose: () => resumeGame(),
+});
+
 // The name-tag roll (knappar/editor.png): the "my name is" drawing tool (nametag.js). The finished tag
 // is uploaded as my sticker and takes the place of the wheel sticker I chose (klibb.swaps, applySwaps).
 const SWAP_KEY = 'klibb.swaps';
@@ -2543,7 +2575,7 @@ function openNameTag() {
   openNameTagTool({
     S, toast,
     onClose: () => propsUi.standUp(),
-    choices: () => stickerDesigns().filter((d) => !MENU_IDS.includes(d.id)),
+    choices: () => stickerDesigns(),
     onSave: async (blob, replaceId) => {
       toast(S.uploading, 10000);
       const img = await api.uploadSticker(blob, state.artist, { name: 'name-tag.png' });
@@ -2562,14 +2594,9 @@ function openNameTag() {
   });
 }
 // ndc: where (the dot when locked, else the finger/cursor). true = a menu opened (the click is used up).
-function menuClick(ndc) {
-  if (sp.open || together.busy() || camView || state.adminToken || arrayDrag || !$('room-panel').hidden || !$('sound-panel').hidden || !$('menu-choice').hidden || nameTagOpen() || doorOpen()) return false;
-  const hit = pickStampAt(ndc);
-  if (!menuOf(hit)) return false;
-  hideCredit();
-  const name = runMenuSticker(hit, menuActions);
-  if (name && window.klibb) window.klibb.lastMenu = { name, at: Date.now() };
-  return !!name;
+function menuClick(_ndc) {
+  // Menu stickers are gone (Esc menu replaces them). Kept as a no-op so older tests/hooks don't throw.
+  return false;
 }
 
 // ---------- The room info panel (the 'room' menu sticker) ----------
@@ -3215,6 +3242,7 @@ function frame() {
   together.update(dt, eyeCam.position, { hideSelf: cv ? camAtMe : !tp || chase.dist < (view === 'front' ? FRONT.minDist * 0.8 : CHASE.hideBelow) });
   cams.update(cv ? null : eyeCam.position);
   peelLayer.update();
+  slapFx.update();
   walkSounds();
   radio.tick();
   placeTick();
@@ -3322,7 +3350,7 @@ window.klibb = {
   nameTag: nameTagState, openNameTag, door: doorState, menuAction: (k) => menuActions[k]?.(),
   city: () => ({ id: THIS_CITY, outside: CITY_OUTSIDE, inCity: IN_CITY, house: houseNumber(ROOM), info: cityInfo, paid: cityPaid, wheel: stickerDesigns().map((d) => d.id), taken: takenPacks().map((p) => p.id), hall: townHallState(), pick: cityPickState(), atDoor, doors: room.doors ? room.doors.length : 0, doorStates: room.doors ? room.doors.map((d) => [d.userData.door, d.userData.state || null]) : [] }),
   openHall, cityDoor: (n) => openCityDoor(plotOfDoor(n)), refreshCity, deck: () => deckDesigns().map((d) => d.id), kept: readKept,
-  menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: (x = 0, y = 0) => menuOf(pickStampAt(new THREE.Vector2(x, y))), openRoomPanel, askForVisitors, roomSize: () => ({ ...roomSizer.get(), normal: roomSizer.isDefault() }), setRoomSize: (d) => roomSizer.set(d), roomSurfaces: () => room.surfaces, roomBounds: () => room.bounds, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
+  menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: () => null, openRoomPanel, askForVisitors, roomSize: () => ({ ...roomSizer.get(), normal: roomSizer.isDefault() }), setRoomSize: (d) => roomSizer.set(d), roomSurfaces: () => room.surfaces, roomBounds: () => room.bounds, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?
   fold(position, quaternion, w, h, surface) {
     const pieces = foldStamp(stamps.faces, { center: new THREE.Vector3(...position), quaternion: new THREE.Quaternion(...quaternion), w, h, surface });
@@ -3350,6 +3378,7 @@ window.klibb = {
   cleanArtistLink,
   endDialog: () => ({ open: endDlg.open, shows: endShows, title: $('end-title').textContent, question: $('end-q').textContent, action: $('end-action').textContent, keep: $('end-keep').textContent }),
   sound, soundLog: () => sound.log.slice(), openMore, closeMore, fullUi: () => fullUi, moreOpen: () => !$('more-panel').hidden,
+  escMenu: () => escMenu, slapFx: () => slapFx, wheelExclude: () => WHEEL_EXCLUDE, formerMenuIds: () => FORMER_MENU_IDS,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   wheelUp, touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,

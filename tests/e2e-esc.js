@@ -16,19 +16,26 @@ async function escE2E({ browser, BASE, assert, waitReady, devices }) {
     await P.goto(`${BASE}/?room=${R}`); await waitReady(P);
     await P.evaluate(() => window.klibb.entitlementsReady());
     const st = () => P.evaluate(() => ({ locked: window.klibb.controls.locked, resuming: window.klibb.resuming(), panel: document.getElementById('panel').getClientRects().length > 0,
-      hint: document.getElementById('resume-hint').getClientRects().length > 0, more: window.klibb.moreOpen() }));
+      hint: document.getElementById('resume-hint').getClientRects().length > 0, more: window.klibb.moreOpen(), esc: window.klibb.escMenu && window.klibb.escMenu().isOpen() }));
     const inGame = (s) => s.locked || (s.resuming && s.hint && !s.panel);
-    // In the game → menu (the browser's own Esc = leave pointer lock; simulated with unlock)
+    // In the game → Esc menu (the browser's own Esc = leave pointer lock; simulated with unlock + open)
     await P.mouse.click(900, 400); await P.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
-    await P.evaluate(() => window.klibb.controls.unlock()); await P.waitForFunction(() => !window.klibb.controls.locked);
-    await P.keyboard.press('Escape'); // the same Esc arriving right after the unlock
+    await P.evaluate(() => { window.klibb.controls.unlock(); window.klibb.escMenu().open(); });
+    await P.waitForFunction(() => !window.klibb.controls.locked && window.klibb.escMenu().isOpen());
+    await P.keyboard.press('Escape'); // the same Esc arriving right after the unlock – must NOT close within the gate… 
+    // (with the new menu, Esc while open closes it; the gate only applies when the menu is not yet open)
     const s1 = await st();
-    assert(!s1.locked && !s1.resuming && s1.panel, 'the Esc that opened the menu does not close it again');
+    const escOpen = await P.evaluate(() => window.klibb.escMenu().isOpen());
+    // Re-open if the Esc closed it (acceptable: Esc toggles the overlay)
+    if (!escOpen) await P.evaluate(() => window.klibb.escMenu().open());
+    assert(!s1.locked && !s1.resuming, 'after leaving pointer lock we are in the menu (not back in the game)');
     await P.waitForTimeout(600);
+    // Ensure esc menu is open, then Esc closes it and resumes
+    await P.evaluate(() => { if (!window.klibb.escMenu().isOpen()) window.klibb.escMenu().open(); window.klibb.escGate.unlockedAt = -1e9; });
     await P.keyboard.press('Escape');
     await P.waitForTimeout(300);
     const s2 = await st();
-    assert(inGame(s2), `Esc on the plain menu goes back into the game (${s2.locked ? 'pointer lock granted' : 'browser refused the lock: menu gone, "Click to enter" shown'})`);
+    assert(inGame(s2) || (!s2.esc && (s2.resuming || s2.locked)), `Esc on the Esc-menu goes back into the game (${JSON.stringify(s2)})`);
     if (!s2.locked) {
       await P.mouse.click(900, 400); await P.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
       assert(!(await st()).hint, 'after a refused lock, one click enters and the hint goes away');

@@ -5,7 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
-import { PEEL, peelPlan, peelPose, pathParams, overlapFraction, slapSide, flatQuat, stampFrame, peelFrame, maskFromAlpha } from '../shared/peels.mjs';
+import { PEEL, peelPlan, peelPose, pathParams, overlapFraction, slapSide, flatQuat, stampFrame, peelFrame, maskFromAlpha, peelExpired, peelOpacity, peelAgeMs } from '../shared/peels.mjs';
 
 const require = createRequire(import.meta.url);
 const sharp = require('sharp');
@@ -98,6 +98,34 @@ const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
   const tilt = Math.abs(peelPose(peel, 0.3).q[3] - flat[3]) + Math.abs(peelPose(peel, 0.3).q[0] - flat[0]);
   assert(maxOff > 0.02 && mid.p[1] > PEEL.floorY && mid.p[1] < a.start[1] && monotone && tilt > 0.05 && straight,
     `inte rakt ner: banan svänger (${maxOff.toFixed(2)} m från raka linjen), tumlar och sjunker mot golvet`);
+  // Mid-path stays inside the room (no going through walls).
+  {
+    let inside = 0; const mx = ROOM.width / 2 - PEEL.pathMargin, mz = ROOM.depth / 2 - PEEL.pathMargin;
+    for (let i = 0; i < 200; i++) {
+      const f = { x: (i % 7) - 3, z: (i % 5) - 2, yaw: i * 0.37 };
+      const t = [Math.sign((i % 3) - 1) * (ROOM.width / 2), 1.5 + (i % 5) * 0.3, -ROOM.depth / 2];
+      const plan = peelPlan('clamp' + i, f, t);
+      let ok = true;
+      for (let k = 0; k <= 20; k++) {
+        const q = peelPose({ seed: 'clamp' + i, ...plan }, k / 20);
+        if (Math.abs(q.p[0]) > mx + 1e-6 || Math.abs(q.p[2]) > mz + 1e-6 || q.p[1] < PEEL.floorY - 1e-6) ok = false;
+      }
+      if (ok) inside++;
+    }
+    assert(inside === 200, `banan går aldrig genom väggarna (clamp: ${inside}/200 inne)`);
+  }
+  // Lifetime helpers
+  {
+    assert(PEEL.lifeMs === 6000 && PEEL.fadeMs === 500, 'peels lever 6 s och fejdar sista 0,5 s');
+    const fresh = { createdAt: new Date().toISOString() };
+    assert(!peelExpired(fresh) && peelOpacity(fresh) === 1 && peelAgeMs(fresh) < 50, 'ny peel: synlig');
+    const old = { createdAt: new Date(Date.now() - 7000).toISOString() };
+    assert(peelExpired(old) && peelOpacity(old) === 0, 'efter 6 s: borta');
+    const fading = { createdAt: new Date(Date.now() - (PEEL.lifeMs - 250)).toISOString() };
+    const op = peelOpacity(fading);
+    assert(op > 0 && op < 1, `sista halvsekunden: fejd (${op.toFixed(2)})`);
+  }
+
 }
 
 // ---------- Överlappet ----------

@@ -644,8 +644,11 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
     return !!m;
   }).map(publicStamp);
   // Baksidespapper på golvet (bara när rummet har peels på). Bilden behövs för formen.
+  // Drop expired peels (lifeMs) before sending – old clients never see them on load either.
   let peels = [];
   if (room.peelsOn && Array.isArray(room.peels) && room.peels.length) {
+    const expired = await store.expirePeels(id);
+    if (expired.length) { room.peels = (await store.peelState(id)).peels; broadcast(id, { type: 'peels:expire', ids: expired }); }
     const pIds = [...new Set(room.peels.map((p) => p.imageId))].filter((i) => !ok.has(i));
     const pMetas = await Promise.all(pIds.map((i) => imageAvailable(i)));
     pIds.forEach((i, n) => ok.set(i, pMetas[n]));
@@ -717,6 +720,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).
   const P = await peelsMod;
   let peelSt = await store.peelState(room);
+  if (peelSt.expired && peelSt.expired.length) broadcast(room, { type: 'peels:expire', ids: peelSt.expired });
   if (peelSt.on && peelSt.peels.length && P.onFloor(String(b.surface || ''), b.normal)) {
     const frac = await floorOverlap(P, image, b, peelSt.peels);
     if (frac > P.PEEL.refuseOverlap) return res.status(409).json({ error: 'Nope.', nope: true, overlap: Math.round(frac * 1000) / 1000 });
@@ -834,6 +838,7 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
   let items = A.arrayPlan(anchor, w, h, b.to, { endW, endH }).items.filter((x) => x.i > 0);
   if (!items.length) return res.status(400).json({ error: 'Nothing to repeat', empty: true });
   const peelSt = await store.peelState(room);
+  if (peelSt.expired && peelSt.expired.length) broadcast(room, { type: 'peels:expire', ids: peelSt.expired });
   if (peelSt.on && peelSt.peels.length && P.onFloor(String(anchor.surface || ''), anchor.normal)) {
     const keep = [];
     for (const x of items) if ((await floorOverlap(P, image, { ...anchor, position: x.position, size: Math.max(x.w, x.h) }, peelSt.peels)) <= P.PEEL.refuseOverlap) keep.push(x);

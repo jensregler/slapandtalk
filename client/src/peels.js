@@ -8,7 +8,7 @@
 // and gives every peel its born time (the slap's t), so the fall is a pure function of the
 // replay time: the same at every play, seek or scrub (rewind() puts a landed peel back in the air).
 import * as THREE from 'three';
-import { PEEL, peelPose, pathParams, maskFromAlpha, overlapFraction, stampDims, stampFrame } from '../../shared/peels.mjs';
+import { PEEL, peelPose, pathParams, maskFromAlpha, overlapFraction, stampDims, stampFrame, peelOpacity, peelExpired } from '../../shared/peels.mjs';
 import { onPeel } from '../../shared/peelstep.mjs';
 
 const SIL_PX = 128;
@@ -75,11 +75,15 @@ export class PeelLayer {
     const P = e.peel;
     const u = e.landed ? 1 : Math.max(0, Math.min(1, (now - e.born) / (e.params.dur * 1000)));
     const pose = peelPose(P, u, e.params);
-    _p.set(...pose.p); _q.set(...pose.q); _s.set(P.w, P.h, 1);
+    // Lifetime fade (last fadeMs): shrink to nothing, then update() removes it.
+    const life = { createdAt: e.createdAt, born: e.life0 };
+    const op = peelOpacity(life, typeof now === 'number' ? (e.lifeClock ? e.lifeClock(now) : Date.now()) : Date.now());
+    const sc = Math.max(0.001, op);
+    _p.set(...pose.p); _q.set(...pose.q); _s.set(P.w * sc, P.h * sc, 1);
     g.mesh.setMatrixAt(i, _m.compose(_p, _q, _s));
-    if (u >= 1) { // mjuk mörk kant under, lite större och förskjuten mot ljuset
+    if (u >= 1 && op > 0.01) { // mjuk mörk kant under, lite större och förskjuten mot ljuset
       FLAT.set(...pose.q);
-      _p.set(pose.p[0] + 0.006, PEEL.floorY * 0.5, pose.p[2] + 0.008); _s.set(P.w * 1.06 + 0.01, P.h * 1.06 + 0.01, 1);
+      _p.set(pose.p[0] + 0.006, PEEL.floorY * 0.5, pose.p[2] + 0.008); _s.set((P.w * 1.06 + 0.01) * sc, (P.h * 1.06 + 0.01) * sc, 1);
       g.edge.setMatrixAt(i, _m.compose(_p, FLAT, _s));
     } else g.edge.setMatrixAt(i, _m.makeScale(0, 0, 0));
     if (u >= 1 && !e.landed) { e.landed = true; this.falling.delete(it.id); this.landedCount++; if (this.onLand) this.onLand(e.peel, e.by); }
@@ -91,7 +95,10 @@ export class PeelLayer {
     if (!peel || !image || this.peels.has(peel.id)) return;
     const params = pathParams(peel.seed);
     if (born != null) animate = this.now() - born < params.dur * 1000;
-    const e = { peel, image, born: born ?? this.now(), params, landed: !animate, by };
+    const life0 = Date.now(); // wall clock for the 6 s lifetime (replay uses born for the fall only)
+    const e = { peel, image, born: born ?? this.now(), params, landed: !animate, by, life0, createdAt: peel.createdAt || null,
+      // Map performance.now()/replay now → wall clock so fade stays in sync during replay seeks.
+      lifeClock: (n) => life0 + Math.max(0, n - (born ?? this.now())) };
     this.peels.set(peel.id, e);
     let g;
     try { g = await this.group(image); } catch { if (this.peels.get(peel.id) === e) this.peels.delete(peel.id); return; }
@@ -140,10 +147,23 @@ export class PeelLayer {
   // Högst maxPerRoom, de äldsta först bort (som servern).
   trim() { const n = this.peels.size - PEEL.maxPerRoom; if (n > 0) this.remove([...this.peels.keys()].slice(0, n)); }
   update(now = this.now()) {
-    if (!this.falling.size) return;
+    // Expire peels that have lived their lifeMs (fade handled in place()).
+    const dead = [];
+    for (const [id, e] of this.peels) {
+      const wall = e.lifeClock ? e.lifeClock(now) : Date.now();
+      if (peelExpired({ createdAt: e.createdAt, born: e.life0 }, wall)) dead.push(id);
+    }
+    if (dead.length) this.remove(dead);
+    if (!this.falling.size && !this.peels.size) return;
+    // Re-place falling peels and any that are in the fade window (so they shrink).
     for (const g of this.groups.values()) {
       let dirty = false;
-      g.items.forEach((it, i) => { if (this.falling.has(it.id)) { this.place(g, it, i, now); dirty = true; } });
+      g.items.forEach((it, i) => {
+        const e = this.peels.get(it.id);
+        const wall = e && (e.lifeClock ? e.lifeClock(now) : Date.now());
+        const fading = e && peelOpacity({ createdAt: e.createdAt, born: e.life0 }, wall) < 1;
+        if (this.falling.has(it.id) || fading) { this.place(g, it, i, now); dirty = true; }
+      });
       if (dirty) g.mesh.instanceMatrix.needsUpdate = g.edge.instanceMatrix.needsUpdate = true;
     }
   }

@@ -154,7 +154,7 @@ export const EN = {
   quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C camera (1st / 3rd / front) · X dance · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
     + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = Slap mode / 🌿 Nature mode (nature stickers), G = look mode on/off '
-    + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), X = 💃 dance (your character does the runway dance; switches to 3rd person while it plays), P = 📷 photo of what you see, Esc = menu (Esc again = back into the room). '
+    + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), X = 💃 dance (your character does the runway dance; switches to 3rd person while it plays), P = 📷 photo of what you see, Esc = big menu (Sound / Avatar / Room / City / Exit / Name; Esc again = back into the room). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Visit the City opens the shared room (the plain address takes you to your most recent room). '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
@@ -170,6 +170,10 @@ export const EN = {
   smAria: 'Menu', smBook: 'Stickers', smAvatar: 'Character', smRoom: 'Room', smUndo: 'Undo', smView: '3rd person', smViewFirst: '1st person', smViewFront: 'Front 🤳',
   smPhoto: 'Photo', smDance: 'Dance', smTalk: 'Talk', smMic: 'Mic', smTalkAria: 'Talk and microphone',
   smBookTitle: 'Your stickers', smBookHint: 'Tap one to hold it, then tap a wall to slap it.',
+  smEsc: 'Menu',
+  escMenuAria: 'Menu',
+  escSound: 'SOUND', escAvatar: 'AVATAR', escRoom: 'ROOM',
+  escCity: 'CITY', escExit: 'EXIT', escName: 'NAME',
   heldWake: 'Tap a wall to slap it.',
 
   // ---------- More panel ----------

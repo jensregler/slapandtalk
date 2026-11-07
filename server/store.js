@@ -298,12 +298,29 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       return n;
     });
   }
+  // Peels live PEEL_LIFE_MS then disappear (shared/peels.mjs PEEL.lifeMs). Kept as a number here so
+  // the CJS store does not have to import the ESM module on every slap.
+  const PEEL_LIFE_MS = 6000;
+  function peelStillLive(p, now = Date.now()) {
+    const t = p && p.createdAt ? Date.parse(p.createdAt) : NaN;
+    return !Number.isFinite(t) || now - t < PEEL_LIFE_MS;
+  }
+  // Drop expired peels from a room's list. Returns the removed ids (possibly empty).
+  function prunePeelsList(room, now = Date.now()) {
+    if (!room || !Array.isArray(room.peels) || !room.peels.length) return [];
+    const keep = [], gone = [];
+    for (const p of room.peels) (peelStillLive(p, now) ? keep : gone).push(p);
+    if (gone.length) room.peels = keep;
+    return gone.map((p) => p.id);
+  }
   // Ett nytt papper på golvet (bara om rummet har peels på). Svar: pappret eller null.
+  // Also prunes expired peels (lifeMs) so the floor never keeps ghosts forever.
   async function addPeel(id, peel, max = 300) {
     return withLock(id, async () => {
       const room = await loadRoom(id);
       if (!room || !room.peelsOn) return null;
       room.peels = Array.isArray(room.peels) ? room.peels : [];
+      prunePeelsList(room); // drop expired quietly; clients also fade locally after lifeMs
       const p = { order: (room.peels.at(-1)?.order ?? 0) + 1, createdAt: iso(), ...peel };
       room.peels.push(p);
       if (room.peels.length > max) room.peels.splice(0, room.peels.length - max);
@@ -312,7 +329,28 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
     });
   }
   // Läs peels-läget utan kopia (bara för att läsa, t.ex. vid varje slap på golvet).
-  async function peelState(id) { const r = await loadRoom(id); return { on: !!r?.peelsOn, peels: r?.peels || [] }; }
+  // Prunes expired peels and returns { on, peels, expired? }.
+  async function peelState(id) {
+    return withLock(id, async () => {
+      const r = await loadRoom(id);
+      if (!r) return { on: false, peels: [], expired: [] };
+      r.peels = Array.isArray(r.peels) ? r.peels : [];
+      const expired = prunePeelsList(r);
+      if (expired.length) await saveRoom(r);
+      return { on: !!r.peelsOn, peels: r.peels, expired };
+    });
+  }
+  // Explicit prune (e.g. after loading a room snapshot for a joining client).
+  async function expirePeels(id) {
+    return withLock(id, async () => {
+      const r = await loadRoom(id);
+      if (!r) return [];
+      r.peels = Array.isArray(r.peels) ? r.peels : [];
+      const expired = prunePeelsList(r);
+      if (expired.length) await saveRoom(r);
+      return expired;
+    });
+  }
 
   // Ändra rummets kameror. fn(cameras, room) ändrar listan och returnerar svaret.
   // Svar: fn:s svar, 'notfound' eller 'forbidden'. Staden skapas om admin lägger en kamera där.
@@ -574,7 +612,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
 
   return {
     adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, addStamps, deleteStamp, peelStamps, resetStamps, clearMine, noteVisitor, listRooms, deleteRoom, lastActivity,
-    deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, setGroove, addPeel, peelState, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
+    deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, setGroove, addPeel, peelState, expirePeels, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle, getSoundPreset, putSoundPreset,
   };
 }

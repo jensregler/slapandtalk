@@ -210,6 +210,7 @@
   <div id="pinch-hud" aria-live="polite"></div>
   <div id="stack-scrim" hidden></div>
   <nav id="stack-menu" hidden data-t-aria="smAria">
+    <button id="sm-esc" type="button" class="sm-item" data-ring="2" data-ang="75"><span class="sm-ico">☰</span><span class="sm-lab" data-t="smEsc">Menu</span></button>
     <button id="sm-book" type="button" class="sm-item" data-ring="2" data-ang="105"><span class="sm-ico">📒</span><span class="sm-lab" data-t="smBook">Stickers</span></button>
     <button id="sm-avatar" type="button" class="sm-item no-demo" data-ring="2" data-ang="135"><span class="sm-ico">🧍</span><span class="sm-lab" data-t="smAvatar">Character</span></button>
     <button id="sm-room" type="button" class="sm-item" data-ring="2" data-ang="165"><span class="sm-ico">🏠</span><span class="sm-lab" data-t="smRoom">Room</span></button>
@@ -339,6 +340,16 @@
     <p id="full-msg" class="hint" aria-live="polite"></p>
     <button id="full-forget" type="button" class="link-btn" hidden data-t="fullForget">Forget the key in this browser</button>
   </aside>
+  <!-- Esc / touch menu (client/src/escmenu.js): big spawned buttons replace the old menu stickers. -->
+  <div id="esc-scrim" hidden></div>
+  <nav id="esc-menu" hidden aria-hidden="true" data-t-aria="escMenuAria">
+    <button type="button" class="esc-btn" data-esc="sound"><span class="esc-ico">🔊</span><span class="esc-lab" data-t="escSound">SOUND</span></button>
+    <button type="button" class="esc-btn" data-esc="avatar"><span class="esc-ico">🧍</span><span class="esc-lab" data-t="escAvatar">AVATAR</span></button>
+    <button type="button" class="esc-btn" data-esc="room"><span class="esc-ico">🏠</span><span class="esc-lab" data-t="escRoom">ROOM</span></button>
+    <button type="button" class="esc-btn" data-esc="city"><span class="esc-ico">🏙</span><span class="esc-lab" data-t="escCity">CITY</span></button>
+    <button type="button" class="esc-btn" data-esc="exit"><span class="esc-ico">🚪</span><span class="esc-lab" data-t="escExit">EXIT</span></button>
+    <button type="button" class="esc-btn" data-esc="name"><span class="esc-ico">✏️</span><span class="esc-lab" data-t="escName">NAME</span></button>
+  </nav>
   <!-- The room info panel (the 'room' menu sticker; Jens, 31 Oct 2026): big and plain. -->
   <aside id="room-panel" hidden aria-label="Room">
     <div class="more-head"><h2 data-t="roomPanelTitle">Room</h2><button id="rp-close" type="button" class="icon-btn" data-t-aria="close">✕</button></div>

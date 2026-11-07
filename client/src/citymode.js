@@ -37,8 +37,8 @@ export async function refreshPackPicture() {
   packUrl = c ? (c.toDataURL ? c.toDataURL('image/webp', 0.85) : c.src) : '/start/pac.webp';
   return packUrl;
 }
-// The city wheel: [my first sticker (held at start), exit, my pack, …the other stickers]. byId(id)
-// finds a design (the library or my uploads) for a sticker id. exit = the exit menu sticker's design.
+// The city wheel: [my first sticker (held at start), my pack, …the other stickers]. byId(id)
+// finds a design (the library or my uploads) for a sticker id. exit is unused (Esc EXIT replaces it).
 // max: 9 for a free player (3 packs), the deck's size for a paying one.
 export function cityWheel({ byId, exit, max = 9 }) {
   const pac = readPac();

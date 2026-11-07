@@ -53,6 +53,7 @@ export function initStackMenu(o) {
   const closeMenu = () => setOpen(false);
   // a menu option: close the fan, then do it
   const item = (id, fn, { stay = false } = {}) => { $(id).onclick = (e) => { e.preventDefault(); if (!stay) closeMenu(); fn(); }; };
+  item('sm-esc', () => { /* overlay opened by escmenu.js on the same click */ });
   item('sm-book', () => openBook());
   item('sm-avatar', () => $('my-avatar').click());
   item('sm-room', () => o.openMore());

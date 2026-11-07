@@ -35,11 +35,9 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       await sleep(500);
     }
     await sleep(600);
-    check('the city (door) sticker is a menu sticker; an old stickerpac sticker is not (t471u)', JSON.stringify(await P.evaluate(() => [window.klibb.menuAt(-0.3, 0.1), window.klibb.menuAt(0.3, 0.1)])) === '["door",null]');
-    check('…the stickerpac is not on the wheel any more', await P.evaluate((id) => !window.klibb.stickerDesigns().some((d) => d.id === id), PAC));
-    const used = await P.evaluate(() => window.klibb.menuClick(0.3, 0.1)); await sleep(400);
-    check('…a click on the old stickerpac opens nothing (inert)', used === false && await P.evaluate(() => !window.klibb.choice().open));
-    await P.evaluate(() => window.klibb.menuClick(-0.3, 0.1)); await sleep(400);
+    check('city + former menu stickers are off the wheel', await P.evaluate((ids) => ids.every((id) => !window.klibb.stickerDesigns().some((d) => d.id === id)), [DOOR, PAC]));
+    check('…clicking a placed former menu sticker opens nothing', await P.evaluate(() => window.klibb.menuClick(-0.3, 0.1)) === false);
+    await P.evaluate(() => window.klibb.menuAction('door')); await sleep(400);
     await P.screenshot({ path: path.join(SHOTS, '30-door-choice.png') });
     await P.click('#menu-choice-list [data-id="enter-city"]'); await sleep(800);
     let st = await P.evaluate(() => window.klibb.door());
