@@ -14,7 +14,7 @@ const { startServer, sleep } = require('./demo-helpers');
 const PORT = Number(process.env.FACEBLEED_E2E_PORT || 8898);
 const SHOTS = process.env.FACEBLEED_SHOTS || '/workspace/facefix-shots';
 const TAG = process.env.FACEBLEED_TAG || 'after';
-const HAIRS = (process.env.FACEBLEED_HAIRS || 'kort,lugg,lang,kammad,tupp').split(',');
+const HAIRS = (process.env.FACEBLEED_HAIRS || 'kort,lugg,lang,kammad').split(',');
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
 // The loud skin fabric: magenta and lime stripes.

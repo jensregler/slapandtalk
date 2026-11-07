@@ -64,7 +64,7 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
     assert(plain.ico && plain.text === 'Fabric' && !plain.wild, 'closed view: the Fabric button is a plain label with a small cotton-weave swatch, and Randomize is not shown');
     await A.$eval('#avatar-panel .fab-slot', (el) => el.scrollIntoView({ block: 'start' }));
     await A.screenshot({ path: path.join(OUT, 'fabric-switch-closed.png'), clip: { x: 1280 - 12 - 360, y: 0, width: 360, height: 520 } });
-    await A.click('#av-outfit button[data-id="huvtroja"]'); await A.click('#av-hair button[data-id="tupp"]');
+    await A.click('#av-outfit button[data-id="huvtroja"]'); await A.click('#av-hair button[data-id="lang"]');
     // Tröja: egen bild från enheten (filväljaren)
     await A.click(`${slot('shirt')} .fab-seg button[data-mode="fabric"]`);
     const sliders = await A.$$eval(`${slot('shirt')} .fab-sl input[type=range]`, (rs) => rs.map((r) => [r.closest('.fab-sl').dataset.param, r.min, r.max, r.disabled]));
