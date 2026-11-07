@@ -43,42 +43,66 @@ async function peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN }) {
     const first = await A.evaluate(() => window.__first);
     await A.screenshot({ path: path.join(OUT, 'peels-mid-fall.png') });
     assert(first && midPose && midPose.u > 0 && midPose.u < 1 && midPose.p[1] > 0.05, `pappret faller (skärmdump mitt i fallet, ${Math.round(midPose.u * 100)} % av ${midPose.dur} s, ${midPose.p[1].toFixed(2)} m upp)`);
-    await A.waitForFunction(() => window.klibb.peels().landed === 1, null, { timeout: 6000, polling: 100 });
-    await B.waitForFunction(() => window.klibb.peels().landed === 1, null, { timeout: 6000, polling: 100 });
+    await A.waitForFunction(() => { const p = window.klibb.peels(); return p.landed >= 1 && p.peels[0]; }, null, { timeout: 6000, polling: 100 });
+    await B.waitForFunction(() => { const p = window.klibb.peels(); return p.landed >= 1 && p.peels[0]; }, null, { timeout: 6000, polling: 100 });
     const pa = await A.evaluate(() => window.klibb.peels().peels[0]), pb = await B.evaluate(() => window.klibb.peels().peels[0]);
     const srv = await (await fetch(`${BASE}/api/rooms/${R}/stamps`)).json();
-    assert(pa.id === first && pb.id === first && pa.x === pb.x && pa.z === pb.z && pa.yaw === pb.yaw && srv.peels[0].x === pa.x && srv.peels[0].z === pa.z,
-      `pappret landar på samma ställe för A, B och servern (${pa.x}, ${pa.z})`);
+    const sp = (srv.peels || [])[0];
+    assert(pa && pb && sp && pa.id === first && pb.id === first && pa.x === pb.x && pa.z === pb.z && pa.yaw === pb.yaw && sp.x === pa.x && sp.z === pa.z,
+      `pappret landar på samma ställe för A, B och servern (${pa?.x}, ${pa?.z})`);
 
-    // Fyll golvet: slappa väggen från en massa ställen
+    // Fyll golvet. Peels live ~6 s (PEEL.lifeMs): clear the first peel, stamp a modest batch
+    // with a short pause so look/aim settles (sync stamp loop collapsed them into one spot).
+    await A.evaluate(() => document.getElementById('room-menu-btn').click());
+    await A.click('#peels-clear');
+    await A.waitForFunction(() => window.klibb.peels().count === 0, null, { timeout: 5000 });
+    await B.waitForFunction(() => window.klibb.peels().count === 0, null, { timeout: 5000 });
+    await A.evaluate(() => document.getElementById('room-menu-btn').click());
     const spots = [];
-    for (let i = 0; i < 28; i++) spots.push([-2.2 + (i % 7) * 0.7, -3.6 + Math.floor(i / 7) * 0.2, (i * 0.7) % 0.8 - 0.4]); // inom räckhåll från norra väggen
-    // 1:a person: chase-kameran i 3:e person glider efter en teleport, så siktet skulle peka fel en stund
+    for (let i = 0; i < 10; i++) spots.push([-2.2 + (i % 5) * 0.8, -3.6 + Math.floor(i / 5) * 0.35, (i * 0.55) % 0.9 - 0.45]);
     await A.evaluate(() => window.klibb.setView('first', { quiet: true }));
     for (const [x, z, yaw] of spots) {
       await A.evaluate(([x, z, yaw]) => { const k = window.klibb; k.moveTo(x, z); k.look(yaw, 0.15); }, [x, z, yaw]);
+      await A.waitForTimeout(40);
       await A.evaluate(() => window.klibb.stampAt(0, 0));
     }
-    await A.waitForFunction((n) => window.klibb.peels().landed >= n, spots.length + 1, { timeout: 10000 });
-    await B.waitForFunction((n) => window.klibb.peels().landed >= n, spots.length + 1, { timeout: 10000 });
+    await A.waitForFunction((n) => window.klibb.peels().landed >= n, spots.length, { timeout: 8000, polling: 100 });
+    await B.waitForFunction((n) => window.klibb.peels().landed >= n, spots.length, { timeout: 8000, polling: 100 });
     const info = await B.evaluate(() => window.klibb.peels());
-    assert(info.count === spots.length + 1 && info.drawCalls === 2, `B ser ${info.count} papper på golvet, ritade med instancing (${info.drawCalls} draw calls)`);
-    const outs = await B.evaluate(() => window.klibb.peels().peels.map((p) => p.z + 5));
-    assert(outs.every((d) => d > 0.1 && d < 2.0) && Math.max(...outs) - Math.min(...outs) > 0.4,
-      `pappren sprids ut på golvet framför väggen efter släphöjden (${Math.min(...outs).toFixed(2)}–${Math.max(...outs).toFixed(2)} m ut), inte i en klump vid foten och inte mitt i rummet`);
+    assert(info.count >= Math.min(6, spots.length) && info.drawCalls === 2, `B ser ${info.count} papper på golvet, ritade med instancing (${info.drawCalls} draw calls)`);
+    // Orthogonal wall peels (fe08292): land out along the wall normal; scatter is tighter in depth,
+    // so we check they are on the floor near the wall and spread along it (x), not a single pile.
+    const geo = await B.evaluate(() => {
+      const ps = window.klibb.peels().peels;
+      const xs = ps.map((p) => p.x), zs = ps.map((p) => p.z);
+      return { n: ps.length, xmin: Math.min(...xs), xmax: Math.max(...xs), zmin: Math.min(...zs), zmax: Math.max(...zs) };
+    });
+    assert(geo.n >= 6 && (geo.xmax - geo.xmin) > 0.8 && (geo.zmax - geo.zmin) < 2.5,
+      `pappren sprids längs väggen (x ${geo.xmin.toFixed(2)}…${geo.xmax.toFixed(2)}, z ${geo.zmin.toFixed(2)}…${geo.zmax.toFixed(2)})`);
     await A.evaluate(() => { const k = window.klibb; k.setView('third', { quiet: true }); k.moveTo(-0.2, 3.4); k.look(0, -0.42); });
     await A.waitForTimeout(700);
     await A.screenshot({ path: path.join(OUT, 'peels-floor-3rd-person.png') });
 
-    // Påskägget: en klibba rakt på ett papper fastnar inte
+    // Påskägget: en klibba rakt på ett papper fastnar inte.
+    // Peels expire after ~6 s – clear and drop one fresh peel so the target is still alive.
     await A.evaluate(() => window.klibb.setView('first', { quiet: true }));
-    const target = await A.evaluate(() => window.klibb.peels().peels.at(-1));
+    await A.evaluate(() => document.getElementById('room-menu-btn').click());
+    await A.click('#peels-clear');
+    await A.waitForFunction(() => window.klibb.peels().count === 0, null, { timeout: 5000 });
+    await A.evaluate(() => document.getElementById('room-menu-btn').click());
+    await A.evaluate(() => { const k = window.klibb; k.moveTo(0, -3.5); k.look(0, 0.2); });
+    await A.waitForTimeout(80);
+    await A.evaluate(() => window.klibb.stampAt(0, 0));
+    await A.waitForFunction(() => window.klibb.peels().landed >= 1 && window.klibb.peels().peels[0], null, { timeout: 6000, polling: 100 });
+    const target = await A.evaluate(() => window.klibb.peels().peels[0]);
+    const peelCount = await A.evaluate(() => window.klibb.peels().count);
     const before = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.nopes()]);
     await A.evaluate(({ x, z }) => { const k = window.klibb; k.moveTo(x, z + 0.5); k.camera.position.y = 1.6; k.look(0, -Math.atan(1.6 / 0.5)); }, target);
+    await A.waitForTimeout(80);
     const refused = await A.evaluate(() => window.klibb.stampAt(0, 0));
     await A.waitForTimeout(300);
     const after = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.nopes(), window.klibb.soundLog().at(-1)?.kind, window.klibb.peels().count]);
-    assert(refused === null && after[0] === before[0] && after[1] === before[1] + 1 && after[2] !== 'nope' && after[3] === info.count,
+    assert(refused === null && after[0] === before[0] && after[1] === before[1] + 1 && after[2] !== 'nope' && after[3] === peelCount,
       'en klibba på golvet som mest hamnar på papper fastnar inte: shrug/nopes++, inget nope-ljud, ingen klibba och inget nytt papper');
     const hack = await A.evaluate(async ({ x, z, id }) => (await fetch(`/api/rooms/${window.klibb.room}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageId: id, by: window.klibb.net.id, position: [x, 0, z], normal: [0, 1, 0], quaternion: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2], size: 0.3, surface: 'golv' }) })).status, { ...target, id: designId });
@@ -86,6 +110,7 @@ async function peelsE2E({ browser, BASE, assert, waitReady, testPng, TOKEN }) {
     // Samma sak långt ifrån (4 m): golvet på papper nekas oavsett avstånd, det är ingen räckviddsgräns
     const bf = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.nopes()]);
     await A.evaluate(({ x, z }) => { const k = window.klibb; k.moveTo(x, z + 4); k.camera.position.y = 1.6; k.look(0, -Math.atan(1.6 / 4)); }, target);
+    await A.waitForTimeout(80);
     const farRefused = await A.evaluate(() => window.klibb.stampAt(0, 0));
     await A.waitForTimeout(300);
     const af2 = await A.evaluate(() => [window.klibb.stamps.count, window.klibb.nopes(), window.klibb.soundLog().at(-1)?.kind]);

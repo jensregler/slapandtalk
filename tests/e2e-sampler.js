@@ -228,10 +228,12 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     const fresh = await A.evaluate(() => window.klibb.soundMine());
     check('a different room starts from the original sound (no preset there yet)', !fresh.patches, fresh);
     // ---------- the city: the place effect follows where I stand ----------
+    // City sound (radio.city) is the dry/wet of place FX (slim-synth); default 0 = fully dry.
     const C = await (await browser.newContext({ viewport: { width: 1200, height: 800 } })).newPage(); C.on('pageerror', (e) => errors.push('C: ' + e.message));
     await C.goto(`${S.base}/?room=stad`); await C.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 });
     await C.mouse.click(600, 400); await sleep(300);
-    await C.evaluate(async () => { const s = window.klibb.soundObj(); await s.ready; await s.engine?.ready; });
+    await C.evaluate(async () => { const s = window.klibb.soundObj(); await s.ready; await s.engine?.ready; window.klibb.radio().set({ city: 1 }); });
+    await sleep(400);
     const go = async (x, z, ms = 1600) => { await C.evaluate(([x, z]) => window.klibb.moveTo(x, z), [x, z]); await sleep(ms); return C.evaluate(() => { const p = window.klibb.place(), e = window.klibb.soundObj().engine?.place; return { ...p, cfg: undefined, live: e ? { a: e.a.send.gain.value, b: e.b.send.gain.value, big: e.big.send.gain.value, mod: e.node?.parameters.get('modMix').value, st: e.node?.parameters.get('stutter').value, dm: e.node?.parameters.get('decimMix').value, fm: e.node?.parameters.get('freqMix')?.value, fh: e.node?.parameters.get('freqHz')?.value } : null, chip: document.getElementById('place-chip')?.textContent }; }); };
     const q = {};
     for (const [id, x, z] of [['delay', -42, -42], ['reverb', 42, -42], ['flanger', -20, 0], ['chorus', 20, 0], ['glitch', -42, 42], ['freq', 42, 42], ['hall', 0, 0]]) q[id] = await go(x, z);
@@ -248,12 +250,11 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     // between two quarters: a blend
     const mid = await go(-32, -16);
     check('…on the street between two quarters (delay ↔ flanger) both blend', mid.now.zones.delay > 0.3 && mid.now.zones.flanger > 0.3 && mid.live.a > 0.1 && mid.live.mod > 0.2, mid.now.zones);
-    // the blend (my sound) and the place (the bus) are independent
+    // Blend UI is dormant (cleanRadio forces knob 0.5); place FX are driven by city sound, not knob.
     const before = await C.evaluate(() => JSON.stringify(window.klibb.place().now));
     await C.evaluate(() => window.klibb.radio().set({ knob: 0.1 })); await sleep(400);
-    const after = await C.evaluate(() => ({ place: JSON.stringify(window.klibb.place().now), morph: window.klibb.soundObj().radio.knob }));
-    check('…turning Blend changes my sound only – the place effect stays as it is', before === after.place && after.morph === 0.1);
-    await C.evaluate(() => window.klibb.radio().set({ knob: 0.5 }));
+    const after = await C.evaluate(() => ({ place: JSON.stringify(window.klibb.place().now), morph: window.klibb.soundObj().radio.knob, city: window.klibb.radio().state.city }));
+    check('…knob forced to my-sound (0.5); place effect unchanged (driven by city sound)', before === after.place && after.morph === 0.5 && after.city === 1, after);
     // a house: neutral
     await C.goto(`${S.base}/?room=stad-1`); await C.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }); await C.mouse.click(600, 400); await sleep(800);
     const house = await C.evaluate(() => ({ ...window.klibb.place(), cfg: undefined, chip: !!document.getElementById('place-chip') }));
