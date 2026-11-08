@@ -21,7 +21,7 @@ import { FACE, isFaceTriangle, effectiveFabrics } from './face.js';
 import { ownsLockedFace, applyLockedFace } from '../../shared/lockedface.mjs';
 import { cleanInsta } from '../../shared/insta.mjs';
 export { cleanInsta };
-import { rollLookOnRestart } from './restartlook.js';
+import { rollLookOnRestart, keepFace } from './restartlook.js';
 export { FACE, effectiveFabrics };
 const MOUTH_AT = MOUTH.at;
 import { quantLevel, openOf } from '../../shared/director.mjs';
@@ -54,11 +54,11 @@ export function normalizeLook(l) {
   return ownsLockedFace(out) ? applyLockedFace(out) : out;
 }
 const any = (list) => list[Math.floor(Math.random() * list.length)];
-export function randomLook() {
-  return normalizeLook({
+export function randomLook(prev) {
+  return normalizeLook(keepFace(prev, {
     outfit: any(Object.keys(AV.outfits)), hair: any(Object.keys(AV.hair)), shirt: any(AV.colors.shirt), pants: any(AV.colors.pants),
     hairColor: any(AV.colors.hair), skin: AV.default.skin, shoes: any(AV.colors.shoes), hat: Math.random() < 0.3, hatColor: any(AV.colors.hat),
-  });
+  }));
 }
 // Samma regler som servern: inga kontroll-/osynliga tecken, högst 24 tecken (emoji klipps inte itu).
 export const cleanName = (s) => Array.from(String(s ?? '').normalize('NFC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '').replace(/\s+/g, ' ').trim())

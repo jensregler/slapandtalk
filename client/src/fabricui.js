@@ -212,7 +212,7 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     busy++; toast(S.randomizing, 1500);
     try {
       const ids = await Promise.all(slots.map(() => sources[Math.floor(Math.random() * sources.length)]().catch(() => null)));
-      const fabric = {};
+      const fabric = baseLook.fabric?.face ? { face: baseLook.fabric.face } : {}; // the face is never random
       slots.forEach((s, i) => { if (ids[i]) fabric[s] = randomFabricParams(ids[i]); });
       const look = { ...baseLook, hat: baseLook.hat || !!fabric.hat, fabric };
       reset(look);

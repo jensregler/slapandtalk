@@ -237,10 +237,10 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   $('my-avatar').onclick = () => openAvatarPanel();
   $('av-cancel').onclick = () => closeAvatarPanel();
   // 🎲 Random = färger och kläder som förut (inga tyger). 🌀 Randomize = galna tyger på det mesta.
-  $('av-random').onclick = () => { av.draft = randomLook(); fab.reset(av.draft); renderAvatarPanel(); };
+  $('av-random').onclick = () => { av.draft = randomLook(av.draft); fab.reset(av.draft); renderAvatarPanel(); };
   $('av-wild').onclick = async () => {
     if (fab.busy()) return;
-    const look = await fab.wild(randomLook());
+    const look = await fab.wild(randomLook(av.draft));
     if (!av.open) return;
     av.draft = normalizeLook(look); renderAvatarPanel();
   };
