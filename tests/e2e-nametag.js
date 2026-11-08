@@ -8,7 +8,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 const { startServer, sleep } = require('./demo-helpers');
 const PORT = Number(process.env.NAMETAG_E2E_PORT || 8902);
-const SHOTS = process.env.STICKERMENU_SHOTS || '/workspace/stickermenu-shots';
+const SHOTS = process.env.STICKERMENU_SHOTS || process.env.ESC_SHOTS || '/workspace/createmenu';
 const NAMETAG = 'f79189b79546d64a', D71 = '2e30991b8436f21a' /* 98.png: the wheel's middle since 4 Nov (t507u) */;
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
@@ -62,12 +62,53 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const ink = await P.evaluate(() => { const c = document.getElementById('nt-ink').getContext('2d'); const d = c.getImageData(0, 0, 800, 536).data; let red = 0, semi = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200 && d[i - 3] > 180 && d[i - 2] < 60) red++; else if (d[i] > 60 && d[i] < 160) semi++; return { red, semi }; });
     check('drawing works: red solid ink, the opaque brush leaves see-through ink, brush = opaque, size 40', ink.red > 4000 && ink.semi > 4000 && st.brush === 'opaque' && st.size === 40 && /^#e[0-9a-f]|^#f[0-9a-f]/.test(st.color), { ink, st });
     await P.screenshot({ path: path.join(SHOTS, '22-nametag-drawn.png') });
+    const order = await P.evaluate(() => window.klibb.nameTag().buttons.map((b) => b.id + ':' + b.text));
+    check('bottom bar reads exit – undo – done', order.join('|') === 'nt-exit:exit|nt-undo:↶ undo|nt-save:done', order);
+    check('left Slap-and-Talk panel hidden while editor open', await P.evaluate(() => document.body.classList.contains('nametag-open') && getComputedStyle(document.getElementById('panel')).display === 'none'));
     const choices = await P.evaluate(() => window.klibb.stickerDesigns().length);
     await P.click('#nt-save'); await sleep(800);
-    const grid = await P.evaluate(() => ({ shown: !document.getElementById('nt-replace').hidden, n: document.querySelectorAll('#nt-grid .nt-pick').length, first: document.querySelector('#nt-grid .nt-pick')?.dataset.id }));
-    check('"save" → "choose one to replace": the wheel\'s stickers', grid.shown && grid.n === choices && grid.n > 50, { grid, choices });
+    const grid = await P.evaluate(() => ({
+      shown: !document.getElementById('nt-replace').hidden,
+      n: document.querySelectorAll('#nt-grid .nt-pick').length,
+      title: document.getElementById('nt-replace-title')?.textContent || '',
+      first: document.querySelector('#nt-grid .nt-pick')?.dataset.id,
+    }));
+    check('"done" → carry-228 replace heading + wheel stickers', grid.shown && grid.n === choices && grid.n > 50 && /228/.test(grid.title) && /Choose one sticker to replace/i.test(grid.title), { grid, choices });
     await P.screenshot({ path: path.join(SHOTS, '23-nametag-choose-replace.png') });
-    await P.click(`#nt-grid .nt-pick[data-id="${D71}"]`);
+
+    await P.click(`#nt-grid .nt-pick[data-id="${D71}"]`); await sleep(400);
+    const conf = await P.evaluate(() => {
+      const st = window.klibb.nameTag();
+      const pick = document.querySelector('#nt-grid .nt-pick.picked');
+      return { confirming: st.confirming, pickId: st.pickId, ask: document.getElementById('nt-confirm-ask')?.textContent, lifted: !!pick };
+    });
+    check('picking a sticker lifts it and asks Replace this?', conf.confirming && conf.pickId === D71 && /Replace this/i.test(conf.ask) && conf.lifted, conf);
+    await P.screenshot({ path: path.join(SHOTS, '23b-nametag-replace-confirm.png') });
+    await P.click('#nt-confirm-no'); await sleep(400);
+    const afterNo = await P.evaluate(() => {
+      const st = window.klibb.nameTag();
+      const ink = document.getElementById('nt-ink').getContext('2d').getImageData(0, 0, 800, 536).data;
+      let painted = 0; for (let i = 3; i < ink.length; i += 4) if (ink[i] > 10) painted++;
+      return { open: st.open, replacing: st.replacing, confirming: st.confirming, painted };
+    });
+    check('No discards the drawing and returns to draw mode', afterNo.open && !afterNo.replacing && !afterNo.confirming && afterNo.painted === 0, afterNo);
+
+    const tag2 = await P.locator('#nt-stroke').boundingBox();
+    const T2 = (fx, fy) => [tag2.x + tag2.width * fx, tag2.y + tag2.height * fy];
+    await P.mouse.move(...T2(0.3, 0.5)); await P.mouse.down(); await P.mouse.move(...T2(0.7, 0.7), { steps: 10 }); await P.mouse.up();
+    await P.click('#nt-save'); await sleep(500);
+    await P.click(`#nt-grid .nt-pick[data-id="${D71}"]`); await sleep(300);
+    await P.click('#nt-replace-back'); await sleep(300);
+    const afterBack = await P.evaluate(() => {
+      const st = window.klibb.nameTag();
+      const ink = document.getElementById('nt-ink').getContext('2d').getImageData(0, 0, 800, 536).data;
+      let painted = 0; for (let i = 3; i < ink.length; i += 4) if (ink[i] > 10) painted++;
+      return { replacing: st.replacing, painted };
+    });
+    check('Back keeps the drawing and returns to draw mode', !afterBack.replacing && afterBack.painted > 0, afterBack);
+    await P.click('#nt-save'); await sleep(500);
+    await P.click(`#nt-grid .nt-pick[data-id="${D71}"]`); await sleep(300);
+    await P.click('#nt-confirm-yes');
     await P.waitForFunction(() => !window.klibb.nameTag().open, null, { timeout: 15000 }); await sleep(800);
     const after = await P.evaluate((d71) => { const w = window.klibb.stickerDesigns(); const sel = window.klibb.state.selected; return { sel: sel.id, at0: w[0].id, has71: w.some((d) => d.id === d71), once: w.filter((d) => d.id === sel.id).length, mine: JSON.parse(localStorage.getItem('klibb.mine') || '[]').map((m) => m.id), swaps: JSON.parse(localStorage.getItem('klibb.swaps') || '{}') }; }, D71);
     check('…choosing 98 (the middle): the tag is uploaded as my sticker, in my hand, in 98\'s place, once; 98 is out', after.at0 === after.sel && !after.has71 && after.once === 1 && after.mine.includes(after.sel) && after.swaps[D71] === after.sel, after);

@@ -507,7 +507,14 @@ app.post('/api/city/packs', rateLimit(10), (req, res, next) => packUpload.single
   try { res.json(await cityPacks.handIn({ name: b.name, stickers, img: req.file && req.file.buffer, token: packToken(req), about: b.about, author: b.author, insta: b.insta, paid: await paidOf(req) })); } catch (e) { packError(res, e); }
 }));
 app.post('/api/city/packs/drop', rateLimit(60), express.json(), wrap(async (req, res) => {
-  try { res.json(await cityPacks.dropTaken(packToken(req), { paid: await paidOf(req) })); } catch (e) { packError(res, e); }
+  try {
+    const id = req.body?.id || req.body?.packId;
+    if (id) res.json(await cityPacks.dropOne(packToken(req), id, { paid: await paidOf(req) }));
+    else res.json(await cityPacks.dropTaken(packToken(req), { paid: await paidOf(req) }));
+  } catch (e) { packError(res, e); }
+}));
+app.post('/api/city/packs/:id/drop', rateLimit(60), express.json(), wrap(async (req, res) => {
+  try { res.json(await cityPacks.dropOne(packToken(req), req.params.id, { paid: await paidOf(req) })); } catch (e) { packError(res, e); }
 }));
 app.post('/api/city/packs/:id/take', rateLimit(30), express.json(), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;

@@ -1,9 +1,10 @@
-// The name-tag tool (Jens, 31 Oct 2026; mockups nametag-1..7): clicking the sticker roll (knappar/
-// editor.png) opens a "my name is" tag big on the screen. Swipe (or ‹ ›) through the blanks – Jens's
+// The name-tag / sticker drawing tool (Jens, 31 Oct 2026; mockups nametag-1..7): CREATE → STICKERS
+// (or the old Esc NAME) opens a blank big on the screen. Swipe (or ‹ ›) through the blanks – Jens's
 // own images, client/public/nametags/blank1..10.webp; drawn in code if they don't load – then draw on
 // it: a colour picker (saturation/value square + hue bar), brush size, brush type (solid / opaque /
-// dripping). "save" asks which sticker in the wheel the tag replaces, then hands the finished PNG
-// back (main.js uploads it as my sticker); "exit" closes it without saving.
+// dripping). "done" asks which sticker in the wheel the tag replaces (confirm yes/no), then hands the
+// finished PNG back (main.js uploads it as my sticker); "exit" closes it without saving.
+// Bottom bar order (Jens, Nov 2026): exit (left) – undo (middle) – done (right).
 import { bindHoldRepeat } from './holdrepeat.js';
 const TW = 800, TH = 536; // the blanks are 1623x1085 → 800 wide
 let W = TW, H = TH; // the canvas size now (the door's Priority Mail pac is portrait: opts.size)
@@ -58,12 +59,23 @@ function build() {
         <span class="nt-swatch" id="nt-swatch"></span>
       </div>
     </div>
-    <div class="nt-bottom"><button type="button" id="nt-save"></button><button type="button" id="nt-undo"></button><button type="button" id="nt-exit"></button></div>
-    <div class="nt-replace" id="nt-replace" hidden><div class="nt-replace-title" id="nt-replace-title"></div><div class="nt-grid" id="nt-grid"></div><button type="button" id="nt-replace-back"></button></div>`;
+    <div class="nt-bottom"><button type="button" id="nt-exit"></button><button type="button" id="nt-undo"></button><button type="button" id="nt-save"></button></div>
+    <div class="nt-replace" id="nt-replace" hidden>
+      <div class="nt-replace-title" id="nt-replace-title"></div>
+      <div class="nt-grid" id="nt-grid"></div>
+      <div class="nt-confirm" id="nt-confirm" hidden>
+        <div class="nt-confirm-ask" id="nt-confirm-ask"></div>
+        <div class="nt-confirm-btns">
+          <button type="button" id="nt-confirm-no" class="nt-confirm-no"></button>
+          <button type="button" id="nt-confirm-yes" class="nt-confirm-yes"></button>
+        </div>
+      </div>
+      <button type="button" id="nt-replace-back"></button>
+    </div>`;
   document.body.appendChild(box);
   const $ = (id) => box.querySelector('#' + id);
   const blank = $('nt-blank').getContext('2d'), ink = $('nt-ink').getContext('2d'), stroke = $('nt-stroke').getContext('2d');
-  const st = { blanks: BLANKS, custom: false, i: 0, hue: 0, s: 1, v: 0.9, color: '#e6191f', size: 14, brush: 'solid', imgs: [], drips: [], raf: 0, undo: [], opts: null, fallback: new Set() };
+  const st = { blanks: BLANKS, custom: false, i: 0, hue: 0, s: 1, v: 0.9, color: '#e6191f', size: 14, brush: 'solid', imgs: [], drips: [], raf: 0, undo: [], opts: null, fallback: new Set(), pickId: null };
   let S = {};
 
   // ---- blanks ----
@@ -171,27 +183,72 @@ function build() {
   strokeEl.addEventListener('pointerup', endStroke); strokeEl.addEventListener('pointercancel', endStroke);
   $('nt-undo').onclick = () => { const d = st.undo.pop(); if (d) { st.drips = []; ink.putImageData(d, 0, 0); } };
 
-  // ---- save / exit ----
+  // ---- save / exit / replace confirm ----
   function compose() {
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d'); x.drawImage($('nt-blank'), 0, 0); x.drawImage($('nt-ink'), 0, 0);
     return new Promise((res) => c.toBlob(res, 'image/png'));
   }
-  function close() { if (!box.hidden) st.opts?.onClose?.(); box.hidden = true; $('nt-replace').hidden = true; cancelAnimationFrame(st.raf); st.raf = 0; st.drips = []; }
+  function setPanelHidden(v) { document.body.classList.toggle('nametag-open', !!v); }
+  function clearInk() {
+    ink.clearRect(0, 0, W, H); stroke.clearRect(0, 0, W, H); st.undo = []; st.drips = [];
+    cancelAnimationFrame(st.raf); st.raf = 0;
+  }
+  function clearConfirm() {
+    st.pickId = null;
+    $('nt-confirm').hidden = true;
+    $('nt-grid').querySelectorAll('.nt-pick').forEach((b) => b.classList.remove('picked'));
+  }
+  function backToDraw({ discard = false } = {}) {
+    clearConfirm();
+    $('nt-replace').hidden = true;
+    if (discard) clearInk();
+  }
+  function close() {
+    if (!box.hidden) st.opts?.onClose?.();
+    box.hidden = true; $('nt-replace').hidden = true; clearConfirm();
+    cancelAnimationFrame(st.raf); st.raf = 0; st.drips = [];
+    setPanelHidden(false);
+  }
   $('nt-exit').onclick = close;
-  $('nt-replace-back').onclick = () => { $('nt-replace').hidden = true; };
+  // Back on the replace screen: keep the drawing, return to draw mode.
+  $('nt-replace-back').onclick = () => backToDraw({ discard: false });
+  // No: discard the newly drawn sticker and return to drawing mode.
+  $('nt-confirm-no').onclick = () => backToDraw({ discard: true });
+  $('nt-confirm-yes').onclick = async () => {
+    const id = st.pickId; if (!id) return;
+    const grid = $('nt-grid');
+    grid.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+    $('nt-confirm-yes').disabled = true; $('nt-confirm-no').disabled = true;
+    try { await st.opts.onSave(await compose(), id); close(); }
+    catch (err) {
+      st.opts.toast?.(err && err.message ? err.message : S.uploadFailed);
+      grid.querySelectorAll('button').forEach((x) => { x.disabled = false; });
+      $('nt-confirm-yes').disabled = false; $('nt-confirm-no').disabled = false;
+    }
+  };
   $('nt-save').onclick = async () => {
     if (st.opts.direct) { // the door's pac: no "replace" – the picture goes straight back
       try { await st.opts.onSave(await compose(), null); close(); } catch (err) { st.opts.toast?.(err && err.message ? err.message : S.uploadFailed); }
       return;
     }
     const grid = $('nt-grid'); grid.textContent = '';
+    clearConfirm();
     for (const d of (st.opts.choices?.() || [])) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'nt-pick'; b.dataset.id = d.id;
       b.innerHTML = `<img loading="lazy" decoding="async" src="${d.url}" alt="">`;
-      b.onclick = async () => {
-        grid.querySelectorAll('button').forEach((x) => { x.disabled = true; });
-        try { await st.opts.onSave(await compose(), d.id); close(); } catch (err) { st.opts.toast?.(err && err.message ? err.message : S.uploadFailed); grid.querySelectorAll('button').forEach((x) => { x.disabled = false; }); }
+      b.onclick = () => {
+        // Highlight / lift the pick and ask "Replace this?"
+        grid.querySelectorAll('.nt-pick').forEach((x) => x.classList.remove('picked'));
+        b.classList.add('picked');
+        st.pickId = d.id;
+        $('nt-confirm').hidden = false;
+        $('nt-confirm-ask').textContent = S.ntReplaceAsk || 'Replace this?';
+        $('nt-confirm-yes').textContent = S.ntReplaceYes || 'yes';
+        $('nt-confirm-no').textContent = S.ntReplaceNo || 'no';
+        $('nt-confirm-yes').disabled = false; $('nt-confirm-no').disabled = false;
+        // Bring the lifted sticker into view
+        try { b.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' }); } catch { /* fine */ }
       };
       grid.appendChild(b);
     }
@@ -200,7 +257,11 @@ function build() {
   // While it is open the room gets no keys (no walking or wheel-turning behind it); Esc closes.
   addEventListener('keydown', (e) => {
     if (box.hidden || e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
-    if (e.key === 'Escape') { if (!$('nt-replace').hidden) $('nt-replace').hidden = true; else close(); }
+    if (e.key === 'Escape') {
+      if (!$('nt-confirm').hidden) clearConfirm();
+      else if (!$('nt-replace').hidden) backToDraw({ discard: false });
+      else close();
+    }
     else if (e.key === 'ArrowLeft') showBlank(st.i - 1); else if (e.key === 'ArrowRight') showBlank(st.i + 1);
     else if ((e.ctrlKey || e.metaKey) && e.key === 'z') $('nt-undo').click();
     e.stopImmediatePropagation();
@@ -218,6 +279,9 @@ function build() {
       st.opts = opts; S = opts.S || {};
       $('nt-size-label').textContent = S.ntBrushSize; $('nt-save').textContent = S.ntSave; $('nt-exit').textContent = S.ntExit; $('nt-undo').textContent = S.ntUndo;
       $('nt-replace-title').textContent = S.ntReplace; $('nt-replace-back').textContent = S.choiceBack;
+      $('nt-confirm-ask').textContent = S.ntReplaceAsk || 'Replace this?';
+      $('nt-confirm-yes').textContent = S.ntReplaceYes || 'yes';
+      $('nt-confirm-no').textContent = S.ntReplaceNo || 'no';
       box.querySelectorAll('.nt-brush').forEach((t) => { t.querySelector('.nt-bname').textContent = S['ntBrush_' + t.dataset.brush]; });
       setBrush(st.brush); paintPicker();
       st.custom = !!opts.blanks; st.blanks = opts.blanks || BLANKS;
@@ -233,7 +297,7 @@ function build() {
       if (opts.saveText) $('nt-save').textContent = opts.saveText;
       if (opts.exitText) $('nt-exit').textContent = opts.exitText;
       ink.clearRect(0, 0, W, H); stroke.clearRect(0, 0, W, H); st.undo = [];
-      st.clip = opts.clip || null;
+      st.clip = opts.clip || null; clearConfirm(); $('nt-replace').hidden = true;
       for (const g of [ink, stroke]) { g.restore(); g.save(); if (st.clip) { g.beginPath(); g.rect(st.clip.x, st.clip.y, st.clip.w, st.clip.h); g.clip(); } }
       const cl = $('nt-clip'); cl.hidden = !st.clip;
       if (st.clip) Object.assign(cl.style, { left: `${st.clip.x / W * 100}%`, top: `${st.clip.y / H * 100}%`, width: `${st.clip.w / W * 100}%`, height: `${st.clip.h / H * 100}%` });
@@ -251,10 +315,15 @@ function build() {
         tagEl.style.transform = '';
       }
       const start = Number.isFinite(opts.startBlank) ? opts.startBlank : (st.custom ? 0 : st.i);
-      box.hidden = false; showBlank(start);
+      box.hidden = false; setPanelHidden(true); showBlank(start);
     },
     close,
-    state: () => ({ open: !box.hidden, clip: st.clip, blank: st.i + 1, brush: st.brush, color: st.color, size: st.size, fallback: [...st.fallback], replacing: !$('nt-replace').hidden, drips: st.drips.length }),
+    state: () => ({
+      open: !box.hidden, clip: st.clip, blank: st.i + 1, brush: st.brush, color: st.color, size: st.size,
+      fallback: [...st.fallback], replacing: !$('nt-replace').hidden, confirming: !$('nt-confirm').hidden,
+      pickId: st.pickId, drips: st.drips.length,
+      buttons: ['nt-exit', 'nt-undo', 'nt-save'].map((id) => ({ id, text: $(id).textContent })),
+    }),
   };
 }
 export const nameTagState = () => (ui ? ui.state() : { open: false });

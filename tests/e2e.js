@@ -607,7 +607,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.mouse.click(900, 400); // första klicket låser musen (stämplar inte)
     await d.waitForTimeout(300);
     const m0 = await modeInfo();
-    assert(m0.locked && m0.mode === 'slap' && m0.hud === 'Slap mode · V' && m0.preview, 'Klibbläge från början: pekaren syns');
+    assert(m0.locked && m0.mode === 'slap' && m0.hud === 'STICKERS · V' && m0.preview, 'Klibbläge från början: pekaren syns');
     await d.keyboard.press('g'); await d.waitForTimeout(200);
     const m1 = await modeInfo();
     assert(m1.mode === 'view' && m1.hud === 'Look mode · G' && !m1.preview, 'G slår på Tittläge och döljer pekaren');
@@ -668,15 +668,15 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // ---------- Enkel första vy: bara det viktigaste syns, resten under ⚙ More ----------
     await d.reload(); await waitReady(d);
     const vis = (ids) => d.evaluate((ids) => ids.map((id) => { const el = document.getElementById(id); const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; }), ids);
-    const ESSENTIAL = ['file', 'tray', 'mode-slap', 'mode-look', 'more-btn', 'room-menu-btn', 'enter', 'sound-btn'];
+    const ESSENTIAL = ['file', 'tray', 'mode-stickers', 'mode-packs', 'mode-btn', 'more-btn', 'room-menu-btn', 'enter', 'sound-btn'];
     const ADVANCED = ['size', 'rot', 'artist', 'history', 'people', 'my-avatar', 'room-style', 'sound-on', 'new-room', 'share-room'];
     await d.waitForTimeout(800); await d.screenshot({ path: path.join(SHOTS, '35-start-dator.png') });
     const ess = await vis(ESSENTIAL.filter((x) => x !== 'file').concat(['more-btn'])), adv = await vis(ADVANCED);
     const fileLabel = await d.isVisible('label.upload span');
     assert(ess.every(Boolean) && fileLabel && adv.every((v) => !v), `första vyn: uppladdning, designer, Slap/Look, chatt och rumsmeny syns, inget annat (${ADVANCED.filter((_, i) => adv[i]).join(',') || 'ok'})`);
     const texts = await d.evaluate(() => [document.title, document.documentElement.lang, document.querySelector('label.upload span').textContent, document.getElementById('more-btn').textContent,
-      document.getElementById('mode-slap').textContent, document.getElementById('mode-look').textContent, document.getElementById('room-menu-btn').textContent]);
-    assert(texts.join('|') === 'Slap and Talk|en|⬆ Upload sticker|⚙ More|Slap mode|Look mode|Room ▾', `sidan är på engelska (${texts.join(' | ')})`);
+      document.getElementById('mode-stickers').textContent, document.getElementById('mode-packs').textContent, document.getElementById('room-menu-btn').textContent]);
+    assert(texts.join('|') === 'Slap and Talk|en|⬆ Upload sticker|⚙ More|STICKERS|PACKS|Room ▾', `sidan är på engelska (${texts.join(' | ')})`);
     const swedish = await d.evaluate(() => { const t = document.body.innerText + ' ' + [...document.querySelectorAll('[title],[placeholder],[aria-label]')].map((e) => [e.title, e.placeholder, e.getAttribute('aria-label')].join(' ')).join(' ');
       return t.match(/[åäöÅÄÖ]|\b(klibba|klibbor|Stämpla|Peela|Snabbrum|Staden|Tittläge|Klibbläge|Skicka|Avbryt|Spara|Gäst|Kamera)\b/g) || []; });
     assert(swedish.length === 0, `ingen svensk text kvar i rummet (${swedish.slice(0, 5).join(', ')})`);
@@ -687,9 +687,10 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const adv2 = await vis(ADVANCED.filter((x) => !['new-room', 'share-room'].includes(x)));
     assert(adv2.every(Boolean), '⚙ More visar storlek, rotation, artistnamn, mina klibbor, folk, Min gubbe, rummets utseende och ljud');
     await d.screenshot({ path: path.join(SHOTS, '36-mer-panel-dator.png') });
-    await d.click('#mode-look');
-    const ml = await d.evaluate(() => [window.klibb.state.mode, document.getElementById('mode-look').getAttribute('aria-pressed')]);
-    await d.click('#mode-slap');
+    await d.keyboard.press('KeyG');
+    const ml = await d.evaluate(() => [window.klibb.state.mode, document.getElementById('mode-btn').getAttribute('aria-pressed')]);
+    await d.keyboard.press('KeyG');
+    await d.click('#mode-stickers');
     assert(ml[0] === 'view' && ml[1] === 'true' && (await d.evaluate(() => window.klibb.state.mode)) === 'slap', 'Slap mode / Look mode-knapparna byter läge');
     await d.mouse.click(900, 400); await d.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
     assert(!(await d.evaluate(() => window.klibb.moreOpen())), '⚙ More stängs när man går in i rummet');

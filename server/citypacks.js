@@ -129,6 +129,16 @@ function createCityPacks(adapter, { imageInfo, clock = () => Date.now(), log = c
     if (!paid && carry.takes.length) { carry.takes = []; await saveCarry(h, carry); }
     return { takes: carry.takes.slice(), left: Math.max(0, limit(paid) - carry.takes.length) };
   }
+  // Discard one taken pack so the player can take another (Town Hall full → Replace this?).
+  async function dropOne(token, packId, { paid = false } = {}) {
+    const h = ownerOf(token); if (!h) throw err(401, 'Hand in your own pack first');
+    const mine = (await minesOf(token))[0], carry = await carryOf(h, mine);
+    const id = String(packId || '');
+    if (!carry.takes.includes(id)) throw err(404, 'You are not carrying that pack');
+    carry.takes = carry.takes.filter((x) => x !== id);
+    await saveCarry(h, carry);
+    return { takes: carry.takes.slice(), left: Math.max(0, limit(paid) - carry.takes.length), dropped: id };
+  }
   // Admin: take a pack out of the shop (illegal content – README "Admin").
   async function remove(id) {
     if (!ID_RE.test(String(id))) return false;
@@ -140,6 +150,6 @@ function createCityPacks(adapter, { imageInfo, clock = () => Date.now(), log = c
     const p = (await load()).get(id); if (!active(p)) return null;
     return adapter.get(`citypacks/${id}.webp`);
   }
-  return { handIn, list, take, dropTaken, remove, image, sweep, PACK_DAYS, MAX_TAKES, PAID_MAX_TAKES };
+  return { handIn, list, take, dropTaken, dropOne, remove, image, sweep, PACK_DAYS, MAX_TAKES, PAID_MAX_TAKES };
 }
 module.exports = { createCityPacks, PACK_DAYS, MAX_TAKES, PAID_MAX_TAKES, ABOUT_MAX };

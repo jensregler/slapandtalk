@@ -96,14 +96,17 @@ const check = (name, ok, extra) => {
     await A.click('#menu-choice-list [data-id="enter-city"]').catch(() => {});
     await sleep(500);
     // Door pack flow may open; if so, pick and go
-    const hasBags = await A.$('#df-skip-design');
-    if (hasBags) {
-      await A.click('#df-skip-design').catch(() => {}); await sleep(400);
-      if (await A.$('#df-city-skip')) await A.click('#df-city-skip').catch(() => {});
-      await sleep(400);
+    const hasPick = await A.$('#df-next');
+    if (hasPick) {
       const ids = await A.evaluate(() => [...document.querySelectorAll('#df-grid .df-g')].slice(0, 3).map((b) => b.dataset.id));
       for (const id of ids) await A.click(`#df-grid .df-g[data-id="${id}"]`).catch(() => {});
-      await A.click('#df-next').catch(() => {}); await sleep(800);
+      await A.click('#df-next').catch(() => {}); await sleep(700);
+      if (await A.$('#df-skip-design')) await A.click('#df-skip-design').catch(() => {});
+      await sleep(400);
+      if (await A.$('#df-city-skip')) await A.click('#df-city-skip').catch(() => {});
+      await sleep(400);
+      if (await A.$('#df-name-yes')) await A.click('#df-name-yes').catch(() => {});
+      await sleep(300);
       await A.fill('#df-name', 'Reel pack').catch(() => {});
       await A.click('#df-name-go').catch(() => {}); await sleep(300);
       await A.click('#df-city');

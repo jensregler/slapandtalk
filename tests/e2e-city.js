@@ -70,13 +70,14 @@ const EXIT = 'a03b0ba5768979e6';
     await P.goto(`${S.base}/?room=${R}`); await ready(P); await sleep(800);
     await P.evaluate(() => window.klibb.menuAction('door')); await sleep(300);
     await P.click('#menu-choice-list [data-id="enter-city"]'); await sleep(800);
-    // Pac makeover: bags → skip design → skip early city-name → pick 3 → name pac → to the city → picker
+    // Pac makeover: pick 3 → bags → skip design → skip early city-name → name pac → to the city → picker
+    const picked = await P.evaluate(() => [...document.querySelectorAll('#df-grid .df-g')].slice(4, 7).map((b) => b.dataset.id));
+    for (const id of picked) await P.click(`#df-grid .df-g[data-id="${id}"]`);
+    await P.click('#df-next'); await sleep(700);
     await P.click('#df-skip-design'); await sleep(500);
     if (await P.isVisible('#df-city-skip')) await P.click('#df-city-skip');
     await sleep(500);
-    const picked = await P.evaluate(() => [...document.querySelectorAll('#df-grid .df-g')].slice(4, 7).map((b) => b.dataset.id));
-    for (const id of picked) await P.click(`#df-grid .df-g[data-id="${id}"]`);
-    await P.click('#df-next'); await sleep(900);
+    if (await P.isVisible('#df-name-yes')) { await P.click('#df-name-yes'); await sleep(300); }
     await P.fill('#df-name', 'Jens pack');
     await P.click('#df-name-go'); await sleep(400);
     await P.click('#df-city');
@@ -137,8 +138,20 @@ const EXIT = 'a03b0ba5768979e6';
     c = await P.evaluate(() => window.klibb.city());
     const third = await P.evaluate((id) => { const b = document.querySelector(`.th-pack[data-id="${id}"] .th-take`); return { disabled: b.disabled, text: b.textContent }; }, others[2].pack.id);
     const carry = await P.textContent('#th-carry');
-    check('free: take 2 → I carry 3 packs, 9 stickers (+ pack) on the wheel; a 3rd take is refused', c.taken.length === 2 && c.wheel.length === 10 && third.disabled && /3 packs/.test(third.text) && /3 of 3/.test(carry), { taken: c.taken, w: c.wheel.length, third, carry });
+    check('free: take 2 → I carry 3 packs, 9 stickers (+ pack); 3rd take asks Replace this?', c.taken.length === 2 && c.wheel.length === 10 && !third.disabled && /Replace a pack/i.test(third.text) && /3 of 3/.test(carry), { taken: c.taken, w: c.wheel.length, third, carry });
     await shot(P, '07-shop-carrying-3-packs.png');
+    // Replace flow: lift a carried pack → Replace this? yes → take the new one
+    await P.click(`.th-pack[data-id="${others[2].pack.id}"] .th-take`); await sleep(500);
+    const repl = await P.evaluate(() => {
+      const o = document.getElementById('th-replace');
+      return { open: !!o, n: o ? o.querySelectorAll('.th-replace-pick').length : 0, ask: o?.querySelector('.th-replace-ask')?.textContent || '' };
+    });
+    check('…Replace overlay lists carried packs + Replace this?', repl.open && repl.n === 2 && /Replace this/i.test(repl.ask), repl);
+    await shot(P, '07b-shop-replace-pack.png');
+    await P.click('#th-replace .th-replace-pick'); await sleep(200);
+    await P.click('#th-replace .th-replace-yes'); await sleep(1200);
+    c = await P.evaluate(() => window.klibb.city());
+    check('…after replace: still 2 taken packs, new one included', c.taken.length === 2 && c.taken.includes(others[2].pack.id), { taken: c.taken, want: others[2].pack.id });
     await P.click(`.th-pack[data-id="${others[0].pack.id}"] .th-pname`); await sleep(800);
     check('a card opens the big view of the pack (description, Instagram link)', (await P.evaluate(() => window.klibb.city().hall.view)) === 'detail' && /@ulla\.malmo/.test(await P.textContent('#th-detail')));
     await shot(P, '08-shop-pack-detail.png');

@@ -84,11 +84,20 @@ ok('swap: only after handing in, never my own, at most 2 (the same one twice is 
   assert.equal(t1.left, 1); assert.equal(t2.left, 0); assert.deepEqual(again.takes, [B.pack.id, D.pack.id]);
   assert.equal(t1.pack.stickers.length, 3); assert.equal(t1.pack.stickers[0].url, `/u/${'d'.repeat(16)}.webp`);
 });
+// Full: discard one taken pack (Replace this?), then take another
+const droppedOne = await packs.dropOne(A.token, B.pack.id);
+const t3 = await packs.take(E.pack.id, A.token);
+ok('full → dropOne then take: replace a carried pack to free a slot', () => {
+  assert.equal(droppedOne.dropped, B.pack.id); assert.equal(droppedOne.left, 1);
+  assert.deepEqual(t3.takes.sort(), [D.pack.id, E.pack.id].sort()); assert.equal(t3.left, 0);
+});
+await rej(packs.dropOne(A.token, B.pack.id), 404);
 const L = await packs.list(A.token);
 ok('list: everyone\'s packs, mine marked, what I took marked, taken counts', () => {
   assert.equal(L.packs.length, 4); assert.equal(L.mine.id, A.pack.id); assert.equal(L.mine.left, 0); assert.equal(L.maxPacks, 3);
-  assert.ok(L.packs.find((p) => p.id === B.pack.id).taken && L.packs.find((p) => p.id === A.pack.id).mine);
-  assert.equal(L.packs.find((p) => p.id === B.pack.id).takenCount, 1);
+  assert.ok(L.packs.find((p) => p.id === D.pack.id).taken && L.packs.find((p) => p.id === E.pack.id).taken && L.packs.find((p) => p.id === A.pack.id).mine);
+  assert.equal(L.packs.find((p) => p.id === B.pack.id).taken, false);
+  assert.equal(L.packs.find((p) => p.id === B.pack.id).takenCount, 1); // still counted historically
 });
 // leaving the city (free): what I took is dropped, my pack stays; then I may take 2 again
 const dropped = await packs.dropTaken(A.token, { paid: false });
@@ -168,6 +177,9 @@ try {
     assert.deepEqual(h.map((r) => r.status), [200, 200, 200, 200, 200, 200, 200, 200, 409]);
     assert.deepEqual(info.houses, [1, 2, 3, 4, 5, 6, 7, 8]); assert.equal(info.next, 0);
     assert.ok(list.some((c) => c.id === cid && c.name === 'Slapville')); assert.ok(!list.some((c) => c.id === 'stad'), 'the first City is not offered when empty');
+    const row = list.find((c) => c.id === cid);
+    assert.equal(typeof row.stickers, 'number'); assert.equal(typeof row.visitors, 'number');
+    assert.equal(typeof info.stickers, 'number'); assert.equal(typeof info.visitors, 'number');
     assert.equal(gone.status, 404);
   });
   const camCity = await fetch(`${S.base}/api/rooms/${cid}/cameras`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"p":[0,1.6,0]}' });

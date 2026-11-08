@@ -646,9 +646,9 @@ body.touch.editing #chat-btn, body.touch.editing #mic-touch { display: none !imp
 body.touch.editing.book-open #stack-menu, body.touch.editing.more-open #stack-menu { display: none !important; }
 
 /* ---------- The sticker wheel (wheel.js, shared/wheel.mjs): desktop along the bottom edge ---------- */
-#design-strip, #nature-strip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 4; --wheel-item: 100px;
+#design-strip, #nature-strip, #packs-strip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 4; --wheel-item: 100px;
   width: min(820px, max(300px, calc(100vw - 680px))); height: calc(var(--wheel-item) * 2.3 + 46px); pointer-events: none; }
-#design-strip[hidden], #nature-strip[hidden] { display: none !important; }
+#design-strip[hidden], #nature-strip[hidden], #packs-strip[hidden] { display: none !important; }
 #strip-num, #nature-num { position: absolute; left: 50%; bottom: calc(var(--wheel-item) * 2.3 + 28px); transform: translateX(-50%); z-index: 2000; pointer-events: none;
   font: 700 11px/1 system-ui, sans-serif; color: #ffd400; font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 8px; background: rgba(0,0,0,.45); }
 #strip-num:empty, #nature-num:empty { display: none; }
@@ -666,14 +666,14 @@ body.touch.editing.book-open #stack-menu, body.touch.editing.more-open #stack-me
 .strip-th.sel::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: -7px; height: 3px; border-radius: 2px; background: #ffd400; }
 body.view-mode .strip-th.sel::after { background: none; border-top: 2px dashed #ffd400; }
 body:not(.touch) #mode-hud { bottom: calc(100px * 2.3 + 52px); } /* the small mode label sits just above the wheel */
-body.camview #design-strip, body.camview #nature-strip, body.replay #design-strip, body.replay #nature-strip { display: none !important; }
+body.camview #design-strip, body.camview #nature-strip, body.camview #packs-strip, body.replay #design-strip, body.replay #nature-strip, body.replay #packs-strip { display: none !important; }
 /* touch: the same wheel in a band above the joystick and the stack, up while you turn it (body.wheel-up) */
-body.touch #design-strip, body.touch #nature-strip { left: calc(6px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); width: auto; transform: none; z-index: 6;
+body.touch #design-strip, body.touch #nature-strip, body.touch #packs-strip { left: calc(6px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); width: auto; transform: none; z-index: 6;
   bottom: calc(150px + env(safe-area-inset-bottom)); --wheel-item: 52px; height: calc(var(--wheel-item) * 2.3 + 16px); border-radius: 16px; overflow: hidden;
   background: radial-gradient(closest-side, rgba(0,0,0,.30), rgba(0,0,0,.12)); }
 body.touch .strip-th { bottom: 10px; }
 body.touch #strip-num, body.touch #nature-num { display: none; } /* the stack shows the sticker; the holder sits just above */
-body.touch:not(.wheel-up) #design-strip, body.touch:not(.wheel-up) #nature-strip, body.touch.stack-open #design-strip, body.touch.stack-open #nature-strip, body.touch.book-open #design-strip, body.touch.book-open #nature-strip, body.touch.more-open #design-strip, body.touch.more-open #nature-strip { display: none !important; }
+body.touch:not(.wheel-up) #design-strip, body.touch:not(.wheel-up) #nature-strip, body.touch:not(.wheel-up) #packs-strip, body.touch.stack-open #design-strip, body.touch.stack-open #nature-strip, body.touch.stack-open #packs-strip, body.touch.book-open #design-strip, body.touch.book-open #nature-strip, body.touch.book-open #packs-strip, body.touch.more-open #design-strip, body.touch.more-open #nature-strip, body.touch.more-open #packs-strip { display: none !important; }
 /* Two wheels (Jens, 28 Oct 2026): the Nature wheel on the LEFT, the sticker wheel moves to the RIGHT.
    The active one (the held sticker is from it) has a yellow line under its middle sticker, as before. */
 body.two-wheels:not(.touch) #design-strip, body.two-wheels:not(.touch) #nature-strip { transform: none; width: min(600px, max(260px, calc((100vw - 290px) / 2))); }
@@ -845,11 +845,20 @@ body.start-card-on { overflow: auto; background: #fff; }
 #nametag .nt-bottom button:hover { background: rgba(0,0,0,.8); }
 #nametag .nt-replace { position: fixed; left: 50%; bottom: 3vh; transform: translateX(-50%); width: min(94vw, 560px); max-height: 58vh; display: flex; flex-direction: column; gap: 10px; padding: 12px; background: rgba(20,20,20,.94); border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
 #nametag .nt-replace[hidden] { display: none; }
-#nametag .nt-replace-title { font-size: 26px; text-align: center; }
+#nametag .nt-replace-title { text-align: center; }
 #nametag .nt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; overflow: auto; padding: 4px; }
-#nametag .nt-pick { aspect-ratio: 1; padding: 6px; border: 2px solid #444; border-radius: 10px; background: #2b2b2b; cursor: pointer; }
+#nametag .nt-pick { aspect-ratio: 1; padding: 6px; border: 2px solid #444; border-radius: 10px; background: #2b2b2b; cursor: pointer; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; z-index: 0; }
 #nametag .nt-pick:hover { border-color: #fff; }
-#nametag .nt-pick img { width: 100%; height: 100%; object-fit: contain; }
+#nametag .nt-pick.picked { border-color: #ffd400; border-width: 4px; transform: scale(1.28); z-index: 3; box-shadow: 0 10px 28px rgba(0,0,0,.65); background: #1a1a1a; }
+#nametag .nt-pick img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+#nametag .nt-confirm { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 10px 8px 4px; }
+#nametag .nt-confirm[hidden] { display: none; }
+#nametag .nt-confirm-ask { font-size: clamp(28px, 4.5vw, 40px); font-weight: 900; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+#nametag .nt-confirm-btns { display: flex; gap: 22px; flex-wrap: wrap; justify-content: center; }
+#nametag .nt-confirm-btns button { font-family: inherit; font-size: clamp(28px, 4vw, 36px); font-weight: 900; min-width: 120px; min-height: 64px; padding: 10px 28px; border-radius: 18px; border: 3px solid #ffd400; cursor: pointer; }
+#nametag .nt-confirm-yes { background: #ffd400; color: #111; }
+#nametag .nt-confirm-no { background: rgba(0,0,0,.7); color: #fff; }
+#nametag .nt-replace-title { font-size: clamp(22px, 3.2vw, 28px); line-height: 1.25; max-width: 22em; margin: 0 auto; }
 @media (max-width: 560px) {
   #nametag .nt-arrow { width: 30px; font-size: 34px; }
   #nametag .nt-picker canvas { width: 140px; height: 140px; }
@@ -884,7 +893,8 @@ body.start-card-on { overflow: auto; background: #fff; }
 #door-flow .df-back { font-size: 22px; background: rgba(0,0,0,.45); }
 
 /* Pac makeover: bag carousel with peeking neighbours + marker invite */
-#door-flow .df-bags, #door-flow .df-reveal, #door-flow .df-done, #door-flow .df-newcity { display: flex; flex-direction: column; align-items: center; gap: 14px; width: min(96vw, 920px); }
+#door-flow .df-bags, #door-flow .df-reveal, #door-flow .df-done, #door-flow .df-newcity { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; width: min(96vw, 920px); }
+#door-flow .df-bags .df-x, #door-flow .df-reveal .df-x, #door-flow .df-done .df-x, #door-flow .df-newcity .df-x { top: 0; right: 0; }
 #door-flow .df-panel { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 22px 24px; background: rgba(20,20,20,.92); border-radius: 18px; max-width: min(92vw, 520px); }
 #door-flow .df-carousel { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; }
 #door-flow .df-bag-main { position: relative; display: flex; flex-direction: column; align-items: center; }
@@ -1044,7 +1054,12 @@ body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-ci
 /* ---------- 3D props: the Props wheel (build phase; propsmode.js, Jens t491u/t509u) ----------
    Props mode: the two sticker wheels step aside and the Props wheel takes the bottom middle. The
    selected prop's panel: big and clear (Jens has poor eyesight) – big text, buttons ≥ 56 px. */
-body.props-mode #design-strip, body.props-mode #nature-strip { display: none !important; }
+body.props-mode #design-strip, body.props-mode #nature-strip, body.props-mode #packs-strip { display: none !important; }
+body.packs-mode #design-strip, body.packs-mode #nature-strip { display: none !important; }
+body.packs-mode:not(.touch) #mode-hud { bottom: calc(100px * 2.3 + 52px); }
+#mode-packs[aria-pressed="true"] { background: #ffb347; color: #15130f; }
+#mode-assets[aria-pressed="true"] { background: #ffd400; color: #15130f; }
+#mode-stickers[aria-pressed="true"] { background: #ffd400; color: #15130f; }
 #props-strip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 4; --wheel-item: 110px;
   width: min(900px, calc(100vw - 40px)); height: calc(var(--wheel-item) * 2.3 + 46px); pointer-events: none; }
 #props-strip[hidden] { display: none !important; }
@@ -1077,12 +1092,11 @@ body.camview #props-strip, body.replay #props-strip { display: none !important; 
 #props-panel #pp-del { border-color: #ff6b5b; color: #ffb3aa; }
 #props-panel .pp-note { margin: 8px 0 0; font-size: 15px; opacity: .7; }
 body.touch #props-panel { right: 8px; left: 8px; width: auto; top: 8px; transform: none; max-height: 52vh; font-size: 17px; padding: 10px 12px; }
-#mode-props[aria-pressed="true"] { background: #ffd400; color: #15130f; }
 /* four mode buttons (Slap · Nature · Props · Look): two rows of two, full-size words */
-#mode-switch:has(#mode-props:not([hidden])) { flex-wrap: wrap; }
-#mode-switch:has(#mode-props:not([hidden])) button { flex: 1 1 45%; }
-#mode-switch:has(#mode-props:not([hidden])) button:nth-child(3) { border-left: 0; }
-#mode-switch:has(#mode-props:not([hidden])) button:nth-child(n+3) { border-top: 1px solid #555; }
+#mode-switch:has(#mode-assets:not([hidden])) { flex-wrap: wrap; }
+#mode-switch:has(#mode-assets:not([hidden])) button { flex: 1 1 45%; }
+#mode-switch:has(#mode-assets:not([hidden])) button:nth-child(3) { border-left: 0; }
+#mode-switch:has(#mode-assets:not([hidden])) button:nth-child(n+3) { border-top: 1px solid #555; }
 
 /* ---------- Sound settings: bigger and clearer (Jens, 5 Nov 2026: poor eyesight) ---------- */
 #sound-panel { width: 560px; font-size: 16px; }
@@ -1219,10 +1233,82 @@ body.touch #sound-panel { width: auto; font-size: 17px; }
 #esc-menu .esc-lab { font-size: 22px; }
 #esc-menu .esc-btn:hover, #esc-menu .esc-btn:focus-visible { background: #ffd400; color: #111; outline: none; }
 body.esc-menu-open #panel, body.esc-menu-open #more-panel { display: none; }
+/* Sticker editor (nametag): hide the old left Slap-and-Talk panel while drawing */
+body.nametag-open #panel, body.nametag-open #more-panel, body.nametag-open #panel-toggle { display: none !important; }
 body.touch #esc-menu { grid-template-columns: repeat(2, minmax(130px, 1fr)); gap: 14px; bottom: calc(110px + env(safe-area-inset-bottom)); top: auto; transform: translate(-50%, 0); }
 body.touch #esc-menu .esc-btn { min-height: 100px; font-size: 18px; }
 body.touch #esc-menu .esc-ico { font-size: 36px; }
 body.touch #esc-menu .esc-lab { font-size: 18px; }
+#esc-menu.esc-submenu { grid-template-columns: repeat(2, minmax(160px, 1fr)); max-width: min(480px, calc(100vw - 24px)); }
+#esc-menu .esc-btn[hidden] { display: none !important; }
 @media (max-width: 520px) {
   #esc-menu { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
 }
+
+
+/* Esc CITY → Join existing list */
+#esc-menu.esc-cityjoin { display: flex; flex-direction: column; align-items: stretch; max-width: min(640px, calc(100vw - 24px)); max-height: min(78vh, 720px); pointer-events: auto; }
+#esc-menu .esc-city-list { display: flex; flex-direction: column; gap: 12px; overflow: auto; padding: 8px; pointer-events: auto; }
+#esc-menu .esc-city-list[hidden] { display: none !important; }
+#esc-menu .esc-city-empty { font-size: clamp(24px, 4vw, 34px); font-weight: 800; text-align: center; padding: 28px 16px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+#esc-menu .esc-city-row { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; text-align: left; padding: 16px 18px; border-radius: 18px; border: 3px solid #ffd400; background: rgba(18,18,18,.94); color: #fff; cursor: pointer; font-family: inherit; }
+#esc-menu .esc-city-row:hover, #esc-menu .esc-city-row:focus-visible { background: #ffd400; color: #111; outline: none; }
+#esc-menu .esc-city-name { font-size: clamp(26px, 4vw, 34px); font-weight: 900; }
+#esc-menu .esc-city-facts { font-size: clamp(18px, 2.8vw, 22px); opacity: .95; font-weight: 700; }
+#esc-menu.esc-submenu[data-view="city"] { grid-template-columns: repeat(2, minmax(160px, 1fr)); max-width: min(520px, calc(100vw - 24px)); }
+
+
+/* Pac makeover: big Draw button on the bag picker (replaces the marker invite) */
+#door-flow .df-draw {
+  font-family: inherit; font-size: clamp(32px, 5vw, 48px); font-weight: 900;
+  min-width: min(70vw, 320px); min-height: 72px; padding: 14px 36px;
+  border-radius: 22px; border: 4px solid #ffd400; background: #ffd400; color: #111;
+  cursor: pointer; box-shadow: 0 8px 22px rgba(0,0,0,.45); letter-spacing: .02em;
+}
+#door-flow .df-draw:hover { filter: brightness(1.05); transform: scale(1.03); }
+#door-flow .df-marker { display: none !important; }
+
+
+/* Pac reveal: celebration + name yes/no */
+#door-flow .df-fx { position: absolute; inset: -4% -2% 20%; width: 104%; height: 80%; pointer-events: none; z-index: 0; }
+#door-flow .df-wow { position: relative; z-index: 3; font-size: clamp(28px, 5vw, 44px); font-weight: 900; text-align: center;
+  text-shadow: 0 3px 0 #000, 0 0 18px rgba(255,200,80,.8); color: #ffe56a; padding: 4px 16px; }
+#door-flow .df-ask { position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+#door-flow .df-ask[hidden], #door-flow .df-name-view[hidden] { display: none !important; }
+#door-flow .df-ask-q { font-size: clamp(26px, 4.5vw, 38px); font-weight: 900; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,.7); max-width: 16em; }
+#door-flow .df-ask-btns { gap: 22px; }
+#door-flow .df-ask-yes, #door-flow .df-ask-no {
+  font-family: inherit; font-size: clamp(28px, 4vw, 40px); font-weight: 900; min-width: 130px; min-height: 68px;
+  padding: 12px 32px; border-radius: 20px; border: 4px solid #ffd400; cursor: pointer;
+}
+#door-flow .df-ask-yes { background: #ffd400; color: #111; }
+#door-flow .df-ask-no { background: rgba(0,0,0,.7); color: #fff; }
+#door-flow .df-name-view { position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+#door-flow .df-reveal #df-reveal-canvas { filter: drop-shadow(0 10px 28px rgba(0,0,0,.65)) drop-shadow(0 0 24px rgba(255,200,80,.35)); }
+
+/* Packs wheel replace dialog (lift + Replace this? yes/no) */
+#packs-replace { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; }
+#packs-replace .pk-panel { background: #1a1814; color: #f2efe8; border: 2px solid #555; border-radius: 14px; padding: 18px 20px; max-width: min(520px, 92vw); width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,.45); }
+#packs-replace .pk-title { font-weight: 700; margin-bottom: 12px; font-size: 16px; }
+#packs-replace .pk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+#packs-replace .pk-pick { background: #2a2620; border: 2px solid #555; border-radius: 10px; padding: 8px; color: inherit; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+#packs-replace .pk-pick img { width: 72px; height: 102px; object-fit: contain; }
+#packs-replace .pk-pick.picked { border-color: #ffb347; background: #3a3020; }
+#packs-replace .pk-ask { margin: 8px 0 10px; font-size: 15px; }
+#packs-replace .pk-btns { display: flex; gap: 10px; justify-content: flex-end; }
+#packs-replace .pk-yes, #packs-replace .pk-no, #packs-replace .pk-back { padding: 8px 14px; border-radius: 8px; border: 1px solid #666; background: #2a2620; color: inherit; cursor: pointer; }
+#packs-replace .pk-yes { background: #ffb347; color: #15130f; border-color: #ffb347; font-weight: 700; }
+#packs-strip #packs-num { position: absolute; left: 10px; bottom: 8px; font-size: 13px; opacity: .85; pointer-events: none; }
+
+/* Town Hall: discard one pack before taking another (lift + Replace this?) */
+#town-hall .th-replace, .th-replace { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; }
+.th-replace-panel { background: #1a1814; color: #f2efe8; border: 2px solid #555; border-radius: 14px; padding: 18px 20px; max-width: min(520px, 92%); width: 100%; }
+.th-replace-title { font-weight: 700; margin-bottom: 12px; }
+.th-replace-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.th-replace-pick { background: #2a2620; border: 2px solid #555; border-radius: 10px; padding: 8px; color: inherit; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.th-replace-pick img, .th-replace-img { width: 72px; height: 102px; object-fit: contain; }
+.th-replace-pick.picked { border-color: #ffb347; background: #3a3020; }
+.th-replace-ask { margin: 8px 0 10px; }
+.th-replace-btns { display: flex; gap: 10px; justify-content: flex-end; }
+.th-replace-yes, .th-replace-no, .th-replace-back { padding: 8px 14px; border-radius: 8px; border: 1px solid #666; background: #2a2620; color: inherit; cursor: pointer; }
+.th-replace-yes { background: #ffb347; color: #15130f; border-color: #ffb347; font-weight: 700; }

@@ -60,6 +60,7 @@ const api = {
     return fetch('/api/city/packs', { method: 'POST', body: fd, headers: hdrs(false) }).then(answer);
   },
   take: (id) => fetch(`/api/city/packs/${id}/take`, { method: 'POST', headers: hdrs(true), body: '{}' }).then(answer),
+  dropOne: (id) => fetch(`/api/city/packs/${id}/drop`, { method: 'POST', headers: hdrs(true), body: '{}' }).then(answer),
   cities: () => fetch('/api/cities', { cache: 'no-store' }).then(answer),
   newCity: (name, by) => fetch('/api/cities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, by }) }).then(answer),
 };
@@ -137,9 +138,10 @@ function buildHall() {
     const b = el('button', { type: 'button', className: cls });
     const m = mine(), left = m ? m.left : 0;
     if (p.taken && paid()) { const k = kept().has(p.id); b.textContent = k ? S.dkInDeck : S.dkPut; b.disabled = k || st.busy; b.onclick = () => openDeck(p); return b; }
-    b.textContent = p.taken ? S.hallTaken : !m ? S.hallFirst : left <= 0 ? S.hallFull(st.data.maxPacks) : S.hallTake;
-    b.disabled = p.taken || !m || left <= 0 || st.busy;
-    b.onclick = () => take(p);
+    const full = !!(m && left <= 0);
+    b.textContent = p.taken ? S.hallTaken : !m ? S.hallFirst : full ? (S.hallReplaceToTake || 'Replace a pack to take this') : S.hallTake;
+    b.disabled = p.taken || !m || st.busy;
+    b.onclick = () => (full ? takeWithReplace(p) : take(p));
     return b;
   }
   function openDetail(p) {
@@ -223,6 +225,56 @@ function buildHall() {
     await render();
   }
   $('th-handin').onclick = () => openForm();
+  /** Full (3 packs): lift a carried pack + "Replace this?" yes/no, then take the new one. */
+  function takeWithReplace(want) {
+    const carriedList = takenPacks();
+    if (!carriedList.length) { st.opts?.toast?.(S.hallFull(st.data?.maxPacks || 3), 2600); return; }
+    const overlay = el('div', { id: 'th-replace', className: 'th-replace' });
+    const panel = el('div', { className: 'th-replace-panel' });
+    panel.append(el('div', { className: 'th-replace-title', textContent: S.packsFullAsk || 'You can only carry 3 packs. Choose one to replace.' }));
+    const grid = el('div', { className: 'th-replace-grid' });
+    let pickId = null;
+    const confirm = el('div', { className: 'th-replace-confirm', hidden: true });
+    confirm.append(
+      el('div', { className: 'th-replace-ask', textContent: S.packsReplaceAsk || 'Replace this?' }),
+      el('div', { className: 'th-replace-btns' }, [
+        el('button', { type: 'button', className: 'th-replace-no', textContent: S.packsReplaceNo || 'no', onclick: () => {
+          pickId = null; confirm.hidden = true;
+          grid.querySelectorAll('.th-replace-pick').forEach((x) => x.classList.remove('picked'));
+        } }),
+        el('button', { type: 'button', className: 'th-replace-yes', textContent: S.packsReplaceYes || 'yes', onclick: async () => {
+          if (!pickId) return;
+          overlay.remove();
+          st.busy = true; render();
+          try {
+            await api.dropOne(pickId);
+            const t0 = read(TAKEN_KEY, null);
+            if (t0) write(TAKEN_KEY, { ...t0, packs: (t0.packs || []).filter((x) => x.id !== pickId) });
+            st.opts?.onChange?.();
+            st.busy = false;
+            await take(want);
+          } catch (e) {
+            st.opts?.toast?.(e.message, 2600);
+            st.busy = false; await load();
+          }
+        } }),
+      ]),
+    );
+    for (const p of carriedList) {
+      const b = el('button', { type: 'button', className: 'th-replace-pick', onclick: () => {
+        pickId = p.id;
+        grid.querySelectorAll('.th-replace-pick').forEach((x) => x.classList.remove('picked'));
+        b.classList.add('picked');
+        confirm.hidden = false;
+      } });
+      b.append(img(p.img || '/start/pac.webp', 'th-replace-img'), el('span', { textContent: p.name || S.cityMyPack }));
+      grid.append(b);
+    }
+    panel.append(grid, confirm, el('button', { type: 'button', className: 'th-replace-back', textContent: S.choiceBack || '↩ Back', onclick: () => overlay.remove() }));
+    overlay.append(panel);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    box.append(overlay);
+  }
   async function take(p) {
     st.busy = true; render();
     try {
@@ -362,7 +414,10 @@ function buildPick() {
     if (!st.cities) { list.append(el('li', { className: 'cp-empty', textContent: S.cpFailed })); return; }
     if (!st.cities.length) { list.append(el('li', { className: 'cp-empty', textContent: S.cpNone })); return; }
     for (const c of st.cities) {
-      const b = el('button', { type: 'button', className: 'cp-city' }, [el('b', { textContent: c.name }), el('span', { textContent: S.cpFacts(c.people, c.houses.length) }), el('em', { textContent: S.cpJoin })]);
+      const facts = (c.stickers != null || c.visitors != null)
+        ? S.escCityFacts(c.stickers || 0, c.visitors || 0, (S.escCityAge || ((iso) => iso))(c.createdAt))
+        : S.cpFacts(c.people, c.houses.length);
+      const b = el('button', { type: 'button', className: 'cp-city' }, [el('b', { textContent: c.name }), el('span', { textContent: facts }), el('em', { textContent: S.cpJoin })]);
       b.dataset.id = c.id; b.onclick = () => st.opts?.go?.(c.id);
       list.append(el('li', {}, b));
     }
@@ -372,7 +427,9 @@ function buildPick() {
     open(opts) {
       st.opts = opts; $('cp-title').textContent = S.cpTitle; $('cp-new-t').textContent = S.cpNew; $('cp-new-n').textContent = S.cpNewNote;
       $('cp-name-t').textContent = S.cpNameTitle; $('cp-name').placeholder = S.cpNamePlaceholder; $('cp-name').value = ''; $('cp-back').textContent = S.cpBack; $('cp-go').textContent = S.cpGo; $('cp-go').disabled = false;
-      box.hidden = false; step('list'); load();
+      // Esc CITY → Create new city opens straight on the name step.
+      const start = opts?.start === 'name' ? 'name' : 'list';
+      box.hidden = false; step(start); if (start === 'list') load(); else { st.cities = null; }
     },
     state: () => ({ open: !box.hidden, step: st.step, cities: st.cities ? st.cities.map((c) => ({ id: c.id, name: c.name, people: c.people })) : null }),
   };

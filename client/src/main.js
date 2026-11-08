@@ -18,7 +18,7 @@ import { CameraLayer, CAMERA_FOVS, CAMERA_ASPECTS, poseCamera, renderFramed, asp
 import * as photo from './photo.js';
 import { createAutoCrew, liveStickerTargets, AUTO_CHOICES, autoCamsOf, MAX_AUTO_CAMS } from '../../shared/autocam.mjs';
 import { groupFocus } from '../../shared/personcam.mjs';
-import { S, LOCALE } from './strings.js';
+import { S, LOCALE, cityAgeText } from './strings.js';
 import { Sounds } from './sound.js';
 import { showPose, freeRect } from './avatarview.js';
 import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView, nextView, frontPose, FRONT } from './chasecam.js';
@@ -29,6 +29,7 @@ import { entitlements, loadEntitlements, credentials } from './entitlements.js';
 import { uploadsToReplace, shownUploads } from '../../shared/uploads.mjs';
 import { openNameTag as openNameTagTool, nameTagOpen, nameTagState } from './nametag.js';
 import { openDoorPick, doorOpen, doorState } from './door.js';
+import { readPacks, PACKS_MAX } from './packswheel.js';
 import { seededLook, roomCharacterSeed } from '../../shared/randomlook.mjs';
 import AVATAR_SPEC from '../../shared/avatar.json';
 import { initFullVersion } from './fullversion.js';
@@ -524,7 +525,7 @@ function wheelUp() {
   document.body.classList.add('wheel-up');
   clearTimeout(wheelUpTimer);
   wheelUpTimer = setTimeout(function down() {
-    if (wheel.info().dragging || natureWheel.info().dragging) { wheelUpTimer = setTimeout(down, 400); return; }
+    if (wheel.info().dragging || natureWheel.info().dragging || packsWheel.info().dragging) { wheelUpTimer = setTimeout(down, 400); return; }
     document.body.classList.remove('wheel-up');
   }, WHEEL_UP_MS);
 }
@@ -537,32 +538,67 @@ const natureWheel = createWheel($('nature-row'), {
   pick: (img) => { select(img); if (isTouch) stackMenu?.chosen(); },
   onActivity: wheelUp,
 });
+const packsWheel = createWheel($('packs-row'), {
+  pick: (img) => {
+    // Selecting a pack: hold its picture; in the city, slapping it still opens the Town Hall shop.
+    select(img);
+    if (img?.packId) {
+      try {
+        const all = readPacks();
+        const p = all.find((x) => x.id === img.packId);
+        if (p) localStorage.setItem('klibb.pac', JSON.stringify(p));
+      } catch { /* fine */ }
+      cityWheelChanged();
+    }
+    if (isTouch) stackMenu?.chosen();
+  },
+  onActivity: wheelUp,
+});
 // The wheel R/F and the stack's sideways swipe turn: the active one.
 const activeWheelApi = {
-  cur: () => (activeWheel() === 'nature' ? natureWheel : wheel),
+  cur: () => (packsMode() ? packsWheel : activeWheel() === 'nature' ? natureWheel : wheel),
   beginDrag: (x) => activeWheelApi.cur().beginDrag(x), dragTo: (x) => activeWheelApi.cur().dragTo(x),
   endDrag: () => activeWheelApi.cur().endDrag(), info: () => activeWheelApi.cur().info(), render: () => activeWheelApi.cur().render(),
 };
+function packDesigns() {
+  return readPacks().map((p) => ({
+    id: 'pack:' + p.id, url: p.img || '/start/pac.webp', width: 563, height: 802,
+    name: p.name || S.cityMyPack, cityPack: true, packId: p.id,
+  }));
+}
 function renderStrip() {
-  const sel = state.selected, list = stickerDesigns(), nat = natureDesigns(), onNat = activeWheel() === 'nature';
-  const i = sel && !onNat ? list.findIndex((d) => d.id === sel.id) : -1;
-  $('design-strip').hidden = !list.length;
+  const sel = state.selected, list = stickerDesigns(), nat = natureDesigns(), packs = packDesigns();
+  const onNat = activeWheel() === 'nature' && !packsMode() && !propsMode();
+  const onPacks = packsMode();
+  const i = sel && !onNat && !onPacks ? list.findIndex((d) => d.id === sel.id) : -1;
+  $('design-strip').hidden = !list.length || onPacks || propsMode();
   wheel.setList(list);
-  wheel.setSelected(sel && !onNat ? sel.id : null);
+  wheel.setSelected(sel && !onNat && !onPacks ? sel.id : null);
   $('strip-num').textContent = list.length && i >= 0 ? `${i + 1}/${list.length}` : '';
   const open = natureOpen(), j = onNat ? nat.findIndex((d) => d.id === sel.id) : -1;
-  $('nature-strip').hidden = !nat.length;
+  $('nature-strip').hidden = !nat.length || onPacks || propsMode();
   $('nature-strip').classList.toggle('locked', !open);
-  $('nature-strip').title = open ? S.natureAria : S.natureTitle; // no "(full version)" once it's open
+  $('nature-strip').title = open ? S.natureAria : S.natureTitle;
   natureWheel.setList(nat);
   natureWheel.setSelected(onNat ? sel.id : null);
   $('nature-num').textContent = !nat.length ? '' : !open ? S.natureLocked : `🌿 ${j >= 0 ? `${j + 1}/` : ''}${nat.length}`;
-  document.body.classList.toggle('two-wheels', !!nat.length);
-  $('design-strip').classList.toggle('active', !onNat); $('nature-strip').classList.toggle('active', onNat);
+  const pk = $('packs-strip');
+  if (pk) {
+    pk.hidden = !onPacks;
+    const k = onPacks && sel ? packs.findIndex((d) => d.id === sel.id) : -1;
+    packsWheel.setList(packs);
+    packsWheel.setSelected(onPacks && sel ? sel.id : null);
+    $('packs-num').textContent = packs.length ? `📦 ${k >= 0 ? `${k + 1}/` : ''}${packs.length}/${PACKS_MAX}` : (S.packsEmpty || '');
+    pk.classList.toggle('active', onPacks);
+  }
+  document.body.classList.toggle('two-wheels', !!nat.length && !onPacks);
+  $('design-strip').classList.toggle('active', !onNat && !onPacks);
+  $('nature-strip').classList.toggle('active', onNat);
   syncNatureMode();
 }
 $('design-strip').addEventListener('mousedown', (e) => { e.stopPropagation(); });
 $('nature-strip').addEventListener('mousedown', (e) => { e.stopPropagation(); });
+$('packs-strip')?.addEventListener('mousedown', (e) => { e.stopPropagation(); });
 // Locked (free version): greyed, nothing turns; a click/tap opens the full version panel.
 $('nature-strip').addEventListener('click', (e) => { if (natureOpen()) return; e.preventDefault(); e.stopPropagation(); fullUi?.open(); }, true);
 
@@ -1195,7 +1231,11 @@ function action(ndc, opts) {
 // R byter fortfarande design (man stannar i Tittläge), så man kan förbereda nästa klibba.
 function setMode(mode, { quiet = false } = {}) {
   state.mode = mode === 'view' ? 'view' : 'slap';
-  if (state.mode === 'view') { cancelArray(); if (propsMode()) propsUi.setActive(false); }
+  if (state.mode === 'view') {
+    cancelArray();
+    if (propsMode()) propsUi.setActive(false);
+    if (packsMode()) document.body.classList.remove('packs-mode');
+  }
   const view = state.mode === 'view';
   document.body.classList.toggle('view-mode', view);
   if (view) preview.hide(); else hideCredit();
@@ -1216,21 +1256,25 @@ const toggleMode = () => setMode(state.mode === 'view' ? 'slap' : 'view');
 // sticker wheel = Slap mode). Nature is the full version's: free, V opens the full version panel and
 // you stay in Slap mode. The demo has no nature stickers: there V stays Look mode.
 function natureMode() { return state.mode === 'slap' && activeWheel() === 'nature'; }
+function packsMode() { return !!document.body.classList.contains('packs-mode'); }
 function syncNatureMode() {
-  const on = natureMode() && !propsMode(), m = state.mode === 'view' ? 'look' : propsMode() ? 'props' : on ? 'nature' : 'slap';
+  const on = natureMode() && !propsMode() && !packsMode();
+  const m = state.mode === 'view' ? 'look' : packsMode() ? 'packs' : propsMode() ? 'props' : on ? 'nature' : 'slap';
   document.body.classList.toggle('nature-mode', on);
   $('mode-hud').textContent = S.modeHud(m, isTouch, DEMO);
-  $('mode-slap').setAttribute('aria-pressed', String(m === 'slap'));
-  $('mode-look').setAttribute('aria-pressed', String(m === 'look'));
+  // Wheel buttons (replaced Slap/Nature/Props/Look). Look mode: G / phone 👁 only.
+  const sb = $('mode-stickers'); if (sb) sb.setAttribute('aria-pressed', String(m === 'slap'));
   const nb = $('mode-nature');
   if (nb) { nb.setAttribute('aria-pressed', String(m === 'nature')); nb.classList.toggle('locked', !natureOpen()); nb.hidden = DEMO || !natureDesigns().length; }
-  const pb = $('mode-props'); if (pb) { pb.setAttribute('aria-pressed', String(m === 'props')); pb.hidden = !(propsUi && propsUi.open()); }
+  const ab = $('mode-assets'); if (ab) { ab.setAttribute('aria-pressed', String(m === 'props')); ab.hidden = !(propsUi && propsUi.open()); }
+  const pb = $('mode-packs'); if (pb) pb.setAttribute('aria-pressed', String(m === 'packs'));
 }
 function setNatureMode(on, { quiet = false } = {}) {
   // free: the upgrade panel instead – plus a toast that SAYS why, so V never looks dead (Jens, 28 Oct 2026:
   // "Nature mode doesn't work" = the generic panel opened and nothing named Nature mode)
   if (on && !natureOpen()) { fullUi?.open(); if (!quiet) toast(S.natureModeLocked, 2600); return false; }
   if (state.mode === 'view') setMode('slap', { quiet: true });
+  if (on) document.body.classList.remove('packs-mode');
   if (on && activeWheel() !== 'nature') {
     const list = natureDesigns(), d = list.find((x) => x.id === lastNatureId) || list[0];
     if (!d) return false;
@@ -1258,9 +1302,30 @@ function toggleNature() {
 function setProps(on) {
   if (on && !(propsUi && propsUi.open())) { toast(S.propsLocked || 'Props: the build phase’s builders only.', 2400); return false; }
   if (state.mode === 'view') setMode('slap', { quiet: true });
+  if (on) setPacksMode(false, { quiet: true });
   propsUi.setActive(on); syncNatureMode();
   if (on) toast(isTouch ? '🪑 Props: pick one on the wheel, tap the floor to place it, tap a prop to change it.' : '🪑 Props: pick one on the wheel (R/F), click to place it, click a prop to change it. Q/E turn · wheel = size · V = slap mode.', 3200);
   return propsMode();
+}
+function setPacksMode(on, { quiet = false } = {}) {
+  on = !!on;
+  if (on) {
+    if (propsMode()) propsUi.setActive(false);
+    if (state.mode === 'view') setMode('slap', { quiet: true });
+    if (natureMode()) setNatureMode(false, { quiet: true });
+  }
+  document.body.classList.toggle('packs-mode', on);
+  syncNatureMode();
+  renderStrip();
+  if (!quiet && on) toast(S.packsTitle || 'Packs you carry (up to 3)', 1800);
+  return packsMode();
+}
+function setStickersWheel() {
+  if (propsMode()) propsUi.setActive(false);
+  setPacksMode(false, { quiet: true });
+  if (state.mode !== 'slap') setMode('slap', { quiet: true });
+  if (natureMode()) setNatureMode(false, { quiet: true });
+  toast(S.modeToastSlap(isTouch), 1600);
 }
 // var: setMode längre ner använder den innan raden här har körts.
 var stackMenu = null; // eslint-disable-line no-var -- touch only: the sticker stack menu + the held sticker's timer (stackmenu.js)
@@ -1269,11 +1334,11 @@ var camShow = localStorage.getItem('klibb.camShow') !== '0'; // eslint-disable-l
 // Touch has no mode switch: there the held timer's idle / faded state already is the view mode (a tap
 // wakes the sticker, a tap on a sticker shows its credit), so a phone starts as before.
 if (!isTouch) setMode('view', { quiet: true });
-$('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); };
-$('mode-slap').onclick = () => { if (propsMode()) propsUi.setActive(false); if (state.mode !== 'slap') setMode('slap', { quiet: true }); if (natureMode()) setNatureMode(false, { quiet: true }); toast(S.modeToastSlap(isTouch), 1600); };
-$('mode-nature').onclick = () => { if (propsMode()) propsUi.setActive(false); setNatureMode(true); };
-$('mode-props').onclick = () => { setProps(!propsMode()); };
-$('mode-look').onclick = () => { if (state.mode !== 'view') setMode('view'); };
+$('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); }; // Look mode (touch 👁); desktop Look = G
+$('mode-stickers').onclick = () => setStickersWheel();
+$('mode-nature').onclick = () => { setPacksMode(false, { quiet: true }); if (propsMode()) propsUi.setActive(false); setNatureMode(true); };
+$('mode-assets').onclick = () => { setPacksMode(false, { quiet: true }); setProps(!propsMode()); };
+$('mode-packs').onclick = () => setPacksMode(!packsMode());
 
 // ---------- Peel (ångra) och historik ----------
 // Peel tar bort en av MINA stämplar: servern kräver den hemliga nyckeln som bara den här
@@ -1637,6 +1702,8 @@ function resumeGame() { setResuming(true); tryLock(); }
 // Topmost panel/dialog Esc should close (not the Esc button row). Null when nothing is up.
 // Priority: always close a panel before toggling the Esc buttons (Jens, Nov 2026).
 function escTopPanel() {
+  // CREATE submenu (STICKERS / STICKER PACK) closes first, like any other top panel.
+  if (escMenu?.submenuOpen?.()) return () => escMenu.closeSubmenu();
   if (placingCam) return () => cancelPlacingCam();
   if (camView) return () => exitCamView();
   if (fullUi?.isOpen()) return () => fullUi.close();
@@ -2531,12 +2598,10 @@ function walkToDoor(n) { const s = spawnOutside(houseId(THIS_CITY, n)); camera.p
 // one way (Jens, t479u: it may have filled up with people) – no "back to my room".
 const doorOpts = () => ({
   S, toast, inCity: IN_CITY,
+  skipNewCity: true, // Jens: no mid-flow new-city; city via final button / CITY menu
+  onPacksChange: () => { renderStrip(); },
   choices: () => (IN_CITY ? state.library.filter((d) => !isNat(d) && !WHEEL_EXCLUDE.includes(d.id)) : stickerDesigns()),
-  needsNewCity: async () => {
-    if (IN_CITY) return false;
-    try { const r = await fetch('/api/cities', { cache: 'no-store' }); const d = await r.json(); return !(d.cities && d.cities.length); }
-    catch { return true; }
-  },
+  needsNewCity: async () => false,
   backToRoom: () => { /* pac saved; stay in the room */ },
   toCity: (cityName) => {
     if (IN_CITY) { cityWheelChanged(); return; }
@@ -2642,7 +2707,10 @@ const menuActions = {
   radio: () => { closeMore(); filmLog?.add('radio', { what: 'open' }); if (entitlements.full.soundDesign) soundUi.open(); else { fullUi?.open(); toast(S.soundLocked, 2600); } },
   room: () => openRoomPanel(),
   exit: () => openChoice('exit', exitChoices()),
+  // Former Esc NAME button → still reachable as CREATE → STICKERS (and menuAction('nametag')).
   nametag: () => openNameTag(),
+  // STICKER PACK hook: pac makeover flow (door.js). Change this one line to retarget.
+  stickerPack: () => openDoorPick(doorOpts()),
   door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => openDoorPick(doorOpts()) }, { id: 'back', text: S.doorBackToRoom }]),
 };
 // Esc / touch big-button menu (replaces menu stickers).
@@ -2651,13 +2719,26 @@ escMenu = initEscMenu({
   onSound: () => menuActions.radio(),
   onAvatar: () => menuActions.character(),
   onRoom: () => menuActions.room(),
-  onCity: () => menuActions.door(),
+  // CITY opens Create new city / Join existing submenu (handled inside escmenu.js).
+  onCity: () => {},
   onExit: () => menuActions.exit(),
-  onName: () => menuActions.nametag(),
+  // CREATE opens the STICKERS / STICKER PACK submenu (handled inside escmenu.js).
+  onCreate: () => {},
+  onStickers: () => menuActions.nametag(),
+  onStickerPack: () => menuActions.stickerPack(),
+  // Create new city: reuse city-picker naming flow (POST /api/cities).
+  onCreateCity: () => openCityPick({ toast, start: 'name', go: (id) => { goRoom(id); } }),
+  // Join existing: picking a row goes straight into that city.
+  onPickCity: (c) => { if (c?.id) goRoom(c.id); },
+  formatCity: (c) => {
+    const age = (typeof cityAgeText === 'function' ? cityAgeText : (S.escCityAge || (() => '–')))(c.createdAt);
+    return { ...c, ageText: age, facts: S.escCityFacts(c.stickers || 0, c.visitors || 0, age) };
+  },
   onClose: () => resumeGame(),
   // Touch Menu / open(): close the top panel first; only show buttons when nothing is open.
   closeTop: () => { const c = escTopPanel(); if (c) { c(); return true; } return false; },
 });
+escMenu.setJoinLabels({ loading: S.escCityLoading, none: S.escCityNone, failed: S.escCityFailed });
 
 
 // The name-tag roll (knappar/editor.png): the "my name is" drawing tool (nametag.js). The finished tag

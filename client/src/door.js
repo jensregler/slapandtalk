@@ -1,7 +1,14 @@
-// The door / pac makeover (Jens, Nov 2026): pick a bag → design it (marker) → optional new-city
-// name → choose 3 stickers → reveal + name your pac → back to room / to the city.
+// The door / pac makeover (Jens, Nov 2026):
+// CREATE → STICKER PACK (Jens final flow):
+//   1) choose 3 stickers
+//   2) label colour carousel + Draw (draw: skip / undo / done; bag shows the 3 stickers)
+//   3) celebration (glitter / fireworks)
+//   4) "Would you like to name your pack?" yes/no (yes → text input)
+//   5) "Back to room" or "To the city – trade your stickers"
+// No mid-flow new-city question (city = final button or CITY menu). Every step has Exit → room.
 // Bag designs: client/public/stickerpacks/pac1..7.webp (pac1 = Priority Mail /start/pac.webp).
 import { openNameTag } from './nametag.js';
+import { addPack, openPackReplace } from './packswheel.js';
 const PAC = '/start/pac.webp', PW = 563, PH = 802;
 export const PACKS = Array.from({ length: 7 }, (_, i) => `/stickerpacks/pac${i + 1}.webp`);
 export const bagUrl = (bag) => PACKS[((bag | 0) >= 1 && (bag | 0) <= PACKS.length ? bag | 0 : 1) - 1];
@@ -50,40 +57,34 @@ export async function pacPicture(pac) {
   return composePac(pac.urls, { ink: pac.img || null, pac: pac.bag ? bagUrl(pac.bag) : PAC });
 }
 
-const MARKER_SVG = `
-<svg class="df-marker-svg" viewBox="0 0 420 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <defs>
-    <linearGradient id="df-mk-body" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#f5e14a"/><stop offset=".55" stop-color="#f0d020"/><stop offset="1" stop-color="#e6c010"/>
-    </linearGradient>
-  </defs>
-  <g transform="rotate(-18 210 60)">
-    <path d="M28 48 L78 38 L88 82 L38 92 Z" fill="#e0352b"/>
-    <path d="M70 40 L95 34 L102 78 L78 84 Z" fill="#222"/>
-    <rect x="95" y="30" width="250" height="58" rx="10" fill="url(#df-mk-body)" stroke="#222" stroke-width="3"/>
-    <rect x="345" y="34" width="42" height="50" rx="6" fill="#111"/>
-    <text x="220" y="68" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="15" font-weight="800" fill="#c01010">Design your pac and trade it in the shop</text>
-  </g>
-</svg>`;
-
 const BURST_WORDS = ['NEW', 'Fresh', 'WHAT!', 'cool', 'NEW', 'Fresh'];
 
 function build() {
   const box = document.createElement('div'); box.id = 'door-flow'; box.hidden = true;
   box.innerHTML = `
+    <div class="df-pick" id="df-pick" hidden>
+      <div class="df-title" id="df-title"></div>
+      <div class="df-grid" id="df-grid"></div>
+      <div class="df-tray"><div class="df-slots" id="df-slots"></div><button type="button" id="df-next" disabled></button></div>
+      <button type="button" class="df-back" id="df-back-pick"></button>
+      <button type="button" class="df-x" id="df-cancel">✕</button>
+    </div>
     <div class="df-bags" id="df-bags" hidden>
       <div class="df-carousel" id="df-carousel">
         <button type="button" class="df-arrow df-arrow-outer" id="df-bag-prev" aria-label="previous bag">‹</button>
         <div class="df-peek df-peek-l" id="df-peek-l" aria-hidden="true"></div>
         <div class="df-bag-main">
           <canvas id="df-pac-canvas" width="${PW}" height="${PH}"></canvas>
-          <button type="button" class="df-marker" id="df-marker" aria-label="Design your pac">${MARKER_SVG}</button>
         </div>
         <div class="df-peek df-peek-r" id="df-peek-r" aria-hidden="true"></div>
         <button type="button" class="df-arrow df-arrow-outer" id="df-bag-next" aria-label="next bag">›</button>
       </div>
-      <div class="df-pac-btns"><button type="button" id="df-skip-design"></button></div>
+      <div class="df-pac-btns">
+        <button type="button" class="df-draw" id="df-draw"></button>
+        <button type="button" id="df-skip-design"></button>
+      </div>
       <button type="button" class="df-back" id="df-back-bags"></button>
+      <button type="button" class="df-x" id="df-exit-bags">✕</button>
     </div>
     <div class="df-newcity" id="df-newcity" hidden>
       <div class="df-panel">
@@ -94,21 +95,28 @@ function build() {
           <button type="button" id="df-city-go"></button>
           <button type="button" id="df-city-skip"></button>
         </div>
+        <button type="button" class="df-back" id="df-back-newcity"></button>
+        <button type="button" class="df-x" id="df-exit-newcity">✕</button>
       </div>
     </div>
-    <div class="df-pick" id="df-pick" hidden>
-      <div class="df-title" id="df-title"></div>
-      <div class="df-grid" id="df-grid"></div>
-      <div class="df-tray"><div class="df-slots" id="df-slots"></div><button type="button" id="df-next" disabled></button></div>
-      <button type="button" class="df-back" id="df-back-pick"></button>
-      <button type="button" class="df-x" id="df-cancel">✕</button>
-    </div>
     <div class="df-reveal" id="df-reveal" hidden>
+      <canvas class="df-fx" id="df-fx" width="900" height="700" aria-hidden="true"></canvas>
       <div class="df-burst" id="df-burst" aria-hidden="true"></div>
       <canvas id="df-reveal-canvas" width="${PW}" height="${PH}"></canvas>
       <div class="df-reveal-words" id="df-reveal-words"></div>
-      <input id="df-name" maxlength="30" autocomplete="off" spellcheck="false">
-      <div class="df-pac-btns"><button type="button" id="df-name-go"></button><button type="button" id="df-name-skip"></button></div>
+      <div class="df-wow" id="df-wow"></div>
+      <div class="df-ask" id="df-ask-view">
+        <div class="df-ask-q" id="df-ask-q"></div>
+        <div class="df-pac-btns df-ask-btns">
+          <button type="button" class="df-ask-no" id="df-name-no"></button>
+          <button type="button" class="df-ask-yes" id="df-name-yes"></button>
+        </div>
+      </div>
+      <div class="df-name-view" id="df-name-view" hidden>
+        <input id="df-name" maxlength="30" autocomplete="off" spellcheck="false">
+        <div class="df-pac-btns"><button type="button" id="df-name-go"></button></div>
+      </div>
+      <button type="button" class="df-x" id="df-exit-reveal">✕</button>
     </div>
     <div class="df-done" id="df-done" hidden>
       <canvas id="df-done-canvas" width="${PW}" height="${PH}"></canvas>
@@ -117,30 +125,32 @@ function build() {
         <button type="button" id="df-room"></button>
         <button type="button" id="df-city"></button>
       </div>
+      <button type="button" class="df-x" id="df-exit-done">✕</button>
     </div>`;
   document.body.appendChild(box);
   const $ = (id) => box.querySelector('#' + id);
   const st = {
     picked: [], opts: null, pacImg: null, drawn: false, bag: 1, ink: null,
-    step: null, cityName: null, pacName: '',
+    step: null, cityName: null, pacName: '', revealPhase: 'ask', fxRaf: 0,
   };
   let S = {};
-  const steps = ['bags', 'newcity', 'pick', 'reveal', 'done'];
+  const stickerUrls = () => st.picked.map((d) => d.url);
+
   function hideAll() {
     for (const id of ['df-bags', 'df-newcity', 'df-pick', 'df-reveal', 'df-done']) $(id).hidden = true;
   }
   function showStep(step) {
     st.step = step; hideAll(); box.hidden = false;
-    if (step === 'bags') { $('df-bags').hidden = false; paintBag(); }
+    if (step === 'pick') { $('df-pick').hidden = false; renderPick(); }
+    else if (step === 'bags') { $('df-bags').hidden = false; paintBag(); }
     else if (step === 'newcity') { $('df-newcity').hidden = false; $('df-city-name').value = ''; $('df-city-name').focus(); }
-    else if (step === 'pick') { $('df-pick').hidden = false; renderPick(); }
     else if (step === 'reveal') { $('df-reveal').hidden = false; showReveal(); }
     else if (step === 'done') { $('df-done').hidden = false; showDone(); }
   }
 
   async function paintBag() {
     const bag = st.bag;
-    const c = await composePac([], { pac: bagUrl(bag), ink: st.ink });
+    const c = await composePac(stickerUrls(), { pac: bagUrl(bag), ink: st.ink });
     if (bag !== st.bag) return;
     const out = $('df-pac-canvas').getContext('2d'); out.clearRect(0, 0, PW, PH); out.drawImage(c, 0, 0);
     st.pacImg = c;
@@ -171,43 +181,54 @@ function build() {
     cv.addEventListener('pointerdown', (e) => { sx = e.clientX; });
     cv.addEventListener('pointerup', (e) => { if (sx == null) return; const dx = e.clientX - sx; sx = null; if (Math.abs(dx) > 40) setBag(st.bag + (dx < 0 ? 1 : -1)); }); }
 
-  function openDraw() {
+  // Draw: same sticker-editor layout (exit – undo – done), label clip, bag+3 stickers as the blank.
+  async function openDraw() {
     box.hidden = true;
-    // One blank per bag so ‹ › still flip bags while drawing (header zoomed).
-    const blanks = PACKS.map((u) => u);
+    const urls = stickerUrls();
+    // One blank: current bag with the 3 stickers already in the pouch (fast open).
+    const blank = await composePac(urls, { pac: bagUrl(st.bag) });
     openNameTag({
-      S, toast: st.opts.toast, blanks, size: [PW, PH], direct: true,
-      startBlank: st.bag - 1, hideDots: true,
-      saveText: S.doorDone || 'done', exitText: S.doorSkip || 'skip',
+      S, toast: st.opts.toast, blanks: [blank.toDataURL('image/png')], size: [PW, PH], direct: true,
+      startBlank: 0, hideDots: true,
+      // Pack label draw: skip (left) – undo – done (right); same L/R convention as sticker editor.
+      saveText: S.ntSave || S.doorDone || 'done',
+      exitText: S.doorSkip || 'Skip',
       clip: PAC_LABEL, zoomClip: PAC_LABEL,
-      onBlankChange: (i) => { st.bag = i + 1; box.dataset.bag = String(st.bag); },
       onSave: async (blob) => {
         const im = await loadImg(URL.createObjectURL(blob));
         st.ink = im; st.drawn = true;
-        st.pacImg = await composePac([], { ink: im, pac: bagUrl(st.bag) });
+        st.pacImg = await composePac(urls, { ink: im, pac: bagUrl(st.bag) });
       },
       onClose: () => { afterDesign(); },
     });
   }
-  $('df-marker').onclick = () => openDraw();
+  $('df-draw').onclick = () => openDraw();
   $('df-pac-canvas').addEventListener('dblclick', () => openDraw());
   $('df-skip-design').onclick = () => afterDesign();
-  $('df-back-bags').onclick = () => close();
+  $('df-back-bags').onclick = () => showStep('pick');
   $('df-cancel').onclick = () => close();
+  const exitToRoom = () => { stopFx(); close(); st.opts.backToRoom?.(); };
+  $('df-exit-bags').onclick = exitToRoom;
+  $('df-exit-newcity').onclick = exitToRoom;
+  $('df-exit-reveal').onclick = exitToRoom;
+  $('df-exit-done').onclick = () => { savePac(); exitToRoom(); };
+  $('df-back-newcity').onclick = () => showStep('bags');
 
   async function afterDesign() {
     box.hidden = false;
+    // CREATE → STICKER PACK: never ask new-city mid-flow (city via final button / CITY menu).
+    if (st.opts.skipNewCity) { showStep('reveal'); return; }
     let need = false;
     try { need = !st.opts.inCity && !!(await st.opts.needsNewCity?.()); } catch { need = !st.opts.inCity; }
     if (need) showStep('newcity');
-    else showStep('pick');
+    else showStep('reveal');
   }
   $('df-city-go').onclick = () => {
     const name = $('df-city-name').value.trim().slice(0, 32);
     if (!name) { $('df-city-name').focus(); return; }
-    st.cityName = name; showStep('pick');
+    st.cityName = name; showStep('reveal');
   };
-  $('df-city-skip').onclick = () => { st.cityName = null; showStep('pick'); };
+  $('df-city-skip').onclick = () => { st.cityName = null; showStep('reveal'); };
 
   function renderPick() {
     $('df-title').textContent = S.doorChoose3;
@@ -237,51 +258,100 @@ function build() {
     $('df-next').disabled = st.picked.length !== 3;
     box.querySelectorAll('.df-g').forEach((b) => b.classList.toggle('on', st.picked.some((d) => d.id === b.dataset.id)));
   }
-  $('df-next').onclick = () => { st.pacImg = null; showStep('reveal'); };
-  $('df-back-pick').onclick = () => {
-    // Back from stickers: to new-city if that step was shown, else bags.
-    if (st.cityName != null || (!st.opts.inCity && $('df-newcity'))) {
-      // If we came through newcity (even skipped), go bags – simpler: always bags.
-    }
-    st.picked = []; showStep('bags');
-  };
+  $('df-next').onclick = () => { st.pacImg = null; st.ink = null; st.drawn = false; showStep('bags'); };
+  $('df-back-pick').onclick = () => close();
 
+  function stopFx() { cancelAnimationFrame(st.fxRaf); st.fxRaf = 0; }
+  function startFx() {
+    const cv = $('df-fx'); if (!cv) return;
+    const ctx = cv.getContext('2d');
+    const W = cv.width, H = cv.height;
+    const sparks = Array.from({ length: 70 }, () => ({
+      x: Math.random() * W, y: Math.random() * H * 0.7,
+      vx: (Math.random() - 0.5) * 3.2, vy: -1.2 - Math.random() * 3.5,
+      life: 40 + Math.random() * 60, age: Math.random() * 40,
+      r: 1.5 + Math.random() * 3.5, hue: Math.floor(Math.random() * 360),
+    }));
+    const boom = [];
+    const boomAt = (x, y) => {
+      for (let i = 0; i < 28; i++) {
+        const a = (i / 28) * Math.PI * 2 + Math.random() * 0.2;
+        const sp = 1.5 + Math.random() * 4;
+        boom.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 35 + Math.random() * 25, age: 0, r: 2 + Math.random() * 3, hue: Math.floor(Math.random() * 360) });
+      }
+    };
+    let tick = 0;
+    const frame = () => {
+      st.fxRaf = requestAnimationFrame(frame);
+      tick++;
+      ctx.clearRect(0, 0, W, H);
+      if (tick % 28 === 1) boomAt(80 + Math.random() * (W - 160), 60 + Math.random() * (H * 0.45));
+      for (const s of sparks) {
+        s.age++; s.x += s.vx; s.y += s.vy; s.vy += 0.04;
+        if (s.age > s.life) { s.age = 0; s.x = Math.random() * W; s.y = Math.random() * H * 0.55; s.vy = -1.2 - Math.random() * 3.5; }
+        const a = 1 - s.age / s.life;
+        ctx.fillStyle = `hsla(${s.hue},95%,65%,${a})`;
+        ctx.beginPath(); ctx.arc(s.x, s.y, Math.max(0.01, s.r), 0, 7); ctx.fill();
+      }
+      for (let i = boom.length - 1; i >= 0; i--) {
+        const s = boom[i]; s.age++; s.x += s.vx; s.y += s.vy; s.vy += 0.05;
+        const a = 1 - s.age / s.life;
+        ctx.fillStyle = `hsla(${s.hue},100%,60%,${a})`;
+        ctx.beginPath(); ctx.arc(s.x, s.y, Math.max(0.01, s.r * a), 0, 7); ctx.fill();
+        if (s.age >= s.life) boom.splice(i, 1);
+      }
+    };
+    stopFx(); frame();
+  }
+  function setRevealPhase(phase) {
+    st.revealPhase = phase;
+    $('df-ask-view').hidden = phase !== 'ask';
+    $('df-name-view').hidden = phase !== 'name';
+    if (phase === 'name') { $('df-name').value = ''; $('df-name').focus(); }
+  }
   async function showReveal() {
-    const c = await composePac(st.picked.map((d) => d.url), { pac: bagUrl(st.bag), ink: st.ink });
+    const c = await composePac(stickerUrls(), { pac: bagUrl(st.bag), ink: st.ink });
     st.pacImg = c;
     const out = $('df-reveal-canvas').getContext('2d'); out.clearRect(0, 0, PW, PH); out.drawImage(c, 0, 0);
-    $('df-name').placeholder = S.doorNamePac; $('df-name').value = st.pacName || '';
+    $('df-wow').textContent = S.doorWow || 'wow you made a sticker pack';
+    $('df-ask-q').textContent = S.doorNameAsk || 'Would you like to name your pack?';
+    $('df-name-yes').textContent = S.doorNameYes || 'yes';
+    $('df-name-no').textContent = S.doorNameNo || 'no';
+    $('df-name').placeholder = S.doorNamePac || 'name your pack';
     $('df-name-go').textContent = S.doorDone || 'done';
-    $('df-name-skip').textContent = S.doorSkip || 'Skip';
     const words = $('df-reveal-words'); words.textContent = '';
     BURST_WORDS.forEach((w, i) => {
       const s = document.createElement('span'); s.className = 'df-w df-w-' + (i % 4); s.textContent = w; words.appendChild(s);
     });
     const burst = $('df-burst'); burst.textContent = '';
-    for (let i = 0; i < 18; i++) {
-      const sp = document.createElement('span'); sp.className = 'df-spark'; sp.style.setProperty('--a', String((i / 18) * 360));
-      sp.style.setProperty('--d', `${0.4 + (i % 5) * 0.12}s`); burst.appendChild(sp);
+    for (let i = 0; i < 22; i++) {
+      const sp = document.createElement('span'); sp.className = 'df-spark'; sp.style.setProperty('--a', String((i / 22) * 360));
+      sp.style.setProperty('--d', `${0.35 + (i % 6) * 0.1}s`); burst.appendChild(sp);
     }
-    $('df-name').focus();
+    setRevealPhase('ask');
+    startFx();
   }
   function finishName() {
     st.pacName = $('df-name').value.trim().slice(0, 30);
+    stopFx();
     showStep('done');
   }
-  $('df-name-skip').onclick = () => { st.pacName = ''; showStep('done'); };
+  $('df-name-no').onclick = () => { st.pacName = ''; stopFx(); showStep('done'); };
+  $('df-name-yes').onclick = () => setRevealPhase('name');
   $('df-name-go').onclick = () => finishName();
   $('df-name').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); finishName(); }
   });
 
   async function showDone() {
-    const c = st.pacImg || await composePac(st.picked.map((d) => d.url), { pac: bagUrl(st.bag), ink: st.ink });
+    const c = st.pacImg || await composePac(stickerUrls(), { pac: bagUrl(st.bag), ink: st.ink });
     st.pacImg = c;
     const out = $('df-done-canvas').getContext('2d'); out.clearRect(0, 0, PW, PH); out.drawImage(c, 0, 0);
     $('df-done-name').textContent = st.pacName || '';
     $('df-done-name').hidden = !st.pacName;
+    // Final choice after name (or decline): back to room / to the city (trade stickers).
     $('df-room').textContent = S.doorBackRoom || 'back to room';
-    $('df-city').textContent = S.doorToCityGo || 'to the city';
+    $('df-city').textContent = S.doorToCityGo || 'To the city – trade your stickers';
   }
   function savePac() {
     const pac = {
@@ -289,8 +359,16 @@ function build() {
       designs: st.picked.map((d) => ({ id: d.id, url: d.url, ...(d.width ? { width: d.width, height: d.height } : {}) })),
       bag: st.bag, at: new Date().toISOString(),
     };
-    try { localStorage.setItem(PAC_KEY, JSON.stringify({ ...pac, img: st.pacImg.toDataURL('image/webp', 0.85) })); }
+    try { pac.img = st.pacImg.toDataURL('image/webp', 0.85); localStorage.setItem(PAC_KEY, JSON.stringify(pac)); }
     catch { try { localStorage.setItem(PAC_KEY, JSON.stringify(pac)); } catch { /* full */ } }
+    // Packs wheel (max 3): add, or ask which to replace.
+    const r = addPack(pac);
+    if (r.needsReplace) {
+      openPackReplace(r.pending, { toast: st.opts.toast, onDone: () => st.opts.onPacksChange?.() });
+    } else if (r.ok) {
+      st.opts.toast?.(S.packsAdded || 'Pack saved on your PACKS wheel.', 2200);
+      st.opts.onPacksChange?.();
+    }
     return pac;
   }
   $('df-room').onclick = () => {
@@ -303,16 +381,20 @@ function build() {
     else st.opts.toast?.(S.cityComingSoon, 3500);
   };
 
-  function close() { box.hidden = true; st.step = null; hideAll(); }
+  function close() { stopFx(); box.hidden = true; st.step = null; hideAll(); }
   addEventListener('keydown', (e) => {
     if (box.hidden) return;
     const typing = e.target && (e.target.id === 'df-name' || e.target.id === 'df-city-name');
     if (typing) { if (e.key !== 'Escape') { e.stopImmediatePropagation(); return; } }
     if (e.key === 'Escape') {
-      if (st.step === 'done') return; // use the buttons
-      if (st.step === 'reveal') { st.pacName = ''; showStep('done'); }
-      else if (st.step === 'pick') showStep('bags');
-      else if (st.step === 'newcity') { st.cityName = null; showStep('pick'); }
+      if (st.step === 'done') { savePac(); exitToRoom(); return; }
+      if (st.step === 'reveal') {
+        if (st.revealPhase === 'name') setRevealPhase('ask');
+        else exitToRoom(); // Exit → room (no save yet)
+      }
+      else if (st.step === 'newcity') exitToRoom();
+      else if (st.step === 'bags') showStep('pick'); // Back; ✕ exits to room
+      else if (st.step === 'pick') close();
       else close();
     } else if (st.step === 'bags' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) setBag(st.bag + (e.key === 'ArrowRight' ? 1 : -1));
     e.stopImmediatePropagation();
@@ -325,19 +407,21 @@ function build() {
       st.opts = opts; S = opts.S || {};
       st.picked = []; st.pacImg = null; st.ink = null; st.drawn = false; st.cityName = null; st.pacName = '';
       { const b = (readPac()?.bag) | 0; st.bag = b >= 1 && b <= PACKS.length ? b : 1; }
+      $('df-draw').textContent = S.doorDraw || 'Draw';
       $('df-skip-design').textContent = S.doorSkip || 'Skip';
       $('df-back-bags').textContent = S.choiceBack;
+      $('df-back-newcity').textContent = S.choiceBack;
       $('df-newcity-title').textContent = S.doorNewCityTitle || 'Start a new city?';
       $('df-newcity-note').textContent = S.doorNewCityNote || 'You are the city\'s first resident – do you want to name it?';
       $('df-city-name').placeholder = S.cpNamePlaceholder || 'e.g. Slapville';
       $('df-city-go').textContent = S.doorNewCityGo || 'Name it →';
       $('df-city-skip').textContent = S.doorSkip || 'Skip';
-      showStep('bags');
+      showStep('pick');
     },
     close,
     state: () => ({
       open: !box.hidden, step: box.hidden ? null : st.step, picked: st.picked.map((d) => d.id),
-      drawn: st.drawn, bag: st.bag, cityName: st.cityName, pacName: st.pacName,
+      drawn: st.drawn, bag: st.bag, cityName: st.cityName, pacName: st.pacName, revealPhase: st.revealPhase,
     }),
     setBag,
   };

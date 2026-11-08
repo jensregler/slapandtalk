@@ -23,18 +23,7 @@ const TAG = process.env.PAC_TAG || 'after';
     await P.evaluate(() => window.klibb.menuAction('door'));
     await sleep(500);
     if (await P.locator('#menu-choice-list [data-id="enter-city"]').count()) { await P.click('#menu-choice-list [data-id="enter-city"]'); await sleep(800); }
-    // Draw on the bag first (pac makeover), then pick stickers
-    await P.click('#df-marker'); await sleep(800);
-    const tag = await P.locator('#nt-stroke').boundingBox();
-    const line = async (pts) => { await P.mouse.move(tag.x + tag.width * pts[0][0], tag.y + tag.height * pts[0][1]); await P.mouse.down(); for (const p of pts.slice(1)) await P.mouse.move(tag.x + tag.width * p[0], tag.y + tag.height * p[1], { steps: 12 }); await P.mouse.up(); };
-    await line([[0.3, 0.14], [0.55, 0.2], [0.75, 0.1], [0.85, 0.22]]); // on the label
-    await line([[0.1, 0.5], [0.4, 0.55], [0.6, 0.45], [0.9, 0.6]]); // across the bag
-    await line([[0.2, 0.85], [0.8, 0.75]]);
-    await P.screenshot({ path: path.join(SHOTS, `pac-${TAG}-1-drawing.png`) });
-    await P.click('#nt-save');
-    await P.waitForFunction(() => window.klibb.door().open, null, { timeout: 10000 }).catch(() => {}); await sleep(500);
-    if (await P.isVisible('#df-city-skip')) await P.click('#df-city-skip');
-    await sleep(400);
+    // Pick stickers first, then Draw on the bag label
     const ids = await P.evaluate(async () => {
       const bs = [...document.querySelectorAll('#df-grid .df-g')];
       const dims = await Promise.all(bs.map((b) => new Promise((res) => { const im = new Image(); im.onload = () => res([b.dataset.id, im.width / im.height]); im.onerror = () => res([b.dataset.id, 1]); im.src = b.querySelector('img').src; })));
@@ -42,7 +31,19 @@ const TAG = process.env.PAC_TAG || 'after';
       return dims.slice(0, 3).map((d) => d[0]);
     });
     for (const id of ids) await P.click(`#df-grid .df-g[data-id="${id}"]`);
-    await P.click('#df-next'); await sleep(1200);
+    await P.click('#df-next'); await sleep(800);
+    await P.click('#df-draw'); await sleep(1000);
+    const tag = await P.locator('#nt-stroke').boundingBox();
+    const line = async (pts) => { await P.mouse.move(tag.x + tag.width * pts[0][0], tag.y + tag.height * pts[0][1]); await P.mouse.down(); for (const p of pts.slice(1)) await P.mouse.move(tag.x + tag.width * p[0], tag.y + tag.height * p[1], { steps: 12 }); await P.mouse.up(); };
+    await line([[0.3, 0.14], [0.55, 0.2], [0.75, 0.1], [0.85, 0.22]]); // on the label
+    await line([[0.1, 0.5], [0.4, 0.55], [0.6, 0.45], [0.9, 0.6]]);
+    await line([[0.2, 0.85], [0.8, 0.75]]);
+    await P.screenshot({ path: path.join(SHOTS, `pac-${TAG}-1-drawing.png`) });
+    await P.click('#nt-save');
+    await P.waitForFunction(() => window.klibb.door().open, null, { timeout: 10000 }).catch(() => {}); await sleep(500);
+    if (await P.isVisible('#df-city-skip')) await P.click('#df-city-skip');
+    await sleep(500);
+    if (await P.isVisible('#df-name-yes')) { await P.click('#df-name-yes'); await sleep(300); }
     await P.fill('#df-name', 'Malmö pac');
     await P.click('#df-name-go'); await sleep(500);
     await P.screenshot({ path: path.join(SHOTS, `pac-${TAG}-2-pac.png`) });

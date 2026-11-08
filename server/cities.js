@@ -25,6 +25,20 @@ function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () =
     for (let n = 1; n <= CITY.HOUSES; n++) { const r = await store.peek(CITY.houseId(city, n)).catch(() => null); if (r) out.push(n); }
     return out;
   }
+  // Stickers + unique visitors across the city's outside and its houses (room.visitors already
+  // tracked by POST /api/rooms/:id/visit → noteVisitor; newly exposed on the city list).
+  async function cityStats(city, houses) {
+    const ids = [city, ...houses.map((n) => CITY.houseId(city, n))];
+    let stickers = 0;
+    const seen = new Set();
+    for (const id of ids) {
+      const r = await store.peek(id).catch(() => null);
+      if (!r) continue;
+      stickers += Array.isArray(r.stamps) ? r.stamps.length : 0;
+      for (const v of Array.isArray(r.visitors) ? r.visitors : []) if (v) seen.add(v);
+    }
+    return { stickers, visitors: seen.size };
+  }
   async function info(city) {
     if (!CITY.isCityOutside(city)) return null;
     const room = await store.peek(city).catch(() => null);
@@ -32,10 +46,12 @@ function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () =
     const houses = await started(city);
     const people = {};
     for (const n of houses) people[n] = occupancy(CITY.houseId(city, n)) || 0;
+    const stats = await cityStats(city, houses);
     return {
       id: city, name: city === CITY.CITY_ROOM ? FIRST_NAME : (room && room.name) || (city === CITY.BUILD_CITY ? CITY.BUILD_CITY_NAME : 'A city'), first: city === CITY.CITY_ROOM, ...(city === CITY.BUILD_CITY ? { build: true } : {}),
       createdAt: (room && room.createdAt) || null, startedBy: (room && room.startedBy) || null,
       houses, next: CITY.nextHouse(houses), people: peopleIn(city), outside: occupancy(city) || 0, inHouses: people, max: maxPlayers,
+      stickers: stats.stickers, visitors: stats.visitors,
     };
   }
   // Every city there is now (they go when empty, so "there" = alive), busiest first. The first City

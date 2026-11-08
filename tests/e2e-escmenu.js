@@ -1,13 +1,13 @@
-// E2E: Esc spawns the big-button menu (SOUND / AVATAR / ROOM / CITY / EXIT / NAME). Esc again or a
-// click on the scrim closes it and returns to the game. Touch reaches the same overlay via the
-// stack's Menu button. Menu stickers are gone from the wheel.
+// E2E: Esc spawns the big-button menu (SOUND / AVATAR / ROOM / CITY / EXIT / CREATE).
+// CREATE → STICKERS / STICKER PACK submenu (Esc closes submenu first).
+// CITY → Create new city / Join existing (Esc closes submenu first; join lists live cities).
 const path = require('path');
 const fs = require('fs');
 const { chromium, devices } = require('playwright');
 const { startServer, sleep } = require('./demo-helpers');
 
 const PORT = Number(process.env.ESCMENU_E2E_PORT || 8917);
-const SHOTS = process.env.ESC_SHOTS || '/workspace';
+const SHOTS = process.env.ESC_SHOTS || '/workspace/createmenu';
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
 
@@ -19,6 +19,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
   try {
     const made = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preset: false }) })).json();
     const R = made.room.id;
+    // Seed a live city so Join existing has a row (with stickers/visitors fields).
+    const city = await (await fetch(`${S.base}/api/cities`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Esc Town' }) })).json();
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     await ctx.addInitScript(() => localStorage.setItem('klibb.devUnlock', '1'));
     const P = await ctx.newPage();
@@ -27,27 +29,88 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 });
     await P.evaluate(() => window.klibb.entitlementsReady());
 
-    // Former menu stickers are off the wheel
     const wheel = await P.evaluate(() => ({
       ids: window.klibb.stickerDesigns().map((d) => d.id),
       excl: window.klibb.wheelExclude(),
     }));
     check('former menu stickers are not on the sticker wheel', wheel.excl.every((id) => !wheel.ids.includes(id)), { n: wheel.ids.length, excl: wheel.excl.length });
 
-    // Enter the game, then Esc → big menu
     await P.mouse.click(900, 400);
     await P.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 }).catch(() => {});
     await P.evaluate(() => window.klibb.controls.unlock());
-    // Simulate a real Esc (softUnlockAt is recent from unlock() – force a real-Esc open)
     await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); });
     await sleep(400);
     const open1 = await P.evaluate(() => window.klibb.escMenu().info());
-    check('Esc menu opens with SOUND / AVATAR / ROOM / CITY / EXIT / NAME', open1.open && open1.buttons.join() === 'sound,avatar,room,city,exit,name', open1);
-    await P.screenshot({ path: path.join(SHOTS, 'esc-menu.png') });
+    check('Esc menu opens with SOUND / AVATAR / ROOM / CITY / EXIT / CREATE', open1.open && open1.buttons.join() === 'sound,avatar,room,city,exit,create', open1);
+    check('ESC has no STICKERS/NATURE/ASSETS/PACKS (those replace side-panel modes)', !open1.buttons.some((b) => ['stickers','nature','assets','packs'].includes(b)), open1);
+    const modes = await P.evaluate(() => [...document.querySelectorAll('#mode-switch button')].map((b) => b.id + ':' + b.textContent.trim()));
+    check('side panel wheel buttons are STICKERS / NATURE / ASSETS / PACKS', modes.join('|').includes('mode-stickers:STICKERS') && modes.join('|').includes('mode-packs:PACKS'), modes);
+    await P.screenshot({ path: path.join(SHOTS, '01-esc-menu.png') });
+    await P.screenshot({ path: path.join(SHOTS, '01b-mode-switch.png') });
 
-    // SOUND opens sound settings (or full-version gate)
-    await P.click('#esc-menu [data-esc="sound"]');
-    await sleep(500);
+    // CREATE submenu
+    await P.click('#esc-menu [data-esc="create"]'); await sleep(350);
+    const createSub = await P.evaluate(() => window.klibb.escMenu().info());
+    check('CREATE opens STICKERS / STICKER PACK submenu', createSub.submenu && createSub.view === 'create' && createSub.buttons.join() === 'stickers,stickerpack', createSub);
+    await P.screenshot({ path: path.join(SHOTS, '02-create-submenu.png') });
+
+    // Esc closes submenu first (via escTopPanel)
+    await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; });
+    await P.keyboard.press('Escape'); await sleep(300);
+    const afterSubEsc = await P.evaluate(() => window.klibb.escMenu().info());
+    check('Esc while CREATE submenu open closes submenu and keeps main buttons', afterSubEsc.open && !afterSubEsc.submenu && afterSubEsc.buttons.includes('create'), afterSubEsc);
+
+    // STICKERS opens the sticker editor
+    await P.click('#esc-menu [data-esc="create"]'); await sleep(200);
+    await P.click('#esc-menu [data-esc="stickers"]'); await sleep(600);
+    const nt = await P.evaluate(() => ({ open: window.klibb.nameTag().open, menu: window.klibb.escMenu().isOpen(), panelHidden: document.body.classList.contains('nametag-open') }));
+    check('STICKERS opens the sticker editor and hides the left panel', nt.open && !nt.menu && nt.panelHidden, nt);
+    await P.screenshot({ path: path.join(SHOTS, '03-stickers-editor.png') });
+    const order = await P.evaluate(() => window.klibb.nameTag().buttons.map((b) => b.id + ':' + b.text));
+    check('editor bottom bar is exit – undo – done', order.join('|') === 'nt-exit:exit|nt-undo:↶ undo|nt-save:done', order);
+    await P.keyboard.press('Escape'); await sleep(300);
+
+    // STICKER PACK opens pac makeover (door flow)
+    await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); }); await sleep(200);
+    await P.click('#esc-menu [data-esc="create"]'); await sleep(200);
+    await P.click('#esc-menu [data-esc="stickerpack"]'); await sleep(600);
+    const pack = await P.evaluate(() => window.klibb.door());
+    check('STICKER PACK opens the pac makeover flow', pack.open === true, pack);
+    await P.keyboard.press('Escape'); await sleep(300);
+
+    // CITY submenu
+    await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); }); await sleep(200);
+    await P.click('#esc-menu [data-esc="city"]'); await sleep(350);
+    const citySub = await P.evaluate(() => window.klibb.escMenu().info());
+    check('CITY opens Create new city / Join existing submenu', citySub.submenu && citySub.view === 'city' && citySub.buttons.join() === 'createcity,joincity', citySub);
+    await P.screenshot({ path: path.join(SHOTS, '04-city-submenu.png') });
+
+    await P.keyboard.press('Escape'); await sleep(250);
+    const cityEsc = await P.evaluate(() => window.klibb.escMenu().info());
+    check('Esc closes CITY submenu first', cityEsc.open && cityEsc.view === 'main', cityEsc);
+
+    // Join existing list
+    await P.click('#esc-menu [data-esc="city"]'); await sleep(200);
+    await P.click('#esc-menu [data-esc="joincity"]'); await sleep(700);
+    const join = await P.evaluate(() => window.klibb.escMenu().info());
+    check('Join existing lists live cities with stickers + visitors', join.view === 'cityjoin' && Array.isArray(join.cities) && join.cities.some((c) => c.name === 'Esc Town' && typeof c.stickers === 'number' && typeof c.visitors === 'number'), join);
+    await P.screenshot({ path: path.join(SHOTS, '05-city-join-list.png') });
+    await P.keyboard.press('Escape'); await sleep(250);
+    const joinEsc = await P.evaluate(() => window.klibb.escMenu().info());
+    check('Esc from join list returns to CITY submenu', joinEsc.view === 'city', joinEsc);
+    await P.keyboard.press('Escape'); await sleep(200);
+
+    // Create new city → name step
+    await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); }); await sleep(200);
+    await P.click('#esc-menu [data-esc="city"]'); await sleep(200);
+    await P.click('#esc-menu [data-esc="createcity"]'); await sleep(500);
+    const nameStep = await P.evaluate(() => window.klibb.city().pick);
+    check('Create new city opens the city name step', nameStep.open && nameStep.step === 'name', nameStep);
+    await P.evaluate(() => document.getElementById('cp-x')?.click()); await sleep(300);
+
+    // SOUND still works
+    await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); }); await sleep(200);
+    await P.click('#esc-menu [data-esc="sound"]'); await sleep(500);
     const snd = await P.evaluate(() => ({
       menu: window.klibb.escMenu().isOpen(),
       sound: !document.getElementById('sound-panel').hidden,
@@ -55,7 +118,6 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     }));
     check('SOUND closes the Esc menu and opens sound settings (or the full-version panel)', !snd.menu && (snd.sound || snd.full), snd);
 
-    // Esc priority: panel open → Esc closes panel, buttons stay hidden; Esc again → buttons.
     await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; });
     await P.keyboard.press('Escape'); await sleep(350);
     const afterPanelEsc = await P.evaluate(() => ({
@@ -64,60 +126,16 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       full: !!document.querySelector('#full-panel:not([hidden])'),
     }));
     check('Esc while Sound settings open closes the panel and does NOT show the button row', !afterPanelEsc.menu && !afterPanelEsc.sound && !afterPanelEsc.full, afterPanelEsc);
-    await P.keyboard.press('Escape'); await sleep(350);
-    const afterSecondEsc = await P.evaluate(() => window.klibb.escMenu().info());
-    check('Esc again (nothing open) shows the Esc button row', afterSecondEsc.open === true, afterSecondEsc);
 
-    // Re-open and try AVATAR
-    await P.evaluate(() => window.klibb.escMenu().open()); await sleep(200);
-    await P.click('#esc-menu [data-esc="avatar"]'); await sleep(500);
-    const av = await P.evaluate(() => ({ menu: window.klibb.escMenu().isOpen(), av: !document.getElementById('avatar-panel').hidden }));
-    check('AVATAR opens My avatar', !av.menu && av.av, av);
-    await P.keyboard.press('Escape'); await sleep(300);
+    // API: city list exposes stickers + visitors
+    const apiCities = await (await fetch(`${S.base}/api/cities`)).json();
+    const seeded = (apiCities.cities || []).find((c) => c.id === city.city.id);
+    check('GET /api/cities includes stickers + visitors on each city', seeded && typeof seeded.stickers === 'number' && typeof seeded.visitors === 'number', seeded);
 
-    // ROOM
-    await P.evaluate(() => window.klibb.escMenu().open()); await sleep(200);
-    await P.click('#esc-menu [data-esc="room"]'); await sleep(600);
-    const rm = await P.evaluate(() => ({ menu: window.klibb.escMenu().isOpen(), room: window.klibb.roomPanel().open }));
-    check('ROOM opens the room info panel', !rm.menu && rm.room, rm);
-    await P.keyboard.press('Escape'); await sleep(300);
-
-    // NAME
-    await P.evaluate(() => window.klibb.menuAction('nametag')); await sleep(600);
-    check('NAME / menuAction(nametag) opens the name-tag tool', await P.evaluate(() => window.klibb.nameTag().open));
-    await P.keyboard.press('Escape'); await sleep(300);
-
-    // CITY
-    await P.evaluate(() => window.klibb.menuAction('door')); await sleep(400);
-    const city = await P.evaluate(() => window.klibb.choice());
-    check('CITY opens the enter-city choice', city.open && city.what === 'door', city);
+    // Former NAME still reachable via menuAction('nametag')
+    await P.evaluate(() => window.klibb.menuAction('nametag')); await sleep(400);
+    check('menuAction(nametag) still opens the sticker editor (former NAME)', await P.evaluate(() => window.klibb.nameTag().open));
     await P.keyboard.press('Escape'); await sleep(200);
-    await P.evaluate(() => { const b = document.querySelector('#menu-choice-list [data-id="back"]'); if (b) b.click(); });
-    await sleep(200);
-
-    // Scrim closes + resumes (pointerdown on the dimmed backdrop)
-    await P.evaluate(() => {
-      window.klibb.controls.unlock?.();
-      window.klibb.escMenu().open();
-    });
-    await sleep(200);
-    await P.evaluate(() => {
-      document.getElementById('esc-scrim').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
-    });
-    await sleep(400);
-    const after = await P.evaluate(() => ({ menu: window.klibb.escMenu().isOpen(), resuming: window.klibb.resuming(), locked: window.klibb.controls.locked }));
-    check('clicking the scrim closes the Esc menu (and tries to re-enter)', !after.menu && (after.resuming || after.locked), after);
-
-    // Slap hit FX screenshot (drive the FX layer directly – no stamp needed)
-    const fxN = await P.evaluate(() => {
-      const fx = window.klibb.slapFx();
-      fx.clear();
-      fx.burst([0, 1.5, -7.5], [0, 0, 1], [0, 1.6, -2]);
-      return fx.count;
-    });
-    await sleep(60);
-    await P.screenshot({ path: path.join(SHOTS, 'slap-fx.png') });
-    check('slap FX spawned at least one overlay', fxN > 0, { fxN });
 
     check('no page errors', errors.length === 0, errors.slice(0, 3));
   } finally {

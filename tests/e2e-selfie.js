@@ -31,7 +31,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await p.evaluate(() => { const k = window.klibb; document.getElementById('crosshair').hidden = false; k.setMode('slap', { quiet: true }); k.setView('third', { quiet: true }); /* a room starts in View mode: as after a click on a wall */ k.moveTo(0, 2); k.look(0, 0.15); k.aimAt?.(0, 0); });
     await p.mouse.move(640, 400); await sleep(1500);
     const third = await ui();
-    check('3rd person (behind): slap mode as always – aim ring, "Slap mode · V", the sticker preview', third.ring && third.hint && /Slap mode/.test(third.hintText), third);
+    check('3rd person (behind): slap mode as always – aim ring, "Slap mode · V", the sticker preview', third.ring && third.hint && /STICKERS|Slap mode/.test(third.hintText), third);
     await p.screenshot({ path: path.join(SHOTS, `20-selfie-${TAG}-third-person.png`) });
     await p.evaluate(() => window.klibb.setView('front', { quiet: true })); await p.mouse.move(650, 410); await sleep(1500);
     const front = await ui();

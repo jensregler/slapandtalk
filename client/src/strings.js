@@ -103,8 +103,14 @@ export const EN = {
   // ---------- Modes ----------
   propsLocked: 'Props: only the build phase’s builders can place them here.',
   slapMode: 'Slap mode', lookMode: 'Look mode', natureMode: '🌿 Nature',
+  wheelStickers: 'STICKERS', wheelNature: 'NATURE', wheelAssets: 'ASSETS', wheelPacks: 'PACKS',
+  packsAria: 'Your sticker packs', packsTitle: 'Packs you carry (up to 3)',
+  packsEmpty: 'No packs yet – make one with CREATE → STICKER PACK',
+  packsFullAsk: 'You can only carry 3 packs. Choose one to replace.',
+  packsReplaceAsk: 'Replace this?', packsReplaceYes: 'yes', packsReplaceNo: 'no',
+  packsAdded: 'Pack saved on your PACKS wheel.',
   // m = 'slap' | 'nature' | 'look'. V = Slap ⇄ Nature, G = Look mode (the demo, no nature: V = Look mode).
-  modeHud: (m, touch, demo) => ({ slap: 'Slap mode', nature: '🌿 Nature mode', look: 'Look mode', props: '🪑 Props mode (build phase)' }[m] || 'Slap mode') + (touch ? '' : m === 'look' && !demo ? ' · G' : ' · V'),
+  modeHud: (m, touch, demo) => ({ slap: 'STICKERS', nature: 'NATURE', look: 'Look mode', props: 'ASSETS', packs: 'PACKS' }[m] || 'STICKERS') + (touch ? '' : m === 'look' && !demo ? ' · G' : m === 'look' ? '' : ' · V'),
   modeBtnToSlap: 'Back to slap mode', modeBtnToLook: 'Look mode: hide the pointer and just look',
   modeToastLook: (touch, demo) => (touch ? 'Look mode: just look around.' : `Look mode: just look around. ${demo ? 'V' : 'G'} = slap again.`),
   modeToastNature: (touch) => (touch ? 'Nature mode: slapping nature stickers.' : 'Nature mode: slapping nature stickers. V = slap mode.'),
@@ -173,7 +179,12 @@ export const EN = {
   smEsc: 'Menu',
   escMenuAria: 'Menu',
   escSound: 'SOUND', escAvatar: 'AVATAR', escRoom: 'ROOM',
-  escCity: 'CITY', escExit: 'EXIT', escName: 'NAME',
+  escCity: 'CITY', escExit: 'EXIT', escCreate: 'CREATE',
+  escStickers: 'STICKERS', escStickerPack: 'STICKER PACK',
+  escCreateCity: 'Create new city', escJoinCity: 'Join existing',
+  escCityNone: 'No cities right now', escCityLoading: 'Looking for cities…', escCityFailed: 'Could not fetch the cities.',
+  escCityFacts: (stickers, visitors, age) => `${stickers} sticker${stickers === 1 ? '' : 's'} · ${visitors} visitor${visitors === 1 ? '' : 's'} · ${age}`,
+  escCityAge: (iso) => cityAgeText(iso),
   heldWake: 'Tap a wall to slap it.',
 
   // ---------- More panel ----------
@@ -254,7 +265,10 @@ export const EN = {
   scCodeTitle: 'I have a code', scCodePlaceholder: 'the room code (or its link)', scCodeGo: 'enter', scCodeBad: 'A code has letters, digits and dashes.', scCodeUnknown: 'There is no room with that code (any more).',
   soundReset: 'All sounds, effects and Master volume are back to default – Save to keep it.',
   ntBrushSize: 'brushsize', ntBrushType: 'brushtype', ntBrush_solid: 'solid', ntBrush_opaque: 'opaque', ntBrush_dripping: 'dripping',
-  ntSave: 'save', ntExit: 'exit', ntUndo: '↶ undo', ntReplace: 'choose one to replace', ntSaved: 'Your name tag is in the wheel – slap it!',
+  ntSave: 'done', ntExit: 'exit', ntUndo: '↶ undo',
+  ntReplace: 'you can only carry 228 stickers. Choose one sticker to replace.',
+  ntReplaceAsk: 'Replace this?', ntReplaceYes: 'yes', ntReplaceNo: 'no',
+  ntSaved: 'Your name tag is in the wheel – slap it!',
   soundLocked: 'Sound settings are part of the full version.',
   exitToMenu: '🚪 Exit to menu', choiceBack: '↩ Back',
   doorEnterCity: '🏙 Enter the city', doorBackToRoom: '↩ Back to the room', cityComingSoon: 'The city is coming soon!',
@@ -282,7 +296,7 @@ export const EN = {
   hallFreeRule: 'Free: your pack stays one week. What you take is yours while you are in the city.',
   hallPaidRule: '★ Paid: your packs stay for good, and what you take you keep.',
   hallShop: (n) => `Packs from everyone (${n})`, hallNone: 'No packs from other people yet – come back later!',
-  hallTake: '🤝 Take this pack', hallTaken: '✓ You carry it', hallFull: (max) => `You carry ${max} packs – that's all`, hallFirst: 'Hand in yours first',
+  hallTake: '🤝 Take this pack', hallTaken: '✓ You carry it', hallFull: (max) => `You carry ${max} packs – that's all`, hallReplaceToTake: 'Replace a pack to take this', hallFirst: 'Hand in yours first',
   hallBy: (name, insta) => (name ? `by ${name}` : insta ? '' : 'by somebody'), hallUntil: (d) => `until ${d}`, hallTakenCount: (n) => (n === 1 ? 'taken once' : `taken ${n} times`),
   hallBack: '↩ Back to the City', hallMaking: 'Handing in…', hallTookToast: (n) => `${n} – its 3 stickers are on your wheel now`,
   hallLoadFailed: 'The Town Hall did not answer – try again', hallMore: 'more ›', hallDetailBack: '↩ All packs',
@@ -295,8 +309,14 @@ export const EN = {
   dkTitle: (name) => `Put “${name}” in your deck`, dkNote: (max) => `Tap a new sticker, then the sticker in your deck it replaces. Your deck holds ${max} stickers at most.`,
   dkAlready: 'already in your deck', dkPickFor: 'replaces →', dkChoose: 'tap a deck sticker', dkAdd: (n) => `＋ Add without replacing (room for ${n})`,
   dkSave: '✓ Put them in my deck', dkLater: 'Later', dkSaved: 'They are in your deck now – also outside the city.', dkInDeck: '✓ In your deck', dkPut: '🃏 Put in my deck',
-  doorChoose3: 'Which three stickers do you want to bring?', doorPack: 'pack them →', doorNamePac: 'name your pac?', doorDraw: '✏️ draw on it', doorToCity: 'to city →',
-  doorSkip: 'Skip', doorDone: 'done', doorBackRoom: 'back to room', doorToCityGo: 'to the city',
+  doorChoose3: 'Which three stickers do you want to bring?', doorPack: 'pack them →',
+  doorWow: 'wow you made a sticker pack',
+  doorNameAsk: 'Would you like to name your pack?', doorNameYes: 'yes', doorNameNo: 'no',
+  doorNamePac: 'name your pack', doorDraw: 'Draw', doorToCity: 'to city →',
+  doorSkip: 'Skip', doorDone: 'done',
+  doorDoneAsk: 'Back to room or to the city?',
+  doorBackRoom: 'back to room',
+  doorToCityGo: 'To the city – trade your stickers',
   doorNewCityTitle: 'Start a new city?', doorNewCityNote: "You are the city's first resident – do you want to name it?", doorNewCityGo: 'Name it →',
   doorDesignInvite: 'Design your pac and trade it in the shop',
   outfit: 'Outfit', hair: 'Hair', shirt: 'Top', pants: 'Trousers', hairColor: 'Hair colour', skin: 'Skin', shoes: 'Shoes', cap: 'Cap',
@@ -478,6 +498,16 @@ export const S = EN;
 export const LOCALE = 'en-GB'; // dates and times
 
 // Fill in text in the static page (index.html).
+// Human city age for the Esc Join list: "2 h", "3 days", "12 min".
+export function cityAgeText(iso, now = Date.now()) {
+  const t = Date.parse(iso || ''); if (!Number.isFinite(t)) return '–';
+  const mins = Math.max(0, Math.floor((now - t) / 60000));
+  if (mins < 60) return mins <= 1 ? '1 min' : `${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return hours === 1 ? '1 h' : `${hours} h`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? '1 day' : `${days} days`;
+}
 export function applyStrings(root = document) {
   for (const el of root.querySelectorAll('[data-t]')) el.textContent = S[el.dataset.t];
   for (const el of root.querySelectorAll('[data-t-html]')) el.innerHTML = S[el.dataset.tHtml];
