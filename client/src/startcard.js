@@ -9,7 +9,7 @@ import { clearMineForNewRoom } from './designs.js';
 import { S } from './strings.js';
 import { resetPersonalSound } from './soundui.js';
 import { leaveCity } from './cityleave.js';
-import { rollLookOnRestart } from './restartlook.js';
+import { forceFreshLook } from './restartlook.js';
 
 const ROOM_KEYS = 'klibb.roomKeys';
 const LOOK_KEY = 'klibb.avatar';
@@ -104,7 +104,7 @@ export function showStartCard() {
   function details(opts) {
     clear();
     frame.dataset.screen = 'details';
-    if (opts.kind === 'new') rollLookOnRestart();
+    if (opts.kind === 'new') forceFreshLook();
     const saved = read(LOOK_KEY) || {};
 
     const field = (id, label, value, max, extra = {}) => {

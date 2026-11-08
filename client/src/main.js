@@ -1976,9 +1976,18 @@ const TYPE_NAMES = S.roomTypes;
 // The City too gets ?room=stad: the plain address now goes to your own most recent room (landing.js).
 function roomUrl(id) { return `${location.origin}/?room=${id}`; }
 // Capture the live outfit before a full-page navigation so the city (and houses) keep the same clothes.
-function goRoom(id, extra = '') {
+// Also used on Exit to menu and pagehide (reload), so a look picked in Min gubbe is what you wear
+// when you enter the next room (Jens room-outfit, 8 Nov 2026).
+function persistWornBeforeLeave() {
   try { together.persistWornLook(); } catch { /* together not ready */ }
+}
+function goRoom(id, extra = '') {
+  persistWornBeforeLeave();
   location.href = roomUrl(id) + extra;
+}
+function goMenu() {
+  persistWornBeforeLeave();
+  location.href = `${location.origin}/?start=1`;
 }
 function showRoomInfo(info) {
   const type = info?.type || (IN_CITY ? 'stad' : 'quick');
@@ -2469,7 +2478,7 @@ let goneShown = false;
 function cityGone() {
   if (goneShown) return; goneShown = true;
   toast(S.cityGone, 6000);
-  openChoice('city-gone', [{ id: 'exit-menu', text: S.exitToMenu, go: () => { location.href = `${location.origin}/?start=1`; } }]);
+  openChoice('city-gone', [{ id: 'exit-menu', text: S.exitToMenu, go: () => { goMenu(); } }]);
 }
 if (IN_CITY) { refreshCity(); setInterval(() => { if (!document.hidden) refreshCity(); }, CITY_OUTSIDE ? 8000 : 30000); }
 // A door in reach (≤ 14 m) under the aim: its plot ({ n | hall }).
@@ -2580,7 +2589,7 @@ function exitChoices() {
   const out = [];
   if (IN_CITY && !CITY_OUTSIDE) out.push({ id: 'to-city', text: S.cityBackToCity, go: () => { goRoom(THIS_CITY, '&at=' + ROOM); } });
   // Leaving the city (or exiting to menu from a room): highlight reel when FILMS_ENABLED, else straight out.
-  out.push({ id: 'exit-menu', text: S.exitToMenu, go: () => leaveWithHighlight(() => { location.href = `${location.origin}/?start=1`; }) }, { id: 'back', text: S.choiceBack });
+  out.push({ id: 'exit-menu', text: S.exitToMenu, go: () => leaveWithHighlight(() => { goMenu(); }) }, { id: 'back', text: S.choiceBack });
   return out;
 }
 const menuActions = {
@@ -3371,6 +3380,8 @@ if ('serviceWorker' in navigator) {
 }
 
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
+// Reload / tab close: keep the clothes actually worn (draft or live mesh), not only last Save.
+window.addEventListener('pagehide', () => { persistWornBeforeLeave(); });
 window.klibb = {
   filmsEnabled: FILMS_ENABLED,
   filmLog: () => filmLog, filmState, filmBlob, filmThenCity: () => filmThenCity(),

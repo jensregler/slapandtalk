@@ -1,9 +1,8 @@
-// New random character on every restart (Jens t514u, 4 Nov 2026). A "restart" is the first page in
-// a tab (sessionStorage empty) or a reload. Going between rooms/houses (plain navigations) keeps the
-// character, so a look picked in "Min gubbe" lasts the whole session. The name, Instagram name and
-// fabrics are kept; only the body/colours are re-rolled, never the same as last time if avoidable.
-// Automated browsers (navigator.webdriver) keep the saved look unless localStorage klibb.testRoll=1,
-// so the existing e2e suites that seed a fixed look still work.
+// New random character on first page in a tab, or when New Game asks for one (Jens t514u / room-outfit
+// fix 8 Nov 2026). A reload and room↔city navigations KEEP the look that was saved (or just worn),
+// so clothes picked in Min gubbe survive Ctrl+F5 and house doors. sessionStorage marks the tab so a
+// second page in the same tab does not re-roll. Automated browsers (navigator.webdriver) keep the
+// saved look unless localStorage klibb.testRoll=1, so e2e suites that seed a fixed look still work.
 import AV from '../../shared/avatar.json' with { type: 'json' };
 
 const LOOK_KEY = 'klibb.avatar', SESSION_KEY = 'klibb.lookSession';
@@ -24,13 +23,17 @@ export function freshLook(prev, rnd = Math.random) {
 }
 export function isRestart(win = globalThis) {
   try {
-    if (!win.sessionStorage.getItem(SESSION_KEY)) return true;
-    const nav = win.performance?.getEntriesByType?.('navigation')?.[0];
-    return nav?.type === 'reload';
+    // Only the first page in this tab. Reload used to re-roll too (t514u); that wiped clothes picked
+    // in Min gubbe when Jens hit Ctrl+F5, so reload now keeps the saved look (room-outfit, 8 Nov 2026).
+    return !win.sessionStorage.getItem(SESSION_KEY);
   } catch { return false; }
 }
+function writeFresh(ls, rnd) {
+  let saved = {}; try { saved = JSON.parse(ls.getItem(LOOK_KEY) || '{}') || {}; } catch { saved = {}; }
+  ls.setItem(LOOK_KEY, JSON.stringify({ ...saved, name: saved.name || '', look: freshLook(saved.look, rnd) }));
+}
 let done = false;
-// Call before anything reads klibb.avatar. Runs once per page.
+// Call before anything reads klibb.avatar. Runs once per page. Rolls only on first page in the tab.
 export function rollLookOnRestart(win = globalThis, rnd = Math.random) {
   if (done) return false; done = true;
   try {
@@ -39,8 +42,19 @@ export function rollLookOnRestart(win = globalThis, rnd = Math.random) {
     ss.setItem(SESSION_KEY, '1');
     if (!restart) return false;
     if (win.navigator?.webdriver && ls.getItem('klibb.testRoll') !== '1') return false;
-    let saved = {}; try { saved = JSON.parse(ls.getItem(LOOK_KEY) || '{}') || {}; } catch { saved = {}; }
-    ls.setItem(LOOK_KEY, JSON.stringify({ ...saved, name: saved.name || '', look: freshLook(saved.look, rnd) }));
+    writeFresh(ls, rnd);
+    return true;
+  } catch { return false; }
+}
+// New Game on the start card: always a new character, even when this tab already had a session
+// (Exit → menu → NEW GAME). startcard.js calls this from the details screen.
+export function forceFreshLook(win = globalThis, rnd = Math.random) {
+  try {
+    const ls = win.localStorage, ss = win.sessionStorage;
+    ss.setItem(SESSION_KEY, '1');
+    if (win.navigator?.webdriver && ls.getItem('klibb.testRoll') !== '1') return false;
+    writeFresh(ls, rnd);
+    done = true;
     return true;
   } catch { return false; }
 }
