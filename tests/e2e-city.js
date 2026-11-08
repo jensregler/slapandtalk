@@ -187,12 +187,12 @@ const EXIT = 'a03b0ba5768979e6';
     const join = await B.evaluate(() => [...document.querySelectorAll('#sc-list .sc-room')].map((b) => ({ id: b.dataset.id, text: b.textContent })));
     check('start card Join list: the room in the city shows the city name ("🏙 Slapville · house 1")', join.some((r) => r.id === `${CID}-1` && r.text.includes('🏙 Slapville · house 1')), join);
     await shot(B, '09-join-list-with-city-name.png');
-    // B joins via the list → the house; no pack yet → the pack maker opens by itself
+    // B joins via the list → the house; no pack yet → no pack maker (CREATE is room-only)
     await B.click(`#sc-list .sc-room[data-id="${CID}-1"]`);
     await B.waitForSelector('#sc-details', { timeout: 10000 });
     await B.fill('#sc-name', 'B'); await Promise.all([B.waitForURL(new RegExp(`room=${CID}-1$`), { timeout: 20000 }), B.click('#sc-enter')]);
     await ready(B); await sleep(3000);
-    check('joining a city room without a pack: the pack maker opens ("choose 3 slaps")', (await B.evaluate(() => window.klibb.door())).open);
+    check('joining a city without a pack: pack maker stays closed (CREATE is room-only)', !(await B.evaluate(() => window.klibb.door())).open);
 
     // A: back to the city → in front of house 1; door 1 started, door 2 next
     await Promise.all([P.waitForURL(new RegExp(`room=${CID}&at=${CID}-1`), { timeout: 20000 }), P.evaluate(() => { window.klibb.menuAction('exit'); document.querySelector('#menu-choice-list [data-id="to-city"]').click(); })]);

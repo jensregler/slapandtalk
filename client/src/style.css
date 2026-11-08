@@ -652,9 +652,9 @@ body.touch.editing.book-open #stack-menu, body.touch.editing.more-open #stack-me
 #strip-num, #nature-num { position: absolute; left: 50%; bottom: calc(var(--wheel-item) * 2.3 + 28px); transform: translateX(-50%); z-index: 2000; pointer-events: none;
   font: 700 11px/1 system-ui, sans-serif; color: #ffd400; font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 8px; background: rgba(0,0,0,.45); }
 #strip-num:empty, #nature-num:empty { display: none; }
-#strip-row, #nature-row { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--wheel-item) * 2.3 + 26px); pointer-events: auto; touch-action: none;
+#strip-row, #nature-row, #packs-row { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--wheel-item) * 2.3 + 26px); pointer-events: auto; touch-action: none;
   user-select: none; -webkit-user-select: none; cursor: grab; }
-#strip-row:active, #nature-row:active { cursor: grabbing; }
+#strip-row:active, #nature-row:active, #packs-row:active { cursor: grabbing; }
 /* each sticker: translate only + the drop shadow (light from above: straight below, a little down,
    tight) – so the shadow stays below however the sticker inside turns; .wh-turn turns + scales it;
    the img carries the saturation */
@@ -1056,6 +1056,7 @@ body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-ci
    selected prop's panel: big and clear (Jens has poor eyesight) – big text, buttons ≥ 56 px. */
 body.props-mode #design-strip, body.props-mode #nature-strip, body.props-mode #packs-strip { display: none !important; }
 body.packs-mode #design-strip, body.packs-mode #nature-strip { display: none !important; }
+body.packs-mode:not(.touch) #packs-strip { width: min(820px, calc(100vw - 40px)); }
 body.packs-mode:not(.touch) #mode-hud { bottom: calc(100px * 2.3 + 52px); }
 #mode-packs[aria-pressed="true"] { background: #ffb347; color: #15130f; }
 #mode-assets[aria-pressed="true"] { background: #ffd400; color: #15130f; }

@@ -11,6 +11,7 @@ export function initEscMenu({
   onClose = () => {},
   closeTop = () => false,
   isTouch = false,
+  hideCreate = false, // city: no CREATE / STICKERS / STICKER PACK (room-only design)
 } = {}) {
   const root = $('esc-menu');
   const scrim = $('esc-scrim');
@@ -78,6 +79,9 @@ export function initEscMenu({
     if (!open) setView('main');
     if (open) {
       setView('main');
+      // Room-only: hide CREATE (+ submenu) in the city.
+      const createBtn = root.querySelector('[data-esc="create"]');
+      if (createBtn) createBtn.hidden = !!hideCreate;
       void root.offsetWidth;
       root.classList.add('spawn');
       spawnTimer = setTimeout(() => root.classList.remove('spawn'), 520);
@@ -136,7 +140,10 @@ export function initEscMenu({
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       const key = btn.dataset.esc;
-      if (key === 'create') { setView('create'); try { mainActions.create?.(); } catch (err) { console.warn('esc-menu', key, err); } return; }
+      if (key === 'create') {
+        if (hideCreate) return;
+        setView('create'); try { mainActions.create?.(); } catch (err) { console.warn('esc-menu', key, err); } return;
+      }
       if (key === 'city') { setView('city'); try { mainActions.city?.(); } catch (err) { console.warn('esc-menu', key, err); } return; }
       if (key === 'joincity') { showJoinList(); return; }
       if (key === 'createcity') {
@@ -194,6 +201,7 @@ export function initEscMenu({
       view,
       submenu: view !== 'main',
       touch: !!isTouch,
+      hideCreate: !!hideCreate,
       buttons: [...root.querySelectorAll('[data-esc]:not([hidden])')].map((b) => b.dataset.esc),
       cities: joinCities ? joinCities.map((c) => ({ id: c.id, name: c.name, stickers: c.stickers, visitors: c.visitors, ageText: c.ageText })) : null,
     }),
