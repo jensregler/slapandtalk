@@ -181,23 +181,53 @@ function build() {
     cv.addEventListener('pointerdown', (e) => { sx = e.clientX; });
     cv.addEventListener('pointerup', (e) => { if (sx == null) return; const dx = e.clientX - sx; sx = null; if (Math.abs(dx) > 40) setBag(st.bag + (dx < 0 ? 1 : -1)); }); }
 
-  // Draw: same sticker-editor layout (exit – undo – done), label clip, bag+3 stickers as the blank.
+  // Draw: LABEL is the drawing surface at sticker-editor size; bag+3 stickers dimmed behind.
+  // skip (left) – undo – done (right); ‹ › cycle label colour (bag).
   async function openDraw() {
     box.hidden = true;
     const urls = stickerUrls();
-    // One blank: current bag with the 3 stickers already in the pouch (fast open).
-    const blank = await composePac(urls, { pac: bagUrl(st.bag) });
+    // Same on-screen footprint as the sticker editor (nametag TW×TH box); canvas matches label aspect.
+    // Match sticker editor canvas (800×536) so on-screen box matches nametag proportions.
+    const LW = 800, LH = 536;
+    const cropLabel = (full) => {
+      const c = document.createElement('canvas'); c.width = LW; c.height = LH;
+      const x = c.getContext('2d');
+      // Fill the sticker-editor box with the label (letterbox if needed — label is wider).
+      const s = Math.min(LW / PAC_LABEL.w, LH / PAC_LABEL.h);
+      const dw = PAC_LABEL.w * s, dh = PAC_LABEL.h * s;
+      const dx = (LW - dw) / 2, dy = (LH - dh) / 2;
+      x.fillStyle = '#1a1a1a'; x.fillRect(0, 0, LW, LH);
+      x.drawImage(full, PAC_LABEL.x, PAC_LABEL.y, PAC_LABEL.w, PAC_LABEL.h, dx, dy, dw, dh);
+      return c;
+    };
+    const labelToFullInk = (labelIm) => {
+      const c = document.createElement('canvas'); c.width = PW; c.height = PH;
+      const s = Math.min(LW / PAC_LABEL.w, LH / PAC_LABEL.h);
+      const dw = PAC_LABEL.w * s, dh = PAC_LABEL.h * s;
+      const dx = (LW - dw) / 2, dy = (LH - dh) / 2;
+      // Only the letterboxed label region carries ink.
+      c.getContext('2d').drawImage(labelIm, dx, dy, dw, dh, PAC_LABEL.x, PAC_LABEL.y, PAC_LABEL.w, PAC_LABEL.h);
+      return c;
+    };
+    let full = await composePac(urls, { pac: bagUrl(st.bag) });
     openNameTag({
-      S, toast: st.opts.toast, blanks: [blank.toDataURL('image/png')], size: [PW, PH], direct: true,
-      startBlank: 0, hideDots: true,
-      // Pack label draw: skip (left) – undo – done (right); same L/R convention as sticker editor.
+      S, toast: st.opts.toast,
+      blanks: [cropLabel(full).toDataURL('image/png')],
+      size: [LW, LH],
+      direct: true, startBlank: 0, hideDots: true, keepArrows: true,
+      packBehind: full.toDataURL('image/png'),
       saveText: S.ntSave || S.doorDone || 'done',
       exitText: S.doorSkip || 'Skip',
-      clip: PAC_LABEL, zoomClip: PAC_LABEL,
+      onCycle: async (dir) => {
+        st.bag = ((st.bag - 1 + dir + PACKS.length) % PACKS.length) + 1;
+        full = await composePac(urls, { pac: bagUrl(st.bag) });
+        return { blank: cropLabel(full).toDataURL('image/png'), packBehind: full.toDataURL('image/png') };
+      },
       onSave: async (blob) => {
-        const im = await loadImg(URL.createObjectURL(blob));
-        st.ink = im; st.drawn = true;
-        st.pacImg = await composePac(urls, { ink: im, pac: bagUrl(st.bag) });
+        const labelIm = await loadImg(URL.createObjectURL(blob));
+        const inkFull = labelToFullInk(labelIm);
+        st.ink = inkFull; st.drawn = true;
+        st.pacImg = await composePac(urls, { ink: inkFull, pac: bagUrl(st.bag) });
       },
       onClose: () => { afterDesign(); },
     });
