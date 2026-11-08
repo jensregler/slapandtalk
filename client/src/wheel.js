@@ -22,7 +22,9 @@ export function createWheel(row, o) {
   function setList(next) {
     const k = next.map((d) => d.id + d.url).join();
     list = next;
-    if (k === key) return;
+    // Same list: still kick — strip may have been hidden (width 0) on the last render,
+    // so side items can be stuck at opacity 0 until we remeasure (packs wheel bug).
+    if (k === key) { kick(); return; }
     key = k; row.innerHTML = ''; btns = [];
     for (const d of next) {
       const b = document.createElement('button');

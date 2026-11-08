@@ -279,7 +279,8 @@ export const EN = {
   cityNotYet: (n, next) => (next ? `House ${n} is not started yet. Houses start in order – house ${next} is next.` : `House ${n} is not started yet.`),
   cityGoNext: (n) => `→ Walk to house ${n}`,
   cityBackToCity: '🏙 Back to the City', cityStay: '↩ Stay outside',
-  cityNoPack: 'Make your pack first: choose 3 slaps to bring', cityMyPack: 'my pack', cityExit: 'exit',
+  cityNoPack: 'Make your pack first: choose 3 slaps to bring',
+  cityCreateRoomOnly: 'Make stickers and packs in your room – not in the city.', cityMyPack: 'my pack', cityExit: 'exit',
   cityCameraNo: 'Not in the City (yet)', cityGone: 'This city has closed – everybody left.', cityGoneTitle: 'This city is gone',
   cityHud: (name, n) => (n ? `${name} · house ${n}` : name),
   // the city picker (after "to city →")
