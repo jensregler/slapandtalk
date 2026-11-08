@@ -19,7 +19,7 @@ export function freshLook(prev, rnd = Math.random) {
   for (let i = 0; i < 20 && prev && (sameLook(l, prev) || (l.outfit === prev.outfit && l.hair === prev.hair && l.shirt === prev.shirt)); i++) l = rollLook(rnd);
   if (prev?.insta) l.insta = prev.insta;
   if (prev?.fabric) l.fabric = prev.fabric;
-  return l;
+  return keepFace(prev, l);
 }
 export function isRestart(win = globalThis) {
   try {
@@ -59,3 +59,16 @@ export function forceFreshLook(win = globalThis, rnd = Math.random) {
   } catch { return false; }
 }
 export const _resetForTest = () => { done = false; };
+// The face is the same on every character and is never random (Jens, 8 Nov 2026): 🎲 Random, 🌀 Randomize
+// and New Game re-roll clothes and colours only. Carry the face colour, the face fabric/photo and the
+// Instagram name (which owns a locked face) over from prev onto the new look.
+export function keepFace(prev, look) {
+  const out = { ...look };
+  if (prev?.face) out.face = prev.face; else delete out.face;
+  if (prev?.insta) out.insta = prev.insta;
+  const f = prev?.fabric?.face;
+  const fabric = { ...(out.fabric || {}) };
+  if (f) fabric.face = f; else delete fabric.face;
+  if (Object.keys(fabric).length) out.fabric = fabric; else delete out.fabric;
+  return out;
+}
