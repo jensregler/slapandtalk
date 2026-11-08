@@ -55,11 +55,15 @@ const savePng = (file, dataUrl) => fs.writeFileSync(path.join(SHOTS, file), Buff
     check('the log has my stickers, the radio and the peel', log.filter((e) => e === 'stick').length === 4 && log.includes('radio') && log.includes('peel'), log);
     // the door: choose 3 → the pack → name → to city
     await P.evaluate(() => window.klibb.menuAction('door')); await sleep(300);
-    await P.click('#menu-choice-list [data-id="enter-city"]'); await sleep(700);
+    await P.click('#menu-choice-list [data-id="enter-city"]'); await sleep(800);
+    await P.click('#df-skip-design'); await sleep(400);
+    if (await P.isVisible('#df-city-skip')) await P.click('#df-city-skip');
+    await sleep(400);
     const ids = await P.evaluate(() => [...document.querySelectorAll('#df-grid .df-g')].slice(3, 6).map((b) => b.dataset.id));
     for (const id of ids) await P.click(`#df-grid .df-g[data-id="${id}"]`);
-    await P.click('#df-next'); await sleep(1200);
+    await P.click('#df-next'); await sleep(900);
     await P.fill('#df-name', 'Kira pack');
+    await P.click('#df-name-go'); await sleep(400);
     const t0 = Date.now();
     await P.click('#df-city');
     await P.waitForSelector('#film-ui:not([hidden]) #fu-skip', { timeout: 15000 });

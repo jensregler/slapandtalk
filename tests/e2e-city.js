@@ -69,11 +69,16 @@ const EXIT = 'a03b0ba5768979e6';
     const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push('A: ' + e.message));
     await P.goto(`${S.base}/?room=${R}`); await ready(P); await sleep(800);
     await P.evaluate(() => window.klibb.menuAction('door')); await sleep(300);
-    await P.click('#menu-choice-list [data-id="enter-city"]'); await sleep(600);
+    await P.click('#menu-choice-list [data-id="enter-city"]'); await sleep(800);
+    // Pac makeover: bags → skip design → skip early city-name → pick 3 → name pac → to the city → picker
+    await P.click('#df-skip-design'); await sleep(500);
+    if (await P.isVisible('#df-city-skip')) await P.click('#df-city-skip');
+    await sleep(500);
     const picked = await P.evaluate(() => [...document.querySelectorAll('#df-grid .df-g')].slice(4, 7).map((b) => b.dataset.id));
     for (const id of picked) await P.click(`#df-grid .df-g[data-id="${id}"]`);
     await P.click('#df-next'); await sleep(900);
     await P.fill('#df-name', 'Jens pack');
+    await P.click('#df-name-go'); await sleep(400);
     await P.click('#df-city');
     // pt536u film / highlight reel only when FILMS_ENABLED; otherwise straight to the picker.
     await P.waitForSelector('#film-ui:not([hidden]) #fu-skip, #highlight-ui:not([hidden]), #cp-new', { timeout: 15000 }).catch(() => {});

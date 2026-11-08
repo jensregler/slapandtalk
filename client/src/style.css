@@ -864,7 +864,8 @@ body.start-card-on { overflow: auto; background: #fff; }
   font-family: 'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', 'Segoe Print', cursive; color: #fff; }
 #door-flow[hidden], #door-flow [hidden] { display: none !important; }
 #door-flow .df-pick { position: relative; width: min(94vw, 600px); max-height: 92vh; display: flex; flex-direction: column; gap: 10px; }
-#door-flow .df-title { font-size: clamp(26px, 5vw, 40px); text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+#door-flow .df-title { font-size: clamp(28px, 5.5vw, 44px); text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,.7); font-weight: 800; }
+#door-flow .df-note { font-size: clamp(20px, 3.5vw, 28px); text-align: center; opacity: .95; max-width: 28em; margin: 0 auto; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
 #door-flow .df-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; overflow: auto; padding: 10px; background: rgba(20,20,20,.92); border-radius: 10px; min-height: 0; flex: 1; }
 #door-flow .df-g, #door-flow .df-slot { aspect-ratio: 1; padding: 6px; border: 2px solid #444; border-radius: 10px; background: #2b2b2b; cursor: pointer; }
 #door-flow .df-g:hover { border-color: #aaa; }
@@ -874,24 +875,57 @@ body.start-card-on { overflow: auto; background: #fff; }
 #door-flow .df-slots { display: flex; gap: 8px; }
 #door-flow .df-slot { width: 74px; background: #000; border-style: dashed; }
 #door-flow .df-slot.full { border-style: solid; border-color: #ffd400; }
-#door-flow #df-next, #door-flow .df-pac-btns button, #door-flow .df-back { font-family: inherit; font-size: 28px; color: #fff; background: rgba(0,0,0,.7); border: 0; border-radius: 30px; padding: 8px 24px; cursor: pointer; }
+#door-flow #df-next, #door-flow .df-pac-btns button, #door-flow .df-back { font-family: inherit; font-size: 28px; color: #fff; background: rgba(0,0,0,.7); border: 0; border-radius: 30px; padding: 10px 28px; cursor: pointer; }
 #door-flow #df-next:disabled { opacity: .4; cursor: default; }
-#door-flow .df-x { position: absolute; top: -6px; right: -6px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: #fff; color: #000; font-size: 20px; cursor: pointer; }
-#door-flow .df-pac { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-#door-flow #df-pac-canvas { height: min(62vh, 640px); width: auto; filter: drop-shadow(0 8px 22px rgba(0,0,0,.6)); }
-#door-flow #df-name { font-family: inherit; font-size: 26px; text-align: center; width: min(80vw, 360px); padding: 8px 14px; border-radius: 12px; border: 3px solid #fff; background: rgba(0,0,0,.6); color: #fff; }
-#door-flow #df-name::placeholder { color: rgba(255,255,255,.75); }
-#door-flow .df-pac-btns { display: flex; gap: 18px; }
-/* Choosing the bag (t507u, like the name tag's blanks): ‹ bag › and the dots under it. */
-#door-flow .df-bag { display: flex; align-items: center; gap: 14px; }
-#door-flow .df-bag canvas { touch-action: pan-y; cursor: grab; }
-#door-flow .df-arrow { flex: none; width: 58px; height: 96px; border: 0; border-radius: 14px; background: rgba(255,255,255,.18); color: #fff; font-size: 60px; line-height: 1; cursor: pointer; }
-#door-flow .df-arrow:hover { background: rgba(255,255,255,.32); }
-#door-flow .df-dots { display: flex; gap: 12px; }
-#door-flow .df-dots span { width: 16px; height: 16px; border-radius: 50%; background: rgba(255,255,255,.4); cursor: pointer; }
-#door-flow .df-dots span.on { background: #ffd400; transform: scale(1.3); }
-@media (max-width: 560px) { #door-flow .df-arrow { width: 38px; height: 72px; font-size: 40px; } #door-flow #df-pac-canvas { height: min(54vh, 560px); } }
-#door-flow .df-back { font-size: 20px; background: rgba(0,0,0,.45); }
+#door-flow .df-x { position: absolute; top: -6px; right: -6px; width: 44px; height: 44px; border-radius: 50%; border: 0; background: #fff; color: #000; font-size: 22px; cursor: pointer; }
+#door-flow .df-pac-btns { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+#door-flow #df-name, #door-flow #df-city-name { font-family: inherit; font-size: 28px; text-align: center; width: min(86vw, 400px); padding: 12px 16px; border-radius: 14px; border: 3px solid #fff; background: rgba(0,0,0,.65); color: #fff; }
+#door-flow #df-name::placeholder, #door-flow #df-city-name::placeholder { color: rgba(255,255,255,.75); }
+#door-flow .df-back { font-size: 22px; background: rgba(0,0,0,.45); }
+
+/* Pac makeover: bag carousel with peeking neighbours + marker invite */
+#door-flow .df-bags, #door-flow .df-reveal, #door-flow .df-done, #door-flow .df-newcity { display: flex; flex-direction: column; align-items: center; gap: 14px; width: min(96vw, 920px); }
+#door-flow .df-panel { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 22px 24px; background: rgba(20,20,20,.92); border-radius: 18px; max-width: min(92vw, 520px); }
+#door-flow .df-carousel { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; }
+#door-flow .df-bag-main { position: relative; display: flex; flex-direction: column; align-items: center; }
+#door-flow #df-pac-canvas, #door-flow #df-reveal-canvas, #door-flow #df-done-canvas { height: min(58vh, 600px); width: auto; filter: drop-shadow(0 8px 22px rgba(0,0,0,.6)); touch-action: pan-y; cursor: grab; }
+#door-flow .df-peek { width: min(18vw, 120px); overflow: hidden; opacity: .55; border-radius: 12px; pointer-events: none; filter: saturate(.85); }
+#door-flow .df-peek canvas { width: 100%; height: auto; display: block; border-radius: 12px; }
+#door-flow .df-peek-l { transform: perspective(400px) rotateY(18deg) scale(.92); transform-origin: right center; }
+#door-flow .df-peek-r { transform: perspective(400px) rotateY(-18deg) scale(.92); transform-origin: left center; }
+#door-flow .df-arrow { flex: none; width: 64px; height: 110px; border: 0; border-radius: 16px; background: rgba(255,255,255,.2); color: #fff; font-size: 64px; line-height: 1; cursor: pointer; }
+#door-flow .df-arrow-outer { margin: 0 4px; }
+#door-flow .df-arrow:hover { background: rgba(255,255,255,.36); }
+#door-flow .df-marker { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%) rotate(-8deg); width: min(78%, 340px); background: none; border: 0; padding: 0; cursor: pointer; filter: drop-shadow(0 6px 14px rgba(0,0,0,.55)); z-index: 2; }
+#door-flow .df-marker:hover { filter: drop-shadow(0 8px 18px rgba(0,0,0,.7)) brightness(1.05); }
+#door-flow .df-marker-svg { width: 100%; height: auto; display: block; pointer-events: none; }
+
+/* Reveal burst */
+#door-flow .df-reveal { position: relative; }
+#door-flow .df-burst { position: absolute; inset: -8% -4% 30%; pointer-events: none; background: radial-gradient(ellipse at center, rgba(255,120,180,.55) 0%, rgba(255,200,80,.25) 42%, transparent 70%); z-index: 0; }
+#door-flow .df-spark { position: absolute; left: 50%; top: 40%; width: 10px; height: 10px; margin: -5px; background: #fff; clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+  transform: rotate(calc(var(--a) * 1deg)) translateY(-120px) scale(0); animation: df-spark var(--d, .6s) ease-out forwards; }
+@keyframes df-spark { to { transform: rotate(calc(var(--a) * 1deg)) translateY(-210px) scale(1); opacity: 0; } }
+#door-flow .df-reveal-words { position: absolute; inset: 4% 0 40%; pointer-events: none; z-index: 2; }
+#door-flow .df-w { position: absolute; font-weight: 900; font-size: clamp(28px, 5vw, 48px); text-shadow: 0 3px 0 #000, 0 0 12px rgba(0,0,0,.5); animation: df-pop .7s ease-out both; }
+#door-flow .df-w-0 { left: 6%; top: 8%; color: #fff; }
+#door-flow .df-w-1 { right: 8%; top: 4%; color: #7dff4a; transform: rotate(8deg); animation-delay: .08s; }
+#door-flow .df-w-2 { left: 4%; top: 48%; color: #7dffa8; font-size: clamp(32px, 6vw, 56px); animation-delay: .14s; }
+#door-flow .df-w-3 { right: 6%; top: 42%; color: #ff4fd8; transform: rotate(90deg); animation-delay: .2s; }
+@keyframes df-pop { from { transform: scale(.2); opacity: 0; } to { opacity: 1; } }
+#door-flow #df-reveal-canvas, #door-flow #df-done-canvas { position: relative; z-index: 1; }
+#door-flow .df-done-name { font-size: clamp(32px, 6vw, 52px); font-weight: 900; padding: 6px 22px; background: rgba(0,0,0,.75); border-radius: 999px; letter-spacing: .02em; }
+#door-flow #df-room { color: #ff9ad8; background: rgba(0,0,0,.55); font-size: clamp(26px, 4.5vw, 36px); }
+#door-flow #df-city { color: #ff9ad8; background: rgba(0,0,0,.55); font-size: clamp(26px, 4.5vw, 36px); }
+@media (max-width: 560px) {
+  #door-flow .df-arrow { width: 42px; height: 78px; font-size: 42px; }
+  #door-flow #df-pac-canvas, #door-flow #df-reveal-canvas, #door-flow #df-done-canvas { height: min(50vh, 520px); }
+  #door-flow .df-peek { width: 14vw; }
+}
+
+/* Name-tag zoom onto the pac label while drawing */
+#nametag.nt-zoom-clip .nt-stage { overflow: hidden; max-height: min(48vh, 520px); }
+#nametag.nt-zoom-clip.nt-portrait .nt-tag { height: min(70vh, 780px); transition: transform .2s ease; }
 
 /* Selfie mode (view 'front'; Jens, 2 Nov 2026): slap mode is off – no aim ring, no held sticker, no
    "Slap mode · V" hint, the mode button greyed out. Back as soon as you leave the view. */

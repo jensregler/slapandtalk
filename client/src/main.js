@@ -2518,8 +2518,10 @@ function syncPaid() { const t = setInterval(() => { const h = townHallState(); i
 // My pack on the city wheel: no pack yet → make one (the door's "choose 3"); else the Town Hall.
 function cityPackAction() {
   if (!localStorage.getItem('klibb.pac')) { openDoorPick(doorOpts()); return; }
-  if (CITY_OUTSIDE) openChoice('city-pack', [{ id: 'to-hall', text: S.cityEnterHall, go: () => { walkToHall(); } }, { id: 'back', text: S.choiceBack }]);
-  else openChoice('city-pack', [{ id: 'to-city', text: S.cityBackToCity, go: () => { goRoom(THIS_CITY, '&at=' + ROOM); } }, { id: 'back', text: S.choiceBack }]);
+  // Pac makeover: the pack on the city wheel is a persistent button – sticking / tapping it
+  // goes straight to the Town Hall pack shop (no extra "go into Town Hall" choice).
+  if (CITY_OUTSIDE) { walkToHall(); return; }
+  openChoice('city-pack', [{ id: 'to-city', text: S.cityBackToCity, go: () => { goRoom(THIS_CITY, '&at=' + ROOM); } }, { id: 'back', text: S.choiceBack }]);
 }
 // (from the pack button: straight in front of the Town Hall's door, then in)
 function walkToHall() { camera.position.set(0, 1.6 + (room.groundAt?.(0, 9.6) || 0), 9.6); controls.yaw = 0; controls.apply?.(); openHall(); }
@@ -2527,8 +2529,51 @@ function walkToDoor(n) { const s = spawnOutside(houseId(THIS_CITY, n)); camera.p
 // The door's pick: "to city →" = the city picker (start a city and name it, or go into one that is
 // alive); in a city already, the new pack is simply what I carry now. Leaving my room for a city is
 // one way (Jens, t479u: it may have filled up with people) – no "back to my room".
-const doorOpts = () => ({ S, toast, choices: () => (IN_CITY ? state.library.filter((d) => !isNat(d) && !WHEEL_EXCLUDE.includes(d.id)) : stickerDesigns()),
-  toCity: () => { if (IN_CITY) cityWheelChanged(); else filmThenCity(); } });
+const doorOpts = () => ({
+  S, toast, inCity: IN_CITY,
+  choices: () => (IN_CITY ? state.library.filter((d) => !isNat(d) && !WHEEL_EXCLUDE.includes(d.id)) : stickerDesigns()),
+  needsNewCity: async () => {
+    if (IN_CITY) return false;
+    try { const r = await fetch('/api/cities', { cache: 'no-store' }); const d = await r.json(); return !(d.cities && d.cities.length); }
+    catch { return true; }
+  },
+  backToRoom: () => { /* pac saved; stay in the room */ },
+  toCity: (cityName) => {
+    if (IN_CITY) { cityWheelChanged(); return; }
+    if (cityName) {
+      const goNamed = async () => {
+        try {
+          const r = await fetch('/api/cities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: cityName, by: state.artist || '' }) });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || S.cpFailed);
+          goRoom(d.city.id);
+        } catch (e) { toast(e.message || S.cpFailed, 3000); openCityPick({ toast, go: (id) => { goRoom(id); } }); }
+      };
+      if (!FILMS_ENABLED) { goNamed(); return; }
+      // Films on: still run the reel, then create the named city.
+      filmThenCityNamed(goNamed);
+      return;
+    }
+    filmThenCity();
+  },
+});
+function filmThenCityNamed(goNamed) {
+  if (!FILMS_ENABLED) { goNamed(); return; }
+  const afterReel = () => {
+    highlightLog.clear();
+    if (!filmLog || window.klibb?.noFilm) { goNamed(); return; }
+    let pac = {}; try { pac = JSON.parse(localStorage.getItem('klibb.pac') || '{}') || {}; } catch { /* none */ }
+    filmLog.list = filmLog.list.filter((e) => e.e !== 'pack');
+    filmLog.add('pack', { name: pac.name || '', bag: pac.bag || 1 });
+    filmOpts().then((o) => runFilm({ ...o, onDone: goNamed, onDiscard: () => filmLog.clear() })).catch((err) => { console.warn('film', err); goNamed(); });
+  };
+  if (window.klibb?.noHighlight) { afterReel(); return; }
+  offerHighlightReel({
+    events: highlightLog.events(), roomId: ROOM, style: state.style, city: false, place: 'room',
+    stickers: stickersForReel(), store: highlightStore, sound, myId: together.net.id || 'me',
+    onDone: afterReel,
+  }).catch((err) => { console.warn('highlight', err); afterReel(); });
+}
 // The session film (Jens, 5 Nov 2026, pt536u): leaving the room for the City ends my film – the pack I
 // just made is its last scene – then Watch / Download / Discard, then the City picker as before. The
 // film is only made here (an offscreen render while the bar runs); any failure or Skip → the City.

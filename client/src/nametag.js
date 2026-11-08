@@ -80,6 +80,7 @@ function build() {
     if (im) { blank.drawImage(im, 0, 0, W, H); st.fallback.delete(st.i); } else if (st.custom) st.fallback.add(st.i); else { drawFallbackBlank(blank, st.i); st.fallback.add(st.i); }
     [...$('nt-dots').children].forEach((d, k) => d.classList.toggle('on', k === st.i));
     box.dataset.blank = String(st.i + 1);
+    st.opts?.onBlankChange?.(st.i);
   }
   for (let k = 0; k < BLANKS.length; k++) { const d = document.createElement('span'); d.onclick = () => showBlank(k); $('nt-dots').appendChild(d); }
   // Hold-to-repeat: keep flipping blanks while the arrow is held (touch + mouse).
@@ -224,14 +225,33 @@ function build() {
       for (const c of [$('nt-blank'), $('nt-ink'), $('nt-stroke')]) { c.width = W; c.height = H; }
       tagEl.style.aspectRatio = `${W} / ${H}`; box.classList.toggle('nt-portrait', H > W);
       const many = st.blanks.length > 1;
-      $('nt-prev').style.visibility = $('nt-next').style.visibility = many ? '' : 'hidden'; $('nt-dots').hidden = !many;
+      $('nt-prev').style.visibility = $('nt-next').style.visibility = many ? '' : 'hidden';
+      $('nt-dots').hidden = !many || !!opts.hideDots;
+      // Rebuild dots when blank count changes (door pac: 7 bags).
+      const dots = $('nt-dots'); dots.textContent = '';
+      for (let k = 0; k < st.blanks.length; k++) { const d = document.createElement('span'); d.onclick = () => showBlank(k); dots.appendChild(d); }
       if (opts.saveText) $('nt-save').textContent = opts.saveText;
+      if (opts.exitText) $('nt-exit').textContent = opts.exitText;
       ink.clearRect(0, 0, W, H); stroke.clearRect(0, 0, W, H); st.undo = [];
       st.clip = opts.clip || null;
       for (const g of [ink, stroke]) { g.restore(); g.save(); if (st.clip) { g.beginPath(); g.rect(st.clip.x, st.clip.y, st.clip.w, st.clip.h); g.clip(); } }
       const cl = $('nt-clip'); cl.hidden = !st.clip;
       if (st.clip) Object.assign(cl.style, { left: `${st.clip.x / W * 100}%`, top: `${st.clip.y / H * 100}%`, width: `${st.clip.w / W * 100}%`, height: `${st.clip.h / H * 100}%` });
-      box.hidden = false; showBlank(st.custom ? 0 : st.i);
+      // Zoom the tag so the label (clip) fills the stage – pac makeover draw step.
+      if (opts.zoomClip) {
+        box.classList.add('nt-zoom-clip');
+        const L = opts.zoomClip;
+        const ox = ((L.x + L.w / 2) / W) * 100, oy = ((L.y + L.h / 2) / H) * 100;
+        const sc = Math.min(W / L.w, H / L.h) * 0.62;
+        tagEl.style.transformOrigin = `${ox}% ${oy}%`;
+        tagEl.style.transform = `scale(${sc})`;
+      } else {
+        box.classList.remove('nt-zoom-clip');
+        tagEl.style.transformOrigin = '';
+        tagEl.style.transform = '';
+      }
+      const start = Number.isFinite(opts.startBlank) ? opts.startBlank : (st.custom ? 0 : st.i);
+      box.hidden = false; showBlank(start);
     },
     close,
     state: () => ({ open: !box.hidden, clip: st.clip, blank: st.i + 1, brush: st.brush, color: st.color, size: st.size, fallback: [...st.fallback], replacing: !$('nt-replace').hidden, drips: st.drips.length }),
