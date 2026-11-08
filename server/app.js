@@ -56,6 +56,7 @@ const { createMailer } = require('./mail');
 const { createPresets, PRESET_FACES } = require('./presets');
 const { createCityPacks } = require('./citypacks');
 const { createCities } = require('./cities');
+const { createCityBus } = require('./citybus');
 const { createCityPresets } = require('./citypresets');
 const CITY = require('../shared/city.mjs');
 const PROPS = require('../shared/props.mjs'); // 3D props (t491u/t509u): tables, chairs, street furniture
@@ -424,8 +425,14 @@ app.post('/api/admin/presets/:id/thumb', (req, res, next) => { if (!isAdmin(req)
 const occupancy = (id) => { for (const a of activeRooms()) if (a.id === id) return a.count; return 0; };
 const maxPlayersNow = () => { const a = activeRooms()[0]; return a ? a.max : 4; };
 const cities = createCities(store, { occupancy, get maxPlayers() { return maxPlayersNow(); }, clock, log, presets: cityPresets });
+const cityBusOn = () => process.env.CITYBUS_TEST === '1' || process.env.CITYBUS_TEST === 'true';
+const cityBus = createCityBus(store, {
+  cities, cityPacks, occupancy, clock, log, enabled: cityBusOn,
+  imageIds: async () => library.filter((s) => s && s.id && !s.nature).map((s) => s.id),
+});
 // The build city (t493u; shared/city.mjs BUILD_CITY): always there – Jens decorates it, reachable by its URL.
 if (!demo) cities.ensureBuildCity().catch((e) => log.error?.('[city] could not make the build city', e && e.message));
+if (!demo && cityBusOn()) cityBus.seed().catch((e) => log.error?.('[citybus] seed failed', e && e.message));
 const who = (req) => { const n = cleanName(req.body?.by); return n || null; };
 app.get('/api/cities', rateLimit(120), wrap(async (req, res) => {
   res.set('Cache-Control', 'no-store').json({ cities: demo ? [] : await cities.list() });
@@ -443,6 +450,18 @@ app.post('/api/cities/:id/houses', rateLimit(20), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
   if (!CITY.isCityOutside(String(req.params.id))) return res.status(404).json({ error: 'That city is gone' });
   try { res.json(await cities.startHouse(String(req.params.id), { by: who(req) })); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+}));
+// City-bus TEST (tint cities + bots). Gated by CITYBUS_TEST=1.
+app.post('/api/citybus/seed', rateLimit(10), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
+  try { res.json(await cityBus.seed()); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+}));
+app.get('/api/citybus/status', rateLimit(60), wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store').json(await cityBus.status());
+}));
+app.get('/api/citybus/journeys', rateLimit(60), wrap(async (req, res) => {
+  const s = await cityBus.status();
+  res.set('Cache-Control', 'no-store').json({ journeys: s.journeys, packJourneys: s.packJourneys, packSpreads: s.packSpreads });
 }));
 // City presets (t493u; server/citypresets.js) – admin only (x-admin-token, like the room presets).
 //   GET    /api/admin/citypresets                 the list (sticker counts per part)

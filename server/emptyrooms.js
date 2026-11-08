@@ -18,12 +18,13 @@ const CITY = require('../shared/city.mjs');
 function createEmptyRoomReaper({ store, isOccupied, keepIds = async () => new Set(), graceMs = 10_000, cityGraceMs = Math.max(graceMs, 30_000), freshMs = 60_000, clock = () => Date.now(), log = console, timers = { setTimeout, clearTimeout } } = {}) {
   const pending = new Map(); // id (a room, or a city id for a whole city) -> timer
   // the key a room's emptiness is tracked under: its city for city rooms (null = never deleted)
-  const keyOf = (id) => { if (!id) return null; const c = CITY.cityOf(id); if (!c) return id; return c === CITY.CITY_ROOM || c === CITY.BUILD_CITY ? null : c; }; // the first City and the build city (t493u) stay
+  const BUS = require('../shared/citybus.mjs');
+  const keyOf = (id) => { if (!id) return null; const c = CITY.cityOf(id); if (!c) return id; return c === CITY.CITY_ROOM || c === CITY.BUILD_CITY || BUS.isTestBusCity(c) ? null : c; }; // first City, build city, city-bus test cities stay
   function cancel(id) { const t = pending.get(id); if (t) { timers.clearTimeout(t); pending.delete(id); } }
   const tooFresh = (room, fresh) => fresh && room && room.createdAt && clock() - Date.parse(room.createdAt) < fresh;
   async function reapCity(city, { fresh = 0, why = `stood empty for ${Math.round(cityGraceMs / 1000)} s` } = {}) {
     pending.delete(city);
-    if (!CITY.isCityOutside(city) || city === CITY.CITY_ROOM || city === CITY.BUILD_CITY) return false;
+    if (!CITY.isCityOutside(city) || city === CITY.CITY_ROOM || city === CITY.BUILD_CITY || BUS.isTestBusCity(city)) return false;
     const ids = [city, ...CITY.houseIds(city)];
     if (ids.some((id) => isOccupied(id))) return false;
     const rooms = [];

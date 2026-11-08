@@ -491,6 +491,12 @@ export const EN = {
   voiceMonHint: '🎧 Use headphones – otherwise it can howl (feedback).',
   voiceMonOnToast: 'Hearing yourself – use headphones.',
   voiceMonOffToast: 'Not hearing yourself anymore.',
+  busTitle: 'Bus to another city',
+  busNote: 'Take your packs (up to 3). Trade stickers at the Town Hall.',
+  busNone: 'No other open cities right now.',
+  busLoadFailed: 'Could not load cities.',
+  busRiding: 'Riding the bus…',
+  busOpenHint: 'Bus stop – destinations',
 };
 
 
