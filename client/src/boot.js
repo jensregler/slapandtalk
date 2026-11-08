@@ -15,6 +15,16 @@ async function start() {
     if (!(await demoGate())) return;
   } else {
     const q = new URLSearchParams(location.search);
+    // City-bus TEST: bare ?testbus=1 (no room) opens the first fake city. No Render env needed –
+    // the client will POST /api/citybus/seed and keep a session alive with /ping.
+    if (q.get('testbus') === '1') {
+      const { isTestBusCity, TEST_CITIES } = await import('../../shared/citybus.mjs');
+      const room = (q.get('room') || '').toLowerCase();
+      if (!isTestBusCity(room)) {
+        q.set('room', TEST_CITIES[0].id);
+        history.replaceState(null, '', location.pathname + '?' + q.toString() + location.hash);
+      }
+    }
     // Only the bare address (or ?start=1): links with anything else – ?room, ?admin, ?last, and the
     // shop's ?unlock= / ?thanks=1#unlock= return – go on to the room as before.
     const bare = [...q.keys()].every((k) => k === 'start') && !/unlock=/.test(location.hash);

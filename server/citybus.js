@@ -1,7 +1,8 @@
 // City-bus TEST: three tinted cities + bots that SPREAD packs (Jens):
 //   hand in own/carried pack at Town Hall → take someone else's → ride bus to the next city → repeat.
 // Bots are injected into the realtime roster so clients see avatars, nametags (@insta), and
-// "N here right now". Stickers land on hall walls via store + broadcast. Gated by CITYBUS_TEST=1.
+// "N here right now". Stickers land on hall walls via store + broadcast.
+// Gated by CITYBUS_TEST=1 OR a live ?testbus=1 client session (lazy seed, no Render env needed).
 const crypto = require('crypto');
 const sharp = require('sharp');
 const { broadcast } = require('./realtime');
@@ -21,17 +22,47 @@ const BOT_LOOKS = [
 function createCityBus(store, {
   cities, cityPacks, occupancy, clock = () => Date.now(), log = console,
   enabled = () => false, imageIds = null, live = null,
+  sessionTtlMs = 120_000,
 } = {}) {
   let botTimer = null;
   let tickN = 0;
   let liveApi = live; // setLive() after attachRealtime
   /** @type {Map<string, object>} */
   const bots = new Map();
+  /** @type {Map<string, number>} sessionId → lastSeen ms (lazy ?testbus=1 without CITYBUS_TEST env) */
+  const sessions = new Map();
   const journeys = [];
   const logJourney = (row) => {
     journeys.push({ ...row, at: new Date(clock()).toISOString() });
     if (journeys.length > 200) journeys.splice(0, journeys.length - 200);
   };
+
+  const envOn = () => (typeof enabled === 'function' ? !!enabled() : !!enabled);
+  const pruneSessions = () => {
+    const now = clock();
+    for (const [id, t] of sessions) if (now - t > sessionTtlMs) sessions.delete(id);
+  };
+  const isOn = () => { pruneSessions(); return envOn() || sessions.size > 0; };
+  const touchSession = (sid) => {
+    const id = String(sid || crypto.randomBytes(8).toString('hex'));
+    sessions.set(id, clock());
+    pruneSessions();
+    return id;
+  };
+  const dropSession = (sid) => {
+    if (sid) sessions.delete(String(sid));
+    pruneSessions();
+    if (!isOn()) stopBots(true);
+  };
+  const sessionCount = () => { pruneSessions(); return sessions.size; };
+
+  // Drop idle sessions; stop bot loop when nobody is testing (saves Render memory).
+  const pruneTimer = setInterval(() => {
+    const before = sessions.size;
+    pruneSessions();
+    if (before && !sessions.size && !envOn()) stopBots(true);
+  }, 30_000);
+  pruneTimer.unref?.();
 
   const setLive = (api) => { liveApi = api; };
 
@@ -236,7 +267,7 @@ function createCityBus(store, {
   }
 
   async function botTick() {
-    if (!enabled()) return;
+    if (!isOn()) return;
     tickN++;
     const pool = await libraryStickers();
     for (let ci = 0; ci < BUS.TEST_CITIES.length; ci++) {
@@ -268,14 +299,14 @@ function createCityBus(store, {
   function startWalk() {
     if (walkTimer) return;
     walkTimer = setInterval(() => {
-      if (!enabled()) return;
+      if (!isOn()) return;
       for (const bot of bots.values()) walkBot(bot);
     }, 400);
     walkTimer.unref?.();
   }
 
   async function seed() {
-    if (!enabled()) throw Object.assign(new Error('City bus test mode is off'), { status: 403 });
+    if (!isOn()) throw Object.assign(new Error('City bus test mode is off'), { status: 403 });
     const out = [];
     for (const spec of BUS.TEST_CITIES) out.push(await ensureCity(spec));
     let pool = await libraryStickers();
@@ -321,7 +352,7 @@ function createCityBus(store, {
     }
     const ranked = [...byPack.values()].sort((a, b) => b.steps.length - a.steps.length);
     return {
-      enabled: enabled(), cities: list, tick: tickN,
+      enabled: isOn(), env: envOn(), clients: sessions.size, cities: list, tick: tickN,
       bots: [...bots.values()].map((b) => ({
         id: b.id, name: b.name, insta: b.insta, home: b.homeCity, room: b.roomId,
         pack: b.homePackId, carrying: b.carrying.slice(),
@@ -334,20 +365,27 @@ function createCityBus(store, {
   }
 
   function startBots() {
-    if (botTimer || !enabled()) return;
+    if (botTimer || !isOn()) return;
     botTimer = setInterval(() => { botTick().catch((e) => log.warn?.(`[citybus] tick: ${e.message}`)); }, 10000);
     botTimer.unref?.();
     botTick().catch(() => {});
     startWalk();
     log.log?.('[citybus] bot pack-spread + presence loop on');
   }
-  function stopBots() {
+  function stopBots(clearPresence = false) {
     if (botTimer) clearInterval(botTimer); botTimer = null;
     if (walkTimer) clearInterval(walkTimer); walkTimer = null;
+    if (clearPresence && liveApi?.removeBot) {
+      for (const bot of bots.values()) {
+        if (bot.roomId) try { liveApi.removeBot(bot.roomId, bot.id); } catch { /* fine */ }
+      }
+    }
+    if (clearPresence) log.log?.('[citybus] bot loop off (no testbus clients)');
   }
 
   return {
     seed, status, startBots, stopBots, ensureCity, setLive,
+    touchSession, dropSession, sessionCount, isOn, envOn,
     TEST_CITIES: BUS.TEST_CITIES, isTestCity: BUS.isTestBusCity, journeys: () => journeys.slice(),
   };
 }

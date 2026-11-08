@@ -53,7 +53,7 @@ export function openBusSheet({ here, go, toast, S: strings } = {}) {
   list.textContent = '';
   list.appendChild(Object.assign(document.createElement('div'), { className: 'bus-loading', textContent: '…' }));
 
-  fetch('/api/cities', { cache: 'no-store' })
+  fetch('/api/cities?testbus=1', { cache: 'no-store' })
     .then((r) => r.json())
     .then((d) => {
       const cities = (d.cities || []).filter((c) => c.id !== here && (c.testBus || isTestBusCity(c.id) || TEST_CITY_IDS.includes(c.id)));

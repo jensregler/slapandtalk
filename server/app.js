@@ -56,7 +56,7 @@ const { createMailer } = require('./mail');
 const { createPresets, PRESET_FACES } = require('./presets');
 const { createCityPacks } = require('./citypacks');
 const { createCities } = require('./cities');
-const { createCityBus } = require('./citybus');
+const { createCityBus, BUS: CITYBUS } = require('./citybus');
 const { createCityPresets } = require('./citypresets');
 const CITY = require('../shared/city.mjs');
 const PROPS = require('../shared/props.mjs'); // 3D props (t491u/t509u): tables, chairs, street furniture
@@ -425,17 +425,24 @@ app.post('/api/admin/presets/:id/thumb', (req, res, next) => { if (!isAdmin(req)
 const occupancy = (id) => { for (const a of activeRooms()) if (a.id === id) return a.count; return 0; };
 const maxPlayersNow = () => { const a = activeRooms()[0]; return a ? a.max : 4; };
 const cities = createCities(store, { occupancy, get maxPlayers() { return maxPlayersNow(); }, clock, log, presets: cityPresets });
-const cityBusOn = () => process.env.CITYBUS_TEST === '1' || process.env.CITYBUS_TEST === 'true';
+// CITYBUS_TEST=1 forces test mode always (e2e). Production: leave unset; ?testbus=1 clients
+// register a short-lived session via /api/citybus/seed|ping so bots only run while Jens is testing.
+const cityBusEnvOn = () => process.env.CITYBUS_TEST === '1' || process.env.CITYBUS_TEST === 'true';
 const cityBus = createCityBus(store, {
-  cities, cityPacks, occupancy, clock, log, enabled: cityBusOn,
+  cities, cityPacks, occupancy, clock, log, enabled: cityBusEnvOn,
   imageIds: async () => library.filter((s) => s && s.id && !s.nature).map((s) => s.id),
 });
+app.locals.cityBus = cityBus;
 // The build city (t493u; shared/city.mjs BUILD_CITY): always there – Jens decorates it, reachable by its URL.
 if (!demo) cities.ensureBuildCity().catch((e) => log.error?.('[city] could not make the build city', e && e.message));
-if (!demo && cityBusOn()) cityBus.seed().catch((e) => log.error?.('[citybus] seed failed', e && e.message));
+if (!demo && cityBusEnvOn()) cityBus.seed().catch((e) => log.error?.('[citybus] seed failed', e && e.message));
 const who = (req) => { const n = cleanName(req.body?.by); return n || null; };
 app.get('/api/cities', rateLimit(120), wrap(async (req, res) => {
-  res.set('Cache-Control', 'no-store').json({ cities: demo ? [] : await cities.list() });
+  let list = demo ? [] : await cities.list();
+  // Hide city-bus TEST cities from the normal Join list unless ?testbus=1 (or CITYBUS_TEST env).
+  const showTest = String(req.query.testbus || '') === '1' || cityBusEnvOn();
+  if (!showTest) list = list.filter((c) => !c.testBus && !CITYBUS.isTestBusCity(c.id));
+  res.set('Cache-Control', 'no-store').json({ cities: list });
 }));
 app.post('/api/cities', rateLimit(10), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
@@ -451,10 +458,23 @@ app.post('/api/cities/:id/houses', rateLimit(20), wrap(async (req, res) => {
   if (!CITY.isCityOutside(String(req.params.id))) return res.status(404).json({ error: 'That city is gone' });
   try { res.json(await cities.startHouse(String(req.params.id), { by: who(req) })); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 }));
-// City-bus TEST (tint cities + bots). Gated by CITYBUS_TEST=1.
+// City-bus TEST (tint cities + bots). Env CITYBUS_TEST=1 OR a live ?testbus=1 session.
 app.post('/api/citybus/seed', rateLimit(10), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
-  try { res.json(await cityBus.seed()); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  try {
+    const session = cityBus.touchSession(req.body?.session || req.get('x-testbus-session'));
+    const out = await cityBus.seed();
+    res.json({ ...out, session, clients: cityBus.sessionCount() });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+}));
+app.post('/api/citybus/ping', rateLimit(120), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
+  const session = cityBus.touchSession(req.body?.session || req.get('x-testbus-session'));
+  res.json({ ok: true, session, clients: cityBus.sessionCount(), enabled: cityBus.isOn() });
+}));
+app.post('/api/citybus/leave', rateLimit(60), wrap(async (req, res) => {
+  cityBus.dropSession(req.body?.session || req.get('x-testbus-session'));
+  res.json({ ok: true, clients: cityBus.sessionCount(), enabled: cityBus.isOn() });
 }));
 app.get('/api/citybus/status', rateLimit(60), wrap(async (req, res) => {
   res.set('Cache-Control', 'no-store').json(await cityBus.status());
@@ -1336,7 +1356,6 @@ app.delete('/api/rooms/:room/props/:pid', propsLimit, wrap(async (req, res) => {
 }));
 
 // ---------- Finished videos (see videos.js): upload, list, watch page, email the link ----------
-app.locals.cityBus = cityBus;
 app.locals.hidden = hidden;
 app.locals.cityPresets = cityPresets; // server/index.js: flushed at shutdown
 app.locals.presets = presets; // server/index.js: the rooms presets were made from are never deleted when empty

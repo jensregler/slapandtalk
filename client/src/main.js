@@ -110,9 +110,10 @@ if (filmLog && !filmLog.has('start')) filmLog.add('start', { room: ROOM });
 // leaving a city drops the packs a free player took; a new visit to a city starts with only my pack
 let busKeep = false; try { busKeep = sessionStorage.getItem('klibb.busKeep') === '1'; if (busKeep) sessionStorage.removeItem('klibb.busKeep'); } catch { /* fine */ }
 const carryReady = IN_CITY ? enterCity(THIS_CITY, { keepPacks: busKeep }) : leaveCity();
-const TESTBUS = testBusEnabled({ search: location.search }) || (CITY_OUTSIDE && isTestBusCity(ROOM));
+const TESTBUS = testBusEnabled({ search: location.search }); // only ?testbus=1 – never auto-on for random visitors
 var cityBusBots = null; // eslint-disable-line no-var
-const room = CITY_OUTSIDE ? buildCityRoom({ hallColor: hallColorFor(ROOM), busStop: !!TESTBUS || isTestBusCity(ROOM) }) : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
+var cityBusSession = null; // eslint-disable-line no-var
+const room = CITY_OUTSIDE ? buildCityRoom({ hallColor: TESTBUS ? hallColorFor(ROOM) : null, busStop: !!(TESTBUS && isTestBusCity(ROOM)) }) : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
 scene.add(room.group);
 if (room.camFar) { camera.far = room.camFar; camera.updateProjectionMatrix(); }
 document.body.classList.toggle('in-city', IN_CITY); document.body.classList.toggle('city-build', IN_CITY && CITY_BUILD_PHASE); document.body.classList.toggle('build-city', isBuildCity(ROOM)); document.body.classList.toggle('city-outside', CITY_OUTSIDE);
@@ -2592,10 +2593,32 @@ function openHall() {
   openTownHall({ toast, onChange: cityWheelChanged, makePack: () => toast(S.cityCreateRoomOnly || 'Make stickers and packs in your room – not in the city.', 3200), deck: () => deckDesigns(), onDeck: () => { wheelKey = ''; } });
   syncPaid();
 }
-// City-bus TEST bots (visual) when ?testbus=1 / CITYBUS cities.
+// City-bus TEST bots when ?testbus=1. Lazy server seed (no CITYBUS_TEST env needed on Render).
+// Keep a session alive with /ping so the bot loop stops when Jens leaves (Render memory).
 if (TESTBUS && CITY_OUTSIDE && isTestBusCity(ROOM)) {
   carryReady.then(() => { cityBusBots = startCityBots(together.players, { cityId: ROOM, room, toast }); });
-  fetch('/api/citybus/seed', { method: 'POST' }).catch(() => {});
+  const busHeaders = { 'Content-Type': 'application/json' };
+  const seedBody = () => JSON.stringify(cityBusSession ? { session: cityBusSession } : {});
+  fetch('/api/citybus/seed', { method: 'POST', headers: busHeaders, body: seedBody() })
+    .then((r) => r.json().catch(() => ({})))
+    .then((d) => { if (d && d.session) cityBusSession = d.session; })
+    .catch(() => {});
+  const ping = () => {
+    if (!cityBusSession) return;
+    fetch('/api/citybus/ping', { method: 'POST', headers: busHeaders, body: JSON.stringify({ session: cityBusSession }) }).catch(() => {});
+  };
+  const pingTimer = setInterval(ping, 45_000);
+  const leaveBus = () => {
+    clearInterval(pingTimer);
+    if (!cityBusSession) return;
+    const body = JSON.stringify({ session: cityBusSession });
+    try {
+      if (navigator.sendBeacon) navigator.sendBeacon('/api/citybus/leave', new Blob([body], { type: 'application/json' }));
+      else fetch('/api/citybus/leave', { method: 'POST', headers: busHeaders, body, keepalive: true }).catch(() => {});
+    } catch { /* fine */ }
+  };
+  window.addEventListener('pagehide', leaveBus);
+  window.addEventListener('beforeunload', leaveBus);
 }
 // what the Town Hall says about me: a paying player carries more (their wheel is not cut at 9)
 function syncPaid() { const t = setInterval(() => { const h = townHallState(); if (h.maxPacks != null) { clearInterval(t); if (cityPaid !== !!h.paid) { cityPaid = !!h.paid; cityWheelChanged(); } } }, 300); setTimeout(() => clearInterval(t), 15000); }

@@ -1,6 +1,6 @@
 // Inter-city bus TEST (Jens, Nov 2026): three fake cities with tinted Town Halls, a bus stop,
-// and virtual bots. Only active when test mode is on (CITYBUS_TEST=1 / ?testbus=1) – never on
-// the normal Join list for real players.
+// and virtual bots. Active with CITYBUS_TEST=1 (e2e) or a live ?testbus=1 client session.
+// Test cities stay off the normal Join list unless ?testbus=1 is passed to /api/cities.
 export const TESTBUS_PARAM = 'testbus';
 export const TESTBUS_ENV = 'CITYBUS_TEST';
 
