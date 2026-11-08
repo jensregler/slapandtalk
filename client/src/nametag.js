@@ -46,7 +46,10 @@ function build() {
   box.innerHTML = `
     <div class="nt-stage">
       <button type="button" class="nt-arrow" id="nt-prev" aria-label="previous">‹</button>
-      <div class="nt-tag"><canvas id="nt-blank"></canvas><canvas id="nt-ink"></canvas><canvas id="nt-stroke"></canvas><div class="nt-clip" id="nt-clip" hidden></div></div>
+      <div class="nt-pack-stack" id="nt-pack-stack">
+        <img class="nt-pack-behind" id="nt-pack-behind" alt="" hidden draggable="false">
+        <div class="nt-tag"><canvas id="nt-blank"></canvas><canvas id="nt-ink"></canvas><canvas id="nt-stroke"></canvas><div class="nt-clip" id="nt-clip" hidden></div></div>
+      </div>
       <button type="button" class="nt-arrow" id="nt-next" aria-label="next">›</button>
     </div>
     <div class="nt-dots" id="nt-dots"></div>
@@ -96,8 +99,8 @@ function build() {
   }
   for (let k = 0; k < BLANKS.length; k++) { const d = document.createElement('span'); d.onclick = () => showBlank(k); $('nt-dots').appendChild(d); }
   // Hold-to-repeat: keep flipping blanks while the arrow is held (touch + mouse).
-  bindHoldRepeat($('nt-prev'), () => showBlank(st.i - 1));
-  bindHoldRepeat($('nt-next'), () => showBlank(st.i + 1));
+  bindHoldRepeat($('nt-prev'), () => { cyclePack(-1); });
+  bindHoldRepeat($('nt-next'), () => { cyclePack(1); });
 
   // ---- colour ----
   const sv = $('nt-sv').getContext('2d'), hue = $('nt-hue').getContext('2d');
@@ -133,6 +136,23 @@ function build() {
 
   // ---- drawing ----
   const tagEl = box.querySelector('.nt-tag'), strokeEl = $('nt-stroke');
+  const packBehindEl = $('nt-pack-behind');
+  const packStack = $('nt-pack-stack');
+  function setPackBehind(src) {
+    if (src) { packBehindEl.hidden = false; packBehindEl.src = src; box.classList.add('nt-pack-label'); }
+    else { packBehindEl.hidden = true; packBehindEl.removeAttribute('src'); box.classList.remove('nt-pack-label'); }
+  }
+  async function cyclePack(dir) {
+    if (!st.opts?.onCycle) { showBlank(st.i + dir); return; }
+    const r = await st.opts.onCycle(dir);
+    if (!r) return;
+    if (r.blank) {
+      st.blanks = [r.blank]; st.imgs = []; st.i = 0;
+      ink.clearRect(0, 0, W, H); stroke.clearRect(0, 0, W, H); st.undo = []; st.drips = [];
+      await showBlank(0);
+    }
+    if (r.packBehind) setPackBehind(r.packBehind);
+  }
   let last = null, sinceDrip = 0;
   const toTag = (e) => { const r = strokeEl.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H]; };
   function segment(ctx, a, b) {
@@ -206,9 +226,8 @@ function build() {
   }
   function close() {
     if (!box.hidden) st.opts?.onClose?.();
-    box.hidden = true; $('nt-replace').hidden = true; clearConfirm();
-    cancelAnimationFrame(st.raf); st.raf = 0; st.drips = [];
-    setPanelHidden(false);
+    box.hidden = true; $('nt-replace').hidden = true; clearConfirm(); setPanelHidden(false);
+    setPackBehind(null);
   }
   $('nt-exit').onclick = close;
   // Back on the replace screen: keep the drawing, return to draw mode.
@@ -262,7 +281,7 @@ function build() {
       else if (!$('nt-replace').hidden) backToDraw({ discard: false });
       else close();
     }
-    else if (e.key === 'ArrowLeft') showBlank(st.i - 1); else if (e.key === 'ArrowRight') showBlank(st.i + 1);
+    else if (e.key === 'ArrowLeft') cyclePack(-1); else if (e.key === 'ArrowRight') cyclePack(1);
     else if ((e.ctrlKey || e.metaKey) && e.key === 'z') $('nt-undo').click();
     e.stopImmediatePropagation();
   }, true);
@@ -287,11 +306,13 @@ function build() {
       st.custom = !!opts.blanks; st.blanks = opts.blanks || BLANKS;
       [W, H] = opts.size || [TW, TH];
       for (const c of [$('nt-blank'), $('nt-ink'), $('nt-stroke')]) { c.width = W; c.height = H; }
-      tagEl.style.aspectRatio = `${W} / ${H}`; box.classList.toggle('nt-portrait', H > W);
-      const many = st.blanks.length > 1;
+      tagEl.style.aspectRatio = `${W} / ${H}`;
+      // Pack label draw: landscape surface same size as sticker editor (never portrait zoom).
+      const packLabel = !!(opts.packBehind || opts.onCycle);
+      box.classList.toggle('nt-portrait', H > W && !packLabel);
+      const many = st.blanks.length > 1 || !!opts.keepArrows || !!opts.onCycle;
       $('nt-prev').style.visibility = $('nt-next').style.visibility = many ? '' : 'hidden';
-      $('nt-dots').hidden = !many || !!opts.hideDots;
-      // Rebuild dots when blank count changes (door pac: 7 bags).
+      $('nt-dots').hidden = !many || !!opts.hideDots || packLabel;
       const dots = $('nt-dots'); dots.textContent = '';
       for (let k = 0; k < st.blanks.length; k++) { const d = document.createElement('span'); d.onclick = () => showBlank(k); dots.appendChild(d); }
       if (opts.saveText) $('nt-save').textContent = opts.saveText;
@@ -301,19 +322,11 @@ function build() {
       for (const g of [ink, stroke]) { g.restore(); g.save(); if (st.clip) { g.beginPath(); g.rect(st.clip.x, st.clip.y, st.clip.w, st.clip.h); g.clip(); } }
       const cl = $('nt-clip'); cl.hidden = !st.clip;
       if (st.clip) Object.assign(cl.style, { left: `${st.clip.x / W * 100}%`, top: `${st.clip.y / H * 100}%`, width: `${st.clip.w / W * 100}%`, height: `${st.clip.h / H * 100}%` });
-      // Zoom the tag so the label (clip) fills the stage – pac makeover draw step.
-      if (opts.zoomClip) {
-        box.classList.add('nt-zoom-clip');
-        const L = opts.zoomClip;
-        const ox = ((L.x + L.w / 2) / W) * 100, oy = ((L.y + L.h / 2) / H) * 100;
-        const sc = Math.min(W / L.w, H / L.h) * 0.62;
-        tagEl.style.transformOrigin = `${ox}% ${oy}%`;
-        tagEl.style.transform = `scale(${sc})`;
-      } else {
-        box.classList.remove('nt-zoom-clip');
-        tagEl.style.transformOrigin = '';
-        tagEl.style.transform = '';
-      }
+      // Legacy zoomClip path removed for pack label: drawing surface IS the label (sticker-editor size).
+      box.classList.remove('nt-zoom-clip');
+      tagEl.style.transformOrigin = '';
+      tagEl.style.transform = '';
+      setPackBehind(opts.packBehind || null);
       const start = Number.isFinite(opts.startBlank) ? opts.startBlank : (st.custom ? 0 : st.i);
       box.hidden = false; setPanelHidden(true); showBlank(start);
     },
@@ -321,7 +334,8 @@ function build() {
     state: () => ({
       open: !box.hidden, clip: st.clip, blank: st.i + 1, brush: st.brush, color: st.color, size: st.size,
       fallback: [...st.fallback], replacing: !$('nt-replace').hidden, confirming: !$('nt-confirm').hidden,
-      pickId: st.pickId, drips: st.drips.length,
+      pickId: st.pickId, drips: st.drips.length, packLabel: box.classList.contains('nt-pack-label'),
+      canvas: { w: W, h: H },
       buttons: ['nt-exit', 'nt-undo', 'nt-save'].map((id) => ({ id, text: $(id).textContent })),
     }),
   };

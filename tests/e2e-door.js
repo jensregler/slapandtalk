@@ -82,28 +82,45 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     // Draw via Draw button – exit/undo/done, bag blank includes the 3 stickers
     await P.click('#df-draw'); await sleep(1200);
     const nt = await P.evaluate(() => window.klibb.nameTag());
-    check('Draw → editor (skip/undo/done, portrait pac, label clip)', nt.open && await P.evaluate(() => {
+    check('Draw → editor (skip/undo/done, label = sticker-editor size)', nt.open && await P.evaluate(() => {
       const btns = window.klibb.nameTag().buttons.map((b) => b.id + ':' + b.text).join('|');
-      return document.getElementById('nt-blank').height === 802
-        && document.getElementById('nametag').classList.contains('nt-portrait')
-        && document.getElementById('nametag').classList.contains('nt-zoom-clip')
-        && btns === 'nt-exit:Skip|nt-undo:↶ undo|nt-save:done';
+      const nt = document.getElementById('nametag');
+      const blank = document.getElementById('nt-blank');
+      return blank.width === 800 && blank.height === 536
+        && nt.classList.contains('nt-pack-label')
+        && !nt.classList.contains('nt-portrait')
+        && !nt.classList.contains('nt-zoom-clip')
+        && btns === 'nt-exit:Skip|nt-undo:↶ undo|nt-save:done'
+        && getComputedStyle(document.getElementById('nt-prev')).visibility !== 'hidden'
+        && getComputedStyle(document.getElementById('nt-next')).visibility !== 'hidden';
     }), nt);
-    // Blank should already contain sticker pixels in the pouch (below the label)
-    const pouchPaint = await P.evaluate(() => {
-      const d = document.getElementById('nt-blank').getContext('2d').getImageData(80, 400, 200, 200).data;
-      let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 40) n++;
-      return n;
+    // Dimmed bag with the 3 stickers sits behind/below the big label
+    const behind = await P.evaluate(() => {
+      const img = document.getElementById('nt-pack-behind');
+      const r = img && img.getBoundingClientRect();
+      return { shown: img && !img.hidden && !!img.src, w: r ? Math.round(r.width) : 0, h: r ? Math.round(r.height) : 0, op: img ? Number(getComputedStyle(img).opacity) : 0 };
     });
-    check('…draw blank shows the bag with the 3 stickers in the pouch', pouchPaint > 800, { pouchPaint });
+    check('…dimmed bag with stickers visible behind the label', behind.shown && behind.w > 40 && behind.op > 0 && behind.op < 0.7, behind);
+    // Label drawing surface ≈ sticker editor surface (same stage rules / ~380×250 at 1024)
+    const surf = await P.evaluate(() => {
+      const tag = document.querySelector('#nametag .nt-tag').getBoundingClientRect();
+      const stage = document.querySelector('#nametag .nt-stage').getBoundingClientRect();
+      return { tw: Math.round(tag.width), th: Math.round(tag.height), sw: Math.round(stage.width), ratio: +(tag.width / tag.height).toFixed(2) };
+    });
+    check('…label draw surface ≈ sticker-editor size (wide, not tiny strip)', surf.tw >= 300 && surf.th >= 180 && surf.tw / surf.th > 1.2 && surf.tw / surf.th < 2.0, surf);
     await P.screenshot({ path: path.join(PAC_SHOTS, 'new-03-draw.png') });
+    await P.screenshot({ path: path.join(SHOTS, 'fix-label-draw.png') });
     const tag = await P.locator('#nt-stroke').boundingBox();
     await P.mouse.move(tag.x + tag.width * 0.2, tag.y + tag.height * 0.17); await P.mouse.down(); await P.mouse.move(tag.x + tag.width * 0.6, tag.y + tag.height * 0.15, { steps: 15 }); await P.mouse.up();
     await P.screenshot({ path: path.join(SHOTS, '33-door-draw-on-pac.png') });
     await P.mouse.move(tag.x + tag.width * 0.1, tag.y + tag.height * 0.55); await P.mouse.down(); await P.mouse.move(tag.x + tag.width * 0.9, tag.y + tag.height * 0.6, { steps: 15 }); await P.mouse.up();
     await P.mouse.move(tag.x + tag.width * 0.5, tag.y + tag.height * 0.2); await P.mouse.down(); await P.mouse.move(tag.x + tag.width * 0.5, tag.y + tag.height * 0.7, { steps: 15 }); await P.mouse.up();
-    const ink = await P.evaluate(() => { const L = window.klibb.nameTag().clip; const d = document.getElementById('nt-ink').getContext('2d').getImageData(0, 0, 563, 802).data; let inL = 0, out = 0; for (let y = 0; y < 802; y++) for (let x = 0; x < 563; x++) { if (d[(y * 563 + x) * 4 + 3] < 10) continue; if (x >= L.x && x <= L.x + L.w && y >= L.y && y <= L.y + L.h) inL++; else out++; } return { inL, out }; });
-    check('…drawing only on the label (t477u)', ink.inL > 200 && ink.out === 0, ink);
+    const ink = await P.evaluate(() => {
+      const d = document.getElementById('nt-ink').getContext('2d').getImageData(0, 0, 800, 536).data;
+      let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 10) n++;
+      return { n };
+    });
+    check('…drawing lands on the big label surface', ink.n > 200, ink);
     await P.click('#nt-save');
     await P.waitForFunction(() => window.klibb.door().open && window.klibb.door().step !== null, null, { timeout: 10000 }).catch(() => {}); await sleep(500);
 
