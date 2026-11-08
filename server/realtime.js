@@ -481,8 +481,64 @@ function attachRealtime(server, {
   }, heartbeatMs);
   hb.unref();
 
+  // City-bus TEST bots: synthetic players (no WebSocket). They show in welcome/join/move/leave
+  // and count toward presence / "here right now". ws is always closed so send() is a no-op.
+  function botClient({ id, roomId, name, look, p, y, slot }) {
+    return {
+      id, room: roomId, name: cleanName(name) || 'Bot', look: cleanLook(look || {}),
+      p: Array.isArray(p) ? p.map(Number) : [0, 1.6, 12], y: Number(y) || 0, pi: 0,
+      slot: Number.isInteger(slot) ? slot : 0, player: true, joined: true, bot: true,
+      sit: null, guestNo: null, strikes: 0, moves: 0, ent: {},
+      ws: { readyState: 3 }, // WebSocket.CLOSED
+      limit: () => true, lookLimit: () => true, chatLimit: () => true,
+      talkLimit: () => true, heldLimit: () => true, danceLimit: () => true,
+    };
+  }
+  function injectBot(roomId, { id, name, look, p, y, slot } = {}) {
+    if (!id || typeof id !== 'string') return null;
+    const r = room(roomId);
+    let c = r.players.get(id);
+    if (c && c.bot) {
+      if (name) setName(c, r, name);
+      if (look) c.look = cleanLook(look);
+      if (Array.isArray(p)) c.p = p.map(Number);
+      if (y != null) c.y = Number(y) || 0;
+      toRoom(r, { t: 'look', id: c.id, name: c.name, look: c.look });
+      toRoom(r, { t: 'move', id: c.id, p: c.p, y: c.y, pi: 0 });
+      return pub(c);
+    }
+    if (c) return null; // real player owns that id
+    c = botClient({ id, roomId, name, look, p, y, slot });
+    if (!Number.isInteger(slot)) takeSlot(c, r);
+    r.players.set(c.id, c);
+    toRoom(r, { t: 'join', player: pub(c) });
+    rec(r.id, 'join', pub(c));
+    return pub(c);
+  }
+  function moveBot(roomId, id, p, y) {
+    const r = rooms.get(roomId); if (!r) return false;
+    const c = r.players.get(id); if (!c || !c.bot || !Array.isArray(p)) return false;
+    c.p = p.map(Number); c.y = Number(y) || 0; c.moves = (c.moves || 0) + 1;
+    toRoom(r, { t: 'move', id: c.id, p: c.p, y: c.y, pi: 0 });
+    return true;
+  }
+  function removeBot(roomId, id) {
+    const r = rooms.get(roomId); if (!r) return false;
+    const c = r.players.get(id); if (!c || !c.bot) return false;
+    r.players.delete(id);
+    toRoom(r, { t: 'leave', id });
+    rec(r.id, 'leave', { id });
+    if (!r.players.size && !r.watchers.length) { rooms.delete(roomId); if (onEmpty) onEmpty(roomId); }
+    return true;
+  }
+  function listBots(roomId) {
+    const r = rooms.get(roomId); if (!r) return [];
+    return [...r.players.values()].filter((c) => c.bot).map(pub);
+  }
+
   return {
     wss,
+    injectBot, moveBot, removeBot, listBots,
     // Close a room for everyone (the demo's hour is up): they get the event first, then code 4010.
     closeRoom(roomId, event = { type: 'room:closed' }) {
       const r = rooms.get(roomId); if (!r) return 0;

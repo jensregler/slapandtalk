@@ -1336,6 +1336,7 @@ app.delete('/api/rooms/:room/props/:pid', propsLimit, wrap(async (req, res) => {
 }));
 
 // ---------- Finished videos (see videos.js): upload, list, watch page, email the link ----------
+app.locals.cityBus = cityBus;
 app.locals.hidden = hidden;
 app.locals.cityPresets = cityPresets; // server/index.js: flushed at shutdown
 app.locals.presets = presets; // server/index.js: the rooms presets were made from are never deleted when empty

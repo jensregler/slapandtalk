@@ -46,7 +46,7 @@ function groundMaterial(W, D) {
   return new THREE.MeshStandardMaterial({ color: 0xffffff, map: t, roughness: 0.95 });
 }
 
-export function buildCityRoom({ hallColor = null } = {}) {
+export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {}) {
   const group = new THREE.Group(); group.name = 'city';
   const surfaces = [];
   const ink = new THREE.MeshBasicMaterial({ color: INK });
@@ -130,35 +130,42 @@ export function buildCityRoom({ hallColor = null } = {}) {
   const sun = new THREE.DirectionalLight(0xfff1dc, 1.6); sun.position.set(-40, 60, 50); group.add(sun);
   const back = new THREE.DirectionalLight(0xdfe9ff, 0.5); back.position.set(40, 30, -50); group.add(back);
 
-  // Bus stop (city-bus TEST): reuse Town Hall stone/ink materials – a small shelter south of the hall.
-  const busStop = { x: 6.5, z: 14.2, w: 3.2, d: 1.4, h: 2.6 };
-  {
+  // Bus stop (city-bus TEST): large shelter between spawn and Town Hall, right of the door – in camera view.
+  let busStop = null;
+  if (wantBus) {
+    busStop = { x: 5.2, z: 12.0, w: 4.2, d: 2.0, h: 3.4 };
     const bx = busStop.x, bz = busStop.z, bw = busStop.w, bd = busStop.d, bh = busStop.h;
-    const pole = material(STONE, 0.2, bh, 77, 0.4);
-    const roof = material(hallColor != null ? hallColor : HALL_GREEN, bw, bd, 78, 0.3);
-    const postL = new THREE.Mesh(new THREE.BoxGeometry(0.18, bh, 0.18), pole);
-    postL.position.set(bx - bw / 2 + 0.2, bh / 2, bz); group.add(postL);
-    const postR = new THREE.Mesh(new THREE.BoxGeometry(0.18, bh, 0.18), pole);
-    postR.position.set(bx + bw / 2 - 0.2, bh / 2, bz); group.add(postR);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.12, bd + 0.4), roof);
-    top.position.set(bx, bh, bz - 0.1); group.add(top);
-    const back = new THREE.Mesh(new THREE.BoxGeometry(bw, bh * 0.7, 0.08), material(STONE, bw, bh, 79));
-    back.position.set(bx, bh * 0.4, bz - bd / 2); group.add(back);
-    // Sign board (slap surface + hit target)
-    const signMat = new THREE.MeshBasicMaterial({ color: 0x1a1814 });
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.1), signMat);
-    sign.position.set(bx, 1.55, bz + 0.12); sign.name = 'bus-stop-sign';
+    const tint = hallColor != null ? hallColor : HALL_GREEN;
+    const pole = material(STONE, 0.25, bh, 77, 0.35);
+    const roofMat = material(tint, bw, bd, 78, 0.25);
+    const postL = new THREE.Mesh(new THREE.BoxGeometry(0.28, bh, 0.28), pole);
+    postL.position.set(bx - bw / 2 + 0.25, bh / 2, bz); group.add(postL);
+    const postR = new THREE.Mesh(new THREE.BoxGeometry(0.28, bh, 0.28), pole);
+    postR.position.set(bx + bw / 2 - 0.25, bh / 2, bz); group.add(postR);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(bw + 0.4, 0.18, bd + 0.6), roofMat);
+    top.position.set(bx, bh, bz); group.add(top);
+    const bench = new THREE.Mesh(new THREE.BoxGeometry(bw - 0.6, 0.18, 0.55), material(STONE, bw, 0.5, 80));
+    bench.position.set(bx, 0.55, bz + 0.2); group.add(bench);
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(bw, bh * 0.85, 0.12), material(STONE, bw, bh, 79));
+    backWall.position.set(bx, bh * 0.42, bz - bd / 2); group.add(backWall);
+    // Tall flagpole + bright sign facing spawn (+z) so the camera at z=17 sees "BUS"
+    const poleH = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.2, 10), ink);
+    poleH.position.set(bx - bw / 2 - 0.35, 2.1, bz + 0.4); group.add(poleH);
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = 320;
+    const g2 = cv.getContext('2d');
+    g2.fillStyle = '#15130f'; g2.fillRect(0, 0, 512, 320);
+    g2.fillStyle = '#ffd400'; g2.fillRect(16, 16, 480, 288);
+    g2.fillStyle = '#15130f'; g2.font = '900 140px Arial Black, Arial, sans-serif';
+    g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillText('BUS', 256, 140);
+    g2.font = '700 48px Arial, sans-serif'; g2.fillText('→ cities', 256, 240);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.75), new THREE.MeshBasicMaterial({ map: tex }));
+    sign.position.set(bx, 2.05, bz + bd / 2 + 0.08); sign.name = 'bus-stop-sign';
     sign.userData = { busStop: true, city: true };
     group.add(sign); surfaces.push(sign);
-    // Canvas label "BUS"
-    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 160;
-    const g2 = cv.getContext('2d');
-    g2.fillStyle = '#1a1814'; g2.fillRect(0, 0, 256, 160);
-    g2.fillStyle = '#ffd400'; g2.font = '900 72px Arial Black, Arial, sans-serif';
-    g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillText('BUS', 128, 70);
-    g2.fillStyle = '#fff'; g2.font = '700 28px Arial, sans-serif'; g2.fillText('→ cities', 128, 120);
-    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-    sign.material = new THREE.MeshBasicMaterial({ map: tex });
+    // Back of sign (readable from hall side too)
+    const signBack = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.75), new THREE.MeshBasicMaterial({ map: tex }));
+    signBack.position.set(bx, 2.05, bz + bd / 2 + 0.05); signBack.rotation.y = Math.PI; group.add(signBack);
     busStop.mesh = sign;
   }
 

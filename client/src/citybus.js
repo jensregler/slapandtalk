@@ -1,4 +1,4 @@
-// City-bus TEST client: bus-stop sheet (destinations + stats), ride with packs kept, local bots.
+// City-bus TEST client: bus-stop sheet (destinations + stats), ride with packs kept, local bot fallback.
 import * as THREE from 'three';
 import { S } from './strings.js';
 import { randomLook } from './avatars.js';
@@ -57,7 +57,6 @@ export function openBusSheet({ here, go, toast, S: strings } = {}) {
     .then((r) => r.json())
     .then((d) => {
       const cities = (d.cities || []).filter((c) => c.id !== here && (c.testBus || isTestBusCity(c.id) || TEST_CITY_IDS.includes(c.id)));
-      // Always show other test cities even if API omitted tint
       const byId = new Map(cities.map((c) => [c.id, c]));
       for (const spec of TEST_CITIES) {
         if (spec.id === here) continue;
@@ -73,9 +72,10 @@ export function openBusSheet({ here, go, toast, S: strings } = {}) {
         const b = document.createElement('button');
         b.type = 'button'; b.className = 'bus-row'; b.dataset.id = c.id;
         const tint = c.hallTint || TEST_CITIES.find((t) => t.id === c.id)?.tint || '';
+        const age = busAgeText(c.createdAt);
         b.innerHTML = `<span class="bus-name">${c.name || c.id}</span>
           <span class="bus-tint bus-tint-${tint}"></span>
-          <span class="bus-facts">${Str.escCityFacts?.(c.stickers || 0, c.visitors || 0, busAgeText(c.createdAt)) || `${c.stickers || 0} stickers · ${c.visitors || 0} visitors · ${busAgeText(c.createdAt)}`}</span>`;
+          <span class="bus-facts">${Str.escCityFacts?.(c.stickers || 0, c.visitors || 0, age) || `${c.stickers || 0} stickers · ${c.visitors || 0} visitors · ${age}`}</span>`;
         b.onclick = () => {
           closeBusSheet();
           try { sessionStorage.setItem('klibb.busKeep', '1'); } catch { /* fine */ }
@@ -94,47 +94,71 @@ export function openBusSheet({ here, go, toast, S: strings } = {}) {
 
 export function closeBusSheet() { if (sheet) sheet.hidden = true; }
 
-/** Local visual bots: walk + occasional slap animation; Instagram-ish handles. */
+/**
+ * Prefer server-injected realtime bots (visible to everyone, counted in presence).
+ * If none appear after a short wait (live API not wired yet), spawn local visual fallbacks
+ * so the plaza is never empty in test mode.
+ */
 export function startCityBots(players, { cityId, room, toast } = {}) {
   if (!players || !isTestBusCity(cityId)) return { stop() {}, bots: [] };
   const spec = TEST_CITIES.find((c) => c.id === cityId);
-  const bots = [];
-  const handles = ['gron_ada', 'rod_bo', 'bla_cleo', 'stad_dan', 'vik_eva', 'by_finn', 'hall_gia', 'bus_hugo', 'pac_ida'];
-  for (let i = 0; i < BOTS_PER_CITY; i++) {
-    const id = `busbot-${cityId}-${i}`;
-    const name = BOT_NAMES[(i + (spec?.color || 0)) % BOT_NAMES.length];
-    const look = randomLook();
-    look.insta = handles[(i * 3 + TEST_CITY_IDS.indexOf(cityId)) % handles.length];
-    const angle = (i / BOTS_PER_CITY) * Math.PI * 2;
-    const r = 10 + i * 2;
-    const pos = [Math.cos(angle) * r, 0, 12 + Math.sin(angle) * r];
-    players.upsert({ id, name, look, p: pos, y: 0, slot: 10 + i });
-    bots.push({ id, name, insta: look.insta, t: Math.random() * 10, phase: angle, r, slapAt: 4 + i * 3 });
-  }
-  let raf = 0, last = performance.now(), alive = true;
+  const local = [];
+  let raf = 0, last = performance.now(), alive = true, usedLocal = false;
+
+  const listBots = () => {
+    const fromNet = [...players.map.values()].map((pl) => ({
+      id: pl.id, name: pl.name, insta: pl.look?.insta || pl.avatar?.insta || '',
+    }));
+    if (fromNet.length) return fromNet;
+    return local.map((b) => ({ id: b.id, name: b.name, insta: b.insta }));
+  };
+
+  const spawnLocal = () => {
+    if (usedLocal || players.map.size > 0) return;
+    usedLocal = true;
+    const handles = ['gron_ada', 'rod_bo', 'bla_cleo', 'stad_dan', 'vik_eva', 'by_finn', 'hall_gia', 'bus_hugo', 'pac_ida'];
+    for (let i = 0; i < BOTS_PER_CITY; i++) {
+      const id = `busbot-local-${cityId}-${i}`;
+      const name = BOT_NAMES[(i + (spec?.color || 0)) % BOT_NAMES.length];
+      const look = randomLook();
+      look.insta = handles[(i * 3 + TEST_CITY_IDS.indexOf(cityId)) % handles.length];
+      const angle = (i / BOTS_PER_CITY) * Math.PI * 2;
+      const r = 4.5 + i * 0.8;
+      const pos = [Math.cos(angle) * r, 1.6, 11.2 + Math.sin(angle) * r * 0.55];
+      players.upsert({ id, name, look, p: pos, y: angle + Math.PI / 2, slot: 10 + i });
+      local.push({ id, name, insta: look.insta, t: Math.random() * 10, phase: angle, r, slapAt: 4 + i * 3 });
+    }
+    toast?.(`${BOTS_PER_CITY} visitors walking in ${spec?.name || 'city'}`, 2200);
+  };
+
+  // Give the websocket a moment to deliver server bots; then fall back.
+  const fallbackTimer = setTimeout(spawnLocal, 2500);
+
   const tick = (now) => {
     if (!alive) return;
     raf = requestAnimationFrame(tick);
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    for (const b of bots) {
+    for (const b of local) {
       b.t += dt;
-      b.phase += dt * (0.25 + (b.r % 5) * 0.02);
+      b.phase += dt * (0.35 + (b.r % 5) * 0.02);
       const x = Math.cos(b.phase) * b.r;
-      const z = 11 + Math.sin(b.phase) * b.r * 0.7;
+      const z = 11.2 + Math.sin(b.phase) * b.r * 0.55;
       const yaw = b.phase + Math.PI / 2;
-      players.move(b.id, [x, 0, z], yaw);
+      players.move(b.id, [x, 1.6, z], yaw);
       if (b.t > b.slapAt) {
         b.slapAt = b.t + 6 + Math.random() * 8;
-        const wall = [x * 0.2, 1.8, 15];
-        players.gesture?.(b.id, 'slap', wall, [0, 0, -1]);
+        players.gesture?.(b.id, 'slap', [x * 0.15, 2.2, 8.2], [0, 0, 1]);
       }
     }
   };
   raf = requestAnimationFrame(tick);
-  toast?.(`${BOTS_PER_CITY} visitors walking in ${spec?.name || 'city'}`, 2200);
+
   return {
-    bots,
-    stop() { alive = false; cancelAnimationFrame(raf); for (const b of bots) players.remove(b.id); },
+    get bots() { return listBots(); },
+    stop() {
+      alive = false; clearTimeout(fallbackTimer); cancelAnimationFrame(raf);
+      for (const b of local) players.remove(b.id);
+    },
   };
 }
 

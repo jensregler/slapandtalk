@@ -112,7 +112,7 @@ let busKeep = false; try { busKeep = sessionStorage.getItem('klibb.busKeep') ===
 const carryReady = IN_CITY ? enterCity(THIS_CITY, { keepPacks: busKeep }) : leaveCity();
 const TESTBUS = testBusEnabled({ search: location.search }) || (CITY_OUTSIDE && isTestBusCity(ROOM));
 var cityBusBots = null; // eslint-disable-line no-var
-const room = CITY_OUTSIDE ? buildCityRoom({ hallColor: hallColorFor(ROOM) }) : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
+const room = CITY_OUTSIDE ? buildCityRoom({ hallColor: hallColorFor(ROOM), busStop: !!TESTBUS || isTestBusCity(ROOM) }) : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
 scene.add(room.group);
 if (room.camFar) { camera.far = room.camFar; camera.updateProjectionMatrix(); }
 document.body.classList.toggle('in-city', IN_CITY); document.body.classList.toggle('city-build', IN_CITY && CITY_BUILD_PHASE); document.body.classList.toggle('build-city', isBuildCity(ROOM)); document.body.classList.toggle('city-outside', CITY_OUTSIDE);
@@ -3545,8 +3545,47 @@ window.klibb = {
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer, scene,
   nameTag: nameTagState, openNameTag, door: doorState, menuAction: (k) => menuActions[k]?.(),
-  city: () => ({ id: THIS_CITY, outside: CITY_OUTSIDE, inCity: IN_CITY, house: houseNumber(ROOM), info: cityInfo, paid: cityPaid, wheel: stickerDesigns().map((d) => d.id), taken: takenPacks().map((p) => p.id), hall: townHallState(), pick: cityPickState(), atDoor, doors: room.doors ? room.doors.length : 0, doorStates: room.doors ? room.doors.map((d) => [d.userData.door, d.userData.state || null]) : [], testBus: !!TESTBUS, busStop: !!room.busStop, busOpen: busSheetOpen(), bots: cityBusBots?.bots?.map((b) => ({ id: b.id, name: b.name, insta: b.insta })) || [] }),
-  bus: () => ({ open: busSheetOpen(), openSheet: () => openBusSheet({ here: THIS_CITY, go: (id) => goRoom(id, `&${TESTBUS_PARAM}=1`), toast, S }), close: closeBusSheet }),
+  city: () => ({ id: THIS_CITY, outside: CITY_OUTSIDE, inCity: IN_CITY, house: houseNumber(ROOM), info: cityInfo, paid: cityPaid, wheel: stickerDesigns().map((d) => d.id), taken: takenPacks().map((p) => p.id), hall: townHallState(), pick: cityPickState(), atDoor, doors: room.doors ? room.doors.length : 0, doorStates: room.doors ? room.doors.map((d) => [d.userData.door, d.userData.state || null]) : [], testBus: !!TESTBUS, busStop: !!room.busStop, busOpen: busSheetOpen(), bots: (() => {
+      const fromNet = [...together.players.map.values()].map((pl) => ({
+        id: pl.id, name: pl.name, insta: pl.look?.insta || pl.avatar?.insta || '',
+        x: pl.pos?.x, z: pl.pos?.z, built: !!pl.avatar,
+      }));
+      if (fromNet.length) return fromNet;
+      return cityBusBots?.bots?.map((b) => ({ id: b.id, name: b.name, insta: b.insta })) || [];
+    })() }),
+  bus: () => ({
+    open: busSheetOpen(),
+    openSheet: () => openBusSheet({ here: THIS_CITY, go: (id) => goRoom(id, `&${TESTBUS_PARAM}=1`), toast, S }),
+    close: closeBusSheet,
+    // Point camera at plaza: hall wall + bus stop + walking bots (for screenshots / e2e).
+    lookAtPlaza: () => {
+      // Frame hall south face + walking bots (circle ~z=11) + bus stop at ~(5.2, 12).
+      camera.position.set(2.5, 1.85, 16.2);
+      controls.yaw = 0.22; controls.pitch = -0.06; controls.apply?.();
+      return { x: camera.position.x, z: camera.position.z, busStop: !!room.busStop, bots: together.players.map.size };
+    },
+    lookAtBusStop: () => {
+      camera.position.set(5.2, 1.7, 15.5);
+      controls.yaw = 0; controls.pitch = -0.05; controls.apply?.();
+      return { busStop: !!room.busStop?.mesh, pos: room.busStop ? [room.busStop.x, room.busStop.z] : null };
+    },
+    lookAtBots: () => {
+      const pl = [...together.players.map.values()][0];
+      if (pl?.pos) {
+        camera.position.set(pl.pos.x + 3.5, 1.8, pl.pos.z + 4.5);
+        controls.yaw = Math.atan2(-(pl.pos.x - camera.position.x), -(pl.pos.z - camera.position.z));
+        controls.pitch = -0.1; controls.apply?.();
+      } else {
+        camera.position.set(0, 1.8, 14.5); controls.yaw = 0; controls.pitch = -0.08; controls.apply?.();
+      }
+      return { bots: [...together.players.map.values()].map((p) => ({ name: p.name, insta: p.look?.insta, x: p.pos?.x, z: p.pos?.z })) };
+    },
+    lookAtHall: () => {
+      camera.position.set(0, 2.3, 11.8);
+      controls.yaw = 0; controls.pitch = 0.02; controls.apply?.();
+      return { stickers: stamps.count };
+    },
+  }),
   openHall, cityDoor: (n) => openCityDoor(plotOfDoor(n)), refreshCity, deck: () => deckDesigns().map((d) => d.id), kept: readKept,
   menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: () => null, openRoomPanel, askForVisitors, roomSize: () => ({ ...roomSizer.get(), normal: roomSizer.isDefault() }), setRoomSize: (d) => roomSizer.set(d), roomSurfaces: () => room.surfaces, roomBounds: () => room.bounds, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?

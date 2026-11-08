@@ -86,6 +86,13 @@ async function cleanup() {
     keepIds: presetSourceRooms,
   });
   realtime = attachRealtime(server, { maxPlayers: MAX_PLAYERS, recorder, entitle, gate, onEmpty: reaper && reaper.empty, onJoin: reaper && reaper.joined });
+  if (app.locals.cityBus) {
+    app.locals.cityBus.setLive(realtime);
+    // Re-seed presence once live is up (startup seed may have run before attachRealtime).
+    if (process.env.CITYBUS_TEST === '1' || process.env.CITYBUS_TEST === 'true') {
+      app.locals.cityBus.seed().catch((e) => console.error('[citybus] live seed failed', e && e.message));
+    }
+  }
   if (reaper) {
     const sweep = () => reaper.sweep().then((d) => { if (d.length) console.log(`[rooms] sweep: deleted ${d.length} empty room(s) (${d.join(', ')})`); }).catch((e) => console.error('[rooms] sweep failed:', e.message));
     setTimeout(sweep, Number(process.env.EMPTY_ROOM_GRACE_SECONDS || 10) * 1000 + 5000).unref();
