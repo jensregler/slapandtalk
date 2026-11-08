@@ -7,6 +7,7 @@
 //  - A city lives as long as somebody is in it (outside or in any of its houses); when the whole city
 //    is empty it goes, houses and all (server/emptyrooms.js, the same grace logic as rooms).
 const CITY = require('../shared/city.mjs');
+const BUS = require('../shared/citybus.mjs');
 
 const cleanCityName = (v) => Array.from(String(v ?? '').normalize('NFC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '').replace(/\s+/g, ' ').trim()).slice(0, 32).join('').trim();
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -18,7 +19,7 @@ const FIRST_NAME = 'The City';
 function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () => Date.now(), log = console, presets = null } = {}) {
   const fromPreset = async (layer) => (presets ? presets.layerFor(layer) : null);
   const presetExtra = (l) => (l ? { stamps: l.stamps, cityPreset: l.preset, ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: l.style } : {}), ...(Array.isArray(l.props) ? { props: l.props } : {}) } : {});
-  const always = (city) => city === CITY.CITY_ROOM || city === CITY.BUILD_CITY;
+  const always = (city) => city === CITY.CITY_ROOM || city === CITY.BUILD_CITY || BUS.isTestBusCity(city);
   const peopleIn = (city) => [city, ...CITY.houseIds(city)].reduce((n, id) => n + (occupancy(id) || 0), 0);
   async function started(city) {
     const out = [];
@@ -52,6 +53,8 @@ function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () =
       createdAt: (room && room.createdAt) || null, startedBy: (room && room.startedBy) || null,
       houses, next: CITY.nextHouse(houses), people: peopleIn(city), outside: occupancy(city) || 0, inHouses: people, max: maxPlayers,
       stickers: stats.stickers, visitors: stats.visitors,
+      ...(room && room.hallTint ? { hallTint: room.hallTint } : {}),
+      ...(room && room.testBus ? { testBus: true } : {}),
     };
   }
   // Every city there is now (they go when empty, so "there" = alive), busiest first. The first City

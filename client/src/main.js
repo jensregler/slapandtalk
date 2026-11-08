@@ -29,6 +29,7 @@ import { entitlements, loadEntitlements, credentials } from './entitlements.js';
 import { uploadsToReplace, shownUploads } from '../../shared/uploads.mjs';
 import { openNameTag as openNameTagTool, nameTagOpen, nameTagState } from './nametag.js';
 import { openDoorPick, doorOpen, doorState } from './door.js';
+import { testBusEnabled, isTestBusCity, hallColorFor, openBusSheet, closeBusSheet, busSheetOpen, startCityBots, hitBusStop, TESTBUS_PARAM } from './citybus.js';
 import { readPacks, PACKS_MAX } from './packswheel.js';
 import { seededLook, roomCharacterSeed } from '../../shared/randomlook.mjs';
 import AVATAR_SPEC from '../../shared/avatar.json';
@@ -107,8 +108,11 @@ const highlightCrew = FILMS_ENABLED
 if (highlightLog && !highlightLog.has('start')) highlightLog.add('start', { room: ROOM, city: !!IN_CITY });
 if (filmLog && !filmLog.has('start')) filmLog.add('start', { room: ROOM });
 // leaving a city drops the packs a free player took; a new visit to a city starts with only my pack
-const carryReady = IN_CITY ? enterCity(THIS_CITY) : leaveCity();
-const room = CITY_OUTSIDE ? buildCityRoom() : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
+let busKeep = false; try { busKeep = sessionStorage.getItem('klibb.busKeep') === '1'; if (busKeep) sessionStorage.removeItem('klibb.busKeep'); } catch { /* fine */ }
+const carryReady = IN_CITY ? enterCity(THIS_CITY, { keepPacks: busKeep }) : leaveCity();
+const TESTBUS = testBusEnabled({ search: location.search }) || (CITY_OUTSIDE && isTestBusCity(ROOM));
+var cityBusBots = null; // eslint-disable-line no-var
+const room = CITY_OUTSIDE ? buildCityRoom({ hallColor: hallColorFor(ROOM), busStop: !!TESTBUS || isTestBusCity(ROOM) }) : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
 scene.add(room.group);
 if (room.camFar) { camera.far = room.camFar; camera.updateProjectionMatrix(); }
 document.body.classList.toggle('in-city', IN_CITY); document.body.classList.toggle('city-build', IN_CITY && CITY_BUILD_PHASE); document.body.classList.toggle('build-city', isBuildCity(ROOM)); document.body.classList.toggle('city-outside', CITY_OUTSIDE);
@@ -853,7 +857,13 @@ async function slapAt(ndc, info, onStart, auto = null) {
   // The City (t476u): my pack and the exit button on the wheel are buttons, not stickers; a click on a
   // door (in reach) goes through it.
   if (IN_CITY && isPackDesign(state.selected)) { if (!auto) cityPackAction(); return null; }
-  if (CITY_OUTSIDE && !auto) { const d = doorHit(ndc); if (d) { openCityDoor(d); return null; } }
+  if (CITY_OUTSIDE && !auto) {
+    const d = doorHit(ndc); if (d) { openCityDoor(d); return null; }
+    if (TESTBUS && room.busStop && hitBusStop(room, ndc, camera, _busRay)) {
+      openBusSheet({ here: THIS_CITY, go: (id) => goRoom(id, `&${TESTBUS_PARAM}=1`), toast: toast, S });
+      return null;
+    }
+  }
   const h = hitSurface(ndc); if (!h) return null;
   if (auto && auto.check && !auto.check(h)) return null;
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
@@ -1718,6 +1728,7 @@ function escTopPanel() {
   if (doorOpen()) return () => $('df-cancel')?.click();
   if (nameTagOpen()) return () => $('nt-exit')?.click();
   if (cityPickOpen()) return () => $('cp-x')?.click();
+  if (busSheetOpen()) return () => closeBusSheet();
   if (townHallOpen()) return () => $('th-x')?.click();
   if (credit.id) return () => hideCredit();
   return null;
@@ -2580,6 +2591,11 @@ function openHall() {
   controls.unlock?.(); closeChoice();
   openTownHall({ toast, onChange: cityWheelChanged, makePack: () => toast(S.cityCreateRoomOnly || 'Make stickers and packs in your room – not in the city.', 3200), deck: () => deckDesigns(), onDeck: () => { wheelKey = ''; } });
   syncPaid();
+}
+// City-bus TEST bots (visual) when ?testbus=1 / CITYBUS cities.
+if (TESTBUS && CITY_OUTSIDE && isTestBusCity(ROOM)) {
+  carryReady.then(() => { cityBusBots = startCityBots(together.players, { cityId: ROOM, room, toast }); });
+  fetch('/api/citybus/seed', { method: 'POST' }).catch(() => {});
 }
 // what the Town Hall says about me: a paying player carries more (their wheel is not cut at 9)
 function syncPaid() { const t = setInterval(() => { const h = townHallState(); if (h.maxPacks != null) { clearInterval(t); if (cityPaid !== !!h.paid) { cityPaid = !!h.paid; cityWheelChanged(); } } }, 300); setTimeout(() => clearInterval(t), 15000); }
@@ -3534,7 +3550,47 @@ window.klibb = {
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer, scene,
   nameTag: nameTagState, openNameTag, door: doorState, menuAction: (k) => menuActions[k]?.(),
-  city: () => ({ id: THIS_CITY, outside: CITY_OUTSIDE, inCity: IN_CITY, house: houseNumber(ROOM), info: cityInfo, paid: cityPaid, wheel: stickerDesigns().map((d) => d.id), taken: takenPacks().map((p) => p.id), hall: townHallState(), pick: cityPickState(), atDoor, doors: room.doors ? room.doors.length : 0, doorStates: room.doors ? room.doors.map((d) => [d.userData.door, d.userData.state || null]) : [] }),
+  city: () => ({ id: THIS_CITY, outside: CITY_OUTSIDE, inCity: IN_CITY, house: houseNumber(ROOM), info: cityInfo, paid: cityPaid, wheel: stickerDesigns().map((d) => d.id), taken: takenPacks().map((p) => p.id), hall: townHallState(), pick: cityPickState(), atDoor, doors: room.doors ? room.doors.length : 0, doorStates: room.doors ? room.doors.map((d) => [d.userData.door, d.userData.state || null]) : [], testBus: !!TESTBUS, busStop: !!room.busStop, busOpen: busSheetOpen(), bots: (() => {
+      const fromNet = [...together.players.map.values()].map((pl) => ({
+        id: pl.id, name: pl.name, insta: pl.look?.insta || pl.avatar?.insta || '',
+        x: pl.pos?.x, z: pl.pos?.z, built: !!pl.avatar,
+      }));
+      if (fromNet.length) return fromNet;
+      return cityBusBots?.bots?.map((b) => ({ id: b.id, name: b.name, insta: b.insta })) || [];
+    })() }),
+  bus: () => ({
+    open: busSheetOpen(),
+    openSheet: () => openBusSheet({ here: THIS_CITY, go: (id) => goRoom(id, `&${TESTBUS_PARAM}=1`), toast, S }),
+    close: closeBusSheet,
+    // Point camera at plaza: hall wall + bus stop + walking bots (for screenshots / e2e).
+    lookAtPlaza: () => {
+      // Frame hall south face + walking bots (circle ~z=11) + bus stop at ~(5.2, 12).
+      camera.position.set(2.5, 1.85, 16.2);
+      controls.yaw = 0.22; controls.pitch = -0.06; controls.apply?.();
+      return { x: camera.position.x, z: camera.position.z, busStop: !!room.busStop, bots: together.players.map.size };
+    },
+    lookAtBusStop: () => {
+      camera.position.set(5.2, 1.7, 15.5);
+      controls.yaw = 0; controls.pitch = -0.05; controls.apply?.();
+      return { busStop: !!room.busStop?.mesh, pos: room.busStop ? [room.busStop.x, room.busStop.z] : null };
+    },
+    lookAtBots: () => {
+      const pl = [...together.players.map.values()][0];
+      if (pl?.pos) {
+        camera.position.set(pl.pos.x + 3.5, 1.8, pl.pos.z + 4.5);
+        controls.yaw = Math.atan2(-(pl.pos.x - camera.position.x), -(pl.pos.z - camera.position.z));
+        controls.pitch = -0.1; controls.apply?.();
+      } else {
+        camera.position.set(0, 1.8, 14.5); controls.yaw = 0; controls.pitch = -0.08; controls.apply?.();
+      }
+      return { bots: [...together.players.map.values()].map((p) => ({ name: p.name, insta: p.look?.insta, x: p.pos?.x, z: p.pos?.z })) };
+    },
+    lookAtHall: () => {
+      camera.position.set(0, 2.3, 11.8);
+      controls.yaw = 0; controls.pitch = 0.02; controls.apply?.();
+      return { stickers: stamps.count };
+    },
+  }),
   openHall, cityDoor: (n) => openCityDoor(plotOfDoor(n)), refreshCity, deck: () => deckDesigns().map((d) => d.id), kept: readKept,
   menuClick: (x = 0, y = 0) => menuClick(new THREE.Vector2(x, y)), menuAt: () => null, openRoomPanel, askForVisitors, roomSize: () => ({ ...roomSizer.get(), normal: roomSizer.isDefault() }), setRoomSize: (d) => roomSizer.set(d), roomSurfaces: () => room.surfaces, roomBounds: () => room.bounds, roomPanel: () => ({ open: !$('room-panel').hidden, info: rp.info }), choice: () => ({ open: !$('menu-choice').hidden, what: $('menu-choice').dataset.what || null }),
   // Vikningen utan rendering, för tester: vilka ytor hamnar en klibba på och hur stor yta?

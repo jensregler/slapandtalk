@@ -27,10 +27,12 @@ async function drop() {
   return keep;
 }
 // A city page: if this tab was not in THIS city already, it is a new visit (start with only my pack).
-export function enterCity(city) {
+export function enterCity(city, { keepPacks = false } = {}) {
   const was = sget(FLAG);
   sset(FLAG, city);
-  return was === city ? Promise.resolve(null) : drop();
+  // Bus ride between cities: keep carried packs (city-bus TEST / Jens).
+  if (keepPacks || was === city) return Promise.resolve(null);
+  return drop();
 }
 // Anywhere else (a room, the start card): if this tab was in a city, I left it.
 export function leaveCity() {

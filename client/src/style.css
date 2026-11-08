@@ -1320,3 +1320,20 @@ body.touch #esc-menu .esc-lab { font-size: 18px; }
 .th-replace-btns { display: flex; gap: 10px; justify-content: flex-end; }
 .th-replace-yes, .th-replace-no, .th-replace-back { padding: 8px 14px; border-radius: 8px; border: 1px solid #666; background: #2a2620; color: inherit; cursor: pointer; }
 .th-replace-yes { background: #ffb347; color: #15130f; border-color: #ffb347; font-weight: 700; }
+
+/* ---- City bus TEST sheet ---- */
+#bus-sheet { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+#bus-sheet[hidden] { display: none !important; }
+#bus-sheet .bus-panel { position: relative; background: #1a1814; color: #f2efe8; border: 2px solid #555; border-radius: 16px; padding: 22px 24px; width: min(520px, 94vw); max-height: 86vh; overflow: auto; box-shadow: 0 16px 48px rgba(0,0,0,.5); }
+#bus-sheet .bus-x { position: absolute; top: 10px; right: 10px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: #fff; color: #111; font-size: 22px; cursor: pointer; }
+#bus-sheet .bus-title { font-size: clamp(26px, 4vw, 36px); font-weight: 900; margin: 0 40px 8px 0; }
+#bus-sheet .bus-note { opacity: .85; margin-bottom: 14px; font-size: 16px; }
+#bus-sheet .bus-list { display: flex; flex-direction: column; gap: 10px; }
+#bus-sheet .bus-row { text-align: left; background: #2a2620; border: 2px solid #555; border-radius: 12px; padding: 14px 16px; color: inherit; cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+#bus-sheet .bus-row:hover { border-color: #ffd400; }
+#bus-sheet .bus-name { font-size: 22px; font-weight: 800; }
+#bus-sheet .bus-facts { grid-column: 1 / -1; font-size: 15px; opacity: .9; }
+#bus-sheet .bus-tint { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #333; }
+#bus-sheet .bus-tint-green { background: #9fd0a8; }
+#bus-sheet .bus-tint-red { background: #e08a8a; }
+#bus-sheet .bus-tint-blue { background: #8ab4e0; }

@@ -46,7 +46,7 @@ function groundMaterial(W, D) {
   return new THREE.MeshStandardMaterial({ color: 0xffffff, map: t, roughness: 0.95 });
 }
 
-export function buildCityRoom() {
+export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {}) {
   const group = new THREE.Group(); group.name = 'city';
   const surfaces = [];
   const ink = new THREE.MeshBasicMaterial({ color: INK });
@@ -84,7 +84,7 @@ export function buildCityRoom() {
   const s = PLOT - PLOT_GAP;
   for (const p of PLOTS) {
     // The house (or the Town Hall): 4 walls + a roof, facing out.
-    const { x, z, w, d, h, y0 } = p.house, base = p.hall ? HALL_GREEN : STONE, tag = p.hall ? 'hall' : `h${p.k}`;
+    const { x, z, w, d, h, y0 } = p.house, base = p.hall ? (hallColor != null ? hallColor : HALL_GREEN) : STONE, tag = p.hall ? 'hall' : `h${p.k}`;
     const wm = () => material(base, w, h, 20 + p.k, p.hall ? 0.2 : 0.25);
     add(`${tag}-n`, w, h, wm(), [x, y0 + h / 2, z - d / 2], [0, Math.PI, 0]);
     add(`${tag}-s`, w, h, wm(), [x, y0 + h / 2, z + d / 2], [0, 0, 0]);
@@ -130,10 +130,49 @@ export function buildCityRoom() {
   const sun = new THREE.DirectionalLight(0xfff1dc, 1.6); sun.position.set(-40, 60, 50); group.add(sun);
   const back = new THREE.DirectionalLight(0xdfe9ff, 0.5); back.position.set(40, 30, -50); group.add(back);
 
+  // Bus stop (city-bus TEST): large shelter between spawn and Town Hall, right of the door – in camera view.
+  let busStop = null;
+  if (wantBus) {
+    busStop = { x: 5.2, z: 12.0, w: 4.2, d: 2.0, h: 3.4 };
+    const bx = busStop.x, bz = busStop.z, bw = busStop.w, bd = busStop.d, bh = busStop.h;
+    const tint = hallColor != null ? hallColor : HALL_GREEN;
+    const pole = material(STONE, 0.25, bh, 77, 0.35);
+    const roofMat = material(tint, bw, bd, 78, 0.25);
+    const postL = new THREE.Mesh(new THREE.BoxGeometry(0.28, bh, 0.28), pole);
+    postL.position.set(bx - bw / 2 + 0.25, bh / 2, bz); group.add(postL);
+    const postR = new THREE.Mesh(new THREE.BoxGeometry(0.28, bh, 0.28), pole);
+    postR.position.set(bx + bw / 2 - 0.25, bh / 2, bz); group.add(postR);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(bw + 0.4, 0.18, bd + 0.6), roofMat);
+    top.position.set(bx, bh, bz); group.add(top);
+    const bench = new THREE.Mesh(new THREE.BoxGeometry(bw - 0.6, 0.18, 0.55), material(STONE, bw, 0.5, 80));
+    bench.position.set(bx, 0.55, bz + 0.2); group.add(bench);
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(bw, bh * 0.85, 0.12), material(STONE, bw, bh, 79));
+    backWall.position.set(bx, bh * 0.42, bz - bd / 2); group.add(backWall);
+    // Tall flagpole + bright sign facing spawn (+z) so the camera at z=17 sees "BUS"
+    const poleH = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.2, 10), ink);
+    poleH.position.set(bx - bw / 2 - 0.35, 2.1, bz + 0.4); group.add(poleH);
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = 320;
+    const g2 = cv.getContext('2d');
+    g2.fillStyle = '#15130f'; g2.fillRect(0, 0, 512, 320);
+    g2.fillStyle = '#ffd400'; g2.fillRect(16, 16, 480, 288);
+    g2.fillStyle = '#15130f'; g2.font = '900 140px Arial Black, Arial, sans-serif';
+    g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillText('BUS', 256, 140);
+    g2.font = '700 48px Arial, sans-serif'; g2.fillText('→ cities', 256, 240);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.75), new THREE.MeshBasicMaterial({ map: tex }));
+    sign.position.set(bx, 2.05, bz + bd / 2 + 0.08); sign.name = 'bus-stop-sign';
+    sign.userData = { busStop: true, city: true };
+    group.add(sign); surfaces.push(sign);
+    // Back of sign (readable from hall side too)
+    const signBack = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.75), new THREE.MeshBasicMaterial({ map: tex }));
+    signBack.position.set(bx, 2.05, bz + bd / 2 + 0.05); signBack.rotation.y = Math.PI; group.add(signBack);
+    busStop.mesh = sign;
+  }
+
   const margin = 0.35;
   const bounds = new THREE.Box3(new THREE.Vector3(-hw + margin, 0, -hd + margin), new THREE.Vector3(hw - margin, H, hd - margin));
   const spawn = new THREE.Vector3(CITY_SPAWN.x, 1.6 + groundAt(CITY_SPAWN.x, CITY_SPAWN.z), CITY_SPAWN.z);
-  return { group, surfaces, bounds, spawn, city: true, groundAt, pushOut, doorAt, doors, camFar: 260 };
+  return { group, surfaces, bounds, spawn, city: true, groundAt, pushOut, doorAt, doors, busStop, camFar: 260 };
 }
 // Which houses are started (t479u: houses start in order): a started house's door is black (go in),
 // the next one to start is a warm yellow (start it), the ones after it are grey (not yet).
