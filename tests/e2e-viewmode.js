@@ -1,7 +1,8 @@
 // E2E (Jens, 2 Nov 2026, t470u):
 //  1) a room starts in View mode, and View mode lets you look around (desktop: drag with the mouse, no lock needed);
-//  2) the held sticker fades out completely → View mode; a click on a free surface (no sticker, no button)
+//  2) Aim off (O) hides the held sticker; a click on a free surface (no sticker, no button)
 //     → Slap mode (that click places nothing); in View mode a click on a sticker = a big "Made by" popup
+//     (Jens, 9 Nov 2026: aim no longer auto-fades — user-only via O / Aim toggle)
 //     with the creator and the Instagram link (a library sticker's credit is looked up too);
 //  4) sound settings are personal: kept for this visit (room → the City), never sent to others, others'
 //     sounds play with mine; the room's groove does not change mine; "Exit to menu" = all back to default.
@@ -54,12 +55,15 @@ const CUSTOM = { patches: { slap: { gain: 0.3, layers: [{ kind: 'osc', wave: 'sq
     const s2 = await st();
     check('…a click on a free surface (floor, no sticker, no button) → Slap mode; that click placed nothing', s2.mode === 'slap' && (await p.evaluate(() => window.klibb.stamps.meshes.size)) === n0 && s2.held && s2.held.canSlap && s2.held.opacity === 1, s2);
     await p.screenshot({ path: path.join(SHOTS, '32-slapmode-after-click.png') });
-    // slap once (a sticker not placed yet stays held until placed), then fade → View mode
+    // slap once; aim stays sharp (no auto-fade). O hides aim; G can still enter Look/View mode.
     await p.mouse.click(640, 400); await sleep(400);
     check('…the next click slaps', (await p.evaluate(() => window.klibb.stamps.meshes.size)) === n0 + 1);
-    await p.waitForFunction(() => window.klibb.state.mode === 'view', null, { timeout: 9000 }).catch(() => {});
+    await sleep(4500);
+    const s3a = await st();
+    check('…~4.5 s untouched: aim STILL sharp (no auto-fade)', s3a.mode === 'slap' && s3a.held && s3a.held.opacity === 1 && s3a.held.canSlap, s3a);
+    await p.keyboard.press('o'); await sleep(250);
     const s3 = await st();
-    check('…untouched, the held sticker fades out completely (2 s + 1 s) and it is View mode again', s3.mode === 'view' && s3.held.opacity === 0 && /Look mode/.test(s3.hud), s3);
+    check('…O → Aim off (held hidden); mode stays Slap until Look is toggled', s3.held && s3.held.aimOff && s3.held.opacity === 0 && !s3.preview, s3);
     // 4) personal sound
     await p.evaluate((c) => { sessionStorage.setItem('klibb.sound', JSON.stringify(c)); sessionStorage.setItem('klibb.musicVol', '0.4'); sessionStorage.setItem('klibb.grooveScale', '2'); }, CUSTOM);
     await p.reload(); await ready(p); await sleep(800);
