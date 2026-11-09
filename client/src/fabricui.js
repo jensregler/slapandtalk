@@ -67,6 +67,18 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
   const file = $('fab-file'); let fileSlot = null, filePhoto = false;
   file.onchange = () => {
     const f = file.files && file.files[0]; file.value = ''; if (!f || !fileSlot) return;
+    if (fileSlot === '__patch__') {
+      (async () => {
+        busy++; toast(S.fabUploading, 1200);
+        try {
+          const id = await idForFile(f);
+          setPatchTool({ id, key: 'upload' });
+          toast(S.fabPatchStampHint, 1800);
+        } catch (e) { toast(S.fabFailed(e.message || 'error'), 3500); }
+        finally { busy--; }
+      })();
+      return;
+    }
     if (filePhoto) useSource(fileSlot, async () => (await uploadFabric(await prepareFacePhoto(f))).id, { photo: true });
     else useSource(fileSlot, () => idForFile(f));
   };
@@ -100,20 +112,48 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
   const presetThumbs = {};
   const presetThumb = (k) => (presetThumbs[k] ||= presetCanvas(k, 64).toDataURL());
 
-  // Black circle, yellow star, upload last (alpha via prepareFabricImage). Shared by Fabric → Patches
-  // and the character-menu Patches row (Jens, 9 Nov 2026).
-  function fillPatchRow(row, slot, curId) {
+  // Patch stamp tool (Jens, 9 Nov 2026): black circle, yellow star, upload — stamps a single
+  // decal onto the Min gubbe avatar (look.patches), NOT tiled shirt fabric.
+  let patchTool = null; // { id, key? } | null
+  function setPatchTool(tool) {
+    patchTool = tool;
+    document.body.classList.toggle('patch-stamp', !!tool);
+    for (const b of document.querySelectorAll('.fab-patches button.patch, .fab-patches button.fab-patch-up')) {
+      const key = b.dataset.patchKey || '';
+      const sel = !!(tool && tool.key === key);
+      b.classList.toggle('sel', sel);
+    }
+  }
+  function fillPatchRow(row) {
     row.innerHTML = '';
     row.setAttribute('role', 'group');
     row.setAttribute('aria-label', S.fabPatches);
-    const presetIds = readJson(PRESET_KEY, {});
+    const cur = patchTool;
     for (const k of PATCH_ORDER) {
       const p = PATCHES[k];
-      row.appendChild(pickButton(S.fabPatch(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId, 'patch', () => useSource(slot, () => idForPreset(k))));
+      const b = pickButton(S.fabPatch(p.name), presetThumb(k), !!(cur && cur.key === k), 'patch', async () => {
+        try {
+          toast(S.fabPatchStampHint, 1800);
+          const id = await idForPreset(k);
+          setPatchTool({ id, key: k, preset: true });
+        } catch (e) { toast(S.fabFailed(e.message || 'error'), 3500); }
+      });
+      b.dataset.patchKey = k;
+      row.appendChild(b);
     }
     const up = document.createElement('button'); up.type = 'button'; up.className = 'fab-up fab-patch-up'; up.textContent = S.fabUpload; up.title = S.fabUploadTitle;
-    up.onclick = () => { fileSlot = slot; filePhoto = false; file.click(); };
+    up.dataset.patchKey = 'upload';
+    if (cur && cur.key === 'upload') up.classList.add('sel');
+    up.onclick = () => { fileSlot = '__patch__'; filePhoto = false; file.click(); };
     row.appendChild(up);
+    const undo = document.createElement('button'); undo.type = 'button'; undo.className = 'fab-patch-undo'; undo.textContent = '↩'; undo.title = 'Undo last patch';
+    undo.onclick = () => {
+      const d = getDraft(); const list = Array.isArray(d.patches) ? d.patches.slice(0, -1) : [];
+      setDraft(list.length ? { patches: list } : { patches: undefined }, { rerender: true });
+    };
+    const clr = document.createElement('button'); clr.type = 'button'; clr.className = 'fab-patch-clear'; clr.textContent = '✕'; clr.title = 'Clear all patches';
+    clr.onclick = () => { setDraft({ patches: undefined }, { rerender: true }); setPatchTool(null); };
+    row.append(undo, clr);
   }
 
   function controls(slot, f) {
@@ -145,7 +185,7 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
       // Patches tab: black circle, yellow star, then upload last (Jens). Alpha kept via prepareFabricImage.
       const patchLab = document.createElement('div'); patchLab.className = 'fab-tab-label'; patchLab.textContent = S.fabPatches;
       const patchRow = document.createElement('div'); patchRow.className = 'fab-picks fab-patches';
-      fillPatchRow(patchRow, slot, curId);
+      fillPatchRow(patchRow);
       for (const st of readMine().slice().reverse().slice(0, 12)) {
         picks.appendChild(pickButton(S.fabMine, st.url, fromSticker[st.id] && fromSticker[st.id] === curId, 'mine', () => useSource(slot, () => idForSticker(st))));
       }
@@ -236,7 +276,7 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     if (patchHome && patchBox) {
       if (full) {
         patchHome.hidden = false;
-        fillPatchRow(patchBox, 'shirt', d.fabric?.shirt?.id || null);
+        fillPatchRow(patchBox);
       } else {
         patchHome.hidden = true;
         patchBox.innerHTML = '';
@@ -277,7 +317,17 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
       return look;
     } finally { busy--; }
   }
-  return { render, tick, reset, wild, busy: () => busy > 0, modes };
+  return {
+    render, tick, reset, wild, busy: () => busy > 0, modes,
+    getPatchTool: () => patchTool,
+    clearPatchTool: () => setPatchTool(null),
+    addPatch(patch) {
+      const d = getDraft();
+      const list = Array.isArray(d.patches) ? d.patches.slice() : [];
+      list.push(patch);
+      setDraft({ patches: list }, { rerender: true });
+    },
+  };
 }
 
 let weaveUrl = null;

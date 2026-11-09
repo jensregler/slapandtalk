@@ -1,61 +1,60 @@
-// The held sticker's timer on touch screens (shared/heldtimer.mjs): no Slap/Look switch on phones.
-// Jens, 29 Oct 2026: 2 s untouched (was 10 s), then the 1 s fade. Any interaction while it is up
-// (touch, aim, pinch, twist, size/rotation, the wheel) keeps it up: keepAlive restarts the 2 s.
-// Run: node tests/heldtimer.test.mjs
+// Held / aim timer (shared/heldtimer.mjs). Jens, 9 Nov 2026: no auto-fade — stays sharp until hide().
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHeldTimer, HELD_VISIBLE_MS as V, HELD_FADE_MS as F } from '../shared/heldtimer.mjs';
 
-let n = 0;
-const test = (name, fn) => { fn(); n++; console.log('✔ ' + name); };
-
-test('the timings are named constants: 2 s visible (untouched), 1 s fade', () => {
-  assert.equal(V, 2000); assert.equal(F, 1000);
+test('exports: no finite auto-fade window', () => {
+  assert.equal(V, Infinity);
+  assert.equal(F, 0);
 });
-test('start-up: nothing held, a tap only wakes it (never a slap)', () => {
+
+test('idle → wake: sharp and can slap', () => {
   const h = createHeldTimer();
   assert.equal(h.state, 'idle'); assert.equal(h.opacity(0), 0); assert.equal(h.canSlap(0), false);
   assert.equal(h.tap(100), 'wake'); assert.equal(h.state, 'timed'); assert.equal(h.opacity(100), 1);
+  assert.equal(h.canSlap(100), true);
 });
-test('a chosen sticker is sharp in its holder indefinitely until the first placement', () => {
+
+test('choose stays sharp forever (no timeout)', () => {
   const h = createHeldTimer(); h.choose(0);
-  for (const t of [0, V + 500, 5 * V, 60000, 3600000]) { assert.equal(h.opacity(t), 1, `t=${t}`); assert.equal(h.canSlap(t), true); }
-  assert.equal(h.tap(3600000), 'slap'); // the first placement is a slap
+  for (const t of [0, 2500, 5000, 60000, 3600000, 1e9]) {
+    assert.equal(h.opacity(t), 1, `t=${t}`); assert.equal(h.canSlap(t), true);
+  }
 });
-test('the first placement starts the clock: 2 s sharp, then a 1 s fade, then faded', () => {
+
+test('placed stays sharp forever (no auto-fade)', () => {
   const h = createHeldTimer(); h.choose(0); h.placed(1000);
   assert.equal(h.state, 'timed');
-  assert.equal(h.opacity(1000 + V - 1), 1); assert.equal(h.canSlap(1000 + V - 1), true);
-  assert.equal(h.opacity(1000 + V), 1);
-  assert.ok(Math.abs(h.opacity(1000 + V + F / 2) - 0.5) < 1e-9);
-  assert.equal(h.canSlap(1000 + V + F / 2), false, 'fading: a tap does not slap');
-  assert.equal(h.opacity(1000 + V + F), 0); assert.equal(h.faded(1000 + V + F), true);
-  assert.equal(h.opacity(1000 + 99999), 0);
+  for (const t of [1000, 3000, 10000, 60000, 1e8]) {
+    assert.equal(h.opacity(t), 1, `t=${t}`); assert.equal(h.canSlap(t), true); assert.equal(h.faded(t), false);
+  }
 });
-test('a tap while faded brings it back with a fresh 2 s – and that tap does not slap', () => {
-  const h = createHeldTimer(); h.choose(0); h.placed(0);
-  assert.equal(h.tap(20000), 'wake');
-  assert.equal(h.opacity(20000), 1); assert.equal(h.canSlap(20000), true);
-  assert.equal(h.opacity(20000 + V - 1), 1); assert.ok(h.opacity(20000 + V + F / 2) < 1); assert.equal(h.opacity(20000 + V + F), 0);
+
+test('hide() forces opacity 0; show()/choose restores', () => {
+  const h = createHeldTimer(); h.choose(0); h.placed(100);
+  h.hide();
+  assert.equal(h.opacity(200), 0); assert.equal(h.canSlap(200), false); assert.equal(h.faded(200), true);
+  assert.equal(h.state, 'hidden');
+  h.show(300);
+  assert.equal(h.opacity(300), 1); assert.equal(h.canSlap(300), true); assert.equal(h.state, 'timed');
+  h.hide();
+  h.choose(400);
+  assert.equal(h.state, 'holding'); assert.equal(h.opacity(400), 1);
 });
-test('a tap while fading also only wakes it (fresh 2 s)', () => {
+
+test('tap while hidden wakes (no slap); next tap slaps', () => {
+  const h = createHeldTimer(); h.choose(0); h.placed(0); h.hide();
+  assert.equal(h.tap(50), 'wake'); assert.equal(h.canSlap(50), true); assert.equal(h.opacity(50), 1);
+  assert.equal(h.tap(60), 'slap');
+});
+
+test('each placement keeps it sharp ("per tag" no longer starts a fade clock)', () => {
+  const h = createHeldTimer(); h.choose(0); h.placed(0); h.placed(1500);
+  assert.equal(h.opacity(1500 + 5000), 1); assert.equal(h.canSlap(1500 + 5000), true);
+});
+
+test('keepAlive is a no-op for opacity (compat)', () => {
   const h = createHeldTimer(); h.placed(0);
-  assert.equal(h.tap(V + 400), 'wake'); assert.equal(h.opacity(V + 400 + V - 100), 1);
+  h.keepAlive(99999);
+  assert.equal(h.opacity(99999), 1);
 });
-test('each new stamp restarts the 2 s', () => {
-  const h = createHeldTimer(); h.choose(0); h.placed(0);
-  assert.equal(h.tap(1500), 'slap'); h.placed(1500);
-  assert.equal(h.opacity(1500 + V - 100), 1, 'still sharp just under 2 s after the second stamp'); assert.equal(h.canSlap(1500 + V - 1), true);
-  assert.ok(h.opacity(1500 + V + F / 2) < 1); assert.equal(h.opacity(1500 + V + F), 0);
-});
-test('any interaction while it is up restarts the 2 s (it fades only after 2 s untouched) – but does not revive a faded one', () => {
-  const h = createHeldTimer(); h.placed(0);
-  for (let t = 1500; t <= 15000; t += 1500) h.keepAlive(t); // touching/pinching every 1.5 s for 15 s
-  assert.equal(h.opacity(15000 + V - 1), 1); assert.equal(h.canSlap(15000 + V - 1), true);
-  assert.ok(h.opacity(15000 + V + F / 2) < 1); assert.equal(h.opacity(15000 + V + F), 0);
-  h.keepAlive(30000); assert.equal(h.opacity(30000), 0, 'faded: an interaction is not a revive (a tap wakes it)');
-});
-test('choosing a new sticker while faded: sharp again until it is placed', () => {
-  const h = createHeldTimer(); h.placed(0); assert.equal(h.opacity(20000), 0);
-  h.choose(20000); assert.equal(h.opacity(90000), 1); assert.equal(h.tap(90000), 'slap');
-});
-console.log(`heldtimer: ${n} passed`);

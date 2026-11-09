@@ -177,7 +177,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     }
   }
   // The face's colour: 'Same as skin' (no face field: it follows the skin), the swatches, or any colour.
-  // Locked face for @jensreglermanniska is still forced in normalizeLook (shared/lockedface.mjs).
+  // Face lock retired (Jens, 9 Nov 2026) — Face tab edits apply for every player.
   function faceColors(el, d, set) {
     if (!el) return;
     colors(el, AVATAR.colors.face, d.face || null, (c) => set({ face: c }));
@@ -196,7 +196,9 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   const fab = initFabricUI({
     $, toast, getDraft: () => av.draft,
     setDraft(patch, { rerender = true } = {}) {
-      av.draft = normalizeLook({ ...av.draft, ...patch });
+      const merged = { ...av.draft, ...patch };
+      if ('patches' in patch && patch.patches == null) delete merged.patches;
+      av.draft = normalizeLook(merged);
       if (rerender) renderAvatarPanel(); else self.avatar?.setLook(av.draft);
     },
   });
@@ -250,6 +252,28 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     self.avatar?.setLook(shownLook()); /* släpp tyger man bara provade */
     if (self.avatar) self.avatar.root.visible = self.want;
     $('avatar-panel').hidden = true; onBusyChange();
+  }
+  // Stamp a clothing patch onto Min gubbe at the canvas hit (look.patches).
+  const patchRay = new THREE.Raycaster();
+  const patchNdc = new THREE.Vector2();
+  const _z = new THREE.Vector3(0, 0, 1), _n = new THREE.Vector3(), _q = new THREE.Quaternion(), _inv = new THREE.Matrix4();
+  function stampPatchAt(clientX, clientY, cam) {
+    const tool = fab.getPatchTool?.();
+    if (!tool?.id || !av.open || !self.avatar) return false;
+    patchNdc.set((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1);
+    patchRay.setFromCamera(patchNdc, cam);
+    const hit = self.avatar.pickStamp(patchRay);
+    if (!hit) { toast('Missed — tap the body', 1400); return false; }
+    const localP = self.avatar.root.worldToLocal(hit.point.clone());
+    if (hit.face) _n.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
+    else _n.set(0, 0, 1);
+    _inv.copy(self.avatar.root.matrixWorld).invert();
+    _n.transformDirection(_inv).normalize();
+    _q.setFromUnitVectors(_z, _n);
+    localP.addScaledVector(_n, 0.012);
+    fab.addPatch({ id: tool.id, p: [localP.x, localP.y, localP.z], q: [_q.x, _q.y, _q.z, _q.w], size: 0.14 });
+    toast('Patch stamped', 1200);
+    return true;
   }
   $('my-avatar').onclick = () => openAvatarPanel();
   $('av-cancel').onclick = () => closeAvatarPanel();
@@ -413,7 +437,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     spinAvatar(dxPx) { if (av.open) av.dragged += dxPx * SHOW.dragK; },
     avatarDrag(on) { av.dragging = !!on && av.open; },
     fabricStats, previewFabrics: () => (self.avatar ? self.avatar.fabricInfo() : {}),
-    chatOpen, openChat, closeChat, openAvatarPanel, closeAvatarPanel,
+    chatOpen, openChat, closeChat, openAvatarPanel, closeAvatarPanel, stampPatchAt, getPatchTool: () => fab.getPatchTool?.(),
     sys,
     me: () => ({ name: myName(), shownAs: serverName, look: { ...me.look } }),
   };

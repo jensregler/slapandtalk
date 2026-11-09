@@ -15,10 +15,10 @@ let danceClock = null;
 export function setDanceClock(fn) { danceClock = typeof fn === 'function' ? fn : null; }
 function clockNow() { try { const c = danceClock && danceClock(); return c && Number.isFinite(c.nowMs) ? c : null; } catch { return null; } }
 import { cleanFabrics } from '../../shared/fabric.mjs';
+import { cleanPatches } from '../../shared/patches.mjs';
 import { acquireFabric, releaseFabric, makeFabricable, setFabric, tickFabric } from './fabrics.js';
 import { Mouth, MOUTH } from './mouth.js';
 import { FACE, isFaceTriangle, effectiveFabrics } from './face.js';
-import { ownsLockedFace, applyLockedFace } from '../../shared/lockedface.mjs';
 import { cleanInsta } from '../../shared/insta.mjs';
 export { cleanInsta };
 import { rollLookOnRestart, keepFace } from './restartlook.js';
@@ -48,10 +48,12 @@ export function normalizeLook(l) {
     hatColor: pickColor(l.hatColor, AV.colors.hat, d.hatColor),
     ...(typeof l.face === 'string' && FACE_HEX.test(l.face) ? { face: l.face.toLowerCase() } : {}), // own face colour; absent = skin
     ...(cleanFabrics(l.fabric) ? { fabric: cleanFabrics(l.fabric) } : {}), // tyger (valfritt), se shared/fabric.mjs
+    ...(cleanPatches(l.patches) ? { patches: cleanPatches(l.patches) } : {}), // stamped clothing patches (shared/patches.mjs)
     ...(cleanInsta(l.insta) ? { insta: cleanInsta(l.insta) } : {}), // Instagram name (shared/insta.mjs)
   };
-  // Jens (t587u): lock @jensreglermanniska's face photo (scale included); no face colour of its own.
-  return ownsLockedFace(out) ? applyLockedFace(out) : out;
+  // Face lock (t587u) retired for editing (Jens, 9 Nov 2026): Face tab must be able to change
+  // the face. ownsLockedFace / applyLockedFace stay exported for tests / baked asset URLs.
+  return out;
 }
 const any = (list) => list[Math.floor(Math.random() * list.length)];
 export function randomLook(prev) {
@@ -314,8 +316,59 @@ export class Avatar {
     // Cap never shown on the avatar (Jens, 9 Nov 2026) – same idea as earrings always off.
     this.cap.visible = false; this.capMat.color.set(L.hatColor);
     this.applyFabrics(effectiveFabrics(L));
+    this.applyPatches(L.patches || []);
     this.updateFaceFeatures();
     if ((L.insta || '') !== (this.insta ?? '') && this.name !== undefined) this.setName(this.name, L.insta || '');
+  }
+  // Raycast clothing meshes for a stamp (raycast is normally disabled so stickers miss the body).
+  pickStamp(raycaster) {
+    const meshes = [];
+    this.root.traverse((m) => { if (m.isMesh && m.visible && m !== this.cap && !m.userData?.ink) meshes.push(m); });
+    for (const m of meshes) m.raycast = THREE.Mesh.prototype.raycast;
+    let hit = null;
+    try { hit = raycaster.intersectObjects(meshes, false)[0] || null; } finally {
+      for (const m of meshes) m.raycast = () => {};
+    }
+    return hit;
+  }
+  // Clothing patches: single decals in avatar-root local space (look.patches). Not tiled fabric.
+  applyPatches(list) {
+    if (!this.patchGroup) {
+      this.patchGroup = new THREE.Group(); this.patchGroup.name = 'patches';
+      this.root.add(this.patchGroup);
+    }
+    // Tear down previous
+    while (this.patchGroup.children.length) {
+      const m = this.patchGroup.children[0]; this.patchGroup.remove(m);
+      m.geometry?.dispose?.();
+      if (m.material) {
+        if (m.userData.patchOk) releaseFabric(m.userData.patchId);
+        m.material.map = null; m.material.dispose();
+      }
+    }
+    const patches = Array.isArray(list) ? list : [];
+    for (const p of patches) {
+      if (!p?.id) continue;
+      const size = p.size || 0.14;
+      const geo = new THREE.PlaneGeometry(size, size);
+      const mat = new THREE.MeshBasicMaterial({
+        transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 20;
+      mesh.position.fromArray(p.p);
+      mesh.quaternion.fromArray(p.q);
+      mesh.userData = { patchId: p.id, patchOk: false };
+      this.patchGroup.add(mesh);
+      const entry = mesh;
+      const prom = acquireFabric(p.id);
+      if (!prom) continue;
+      entry.userData.patchOk = true;
+      prom.then((tex) => {
+        if (this.disposed || !tex || !entry.parent) return;
+        entry.material.map = tex; entry.material.needsUpdate = true;
+      });
+    }
   }
   // Samma tyg-id som förut: bara nya värden. Nytt id: hämta texturen (cachad), färgen syns tills den är laddad.
   applyFabrics(fabric) {

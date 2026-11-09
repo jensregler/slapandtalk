@@ -198,6 +198,8 @@
   <div id="packs-strip" hidden role="listbox" data-t-aria="packsAria" data-t-title="packsTitle"><span id="packs-num"></span><div id="packs-row"></div></div>
   <div id="wheel-label" aria-live="polite" hidden></div>
   <div id="mode-hud" aria-live="polite"></div>
+  <!-- Aim on/off (Jens, 9 Nov 2026): user-only visibility for held sticker + crosshair; O key too. -->
+  <button id="aim-toggle" type="button" aria-pressed="true" title="Aim on — tap to hide aim" aria-label="Aim on">◎<span id="aim-toggle-lab" class="aim-lab">Aim on</span></button>
   <button id="peel-btn" class="touch-only" type="button" data-t-aria="peelBtnAria" data-t-title="peelBtnTitle">↩</button>
   <button id="view-btn" class="touch-only" type="button" data-t-aria="viewBtnAria" aria-pressed="false">👤</button>
   <button id="mode-btn" class="touch-only" type="button" data-t-aria="modeBtnAria" aria-pressed="false">👁</button>
@@ -205,8 +207,8 @@
     <img id="design-btn-b2" class="stack-back b2" alt="" /><img id="design-btn-b1" class="stack-back b1" alt="" /><img id="design-btn-img" alt="" /><span id="design-btn-num"></span>
   </button>
   <!-- Touch layout (client/src/stackmenu.js): only the joystick and the sticker stack at first. The held
-       sticker floats in its holder (shared/heldtimer.mjs: sharp until the first stamp, then 10 s, then
-       it fades; a tap brings it back); two fingers pinch it bigger/smaller and twist it round while it is up.
+       sticker floats in its holder (shared/heldtimer.mjs: stays sharp; Aim toggle / O hides it).
+       Two fingers pinch it bigger/smaller and twist it round while it is up.
        Tapping the stack fans out the menu; the sticker book is a sheet. -->
   <div id="held" aria-hidden="true"><span id="held-sh"><img id="held-img" alt="" /></span></div>
   <!-- Pinch / twist on the held sticker (main.js): the size and turn while two fingers are on it. -->

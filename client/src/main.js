@@ -180,46 +180,60 @@ const preview = new StampPreview(scene, stamps.faces);
 // (the City is no box: its size test is off – the sliders do nothing there)
 const roomSizer = room.city ? { RANGE: ROOM_RANGE, get: () => ({ width: 96, height: 24, depth: 96 }), set() {}, reset() {}, sync() {}, isDefault: () => true }
   : createRoomSizer({ room, scene, stamps, camera, restyle: () => showStyle(shownStyle) });
-// The held sticker fades on the desktop too (Jens, 29 Oct 2026: "klibborna ska fejda efter ett par
-// sekunder", Slap mode and Nature mode alike) – the same timer as on touch (shared/heldtimer.mjs):
-// a newly chosen sticker stays sharp until it is placed; after each placement ("per tag") it stays
-// sharp for HELD_VISIBLE_MS (2 s) untouched, then fades out over HELD_FADE_MS (1 s). Until the fade
-// is complete, any input (moving the mouse, a key, the scroll wheel, holding the button) restarts the
-// 2 s (a fading one comes back sharp). Once it has faded out completely (point 10, Jens, 29 Oct 2026:
-// mouse movement brought it back, which broke just looking around), only the next explicit press –
-// the left mouse button, like a tap on touch – brings it back, and that press only wakes it (no slap,
-// the same as a tap on touch: the crosshair had no sticker to aim with). Moving, keys and the scroll
-// wheel leave a faded one faded. Picking a new design (R / F, the wheel, the sticker book) is choosing,
-// not idling: that one is sharp until placed (deskHeld.choose), as before.
+// The held sticker / aim brush (Jens, 9 Nov 2026): NEVER auto-fades. Same timer on desktop + touch
+// (shared/heldtimer.mjs). Stays sharp after choose / place until the user turns Aim off (O key or
+// the on-screen Aim toggle). Wheel R/F idle fade (WHEEL_UP_MS) is separate and untouched.
 const deskHeld = isTouch ? null : createHeldTimer();
 // O toggles the sticker aim tool (held preview + crosshair). Off = no aim brush; persist klibb.aimOff.
 const AIM_OFF_KEY = 'klibb.aimOff';
 let aimOff = false;
 try { aimOff = localStorage.getItem(AIM_OFF_KEY) === '1'; } catch { /* private */ }
 document.body.classList.toggle('aim-off', aimOff);
+function syncAimToggleBtn() {
+  const btn = $('aim-toggle');
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', String(!aimOff));
+  btn.title = aimOff ? 'Aim off — tap to show aim' : 'Aim on — tap to hide aim';
+  btn.setAttribute('aria-label', aimOff ? 'Aim off' : 'Aim on');
+  // Keep emoji + label as separate nodes (lab is inside the button)
+  const lab = $('aim-toggle-lab');
+  const emoji = aimOff ? '👁' : '◎';
+  if (lab) {
+    // textContent on button would wipe lab; set first text node / rebuild
+    btn.childNodes[0].textContent = emoji;
+    lab.textContent = aimOff ? 'Aim off' : 'Aim on';
+  } else {
+    btn.textContent = emoji;
+  }
+}
 function setAimOff(off, { quiet = false } = {}) {
   aimOff = !!off;
   try { localStorage.setItem(AIM_OFF_KEY, aimOff ? '1' : '0'); } catch { /* private */ }
   document.body.classList.toggle('aim-off', aimOff);
   if (aimOff) {
-    if (deskHeld && (deskHeld.state === 'holding' || deskHeld.state === 'timed')) {
-      const t = performance.now();
-      deskHeld.placed(t - deskHeld.visibleMs - deskHeld.fadeMs); // opacity 0 immediately
-    }
+    deskHeld?.hide?.();
+    stackMenu?.held?.hide?.();
     preview.hide();
-  } else if (deskHeld && state.selected) {
-    deskHeld.choose(performance.now());
-    if (window.klibb?.ready && state.mode === 'view' && !selfieOn() && !camView) setMode('slap', { quiet: true });
+  } else {
+    const tNow = performance.now();
+    if (deskHeld && state.selected) {
+      if (deskHeld.state === 'idle' || deskHeld.state === 'hidden') deskHeld.choose(tNow);
+      else deskHeld.show(tNow);
+      if (window.klibb?.ready && state.mode === 'view' && !selfieOn() && !camView) setMode('slap', { quiet: true });
+    }
+    if (stackMenu?.held && state.selected) {
+      if (stackMenu.held.state === 'idle' || stackMenu.held.state === 'hidden') stackMenu.held.choose(tNow);
+      else stackMenu.held.show(tNow);
+    }
   }
   if (controls?.locked) $('crosshair').hidden = aimOff;
+  syncAimToggleBtn();
   if (!quiet) toast(aimOff ? 'Aim off (O)' : 'Aim on (O)', 1400);
   return aimOff;
 }
 function deskActive() {
+  // No auto-fade: keepAlive is a no-op; leave faded-by-aim-off alone.
   if (!deskHeld || aimOff) return;
-  const t = performance.now();
-  if (deskHeld.state !== 'timed' || deskHeld.faded(t)) return; // faded: only a press brings it back (deskPress)
-  if (!deskHeld.canSlap(t)) deskHeld.wake(t); else deskHeld.keepAlive(t); // fading: back sharp; sharp: a fresh 2 s
 }
 // A left press on the 3D view: true = it only woke a completely faded held sticker (do not slap/act).
 // Aim off (O): swallow the click – no slap, no wake (turn aim back on with O).
@@ -1987,16 +2001,31 @@ controls.onLockChange = (locked) => {
   if (realEsc && !escTopPanel()) escMenu?.open();
 };
 
-// 'My avatar' open: drag (mouse or one finger) on the room = spin my avatar round.
+// 'My avatar' open: drag = spin; a tap with a patch tool selected stamps a decal (look.patches).
 {
   let avDrag = null;
   canvas.addEventListener('pointerdown', (e) => {
     if (!together.avatarView() || avDrag) return;
-    avDrag = { id: e.pointerId, x: e.clientX }; together.avatarDrag(true);
+    avDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, sx: e.clientX, sy: e.clientY };
+    together.avatarDrag(true);
     try { canvas.setPointerCapture(e.pointerId); } catch { /* fine */ }
   });
-  canvas.addEventListener('pointermove', (e) => { if (avDrag && e.pointerId === avDrag.id) { together.spinAvatar(e.clientX - avDrag.x); avDrag.x = e.clientX; } });
-  const avUp = (e) => { if (avDrag && e.pointerId === avDrag.id) { avDrag = null; together.avatarDrag(false); } };
+  canvas.addEventListener('pointermove', (e) => {
+    if (!avDrag || e.pointerId !== avDrag.id) return;
+    const dx = e.clientX - avDrag.x, dy = e.clientY - avDrag.y;
+    avDrag.moved += Math.abs(dx) + Math.abs(dy);
+    avDrag.x = e.clientX; avDrag.y = e.clientY;
+    together.spinAvatar(dx);
+  });
+  const avUp = (e) => {
+    if (!avDrag || e.pointerId !== avDrag.id) return;
+    const d = avDrag; avDrag = null; together.avatarDrag(false);
+    // Tap (little movement) + patch tool → stamp; drag still only spins.
+    if (d.moved < 10 && together.getPatchTool?.()) {
+      const cam = (typeof showCam !== 'undefined' && showCam) ? showCam : camera;
+      together.stampPatchAt?.(d.sx, d.sy, cam);
+    }
+  };
   canvas.addEventListener('pointerup', avUp); canvas.addEventListener('pointercancel', avUp);
 }
 
@@ -3727,14 +3756,13 @@ function frame() {
   // The drag pose on my own avatar while I pull a row out (3rd person, cameras, and the recording).
   const rowEnd = dragging ? arrayDrag.items[arrayDrag.items.length - 1] : null;
   together.selfHold(rowEnd ? rowEnd.position : null, rowEnd ? (rowEnd.normal || arrayDrag.a.normal.toArray()) : null);
-  // The held sticker has faded out completely (2 s untouched + 1 s): View mode (Jens, 2 Nov 2026: the old way).
-  if (deskHeld && state.mode === 'slap' && !propsMode() && deskHeld.state === 'timed' && deskHeld.faded(performance.now()) && !mouseHeld && !arrayDrag && !arrayRec) setMode('view', { quiet: true });
+  // Jens, 9 Nov 2026: aim never auto-fades → no silent switch to View mode from a fade-out.
   if (dragging) { preview.hide(); heldNow = { row: arrayDrag }; } // dragging a row: the ghosts are the preview
   else if (arrayRec) { preview.hide(); heldNow = { msg: arrayRec.msg }; } // released: until the server has the copies
   else if (propsMode()) preview.hide(); // Props mode: the prop's ghost is the preview (propsmode.js)
   else if (!aimOff && controls.locked && state.selected && !state.adminToken && state.mode === 'slap' && deskHeld && deskHeld.opacity(performance.now()) > 0) {
     if (mouseHeld) deskHeld.keepAlive(performance.now()); // the button held (arrays): no fade meanwhile
-    preview.setFade(deskHeld.opacity(performance.now())); // the desktop fade (2 s untouched → 1 s out)
+    preview.setFade(deskHeld.opacity(performance.now())); // always 1 while aim on (no auto-fade)
     const h = hitSurface(CENTER);
     if (h) {
       const [w, hh] = StampLayer.dims(state.selected, ((Number.isFinite(maxSizeCm()) ? Math.min(state.size, maxSizeCm() / 100) : state.size)));
@@ -3761,7 +3789,7 @@ function frame() {
     if (h) { const [w, hh] = StampLayer.dims(state.selected, ((Number.isFinite(maxSizeCm()) ? Math.min(state.size, maxSizeCm() / 100) : state.size))); heldNow = { h, q: StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh }; }
   }
   else if (deskHeld) preview.hide(); // desktop: faded (or nothing to aim) – no held sticker on the wall
-  if (isTouch && touchesDown.size) stackMenu?.held.keepAlive(performance.now()); // a finger on the screen (aiming, pinching, holding still): no fade meanwhile
+  // keepAlive kept for API compat; no auto-fade so fingers do not need to refresh a timer
   recordHeld(heldNow);
   roomSizer.sync(); if (!roomSizer.isDefault() || selfieOn()) preview.hide(); // stickers follow the test size; no held sticker on a moved wall, nor in selfie mode
   if (cv) renderFramed(renderer, scene, viewCam, cv.aspect || '');
@@ -3802,6 +3830,19 @@ if ('serviceWorker' in navigator) {
 // Små hjälpfunktioner för automatiska tester (och för nyfikna i konsolen).
 // Reload / tab close: keep the clothes actually worn (draft or live mesh), not only last Save.
 window.addEventListener('pagehide', () => { persistWornBeforeLeave(); });
+// On-screen Aim on/off (desktop + touch HUD); O key also toggles.
+{
+  const btn = $('aim-toggle');
+  if (btn) {
+    // pointerdown only (avoids click+pointerdown double-toggle). Unlock so the hit can land under pointer-lock.
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (controls?.locked) controls.unlock?.();
+      setAimOff(!aimOff);
+    });
+  }
+  syncAimToggleBtn();
+}
 window.klibb = {
   filmsEnabled: FILMS_ENABLED,
   filmLog: () => filmLog, filmState, filmBlob, filmThenCity: () => filmThenCity(),
@@ -3898,7 +3939,7 @@ window.klibb = {
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   wheelUp, touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
-  held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3), aimOff }, aimOff: () => aimOff, setAimOff, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
+  held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3), aimOff }, aimOff: () => aimOff, setAimOff, syncAimToggleBtn, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: wheelIsLit() && !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && Number(getComputedStyle($('design-strip')).opacity) > 0.05, lit: wheelIsLit(), n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON(), packSlot: FILM_STUDIO ? studioSlot : cityPackSlot, label: $('wheel-label')?.textContent || '' }),
   wheelUp, wheelDown, wheelIsLit,
   wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,

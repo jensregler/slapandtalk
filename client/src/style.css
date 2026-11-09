@@ -1372,3 +1372,23 @@ body.touch #esc-menu .esc-lab { font-size: 18px; }
 
 /* Temporary film-studio mode (?studio=1 / J): subtle cue, no layout change */
 body.film-studio #mode-hud::before { content: '🎬 '; }
+
+/* Aim on/off HUD (Jens, 9 Nov 2026): visible on desktop + touch; never auto-hides the aim. */
+#aim-toggle { position: fixed; top: 12px; right: 12px; z-index: 40; display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.35); background: rgba(0,0,0,.55);
+  color: #fff; font: 600 13px/1 system-ui, sans-serif; cursor: pointer; touch-action: manipulation;
+  pointer-events: auto; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+#aim-toggle .aim-lab { font-weight: 600; letter-spacing: .02em; }
+#aim-toggle[aria-pressed="false"] { opacity: .7; border-color: rgba(255,255,255,.2); }
+body.touch #aim-toggle { top: calc(10px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); padding: 10px 14px; font-size: 14px; }
+body.camview #aim-toggle, body.replay #aim-toggle, body.start #aim-toggle { display: none !important; }
+body.aim-off #crosshair { visibility: hidden; }
+body.aim-off.touch #held { opacity: 0 !important; pointer-events: none !important; }
+body.aim-off.touch #held.up { visibility: hidden; }
+
+/* Patch stamp tool active: crosshair over the avatar view */
+body.patch-stamp.avatar-view canvas { cursor: crosshair; }
+.fab-patches .fab-patch-undo, .fab-patches .fab-patch-clear {
+  width: 36px; height: 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,.25);
+  background: rgba(0,0,0,.35); color: #fff; cursor: pointer; font-size: 16px;
+}

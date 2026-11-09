@@ -100,6 +100,24 @@ const ALL = { fabrics: true, soundDesign: true }; // cleanLook(l) without flags:
 const cleanInsta = (v) => String(v ?? '').trim().replace(/^@+/, '').replace(/[^A-Za-z0-9._]/g, '').slice(0, 30).toLowerCase();
 const LOCKED_FACE_INSTA = 'jensreglermanniska';
 const LOCKED_FACE = Object.freeze({ id: '70cf6e844298da52', scale: 1.15, rot: 0, hue: 0, hueHz: 0.25, spinHz: 0.1, scroll: 0, cycleHue: false, spin: false, photo: true });
+
+const PATCH_ID_RE = /^[a-f0-9]{16}$/;
+const PATCH_SIZE_DEFAULT = 0.14, PATCH_SIZE_MIN = 0.04, PATCH_SIZE_MAX = 0.4, PATCHES_MAX = 24;
+function cleanPatches(list) {
+  if (!Array.isArray(list)) return null;
+  const out = [];
+  for (const raw of list) {
+    if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !PATCH_ID_RE.test(raw.id)) continue;
+    if (!Array.isArray(raw.p) || raw.p.length !== 3 || !raw.p.every(isNum)) continue;
+    if (!Array.isArray(raw.q) || raw.q.length !== 4 || !raw.q.every(isNum)) continue;
+    const m = Math.hypot(...raw.q); if (!(m > 1e-6)) continue;
+    const size = Math.min(PATCH_SIZE_MAX, Math.max(PATCH_SIZE_MIN, isNum(raw.size) ? raw.size : PATCH_SIZE_DEFAULT));
+    out.push({ id: raw.id, p: raw.p.map((x) => round(x)), q: raw.q.map((x) => round(x / m)), size: round(size) });
+    if (out.length >= PATCHES_MAX) break;
+  }
+  return out.length ? out : null;
+}
+
 function cleanLook(l, ent = ALL) {
   const d = AV.default; l = l && typeof l === 'object' ? l : {};
   const pick = (v, list, def) => (typeof v === 'string' && list.includes(v.toLowerCase()) ? v.toLowerCase() : def);
@@ -116,14 +134,11 @@ function cleanLook(l, ent = ALL) {
     // The face's own colour (any #rrggbb); absent = the same as the skin. Locked owners drop it.
     ...(typeof l.face === 'string' && /^#[0-9a-f]{6}$/i.test(l.face) ? { face: l.face.toLowerCase() } : {}),
     ...(ent.fabrics ? fabricField(l.fabric) : {}),
+    ...(ent.fabrics ? (() => { const p = cleanPatches(l.patches); return p ? { patches: p } : {}; })() : {}),
     ...soundField(l.sound, ent),
     ...(cleanInsta(l.insta) ? { insta: cleanInsta(l.insta) } : {}), // the Instagram name (shared/insta.mjs: same rule)
   };
-  // Jens (t587u): @jensreglermanniska keeps the locked face photo (baked asset / uploads id).
-  if (out.insta === LOCKED_FACE_INSTA && ent.fabrics) {
-    delete out.face;
-    out.fabric = { ...(out.fabric || {}), face: { ...LOCKED_FACE } };
-  }
+  // Face lock retired (Jens, 9 Nov 2026): players (incl. @jensreglermanniska) may change face.
   return out;
 }
 // look.sound (shared/synth.mjs): the seed for the player's own variation of the default sounds,
@@ -141,6 +156,7 @@ function soundField(s, ent) {
 // Samma regler som shared/fabric.mjs (webbläsaren); tests/fabric.test.mjs kollar att de är lika.
 // Äldre klienter känner inte till fältet och visar bara färgen.
 const FAB = require('../shared/fabric.json');
+// patches.mjs is ESM – inline cleaner (kept in sync with shared/patches.mjs; tests/patches.test.mjs).
 const { makeEntitlements, fromHello, FREE_MAX_PLAYERS } = require('./entitlements');
 const FAB_ID_RE = /^[a-f0-9]{16}$/;
 function cleanFabricParam(name, v) {

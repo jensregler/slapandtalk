@@ -336,6 +336,7 @@ export const EN = {
   fabColour: 'Colour', fabFabric: 'Fabric', fabModeAria: (part) => `${part}: colour or fabric`,
   fabUpload: '📷 Upload', fabUploadTitle: 'Upload a patch image (PNG/WebP/GIF/SVG with transparency kept)',
   fabPatches: 'Patches', fabPatch: (name) => `Patch: ${name}`,
+  fabPatchStampHint: 'Tap your avatar to stamp the patch',
   fabPickHint: 'or pick a patch, your stickers, recent fabrics, patterns:',
   fabBaseHint: 'Colour under the fabric (shows through transparent parts):',
   fabNone: 'Pick an image to wear.',

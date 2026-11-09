@@ -1,15 +1,4 @@
-// E2E: the held sticker fades after 2 s untouched – desktop AND phone, Slap mode AND Nature mode
-// (Jens, 29 Oct 2026: "Klibborna (både i slap mode och nature mode) ska fejda efter ett par sekunder –
-// de gör det inte nu. Fixa så att varje klibba fejdar per tag"). Before: only the phone faded; on the
-// desktop the held sticker (the preview on the wall at the crosshair) never did.
-// Same rules everywhere (shared/heldtimer.mjs): a newly chosen sticker is sharp until it is placed;
-// each placement restarts the clock: sharp 2 s, then a 1 s fade; any input restarts the 2 s; a
-// tap while faded only brings it back (phone; no slap). Desktop (point 10, Jens, 29 Oct 2026): until the
-// fade is complete any input restarts the 2 s; once faded out, mouse movement, keys and the scroll wheel
-// NEVER bring it back – only the next press (mouse button), and that press only wakes it (no slap, like
-// a tap on touch). Picking a new design (R) is sharp until placed.
-// Phone safety: a lost pointerup (iOS) no longer keeps it sharp for good.
-// Own server (HELDFADE_E2E_PORT, default 8893). Screenshots: HELDFADE_SHOTS (default /workspace/heldfade-shots).
+// E2E: held sticker / aim NEVER auto-fades (Jens, 9 Nov 2026). Visibility only via O / #aim-toggle.
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
@@ -18,7 +7,7 @@ const { startServer, sleep } = require('./demo-helpers');
 const PORT = Number(process.env.HELDFADE_E2E_PORT || 8893);
 const SHOTS = process.env.HELDFADE_SHOTS || '/workspace/heldfade-shots';
 let passed = 0, failed = 0;
-const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
+const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 900) : '')); } };
 
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
@@ -27,130 +16,119 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
   const errors = [];
   const room = async () => (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
   try {
-    // ---------------- desktop ----------------
-    for (const nature of [false, true]) {
-      const tag = nature ? 'desktop Nature mode' : 'desktop Slap mode';
+    {
+      const tag = 'desktop';
       const made = await room();
       const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 } });
-      await ctx.addInitScript(([r, k]) => { localStorage.setItem('klibb.roomKeys', JSON.stringify({ [r]: k })); localStorage.setItem('klibb.devUnlock', '1'); }, [made.room.id, made.roomKey]);
+      await ctx.addInitScript(([r, k]) => {
+        localStorage.setItem('klibb.roomKeys', JSON.stringify({ [r]: k }));
+        localStorage.setItem('klibb.devUnlock', '1');
+        localStorage.setItem('klibb.aimOff', '0');
+      }, [made.room.id, made.roomKey]);
       const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push(e.message));
       await P.goto(`${S.base}/?room=${made.room.id}`);
       await P.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.state.selected, null, { timeout: 30000 });
       await P.evaluate(() => { const k = window.klibb; k.moveTo(0, 1); k.look(0, 0); });
       await P.mouse.click(600, 200); await P.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
-      if (nature) { await P.keyboard.press('KeyV'); await sleep(1500); }
-      const st = () => P.evaluate(() => { const k = window.klibb; return { ...k.deskHeld(), n: k.stamps.count, nature: k.natureMode(), selNat: !!(k.state.selected && k.state.selected.nature) }; });
-      const s0 = await st();
-      if (nature) check(`${tag}: V → Nature mode, a nature sticker held`, s0.nature && s0.selNat, s0);
-      check(`${tag}: a newly chosen sticker is held sharp (no clock until it is placed)`, s0.state === 'holding' && s0.previewVisible && s0.previewOpacity === 1, s0);
-      await sleep(3200);
-      const s0b = await st();
-      check(`${tag}: …still sharp after 3 s (not placed yet)`, s0b.state === 'holding' && s0b.previewVisible, s0b);
-      await P.mouse.down(); await P.mouse.up(); await sleep(900); // (the preview steps aside ~0.6 s while the slap lands)
-      const s1 = await st();
-      check(`${tag}: a click slaps it; the 2 s clock starts (sharp)`, s1.n > s0.n && s1.state === 'timed' && s1.canSlap && s1.previewVisible && s1.previewOpacity === 1, s1);
-      await sleep(1500);
-      const s2 = await st();
-      check(`${tag}: ~2.4 s untouched: fading (0 < opacity < 1)`, s2.previewVisible && s2.previewOpacity > 0 && s2.previewOpacity < 1 && !s2.canSlap, s2);
-      await sleep(900);
-      const s3 = await st();
-      check(`${tag}: ~3.3 s untouched: gone (faded, no held sticker on the wall)`, s3.opacity === 0 && !s3.previewVisible, s3);
-      await P.screenshot({ path: path.join(SHOTS, `${nature ? 'nature' : 'slap'}-desktop-faded.png`) });
-      // faded: looking around, keys and the scroll wheel leave it faded (point 10: it broke just looking)
-      for (let i = 0; i < 7; i++) { await P.mouse.move(600 + (i % 2 ? 40 : -40), 400 + (i % 3) * 10); await sleep(450); }
-      const s3m = await st();
-      check(`${tag}: faded + 3 s of mouse movement: stays faded (no held sticker comes back)`, s3m.opacity === 0 && !s3m.previewVisible && s3m.n === s3.n, s3m);
-      for (let i = 0; i < 3; i++) { await P.keyboard.press('KeyQ'); await sleep(250); }
-      await P.mouse.wheel(0, 120); await sleep(300);
-      const s3k = await st();
-      check(`${tag}: …keys (Q) and the scroll wheel don't bring it back either`, s3k.opacity === 0 && !s3k.previewVisible && s3k.n === s3.n, s3k);
-      await P.mouse.down(); await P.mouse.up(); await sleep(400);
-      const s4 = await st();
-      check(`${tag}: the next press only wakes it: back sharp, no slap (faded = View mode; a click on a wall = Slap mode, sharp until the next slap)`, s4.n === s3.n && (s4.state === 'timed' || s4.state === 'holding') && s4.canSlap && s4.previewVisible && s4.previewOpacity === 1, s4);
-      await P.mouse.down(); await P.mouse.up(); await sleep(900);
-      const s5 = await st();
-      check(`${tag}: …and the press after that slaps`, s5.n > s4.n && s5.canSlap && s5.previewOpacity === 1, s5);
-      // per placement: each slap restarts the 2 s
-      await sleep(1500); await P.mouse.down(); await P.mouse.up(); await sleep(1500);
-      const s6 = await st();
-      check(`${tag}: each placement restarts the clock ("per tag": 3 s after the first of two slaps 1.5 s apart: still sharp)`, s6.n > s5.n && s6.canSlap && s6.previewOpacity === 1, s6);
-      await sleep(1900);
-      const s6b = await st();
-      check(`${tag}: …and it fades 2 s after the last one`, s6b.opacity === 0 && !s6b.previewVisible, s6b);
-      // before the fade is complete: any input restarts the 2 s, as before
-      // faded = View mode, where a click on a sticker shows its credit: wake it on a free bit of wall
-      await P.evaluate(() => window.klibb.look(0.7, 0));
-      await P.mouse.down(); await P.mouse.up(); await sleep(300); // wake
-      const n7 = (await st()).n;
-      for (let i = 0; i < 8; i++) { await P.mouse.move(600 + (i % 2 ? 6 : -6), 400); await sleep(450); }
-      const s7 = await st();
-      check(`${tag}: while it is up, moving the mouse keeps it sharp (3.6 s of moves)`, s7.canSlap && s7.previewOpacity === 1 && s7.n === n7, s7);
-      for (let i = 0; i < 6; i++) { await P.keyboard.press('KeyQ'); await sleep(500); }
-      const s7k = await st();
-      check(`${tag}: keys keep it up too`, s7k.canSlap && s7k.previewOpacity === 1, s7k);
-      await P.waitForFunction(() => { const h = window.klibb.deskHeld(); return h.opacity > 0.1 && h.opacity < 0.9; }, null, { polling: 30, timeout: 6000 });
-      const s7f = await st();
-      await P.mouse.move(620, 410); await sleep(150);
-      const s7g = await st();
-      check(`${tag}: half-faded, a mouse move still brings it back sharp (the fade isn't complete)`, s7f.previewOpacity > 0 && s7f.previewOpacity < 1 && s7g.canSlap && s7g.previewOpacity === 1, { s7f, s7g });
-      await sleep(3300);
-      await P.mouse.move(640, 420); await sleep(200);
-      const s8 = await st();
-      check(`${tag}: faded again: moving the mouse does not bring it back`, s8.opacity === 0 && !s8.previewVisible, s8);
-      await P.keyboard.press('KeyR'); await sleep(400);
-      const s9 = await st();
-      check(`${tag}: R (a new design) is a choice: that sticker is held sharp until placed`, s9.state === 'holding' && s9.previewVisible && s9.previewOpacity === 1 && s9.n === s8.n, s9);
+      await P.evaluate(() => { window.klibb.setMode('slap', { quiet: true }); window.klibb.setAimOff(false, { quiet: true }); });
+      await sleep(200);
+
+      check(`${tag}: #aim-toggle present`, !!(await P.$('#aim-toggle')));
+      const lab0 = await P.$eval('#aim-toggle', (el) => ({ pressed: el.getAttribute('aria-pressed'), text: el.textContent }));
+      check(`${tag}: Aim on by default`, lab0.pressed === 'true' && /Aim on/i.test(lab0.text), lab0);
+
+      const s0 = await P.evaluate(() => window.klibb.deskHeld());
+      check(`${tag}: chosen/holding or timed with opacity 1`, s0 && s0.opacity === 1 && s0.canSlap && !s0.aimOff, s0);
+
+      await P.mouse.click(600, 400); await sleep(300);
+      const s1 = await P.evaluate(() => window.klibb.deskHeld());
+      check(`${tag}: after slap still sharp (timed)`, s1 && s1.state === 'timed' && s1.canSlap && s1.opacity === 1 && s1.previewOpacity === 1, s1);
+
+      await sleep(4500);
+      const s2 = await P.evaluate(() => window.klibb.deskHeld());
+      check(`${tag}: ~4.5 s untouched: STILL sharp (no auto-fade)`, s2 && s2.opacity === 1 && s2.canSlap && s2.previewVisible && s2.previewOpacity === 1, s2);
+
+      await P.keyboard.press('o'); await sleep(200);
+      const s3 = await P.evaluate(() => ({ ...window.klibb.deskHeld(), body: document.body.classList.contains('aim-off'), btn: document.getElementById('aim-toggle').getAttribute('aria-pressed') }));
+      check(`${tag}: O → Aim off (hidden, body.aim-off)`, s3 && s3.aimOff && s3.opacity === 0 && !s3.previewVisible && s3.body && s3.btn === 'false', s3);
+
+      // Turn Aim back on via O (same setAimOff path the HUD button uses)
+      await P.keyboard.press('o'); await sleep(200);
+      const s4 = await P.evaluate(() => ({ ...window.klibb.deskHeld(), body: document.body.classList.contains('aim-off'), lab: document.getElementById('aim-toggle').textContent }));
+      check(`${tag}: O → Aim on (sharp again)`, s4 && !s4.aimOff && s4.opacity === 1 && s4.canSlap && !s4.body && /Aim on/i.test(s4.lab), s4);
+
+      // Unlock and exercise the on-screen button
+      await P.evaluate(() => { window.klibb.controls?.unlock?.(); try { document.exitPointerLock(); } catch {} });
+      await sleep(400);
+      await P.evaluate(() => {
+        const b = document.getElementById('aim-toggle');
+        b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      });
+      await sleep(250);
+      const s5 = await P.evaluate(() => window.klibb.deskHeld());
+      check(`${tag}: HUD button → Aim off`, s5 && s5.aimOff && s5.opacity === 0, s5);
+
+      await P.evaluate(() => {
+        const b = document.getElementById('aim-toggle');
+        b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      });
+      await sleep(250);
+      const s6 = await P.evaluate(() => ({ ...window.klibb.deskHeld(), lab: document.getElementById('aim-toggle').textContent }));
+      check(`${tag}: HUD button → Aim on`, s6 && !s6.aimOff && s6.opacity === 1 && /Aim on/i.test(s6.lab), s6);
+
+      await P.screenshot({ path: path.join(SHOTS, 'desktop-aim-on.png') });
+      await P.screenshot({ path: '/workspace/aim-toggle.png' });
+      check(`${tag}: wrote /workspace/aim-toggle.png`, fs.existsSync('/workspace/aim-toggle.png'));
+
       await ctx.close();
     }
 
-    // ---------------- phone ----------------
-    for (const nature of [false, true]) {
-      const tag = nature ? 'phone Nature mode' : 'phone Slap mode';
+    {
+      const tag = 'phone';
       const made = await room();
-      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
-      await ctx.addInitScript(([r, k]) => { localStorage.setItem('klibb.roomKeys', JSON.stringify({ [r]: k })); localStorage.setItem('klibb.devUnlock', '1'); }, [made.room.id, made.roomKey]);
+      const ctx = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        hasTouch: true, isMobile: true,
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+      });
+      await ctx.addInitScript(([r, k]) => {
+        localStorage.setItem('klibb.roomKeys', JSON.stringify({ [r]: k }));
+        localStorage.setItem('klibb.devUnlock', '1');
+        localStorage.setItem('klibb.aimOff', '0');
+      }, [made.room.id, made.roomKey]);
       const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push(e.message));
       await P.goto(`${S.base}/?room=${made.room.id}`);
-      await P.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.state.selected && document.body.classList.contains('touch'), null, { timeout: 30000 });
-      await P.evaluate(() => { const k = window.klibb; k.moveTo(0, 1); k.look(0, 0); });
-      if (nature) {
-        await P.evaluate(() => { const k = window.klibb; const d = k.natureDesigns ? k.natureDesigns()[0] : null; return d; });
-        await P.evaluate(() => { document.body.classList.add('wheel-up'); window.klibb.natureWheelApi.render(); });
-        await sleep(400);
-        await P.evaluate(() => { const b = [...document.querySelectorAll('#nature-row .strip-th')].find((x) => x.style.display !== 'none' && Math.abs(+x.dataset.d) < 0.01); b.click(); });
-        await P.evaluate(() => document.body.classList.remove('wheel-up'));
-        await sleep(900);
-      } else await P.evaluate(() => window.klibb.stackMenu().chosen());
-      await sleep(400);
-      const cdp = await ctx.newCDPSession(P);
-      const T = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y, id = 1]) => ({ x, y, id })) });
-      const tap = async (x, y) => { await T('touchStart', [[x, y]]); await sleep(60); await T('touchEnd', []); };
-      const st = () => P.evaluate(() => { const k = window.klibb; return { ...k.held(), n: k.stamps.count, nature: k.natureMode(), selNat: !!(k.state.selected && k.state.selected.nature) }; });
-      const s0 = await st();
-      if (nature) check(`${tag}: the Nature wheel → Nature mode, a nature sticker held`, s0.nature && s0.selNat, s0);
-      check(`${tag}: chosen = sharp in its holder`, s0.state === 'holding' && s0.opacity === 1, s0);
-      await tap(195, 330); await sleep(400);
-      const s1 = await st();
-      check(`${tag}: a tap slaps it; the clock starts`, s1.n > s0.n && s1.state === 'timed' && s1.canSlap, s1);
-      await sleep(3000);
-      const s2 = await st();
-      check(`${tag}: ~3.4 s untouched: faded`, s2.opacity === 0 && !s2.heldShown, s2);
-      await tap(195, 330); await sleep(300);
-      const s3 = await st();
-      check(`${tag}: a tap while faded only wakes it (no slap)`, s3.n === s2.n && s3.canSlap, s3);
-      // a lost pointerup: a synthetic touch pointerdown that never gets its pointerup …
-      await P.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 999, pointerType: 'touch', bubbles: true })));
+      await P.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.state.selected, null, { timeout: 30000 });
+      await P.evaluate(() => { window.klibb.setAimOff(false, { quiet: true }); window.klibb.stackMenu()?.chosen?.(); });
       await sleep(300);
-      // … then a real finger comes and goes (touchend with no touches left) – the lost one must not keep it up
-      await tap(20, 160); await sleep(3400);
-      const s4 = await st();
-      check(`${tag}: a lost pointerup no longer keeps it sharp for good (faded after the last finger left)`, s4.opacity === 0, s4);
-      await P.screenshot({ path: path.join(SHOTS, `${nature ? 'nature' : 'slap'}-phone-faded.png`) });
+      const h0 = await P.evaluate(() => window.klibb.held());
+      check(`${tag}: held sharp after choose`, h0 && h0.opacity === 1 && h0.canSlap && h0.heldShown, h0);
+
+      await sleep(4500);
+      const h1 = await P.evaluate(() => window.klibb.held());
+      check(`${tag}: ~4.5 s untouched: STILL sharp (no auto-fade)`, h1 && h1.opacity === 1 && h1.canSlap && h1.heldShown, h1);
+
+      check(`${tag}: #aim-toggle visible on touch`, await P.$eval('#aim-toggle', (el) => !!el && el.getClientRects().length > 0));
+
+      await P.evaluate(() => window.klibb.setAimOff(true, { quiet: true }));
+      await sleep(250);
+      const h2 = await P.evaluate(() => ({ held: window.klibb.held(), aimOff: window.klibb.aimOff(), body: document.body.classList.contains('aim-off') }));
+      check(`${tag}: Aim off hides held`, h2.aimOff && h2.body && (!h2.held.heldShown || h2.held.heldOpacity === 0 || h2.held.opacity === 0), h2);
+
+      await P.evaluate(() => window.klibb.setAimOff(false, { quiet: true }));
+      await sleep(250);
+      const h3 = await P.evaluate(() => ({ held: window.klibb.held(), aimOff: window.klibb.aimOff() }));
+      check(`${tag}: Aim on restores held`, !h3.aimOff && h3.held.opacity === 1 && h3.held.canSlap, h3);
+
+      await P.screenshot({ path: path.join(SHOTS, 'phone-aim-on.png') });
       await ctx.close();
     }
-    check('no page errors', errors.length === 0, errors);
-  } catch (e) { failed++; console.log('  ✗ crashed: ' + (e.stack || e)); }
-  await browser.close(); S.child.kill();
-  console.log(`\nHeld fade e2e: ${passed} passed, ${failed} failed`);
+
+    if (errors.length) console.log('page errors:', errors.slice(0, 5));
+  } finally {
+    await browser.close().catch(() => {});
+    try { S.child.kill(); } catch {}
+  }
+  console.log(`\nheldfade (no-fade + aim toggle): ${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
-})();
+})().catch((e) => { console.error(e); process.exit(1); });

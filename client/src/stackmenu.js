@@ -14,7 +14,8 @@
 //   it is, the middle of the screen) or drag it out and let go where it should go; or put a finger on
 //   the room: it aims the sticker there (the preview follows the finger) and letting go stamps it
 //   there (main.js, the touch input).
-// - There is no Slap/Look switch on touch: the timer (shared/heldtimer.mjs) decides.
+// - There is no Slap/Look switch on touch: the held sticker stays sharp until Aim is toggled off
+//   (O key / #aim-toggle; shared/heldtimer.mjs — no auto-fade, Jens 9 Nov 2026).
 import { createHeldTimer, HELD_VISIBLE_MS, HELD_FADE_MS } from '../../shared/heldtimer.mjs';
 
 const $ = (id) => document.getElementById(id);
@@ -117,7 +118,7 @@ export function initStackMenu(o) {
   let last = '';
   function render() {
     const t = now(), sel = state.selected;
-    const op = sel ? held.opacity(t) : 0;
+    const op = (sel && !body.classList.contains('aim-off')) ? held.opacity(t) : 0;
     const cm = Math.round(state.size * 200) / 2, rot = state.rotation;
     const key = [sel?.url, op.toFixed(3), cm, rot, open].join();
     if (key !== last) {
@@ -163,9 +164,11 @@ export function initStackMenu(o) {
     held, chosen,
     // a pinch started with a finger on the held sticker: that finger does not release it
     cancelRelease() { if (!rel) return; rel = null; hold.classList.remove('dragging'); hold.style.setProperty('--dx', '0px'); hold.style.setProperty('--dy', '0px'); },
-    // A tap on the 3D view: 'slap' (sharp – place it) or 'wake' (it was fading/faded – only bring it back).
-    tap() { return held.tap(now()); },
+    // A tap on the 3D view: 'slap' (sharp – place it) or 'wake' (aim was off / idle – only bring it back).
+    tap() { if (document.body.classList.contains('aim-off')) return 'wake'; return held.tap(now()); },
     placed() { held.placed(now()); },
+    hideAim() { held.hide(); },
+    showAim() { held.show(now()); },
     open: () => setOpen(true), close: closeMenu, isOpen: () => open, openBook, closeBook, bookOpen: () => !$('sticker-book').hidden,
     info() {
       const t = now(), vis = (id) => { const el = $(id); return !!el && el.getClientRects().length > 0 && Number(getComputedStyle(el).opacity) > 0.01; };
