@@ -243,7 +243,8 @@ body.avatar-view #scene:active { cursor: grabbing; }
 .chips button { padding: 5px 10px; font-size: 13px; border-radius: 14px; }
 .chips button.sel, .swatches.colors button.sel { border-color: #ffd400; }
 .chips button.sel { background: #ffd400; color: #111; font-weight: 700; }
-#av-hat-row[hidden] { display: none; }
+#av-hat-row, #av-hat-row[hidden],
+#av-hat-label, #av-hat-label[hidden] { display: none !important; }
 #av-face .face-same { width: auto; padding: 0 8px; border-radius: 13px; font-size: 11px; color: #111; text-shadow: 0 0 2px #fff; }
 #av-face input[type=color] { width: 30px; height: 26px; padding: 0; border: 2px solid #555; border-radius: 6px; background: none; cursor: pointer; }
 #av-face input[type=color].sel { border-color: #ffd400; }

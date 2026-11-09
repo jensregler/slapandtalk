@@ -57,7 +57,7 @@ const ARGS = ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-g
     check('…and the others see me sitting and drawing', seen && seen.seated && seen.sit && seen.sit.draw && seen.sit.chair === bs.id, seen);
     const chairP = (await A.evaluate(() => window.klibb.props.list())).find((p) => p.id === bs.id);
     check('…on that chair (the avatar is at the chair)', seen && chairP && Math.hypot(seen.pos[0] - chairP.x, seen.pos[2] - chairP.z) < 0.35, { seen, chairP });
-    check('…the cap sits on the seated (leaning) head (≈1.0–1.4 m up)', seen && seen.capWorld && seen.capWorld[1] > 1.0 && seen.capWorld[1] < 1.4 && Math.hypot(seen.capWorld[0] - seen.pos[0], seen.capWorld[2] - seen.pos[2]) < 0.45, seen && seen.capWorld);
+    check('…the cap stays off (kepsen never shown, even when seated)', seen && seen.capWorld == null, seen && { capWorld: seen.capWorld, pos: seen.pos });
     await A.evaluate(() => window.klibb.setView('first', { quiet: true }));
     await pose(A, 1.5, 1.6, 3.1, 0.62, -0.38); await sleep(2200);
     await shot(A, '01-room-table-someone-sitting-drawing.png');

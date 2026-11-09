@@ -212,7 +212,9 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     { const sk = $('av-skin'); if (sk) { sk.innerHTML = ''; sk.hidden = true; } }
     colors($('av-hatcolor'), AVATAR.colors.hat, d.hatColor, (c) => set({ hatColor: c }));
     faceColors($('av-face'), d, set);
-    $('av-hat').checked = false; $('av-hat-row').hidden = true; // Cap UI gone (Jens, 9 Nov 2026)
+    $('av-hat').checked = false; $('av-hat-row').hidden = true;
+    const hatLab = $('av-hat-label'); if (hatLab) { hatLab.hidden = true; hatLab.style.display = 'none'; }
+    // Cap UI gone everywhere (Jens, 9 Nov 2026)
     fab.render();
     self.avatar?.setLook(d); // live on my avatar in the room
     lockForRoomCharacter();
