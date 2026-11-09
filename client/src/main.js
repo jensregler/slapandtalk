@@ -461,9 +461,8 @@ function designs() { return DEMO ? state.library.filter((d) => !isNat(d)) : show
 // is the one the held sticker is from: clicking/tapping/turning a wheel (or picking from its list)
 // makes it active; R/F, the stack's swipes and the stack itself follow the active wheel.
 const isNat = (d) => !!d && d.library === true && isNature(d);
-// In the city: only what you brought – except in the build phase (CITY_BUILD_PHASE, until release, Jens t492u):
-// then the Nature wheel works in the city's outside and its houses too, so Jens can decorate the city.
-const natureOpen = () => FILM_STUDIO ? !DEMO : (!DEMO && (!IN_CITY || CITY_BUILD_PHASE) && !!entitlements.full.natureStickers);
+// City uses the same Nature wheel rules as the room (full sticker wheel restored).
+const natureOpen = () => FILM_STUDIO ? !DEMO : (!DEMO && !!entitlements.full.natureStickers);
 const keepSel = (l) => !!state.selected && (l.some((d) => d.id === state.selected.id) || (isNat(state.selected) && natureOpen())); // a nature sticker in hand stays in hand
 let natKey = '', natCache = [];
 function natureDesigns() {
@@ -479,8 +478,7 @@ let wheelKey = '', wheelCache = [];
 function wheelDesigns() { return activeWheel() === 'nature' ? natureDesigns() : stickerDesigns(); }
 function stickerDesigns() {
   if (DEMO) return designs();
-  if (IN_CITY && FILM_STUDIO) return studioCityDesigns();
-  if (IN_CITY) return cityDesigns();
+  // City uses the same full deck as the room (CREATE + full wheel restored; not just carried packs).
   return deckDesigns();
 }
 // Film studio in the city: the WHOLE non-nature library, chunked into switchable ~9-sticker wheels
@@ -1492,50 +1490,13 @@ function updateWheelLabel() {
     lab.textContent = '🌿 NATURE · ←/→';
     lab.hidden = false; return;
   }
-  if (IN_CITY && FILM_STUDIO) {
-    const groups = studioPackGroups();
-    const g = groups[((studioSlot % groups.length) + groups.length) % groups.length];
-    lab.textContent = `🎬 ${g.name} · ←/→ · J = jam`;
-    lab.hidden = false; return;
-  }
-  if (IN_CITY && !cityPaid) {
-    const groups = cityPackGroups();
-    if (groups.length > 1) {
-      const g = groups[((cityPackSlot % groups.length) + groups.length) % groups.length];
-      lab.textContent = `📦 ${g.name || 'pack'} · ${((cityPackSlot % groups.length) + groups.length) % groups.length + 1}/${groups.length} · ←/→`;
-      lab.hidden = false; return;
-    }
-  }
   lab.textContent = FILM_STUDIO ? '🎬 STICKERS · ←/→ · J = jam' : 'STICKERS · ←/→';
   lab.hidden = false;
 }
-/** While the wheel is lit: ←/→ switch pack (city) or top-level wheel (stickers/nature/packs). */
+/** While the wheel is lit: ←/→ cycles stickers / nature / packs (same in city and room). */
 function switchWheelSide(dir) {
   wheelUp();
-  if (IN_CITY && FILM_STUDIO && !packsMode() && activeWheel() !== 'nature') {
-    const groups = studioPackGroups();
-    if (groups.length > 1) {
-      studioSlot = ((studioSlot + dir) % groups.length + groups.length) % groups.length;
-      studioKey = '';
-      const list = stickerDesigns();
-      select(list[0] || null);
-      renderStrip();
-      updateWheelLabel();
-      return 'studio-pack';
-    }
-  }
-  if (IN_CITY && !FILM_STUDIO && !cityPaid && !packsMode() && activeWheel() !== 'nature') {
-    const groups = cityPackGroups();
-    if (groups.length > 1) {
-      cityPackSlot = ((cityPackSlot + dir) % groups.length + groups.length) % groups.length;
-      cityKey = '';
-      const list = stickerDesigns();
-      select(list.find((d) => d.id !== PACK_DESIGN_ID) || list[0] || null);
-      renderStrip();
-      updateWheelLabel();
-      return 'pack';
-    }
-  }
+  // City matches the room: ←/→ cycles stickers / nature / packs (no reduced pack-slot wheels).
   const kinds = ['stickers'];
   if (natureOpen() && natureDesigns().length) kinds.push('nature');
   kinds.push('packs');
@@ -2835,7 +2796,7 @@ async function openCityDoor(p) {
 }
 function openHall() {
   controls.unlock?.(); closeChoice();
-  openTownHall({ toast, onChange: cityWheelChanged, makePack: () => toast(S.cityCreateRoomOnly || 'Make stickers and packs in your room – not in the city.', 3200), deck: () => deckDesigns(), onDeck: () => { wheelKey = ''; } });
+  openTownHall({ toast, onChange: cityWheelChanged, makePack: () => openDoorPick(doorOpts()), deck: () => deckDesigns(), onDeck: () => { wheelKey = ''; } });
   syncPaid();
 }
 // City-bus TEST bots when ?testbus=1. Lazy server seed (no CITYBUS_TEST env needed on Render).
@@ -2869,10 +2830,8 @@ if (TESTBUS && CITY_OUTSIDE && isTestBusCity(ROOM)) {
 function syncPaid() { const t = setInterval(() => { const h = townHallState(); if (h.maxPacks != null) { clearInterval(t); if (cityPaid !== !!h.paid) { cityPaid = !!h.paid; cityWheelChanged(); } } }, 300); setTimeout(() => clearInterval(t), 15000); }
 // My pack on the city wheel: no pack yet → make one (the door's "choose 3"); else the Town Hall.
 function cityPackAction() {
-  // Create/design packs only in the room – never open the pac makeover from the city.
-  if (!localStorage.getItem('klibb.pac')) { toast(S.cityCreateRoomOnly || 'Make stickers and packs in your room – not in the city.', 3200); return; }
-  // Pac makeover: the pack on the city wheel is a persistent button – sticking / tapping it
-  // goes straight to the Town Hall pack shop (no extra "go into Town Hall" choice).
+  if (!localStorage.getItem('klibb.pac')) { openDoorPick(doorOpts()); return; }
+  // Pac makeover: the pack bag (when present) opens the Town Hall pack shop.
   if (CITY_OUTSIDE) { walkToHall(); return; }
   openChoice('city-pack', [{ id: 'to-city', text: S.cityBackToCity, go: () => { goRoom(THIS_CITY, '&at=' + ROOM); } }, { id: 'back', text: S.choiceBack }]);
 }
@@ -2979,8 +2938,8 @@ function tickCityDoors() {
   if (id && id !== atDoor && $('menu-choice').hidden && !townHallOpen() && !doorOpen() && !nameTagOpen() && !cityPickOpen()) openCityDoor(p.hall ? { hall: true } : p);
   atDoor = id;
 }
-// In a city with no pack: remind them to prepare in the room (CREATE is room-only).
-if (IN_CITY) carryReady.then(() => setTimeout(() => { if (!localStorage.getItem('klibb.pac') && !doorOpen()) toast(S.cityCreateRoomOnly || S.cityNoPack, 3500); }, 1200));
+// In a city with no pack: remind them — CREATE / STICKER PACK is available in the city again.
+if (IN_CITY) carryReady.then(() => setTimeout(() => { if (!localStorage.getItem('klibb.pac') && !doorOpen()) toast(S.cityNoPack, 3500); }, 1200));
 function exitChoices() {
   const out = [];
   if (IN_CITY && !CITY_OUTSIDE) out.push({ id: 'to-city', text: S.cityBackToCity, go: () => { goRoom(THIS_CITY, '&at=' + ROOM); } });
@@ -2994,16 +2953,15 @@ const menuActions = {
   room: () => openRoomPanel(),
   exit: () => openChoice('exit', exitChoices()),
   // Former Esc NAME button → still reachable as CREATE → STICKERS (and menuAction('nametag')).
-  // CREATE / sticker editor / pack design: room only (never in the city).
-  nametag: () => { if (IN_CITY) { toast(S.cityCreateRoomOnly, 3200); return; } openNameTag(); },
-  // STICKER PACK hook: pac makeover flow (door.js). Change this one line to retarget.
-  stickerPack: () => { if (IN_CITY) { toast(S.cityCreateRoomOnly, 3200); return; } openDoorPick(doorOpts()); },
-  door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => { if (IN_CITY) { toast(S.cityCreateRoomOnly, 3200); return; } openDoorPick(doorOpts()); } }, { id: 'back', text: S.doorBackToRoom }]),
+  nametag: () => openNameTag(),
+  // STICKER PACK hook: pac makeover flow (door.js). Available in the city again.
+  stickerPack: () => openDoorPick(doorOpts()),
+  door: () => openChoice('door', [{ id: 'enter-city', text: S.doorEnterCity, go: () => openDoorPick(doorOpts()) }, { id: 'back', text: S.doorBackToRoom }]),
 };
 // Esc / touch big-button menu (replaces menu stickers).
 escMenu = initEscMenu({
   isTouch,
-  hideCreate: IN_CITY, // CREATE / STICKERS / STICKER PACK only in the room
+  // CREATE / STICKERS / STICKER PACK available in the city again (same as the room).
   onSound: () => menuActions.radio(),
   onAvatar: () => menuActions.character(),
   onRoom: () => menuActions.room(),
@@ -3034,7 +2992,6 @@ escMenu.setJoinLabels({ loading: S.escCityLoading, none: S.escCityNone, failed: 
 const SWAP_KEY = 'klibb.swaps';
 function readSwaps() { try { const o = JSON.parse(localStorage.getItem(SWAP_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; } catch { return {}; } }
 function openNameTag() {
-  if (IN_CITY) { toast(S.cityCreateRoomOnly, 3200); return; }
   closeMore(); closeRoomMenu(); controls.unlock?.();
   // a free chair close by (3D props): I sit down at the table and draw – the others see it
   propsUi.sitToDraw();

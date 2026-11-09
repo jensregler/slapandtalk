@@ -182,15 +182,17 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const pac = await P.evaluate(() => { const p = JSON.parse(localStorage.getItem('klibb.pac')); return { name: p.name, n: p.stickers.length, bag: p.bag, img: (p.img || '').slice(0, 15) }; });
     const city = await P.evaluate(() => window.klibb.city());
     check('…pac kept (name, 3 stickers, bag 4, picture)', pac.name === 'Malmö pac' && pac.n === 3 && pac.bag === 4 && pac.img.startsWith('data:image/'), { city, pac });
-    const wheelHasPack = await P.evaluate(() => window.klibb.city().wheel.includes('city-pack'));
-    check('…pac sits on the city sticker wheel', wheelHasPack);
+    const wheelInfo = await P.evaluate(() => {
+      const w = window.klibb.city().wheel;
+      const deck = window.klibb.deck();
+      return { n: w.length, deckN: deck.length, hasCityPack: w.includes('city-pack'), sameAsDeck: JSON.stringify(w) === JSON.stringify(deck) };
+    });
+    check('…city sticker wheel is the full deck (pac kept; no reduced city-pack wheel)', wheelInfo.n > 20 && wheelInfo.sameAsDeck && !wheelInfo.hasCityPack, wheelInfo);
     await P.screenshot({ path: path.join(PAC_SHOTS, 'new-07-city-wheel.png') });
     await P.screenshot({ path: path.join(SHOTS, '34-door-to-city.png') });
 
-    await P.evaluate(() => { const pack = window.klibb.stickerDesigns().find((d) => d.id === 'city-pack'); if (pack) window.klibb.selectDesign(pack); });
-    await sleep(200);
-    await P.evaluate(() => window.klibb.stampAt(0, 0.1)); await sleep(800);
-    check('…tapping the pack opens the Town Hall shop', await P.evaluate(() => !!window.klibb.city().hall.open));
+    await P.evaluate(() => window.klibb.openHall()); await sleep(800);
+    check('…Town Hall shop opens from the city', await P.evaluate(() => !!window.klibb.city().hall.open));
     await P.screenshot({ path: path.join(PAC_SHOTS, 'new-08-shop.png') });
 
     // ---- Skip paths in a fresh room ----

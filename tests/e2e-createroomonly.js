@@ -1,5 +1,5 @@
-// CREATE / sticker editor / pack design: room only (never in the city).
-// Also: packs wheel shows all carried packs (≤3) after opening PACKS mode.
+// CREATE + full sticker wheel available in the city (same as the room).
+// Also: packs wheel still shows all carried packs (≤3) after opening PACKS mode.
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
@@ -29,9 +29,11 @@ const pac = (n) => ({
   try {
     const made = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preset: false }) })).json();
     const R = made.room.id;
-    const city = await (await fetch(`${S.base}/api/cities`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'CreateRoomOnly' }) })).json();
+    const city = await (await fetch(`${S.base}/api/cities`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'CreateInCity' }) })).json();
     const CID = city.city.id;
     const packs = [pac(1), pac(2), pac(3)];
+    const lib = (await (await fetch(`${S.base}/api/library`)).json()).stickers || [];
+    const libIds = lib.filter((d) => d && d.url && !d.nature).map((d) => d.id);
 
     // ---- Room: ESC has CREATE ----
     {
@@ -71,7 +73,7 @@ const pac = (n) => ({
       await ctx.close();
     }
 
-    // ---- City: ESC has no CREATE; door/nametag blocked; packs ≤3 still show ----
+    // ---- City: ESC has CREATE; editors open; full sticker wheel ----
     {
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
       await ctx.addInitScript(([r, k, packs]) => {
@@ -90,21 +92,45 @@ const pac = (n) => ({
       await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); });
       await sleep(500);
       const info = await P.evaluate(() => window.klibb.escMenu().info());
-      check('city ESC menu has no CREATE', info.open && info.hideCreate && !info.buttons.includes('create'), info);
-      await P.screenshot({ path: path.join(SHOTS, 'city-esc-no-create.png') });
+      check('city ESC menu includes CREATE', info.open && !info.hideCreate && info.buttons.includes('create'), info);
+      await P.screenshot({ path: path.join(SHOTS, 'city-esc-with-create.png') });
+      // Also write the delegated screenshot path
+      await P.screenshot({ path: '/workspace/city-create.png' });
       await P.evaluate(() => window.klibb.escMenu().close());
 
-      // menuAction stickerPack / nametag blocked
-      const blocked = await P.evaluate(() => {
-        window.klibb.menuAction('stickerPack');
-        const doorAfter = window.klibb.door().open;
-        window.klibb.menuAction('nametag');
-        const ntAfter = window.klibb.nameTag().open;
-        window.klibb.openNameTag();
-        const ntDirect = window.klibb.nameTag().open;
-        return { doorAfter, ntAfter, ntDirect };
+      // CREATE → STICKERS / STICKER PACK open the editors
+      await P.evaluate(() => window.klibb.menuAction('nametag'));
+      await sleep(400);
+      const ntOpen = await P.evaluate(() => window.klibb.nameTag().open);
+      check('city: CREATE → STICKERS opens nametag editor', !!ntOpen, { ntOpen });
+      await P.click('#nt-exit');
+      await sleep(300);
+      await P.evaluate(() => window.klibb.menuAction('stickerPack'));
+      await sleep(400);
+      const doorOpen = await P.evaluate(() => window.klibb.door().open);
+      check('city: CREATE → STICKER PACK opens pack maker', !!doorOpen, { doorOpen });
+      await P.click('#df-cancel');
+      await sleep(300);
+
+      // Full sticker wheel = deck (library), not just 3 carried pack stickers
+      const wheel = await P.evaluate(() => {
+        const ids = window.klibb.stickerDesigns().map((d) => d.id);
+        const deck = window.klibb.deck();
+        return { n: ids.length, deckN: deck.length, hasCityPack: ids.includes('city-pack'), sample: ids.slice(0, 8), sameAsDeck: JSON.stringify(ids) === JSON.stringify(deck) };
       });
-      check('city: stickerPack / nametag / openNameTag do not open editors', !blocked.doorAfter && !blocked.ntAfter && !blocked.ntDirect, blocked);
+      check('city sticker wheel is the full deck (not reduced carried packs)', wheel.n > 20 && wheel.sameAsDeck && !wheel.hasCityPack && wheel.n === wheel.deckN, wheel);
+
+      // Nature open when entitled (devUnlock / OPEN_ACCESS)
+      const nat = await P.evaluate(() => ({ open: window.klibb.natureOpen(), n: window.klibb.natureDesigns().length, strip: window.klibb.natureStrip() }));
+      check('city Nature wheel open like the room (miljöklibbor available)', nat.open && nat.n > 0 && nat.strip.shown, nat);
+
+      // Light the sticker wheel and screenshot full strip
+      await P.evaluate(() => { window.klibb.wheelUp(); window.klibb.setMode?.('slap', { quiet: true }); });
+      await sleep(400);
+      const strip = await P.evaluate(() => window.klibb.strip());
+      check('city sticker strip lit with full library count', strip.lit && strip.n > 20, strip);
+      await P.screenshot({ path: path.join(SHOTS, 'city-full-wheel.png') });
+      await P.screenshot({ path: '/workspace/city-full-wheel.png' });
 
       // Packs wheel still shows the 3 carried packs
       await P.click('#mode-packs');
@@ -123,7 +149,7 @@ const pac = (n) => ({
       await ctx.close();
     }
 
-    // ---- City without pac: door stays closed ----
+    // ---- City without pac: door does not auto-open (CREATE is there; no forced modal)
     {
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
       await ctx.addInitScript(() => { localStorage.setItem('klibb.devUnlock', '1'); });
@@ -132,6 +158,10 @@ const pac = (n) => ({
       await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 });
       await sleep(2500);
       check('city with no pac: door does not auto-open', !(await P.evaluate(() => window.klibb.door())).open);
+      await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); });
+      await sleep(400);
+      const info = await P.evaluate(() => window.klibb.escMenu().info());
+      check('city with no pac: CREATE still reachable', info.open && info.buttons.includes('create'), info);
       await ctx.close();
     }
   } finally {

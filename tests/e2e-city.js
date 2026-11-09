@@ -99,8 +99,8 @@ const EXIT = 'a03b0ba5768979e6';
     const CID = await P.evaluate(() => window.klibb.room);
     let c = await P.evaluate(() => window.klibb.city());
     check('a city needs a name; started → you walk into it (stad-<code>), its name in the HUD', /name/i.test(need) && c.outside && c.id === CID && c.info && c.info.name === 'Slapville' && (await P.textContent('#room-hud')) === 'Slapville', { need, c: { id: c.id, info: c.info } });
-    // Exit left the city wheel (Esc EXIT replaces it; fe08292). Wheel = my 3 stickers + pack.
-    check('the reduced wheel: my 3 stickers + my pack (exit is Esc EXIT now)', c.wheel.length === 4 && picked.every((id) => c.wheel.includes(id)) && !c.wheel.includes(EXIT) && c.wheel.includes('city-pack'), c.wheel);
+    // Full sticker wheel in the city (same deck as the room); exit is Esc EXIT.
+    check('city uses the full sticker deck (not reduced carried packs)', c.wheel.length > 20 && picked.every((id) => c.wheel.includes(id)) && !c.wheel.includes(EXIT) && !c.wheel.includes('city-pack'), c.wheel.slice(0, 12));
     check('houses start in order: no house yet – door 1 is the next one (yellow), the rest not yet (grey)', JSON.stringify(c.doorStates.filter((d) => d[0] !== 'hall')) === JSON.stringify([[1, 'next'], [2, 'later'], [3, 'later'], [4, 'later'], [5, 'later'], [6, 'later'], [7, 'later'], [8, 'later']]), c.doorStates);
     const pose = (Q, x, y, z, yaw, pitch) => Q.evaluate(([x, y, z, yaw, pitch]) => { const k = window.klibb; k.controls.ground = null; k.controls.collide = null; k.camera.position.set(x, y, z); k.controls.yaw = yaw; k.controls.pitch = pitch; k.controls.apply(); }, [x, y, z, yaw, pitch]);
     await P.evaluate(() => window.klibb.setView('first', { quiet: true }));
@@ -138,7 +138,7 @@ const EXIT = 'a03b0ba5768979e6';
     c = await P.evaluate(() => window.klibb.city());
     const third = await P.evaluate((id) => { const b = document.querySelector(`.th-pack[data-id="${id}"] .th-take`); return { disabled: b.disabled, text: b.textContent }; }, others[2].pack.id);
     const carry = await P.textContent('#th-carry');
-    check('free: take 2 → I carry 3 packs, 9 stickers (+ pack); 3rd take asks Replace this?', c.taken.length === 2 && c.wheel.length === 10 && !third.disabled && /Replace a pack/i.test(third.text) && /3 of 3/.test(carry), { taken: c.taken, w: c.wheel.length, third, carry });
+    check('free: take 2 → I carry 3 packs; 3rd take asks Replace this? (sticker wheel stays the full deck)', c.taken.length === 2 && c.wheel.length > 20 && !third.disabled && /Replace a pack/i.test(third.text) && /3 of 3/.test(carry), { taken: c.taken, w: c.wheel.length, third, carry });
     await shot(P, '07-shop-carrying-3-packs.png');
     // Replace flow: lift a carried pack → Replace this? yes → take the new one
     await P.click(`.th-pack[data-id="${others[2].pack.id}"] .th-take`); await sleep(500);
@@ -171,7 +171,7 @@ const EXIT = 'a03b0ba5768979e6';
     await ready(P); await sleep(2500);
     c = await P.evaluate(() => window.klibb.city());
     const h1 = (await (await fetch(`${S.base}/api/rooms/${CID}-1`)).json()).room;
-    check('house 1 is a new empty room (type stad, no preset), same reduced wheel, HUD "Slapville · house 1"', h1.type === 'stad' && !h1.preset && c.inCity && !c.outside && c.house === 1 && c.wheel.length === 10 && (await P.textContent('#room-hud')) === 'Slapville · house 1', { h1: h1.type, c: { house: c.house, w: c.wheel.length } });
+    check('house 1 is a new empty room (type stad, no preset), full sticker deck, HUD "Slapville · house 1"', h1.type === 'stad' && !h1.preset && c.inCity && !c.outside && c.house === 1 && c.wheel.length > 20 && (await P.textContent('#room-hud')) === 'Slapville · house 1', { h1: h1.type, c: { house: c.house, w: c.wheel.length } });
     await P.evaluate(() => window.klibb.menuAction('exit')); await sleep(300);
     const ex2 = await ids(P, '#menu-choice-list button');
     check('…its exit menu: Back to the City, Exit to menu (no "back to my room")', JSON.stringify(ex2) === JSON.stringify(['to-city', 'exit-menu', 'back']), ex2);
@@ -186,7 +186,7 @@ const EXIT = 'a03b0ba5768979e6';
     await B.goto(`${S.base}/?room=${CID}-1`);
     await ready(B); await sleep(3000);
     await shot(B, '09-join-list-with-city-name.png');
-    check('joining a city without a pack: pack maker stays closed (CREATE is room-only)', !(await B.evaluate(() => window.klibb.door())).open);
+    check('joining a city without a pack: pack maker stays closed (use CREATE; no auto-modal)', !(await B.evaluate(() => window.klibb.door())).open);
 
     // A: back to the city → in front of house 1; door 1 started, door 2 next
     await Promise.all([P.waitForURL(new RegExp(`room=${CID}&at=${CID}-1`), { timeout: 20000 }), P.evaluate(() => { window.klibb.menuAction('exit'); document.querySelector('#menu-choice-list [data-id="to-city"]').click(); })]);

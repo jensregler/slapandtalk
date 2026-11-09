@@ -34,7 +34,7 @@ const ARGS = ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-g
     const ctx = await newCtx();
     let P = await open(ctx, 'stad-byggen');
     let n = await natState(P);
-    check('build city outside: the Nature wheel is shown and open (two wheels), the city wheel unchanged (pack 3 + exit + pack)', n.open && n.strip.shown && !n.strip.locked && n.strip.n > 0 && n.two && n.build && n.city.length === 5, n);
+    check('build city outside: the Nature wheel is shown and open (two wheels), sticker wheel is the full deck', n.open && n.strip.shown && !n.strip.locked && n.strip.n > 0 && n.two && n.build && n.city.length > 20, n);
     await P.evaluate(() => window.klibb.setView('first', { quiet: true }));
     // the desktop starts in Look mode: V = back to Slap mode, V again = Nature mode
     for (let i = 0; i < 2 && (await P.evaluate(() => window.klibb.activeWheel())) !== 'nature'; i++) { await P.keyboard.press('v'); await sleep(500); }

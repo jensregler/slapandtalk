@@ -11,7 +11,7 @@ export function initEscMenu({
   onClose = () => {},
   closeTop = () => false,
   isTouch = false,
-  hideCreate = false, // city: no CREATE / STICKERS / STICKER PACK (room-only design)
+  hideCreate = false, // optional: hide CREATE / STICKERS / STICKER PACK (unused; city has CREATE again)
 } = {}) {
   const root = $('esc-menu');
   const scrim = $('esc-scrim');
@@ -79,7 +79,7 @@ export function initEscMenu({
     if (!open) setView('main');
     if (open) {
       setView('main');
-      // Room-only: hide CREATE (+ submenu) in the city.
+      // hideCreate can still suppress CREATE (tests / special modes).
       const createBtn = root.querySelector('[data-esc="create"]');
       if (createBtn) createBtn.hidden = !!hideCreate;
       void root.offsetWidth;
