@@ -1218,9 +1218,9 @@ body.touch #props-panel { right: 8px; left: 8px; width: auto; top: 8px; transfor
 body.touch #sound-panel { width: auto; font-size: 17px; }
 
 /* City place effect: where am I, sound-wise (big + plain, Jens) */
-#place-chip { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 30; pointer-events: none;
+#place-chip { position: fixed; left: 12px; top: 12px; right: auto; transform: none; z-index: 30; pointer-events: none;
   font: 700 20px/1.2 system-ui, sans-serif; color: #fff; background: rgba(20, 24, 32, 0.78); border: 2px solid #ffd98a;
-  border-radius: 14px; padding: 8px 16px; }
+  border-radius: 14px; padding: 8px 16px; max-width: min(42vw, 280px); }
 
 /* Voice effect (More → Sound) */
 .voice-fx { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; font-size: 16px; }
