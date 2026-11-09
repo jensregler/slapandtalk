@@ -320,14 +320,14 @@ export function initProps(o) {
       const f = (p) => ({ ...p, sx: p.sx * k, sy: p.sy * k, sz: p.sz * k });
       if (sel) return change(f);
       if (moving) Object.assign(moving, f(moving)); else Object.assign(held, f(held));
-      for (const t of [held, moving]) if (t) { t.sx = clampSide(t.sx, BOX_LIMITS.maxSide); t.sy = clampSide(t.sy, BOX_LIMITS.maxHeight); t.sz = clampSide(t.sz, BOX_LIMITS.maxSide); }
+      for (const t of [held, moving]) if (t) { t.sx = clampSide(t.sx); t.sy = clampSide(t.sy); t.sz = clampSide(t.sz); }
       return;
     }
-    const cl = (s) => Math.min(PROP_SCALE.max, Math.max(PROP_SCALE.min, r3(s)));
+    const cl = (s) => { const n = r3(s); return Number.isFinite(n) ? Math.max(PROP_SCALE.min, n) : PROP_SCALE.min; };
     if (sel) return change((p) => ({ ...p, s: cl((p.s || 1) * k) }));
     if (moving) moving.s = cl((moving.s || 1) * k); else held.s = cl(held.s * k);
   }
-  const clampSide = (v, max) => Math.min(max, Math.max(BOX_LIMITS.min, r3(v)));
+  const clampSide = (v) => { const n = r3(v); return Number.isFinite(n) ? Math.max(BOX_LIMITS.min, n) : BOX_LIMITS.min; };
   async function removeSelected() {
     const p = selected(); if (!p) return;
     remove(p.id);
@@ -349,9 +349,9 @@ export function initProps(o) {
     panel.innerHTML = `
       <div class="pp-head"><b id="pp-title"></b><button type="button" id="pp-done" class="pp-x" aria-label="Done">✕</button></div>
       <div class="pp-row"><span class="pp-lab">Turn</span><button type="button" id="pp-left">⟲</button><span id="pp-turn" class="pp-out"></span><button type="button" id="pp-right">⟳</button></div>
-      <div class="pp-row" id="pp-scale-row"><span class="pp-lab">Size</span><button type="button" id="pp-smaller">−</button><input type="range" id="pp-scale" min="${PROP_SCALE.min}" max="${PROP_SCALE.max}" step="0.05"><button type="button" id="pp-bigger">+</button><span id="pp-scale-out" class="pp-out"></span></div>
+      <div class="pp-row" id="pp-scale-row"><span class="pp-lab">Size</span><button type="button" id="pp-smaller">−</button><input type="range" id="pp-scale" min="${PROP_SCALE.min}" max="${PROP_SCALE.uiMax}" step="0.05"><button type="button" id="pp-bigger">+</button><span id="pp-scale-out" class="pp-out"></span></div>
       <div id="pp-box">
-        ${[['sx', 'Width', BOX_LIMITS.maxSide], ['sy', 'Height', BOX_LIMITS.maxHeight], ['sz', 'Depth', BOX_LIMITS.maxSide]].map(([a, l, max]) => `<div class="pp-row"><span class="pp-lab">${l}</span><input type="range" id="pp-${a}" min="${BOX_LIMITS.min}" max="${max}" step="0.05"><input type="number" id="pp-${a}n" min="${BOX_LIMITS.min}" max="${max}" step="0.1"><span class="pp-unit">m</span></div>`).join('')}
+        ${[['sx', 'Width', BOX_LIMITS.uiMaxSide], ['sy', 'Height', BOX_LIMITS.uiMaxHeight], ['sz', 'Depth', BOX_LIMITS.uiMaxSide]].map(([a, l, max]) => `<div class="pp-row"><span class="pp-lab">${l}</span><input type="range" id="pp-${a}" min="${BOX_LIMITS.min}" max="${max}" step="0.05"><input type="number" id="pp-${a}n" min="${BOX_LIMITS.min}" max="${max}" step="0.1"><span class="pp-unit">m</span></div>`).join('')}
         <div class="pp-row pp-colours" id="pp-colours">${BOX_COLOURS.map((c) => `<button type="button" data-c="${c}" style="background:${c}" aria-label="${c}"></button>`).join('')}</div>
       </div>
       <div class="pp-row pp-actions"><button type="button" id="pp-move">✋ Move</button><button type="button" id="pp-copy">⧉ Copy</button><button type="button" id="pp-del">🗑 Delete</button></div>

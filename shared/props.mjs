@@ -13,9 +13,10 @@
 // wheel – not part of the final game), for admin and the full version (canEditProps below).
 import ROOM from './room.json' with { type: 'json' };
 
-export const PROP_SCALE = Object.freeze({ min: 0.25, max: 4 });
-// The cuboid: 10 cm up to a plot (32 m) wide/deep and the city's height (24 m) high.
-export const BOX_LIMITS = Object.freeze({ min: 0.1, maxSide: 32, maxHeight: 24 });
+// Jens Nov 2026: no upper scale limit (max = Infinity). UI sliders use *UiMax so <input type=range> works.
+export const PROP_SCALE = Object.freeze({ min: 0.25, max: Infinity, uiMax: 100 });
+// The cuboid: min 10 cm; no upper side/height cap (ui* for range inputs only).
+export const BOX_LIMITS = Object.freeze({ min: 0.1, maxSide: Infinity, maxHeight: Infinity, uiMaxSide: 100, uiMaxHeight: 100 });
 // A handful of toon colours for the cuboid (Jens: "en enkel färgväljare").
 export const BOX_COLOURS = Object.freeze(['#f4efe6', '#c9c2b6', '#6b6f73', '#2b2b2e', '#d8452f', '#f2a33a', '#ffd23f', '#5fae4e', '#2f7d4f', '#3f7fd0', '#7a4fc9', '#b07a4a']);
 export const MAX_PROPS = 400; // per room / city outside (iPhone: every prop is a few draw calls)
@@ -85,12 +86,13 @@ export function cleanProp(p, bounds = ROOM) {
   let a = yaw % (Math.PI * 2); if (a < 0) a += Math.PI * 2;
   const out = { id: p.id, kind: p.kind, x: r3(clamp(x, -hw, hw)), y: r3(clamp(y, 0, bounds.height)), z: r3(clamp(z, -hd, hd)), yaw: r3(a) };
   if (PROP_KINDS[p.kind].box) {
-    const side = (v, max, def) => { const n = num(v); return r3(clamp(Number.isNaN(n) ? def : n, BOX_LIMITS.min, max)); };
-    out.sx = side(p.sx, BOX_LIMITS.maxSide, 1); out.sy = side(p.sy, BOX_LIMITS.maxHeight, 1); out.sz = side(p.sz, BOX_LIMITS.maxSide, 1);
+    // Min only; NaN/±Infinity → default. No upper cap (Jens Nov 2026).
+    const side = (v, def) => { const n = num(v); const x = Number.isFinite(n) ? n : def; return r3(Math.max(BOX_LIMITS.min, x)); };
+    out.sx = side(p.sx, 1); out.sy = side(p.sy, 1); out.sz = side(p.sz, 1);
     out.color = typeof p.color === 'string' && BOX_COLOURS.includes(p.color.toLowerCase()) ? p.color.toLowerCase() : BOX_COLOURS[0];
   } else {
     const s = num(p.s ?? 1);
-    out.s = r3(clamp(Number.isNaN(s) ? 1 : s, PROP_SCALE.min, PROP_SCALE.max));
+    out.s = r3(Number.isFinite(s) ? Math.max(PROP_SCALE.min, s) : 1);
   }
   return out;
 }

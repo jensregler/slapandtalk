@@ -787,15 +787,13 @@ async function validateDesigns() {
   await handleMissing(missing);
 }
 
-// Storleken = klibbans längsta sida (shared/nature.mjs STICKER_LIMITS; Jens, 2 Nov 2026, t475u): the full
-// version 10 cm – 1.5 m (was 5 cm – no limit), the free version 15 cm – 1 m. Nature stickers
-// (curated library, name starts with "nature"): NATURE.minCm (10 cm) up to NATURE.maxHeightCm (the
-// room's height, 8 m) HIGH in every version.
+// Storleken = klibbans längsta sida (shared/nature.mjs STICKER_LIMITS). Jens Nov 2026: no upper cap
+// (maxCm = Infinity); keep mins. The size slider needs a finite end → SLIDER_UI_CM (100 m).
 const FREE_MAX_CM = STICKER_LIMITS.free.maxCm;
 const FREE_MIN_CM = STICKER_LIMITS.free.minCm;
 const FULL_MIN_CM = STICKER_LIMITS.full.minCm;
 const FULL_MAX_CM = STICKER_LIMITS.full.maxCm;
-const SLIDER_FULL_CM = FULL_MAX_CM; // (the slider's end if a limit is ever Infinity again)
+const SLIDER_UI_CM = 10000; // range-input end when maxCm is Infinity (100 m)
 const versionLimits = () => (entitlements.full.bigStickers ? { minCm: FULL_MIN_CM, maxCm: FULL_MAX_CM } : { minCm: FREE_MIN_CM, maxCm: FREE_MAX_CM });
 // (nature stickers: up to the space's height – 24 m in the city's outside, t482u)
 const limitsFor = (img = state.selected) => (img && img.library === true ? sizeLimitsCm(img, versionLimits(), { maxHeightCm: natureMaxHeightCmIn(ROOM) }) : versionLimits());
@@ -809,9 +807,10 @@ const showSize = () => {
   $('size-val').textContent = `${cm.toLocaleString(LOCALE)} cm`;
 };
 function applySizeLimit() {
-  $('size').max = String(Number.isFinite(maxSizeCm()) ? maxSizeCm() : SLIDER_FULL_CM);
+  const max = maxSizeCm();
+  $('size').max = String(Number.isFinite(max) ? max : SLIDER_UI_CM);
   $('size').min = String(minSizeCm());
-  if (state.size * 100 > maxSizeCm()) state.size = maxSizeCm() / 100;
+  if (Number.isFinite(max) && state.size * 100 > max) state.size = max / 100;
   if (state.size * 100 < minSizeCm()) state.size = minSizeCm() / 100;
   showSize();
 }
@@ -835,13 +834,16 @@ $('artist-link').oninput = (e) => {
 };
 let maxToastAt = 0;
 function setSize(cm) {
-  if (!Number.isFinite(cm)) return; // sanity guard only (NaN / endless wheel), not a size limit
+  if (!Number.isFinite(cm)) return; // sanity guard (NaN / Infinity), not a product size limit
   const want = Math.round(cm * 2) / 2; // 0.5 cm steps (the letter sizes are 2.5 cm apart)
   const max = maxSizeCm();
-  cm = Math.min(Math.max(want, minSizeCm()), max); // free 15 cm – 1 m, full 10 cm – 1.5 m, nature 10 cm – 8 m high
-  if (want > max && performance.now() - maxToastAt > 1500) {
-    maxToastAt = performance.now();
-    toast(S.maxSize((max / 100).toLocaleString(LOCALE)), 1500);
+  cm = Math.max(want, minSizeCm()); // no upper cap when maxCm is Infinity (Jens Nov 2026)
+  if (Number.isFinite(max)) {
+    cm = Math.min(cm, max);
+    if (want > max && performance.now() - maxToastAt > 1500) {
+      maxToastAt = performance.now();
+      toast(S.maxSize((max / 100).toLocaleString(LOCALE)), 1500);
+    }
   }
   state.size = cm / 100; showSize();
   stackMenu?.held.keepAlive(performance.now()); // touch: resizing = working with it (no fade)
@@ -986,7 +988,7 @@ async function slapAt(ndc, info, onStart, auto = null) {
   const h = hitSurface(ndc); if (!h) return null;
   if (auto && auto.check && !auto.check(h)) return null;
   const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
-  const slapSize = Math.max(Math.min(state.size, maxSizeCm() / 100), minSizeCm() / 100);
+  const slapSize = (() => { const max = maxSizeCm() / 100, min = minSizeCm() / 100; let s = state.size; if (Number.isFinite(max)) s = Math.min(s, max); return Math.max(s, min); })();
   // På golvet: ligger den nya klibban mest på baksidespapper fastnar den inte (servern kollar samma sak).
   if (peelLayer.on && peelLayer.count && onFloor(h.surface, h.normal.toArray())) {
     const frac = await peelLayer.overlap(state.selected, { position: h.point.toArray(), quaternion: q.toArray(), size: slapSize });
@@ -3716,7 +3718,7 @@ function frame() {
     preview.setFade(deskHeld.opacity(performance.now())); // the desktop fade (2 s untouched → 1 s out)
     const h = hitSurface(CENTER);
     if (h) {
-      const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100));
+      const [w, hh] = StampLayer.dims(state.selected, ((Number.isFinite(maxSizeCm()) ? Math.min(state.size, maxSizeCm() / 100) : state.size)));
       const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
       preview.show(h.point, h.normal, q, w, hh, h.surface);
       heldNow = { h, q, w, hh };
@@ -3727,7 +3729,7 @@ function frame() {
     const h = hitSurface(new THREE.Vector2((touchAim.x / innerWidth) * 2 - 1, -(touchAim.y / innerHeight) * 2 + 1));
     touchAim.hit = h ? h.point.toArray() : null; // (tests: where the preview is)
     if (h) {
-      const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100));
+      const [w, hh] = StampLayer.dims(state.selected, ((Number.isFinite(maxSizeCm()) ? Math.min(state.size, maxSizeCm() / 100) : state.size)));
       const q = StampLayer.orientation(h.normal, h.dir, nextRotation());
       preview.show(h.point, h.normal, q, w, hh, h.surface);
       heldNow = { h, q, w, hh };
@@ -3737,7 +3739,7 @@ function frame() {
     // Touch: no preview on the wall live (the sticker sits in its holder), but while it is held
     // (sharp, or still fading out) the recording shows it where the middle of the screen aims.
     const h = hitSurface(CENTER);
-    if (h) { const [w, hh] = StampLayer.dims(state.selected, Math.min(state.size, maxSizeCm() / 100)); heldNow = { h, q: StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh }; }
+    if (h) { const [w, hh] = StampLayer.dims(state.selected, ((Number.isFinite(maxSizeCm()) ? Math.min(state.size, maxSizeCm() / 100) : state.size))); heldNow = { h, q: StampLayer.orientation(h.normal, h.dir, nextRotation()), w, hh }; }
   }
   else if (deskHeld) preview.hide(); // desktop: faded (or nothing to aim) – no held sticker on the wall
   if (isTouch && touchesDown.size) stackMenu?.held.keepAlive(performance.now()); // a finger on the screen (aiming, pinching, holding still): no fade meanwhile

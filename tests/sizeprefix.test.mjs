@@ -107,11 +107,11 @@ try {
       const same = await up(await png('#123456'), { name: 'hat-copy.png' });
       assert.equal(again.id, d1.id); assert.equal(again.startCm, 15); assert.equal(same.startCm, 15);
     });
-    await ok('slap: the free version is clamped up to 15 cm (and down to 1 m); the full version 10 cm – 1.5 m (t475u); in between untouched', async () => {
+    await ok('slap: free/full keep mins only (no upper cap, Jens Nov 2026); below 2 cm refused', async () => {
       const slap = async (size, key) => (await (await fetch(`${base}/api/rooms/sizes/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(key ? { 'x-unlock': key } : {}) },
         body: JSON.stringify({ imageId: d1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size, surface: 'vägg-norr' }) })).json()).stamp.size;
       const r = { f5: await slap(0.05), f10: await slap(0.1), f145: await slap(0.145), f20: await slap(0.2), f3: await slap(3), k5: await slap(0.05, KEY), k3: await slap(3, KEY) };
-      assert.deepEqual(r, { f5: 0.15, f10: 0.15, f145: 0.145, f20: 0.2, f3: 1, k5: 0.1, k3: 1.5 }, JSON.stringify(r));
+      assert.deepEqual(r, { f5: 0.15, f10: 0.15, f145: 0.145, f20: 0.2, f3: 3, k5: 0.1, k3: 3 }, JSON.stringify(r));
       const tiny = await (await fetch(`${base}/api/rooms/sizes/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: d1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.01, surface: 'vägg-norr' }) })).status;
       assert.equal(tiny, 400, 'below 2 cm is still invalid');
     });

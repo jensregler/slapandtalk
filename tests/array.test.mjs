@@ -101,13 +101,11 @@ try {
   assert((await array({ anchor: { id: 'ffffffffffffffff', token: 'x' }, to: [1, 2, -5] })).status === 404, 'unknown anchor: 404');
   assert((await array({ anchor: { id: A.stamp.id, token: A.peelToken }, to: [0.1, 2, -5] })).status === 400, 'a drag shorter than one step: 400 (nothing to repeat)');
   assert((await array({ anchor: { id: A.stamp.id, token: A.peelToken }, to: 'x' })).status === 400 && (await array({ to: [1, 2, -5] })).status === 400, 'bad input: 400');
-  // Size limits ride on the anchor: a free 3 m slap is clamped to 1 m, and so is every copy.
+  // Size rides on the anchor: a 3 m slap is kept (no upper cap), and every copy matches.
   const huge = await slap([-3, 2, -5], { size: 3 });
   const hr = await (await array({ anchor: { id: huge.stamp.id, token: huge.peelToken }, to: [-3, 0, -5] })).json();
-  // OPEN_ACCESS (shared/openaccess.mjs) currently grants bigStickers → clamp to 1.5 m (full), not 1 m.
-  // Pre-existing on master; what matters here is that every copy matches the clamped anchor size.
-  assert(huge.stamp.size <= 1.5 && hr.stamps.length >= 1 && hr.stamps.every((x) => x.stamp.size === huge.stamp.size),
-    'size limits ride on the anchor: every copy matches the clamped anchor size', { anchor: huge.stamp.size, copies: hr.stamps.map((x) => x.stamp.size) });
+  assert(huge.stamp.size === 3 && hr.stamps.length >= 1 && hr.stamps.every((x) => x.stamp.size === huge.stamp.size),
+    'size rides on the anchor: every copy matches the anchor size (no upper clamp)', { anchor: huge.stamp.size, copies: hr.stamps.map((x) => x.stamp.size) });
   // Fan: endSize grows along the row (clamped to free max 1 m).
   const fanA = await slap([-2, 1, -5], { size: 0.2, owner: 'device-ffff' });
   const fanR = await (await array({ anchor: { id: fanA.stamp.id, token: fanA.peelToken }, to: [-2 + 1.2, 1, -5], endSize: 0.5 })).json();

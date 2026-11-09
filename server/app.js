@@ -24,7 +24,7 @@ const radioMod = import('../shared/radio.mjs');
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
 // Sticker size (shared/nature.mjs STICKER_LIMITS; Jens, 2 Nov 2026, t475u): the full version (bigStickers)
-// 10 cm – 1.5 m (was no upper limit), free FREE_MIN_STICKER_M – FREE_MAX_STICKER_M (15 cm – 1 m). Outside
+// Size: no upper cap (Jens Nov 2026). Free min FREE_MIN_STICKER_M; full/nature min from STICKER_LIMITS / NATURE. Outside
 // them a new sticker is clamped, not refused; stickers already up stay as they are. A technical guard
 // too: the size must be a finite number ≥ 2 cm (checked on slap).
 // The starting size from a file-name letter prefix ("B_cat.png" = 17.5 cm): shared/sizeprefix.mjs.
@@ -747,22 +747,20 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
     return res.status(410).json({ error: 'That design is no longer on the server. Please upload it again.', gone: true });
   }
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Invalid position' });
-  if (!isNum(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
-  // Same gate as fabrics: only the full version (bigStickers) may slap stickers bigger than 1 m or
-  // smaller than 15 cm. Free sizes outside 15 cm – 1 m are clamped (not refused), like before.
-  // Nature stickers (shared/nature.mjs) have their own limits instead, for everyone: NATURE.minCm
-  // (10 cm) up to NATURE.maxHeightCm (the room's height, 8 m) high; outside them clamped the same way.
+  if (!isNum(b.size) || !Number.isFinite(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
+  // Jens Nov 2026: no upper size cap (client or server). Keep mins only; reject NaN/Infinity above.
+  // Free without bigStickers: floor FREE_MIN_STICKER_M. Nature / full: NATURE.minCm / STICKER_LIMITS.full.minCm.
   const N = await natureMod, libEntry = libraryById.get(image.id), nature = isNatureImage(N, image);
   // Nature stickers are the full version's (natureStickers; the Nature wheel): refused otherwise.
   if (nature && !isAdmin(req) && !(await entOf(req)).natureStickers) return res.status(403).json({ error: 'Nature stickers are part of the full version.', full: true, feature: 'natureStickers' });
   if (nature) {
-    const lim = N.sizeLimitsCm({ ...image, ...(libEntry || {}), nature: true }, null, { maxHeightCm: CITY.natureMaxHeightCmIn(room) }); // 24 m in the city's outside (t482u)
-    b.size = Math.min(lim.maxCm / 100, Math.max(lim.minCm / 100, b.size));
-  } else if ((b.size > FREE_MAX_STICKER_M + FREE_SIZE_SLACK || b.size < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) && !(await entOf(req)).bigStickers) {
-    b.size = Math.min(FREE_MAX_STICKER_M, Math.max(FREE_MIN_STICKER_M, b.size));
+    const lim = N.sizeLimitsCm({ ...image, ...(libEntry || {}), nature: true }, null, { maxHeightCm: CITY.natureMaxHeightCmIn(room) });
+    b.size = Math.max(lim.minCm / 100, b.size);
+  } else if (!(await entOf(req)).bigStickers) {
+    if (b.size < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) b.size = FREE_MIN_STICKER_M;
   } else {
-    const L = N.STICKER_LIMITS.full; // the full version (and admin): 10 cm – 1.5 m
-    if (b.size > L.maxCm / 100 + FREE_SIZE_SLACK || b.size < L.minCm / 100 - FREE_SIZE_SLACK) b.size = Math.min(L.maxCm / 100, Math.max(L.minCm / 100, b.size));
+    const L = N.STICKER_LIMITS.full;
+    if (b.size < L.minCm / 100 - FREE_SIZE_SLACK) b.size = L.minCm / 100;
   }
   // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).
   const P = await peelsMod;
@@ -872,14 +870,15 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
   if (isNum(b.endSize) && b.endSize > 0) {
     endSize = b.endSize;
     const nature = isNatureImage(N, image);
+    if (!Number.isFinite(endSize)) endSize = anchor.size;
     if (nature) {
       const lim = N.sizeLimitsCm({ ...image, nature: true }, null, { maxHeightCm: CITY.natureMaxHeightCmIn(room) });
-      endSize = Math.min(lim.maxCm / 100, Math.max(lim.minCm / 100, endSize));
-    } else if ((endSize > FREE_MAX_STICKER_M + FREE_SIZE_SLACK || endSize < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) && !(await entOf(req)).bigStickers) {
-      endSize = Math.min(FREE_MAX_STICKER_M, Math.max(FREE_MIN_STICKER_M, endSize));
+      endSize = Math.max(lim.minCm / 100, endSize);
+    } else if (!(await entOf(req)).bigStickers) {
+      if (endSize < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) endSize = FREE_MIN_STICKER_M;
     } else {
       const L = N.STICKER_LIMITS.full;
-      if (endSize > L.maxCm / 100 + FREE_SIZE_SLACK || endSize < L.minCm / 100 - FREE_SIZE_SLACK) endSize = Math.min(L.maxCm / 100, Math.max(L.minCm / 100, endSize));
+      if (endSize < L.minCm / 100 - FREE_SIZE_SLACK) endSize = L.minCm / 100;
     }
   }
   const [endW, endH] = P.stampDims(image, endSize);

@@ -48,9 +48,9 @@ ok('nature stickers: up to 24 m high in the city\'s outside, 8 m in a house or r
 });
 const NAT = await import('../shared/nature.mjs');
 ok('… the shared limits take the space\'s height', () => {
-  assert.deepEqual(NAT.sizeLimitsCm({ nature: true, width: 1, height: 1 }, null, { maxHeightCm: 2400 }), { minCm: 10, maxCm: 2400 });
-  assert.deepEqual(NAT.sizeLimitsCm({ nature: true, width: 2, height: 1 }, null, { maxHeightCm: 2400 }), { minCm: 10, maxCm: 4800 });
-  assert.deepEqual(NAT.sizeLimitsCm({ nature: true, width: 1, height: 1 }, null), { minCm: 10, maxCm: 800 });
+  assert.deepEqual(NAT.sizeLimitsCm({ nature: true, width: 1, height: 1 }, null, { maxHeightCm: 2400 }), { minCm: 10, maxCm: Infinity });
+  assert.deepEqual(NAT.sizeLimitsCm({ nature: true, width: 2, height: 1 }, null, { maxHeightCm: 2400 }), { minCm: 10, maxCm: Infinity });
+  assert.deepEqual(NAT.sizeLimitsCm({ nature: true, width: 1, height: 1 }, null), { minCm: 10, maxCm: Infinity });
 });
 
 // The packs with an in-memory adapter and a clock
@@ -201,9 +201,9 @@ try {
     const out = await (await big('stad', 'golv')).json(), mid = await (await fetch(`${S.base}/api/rooms/stad/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: JSON.stringify({ imageId: nat.id, position: [16, 0, 22], normal: [0, 1, 0], quaternion: [0, 0, 0, 1], size: 20, surface: 'golv' }) })).json();
     const inHouse = await (await fetch(`${S.base}/api/rooms/stad-3/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: JSON.stringify({ imageId: nat.id, position: [0, 0, 0], normal: [0, 1, 0], quaternion: [0, 0, 0, 1], size: 30, surface: 'golv' }) })).json();
     const small = await (await tiny('stad')).json();
-    ok('nature stickers on the server: 24 m max in the city\'s outside (20 m kept), 8 m in a house, 10 cm min (t482u)', () => {
+    ok('nature stickers on the server: no upper size cap outside or in a house; 10 cm min still (t482u)', () => {
       const sz = (r) => (r.stamp || r).size;
-      assert.equal(sz(out), 24); assert.equal(sz(mid), 20); assert.equal(sz(inHouse), 8); assert.equal(sz(small), 0.1);
+      assert.equal(sz(out), 30); assert.equal(sz(mid), 20); assert.equal(sz(inHouse), 30); assert.equal(sz(small), 0.1);
     });
   } else console.log('  (no portrait nature sticker in the library – server nature check skipped)');
   const peels = await fetch(`${S.base}/api/rooms/stad/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'demo-e2e-admin' }, body: '{"on":true}' });

@@ -13,12 +13,13 @@ ok(P.isSeat({ kind: 'chair' }) && P.isSeat({ kind: 'bench' }) && !P.isSeat({ kin
 
 // cleanProp
 const c = P.cleanProp({ id: 'abcdef0123', kind: 'lamp', x: 999, z: -3.14159, yaw: -Math.PI / 2, s: 9 }, CITY);
-ok(c && c.x === 48 && c.z === -3.142 && c.s === P.PROP_SCALE.max && Math.abs(c.yaw - 3 * Math.PI / 2) < 1e-3 && c.y === 0, 'cleanProp: clamped to the space, scale 0.25–4, yaw 0–2π', c);
+ok(c && c.x === 48 && c.z === -3.142 && c.s === 9 && Math.abs(c.yaw - 3 * Math.PI / 2) < 1e-3 && c.y === 0, 'cleanProp: clamped to the space, scale has no upper cap (s=9 kept), yaw 0–2π', c);
 ok(P.cleanProp({ id: 'abcdef0123', kind: 'chair', x: 0, z: 0, s: 0.01 }).s === 0.25, 'cleanProp: the smallest scale is 0.25×');
+ok(P.cleanProp({ id: 'abcdef0123', kind: 'chair', x: 0, z: 0, s: Infinity }).s === 1 && P.cleanProp({ id: 'abcdef0123', kind: 'chair', x: 0, z: 0, s: NaN }).s === 1, 'cleanProp: Infinity/NaN scale → default 1');
 ok(!P.cleanProp({ id: 'xyz', kind: 'chair', x: 0, z: 0 }) && !P.cleanProp({ id: 'abcdef0123', kind: 'nope', x: 0, z: 0 }) && !P.cleanProp({ id: 'abcdef0123', kind: 'chair', x: 'a', z: 0 }), 'cleanProp: a bad id, kind or number = not a prop');
 const b = P.cleanProp({ id: 'abcdef0123', kind: 'box', x: 1, z: 2, sx: 40, sy: 0.01, sz: 3.33333, color: '#3F7FD0', s: 3 }, CITY);
-ok(b && b.sx === 32 && b.sy === 0.1 && b.sz === 3.333 && b.color === '#3f7fd0' && !('s' in b), 'cleanProp: a cuboid keeps its own W/H/D (0.1–32 m wide/deep, 0.1–24 m high) and colour, no scale', b);
-ok(P.cleanProp({ id: 'abcdef0123', kind: 'box', x: 0, z: 0, sy: 99, color: 'red' }, CITY).sy === 24 && P.cleanProp({ id: 'abcdef0123', kind: 'box', x: 0, z: 0, color: 'red' }).color === P.BOX_COLOURS[0], 'cleanProp: a cuboid is at most 24 m high; an unknown colour = the first toon colour');
+ok(b && b.sx === 40 && b.sy === 0.1 && b.sz === 3.333 && b.color === '#3f7fd0' && !('s' in b), 'cleanProp: cuboid keeps W/H/D (min 0.1 m, no upper cap) and colour, no scale', b);
+ok(P.cleanProp({ id: 'abcdef0123', kind: 'box', x: 0, z: 0, sy: 99, color: 'red' }, CITY).sy === 99 && P.cleanProp({ id: 'abcdef0123', kind: 'box', x: 0, z: 0, color: 'red' }).color === P.BOX_COLOURS[0], 'cleanProp: cuboid height has no upper cap; unknown colour = first toon colour');
 const many = Array.from({ length: P.MAX_PROPS + 20 }, (_, i) => ({ id: (0x1000000000 + i).toString(16), kind: 'cone', x: 0, z: 0 }));
 ok(P.cleanProps(many).length === P.MAX_PROPS && P.cleanProps([c, c, { bad: 1 }], CITY).length === 1 && P.cleanProps('x') === null, 'cleanProps: each id once, bad ones dropped, at most MAX_PROPS');
 

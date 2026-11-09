@@ -1,11 +1,8 @@
 // "Nature" stickers (Jens, 28 Oct 2026): designs whose name starts with "nature" (any case – the
 // library's original file name, `source`; the import tool gives every file from a "nature" folder
-// that prefix) may be scaled far beyond the normal limits: from NATURE.minCm (10 cm) up to a HEIGHT of
-// NATURE.maxHeightCm = the room's height (8 m; Jens, 2 Nov 2026, t475u – was 5 cm – 4 m), in the free
-// and the full version alike. Every other sticker keeps the normal limits (STICKER_LIMITS: the full
-// version 10 cm – 1.5 m, t475u – was 5 cm – no limit; free 15 cm – 1 m; the server's technical floor 2 cm).
-// The held size (state.size, stamp.size) is the sticker's LONGEST side, so the 8 m height cap is a
-// longest-side cap of 8 m × (longest / height) – 8 m for square and portrait, more for a wide one.
+// that prefix). Jens Nov 2026: NO upper scale limit for nature or normal stickers (min only;
+// Infinity/NaN rejected). NATURE.maxHeightCm is kept as a historical room-height hint only.
+// The held size (state.size, stamp.size) is the sticker's LONGEST side.
 // Used by the web app (size limits), the server (POST …/stamps) and tools/import-library.mjs.
 import ROOM from './room.json' with { type: 'json' };
 export const NATURE = {
@@ -13,9 +10,9 @@ export const NATURE = {
   maxHeightCm: Math.round(ROOM.height * 100), // tallest a nature sticker may be (cm) = the room's height (800)
   minCm: 10,        // smallest (cm, longest side) – also in the free version
 };
-// Every other sticker (cm, longest side; Jens, 2 Nov 2026: "maxstorlek på klibbor till 1,5 m samt
-// ministorlek till 0,1 m"). full = the full version (bigStickers); free = the free version's gate inside it.
-export const STICKER_LIMITS = Object.freeze({ full: Object.freeze({ minCm: 10, maxCm: 150 }), free: Object.freeze({ minCm: 15, maxCm: 100 }) });
+// Every other sticker (cm, longest side). Jens Nov 2026: no upper cap (maxCm = Infinity); keep mins.
+// full = the full version (bigStickers); free = the free version's min gate.
+export const STICKER_LIMITS = Object.freeze({ full: Object.freeze({ minCm: 10, maxCm: Infinity }), free: Object.freeze({ minCm: 15, maxCm: Infinity }) });
 const RE = /^nature/i;
 const base = (s) => String(s ?? '').split(/[\\/]/).pop();
 // Does this file name count as a nature sticker?
@@ -32,5 +29,7 @@ export function natureMaxSideCm(img, maxHeightCm = NATURE.maxHeightCm) {
 // The size limits (cm, longest side) for a design: { minCm, maxCm }. normal = the version's limits
 // for every other sticker ({ minCm, maxCm }, maxCm may be Infinity).
 export function sizeLimitsCm(img, normal, { maxHeightCm = NATURE.maxHeightCm } = {}) {
-  return isNature(img) ? { minCm: NATURE.minCm, maxCm: natureMaxSideCm(img, maxHeightCm) } : normal;
+  // No upper scale limit (Jens Nov 2026). maxHeightCm kept for callers/tests of natureMaxSideCm only.
+  void maxHeightCm;
+  return isNature(img) ? { minCm: NATURE.minCm, maxCm: Infinity } : normal;
 }
