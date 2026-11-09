@@ -95,15 +95,15 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
     await A.click(`${slot('hair')} .fab-picks button.mine`);
     await A.waitForFunction(() => window.klibb.previewFabrics().hair?.loaded, null, { timeout: 10000 });
     await setRange(`${slot('hair')} .fab-sl[data-param="scale"] input[type=range]`, 0.4);
-    await A.check('#av-hat');
-    await A.click(`${slot('hat')} .fab-seg button[data-mode="fabric"]`);
-    await A.click(`${slot('hat')} .fab-picks button[title="Pattern: Stars"]`);
-    await A.waitForFunction(() => window.klibb.previewFabrics().hat?.loaded, null, { timeout: 10000 });
-    await A.click(`${slot('hat')} .swatches button[data-id="#e63946"]`);
+    // Cap removed (Jens, 9 Nov 2026): use shoes fabric instead of hat.
+    await A.click(`${slot('shoes')} .fab-seg button[data-mode="fabric"]`);
+    await A.click(`${slot('shoes')} .fab-picks button[title="Pattern: Stars"]`);
+    await A.waitForFunction(() => window.klibb.previewFabrics().shoes?.loaded, null, { timeout: 10000 });
+    await A.click(`${slot('shoes')} .swatches button[data-id="#e63946"]`);
     const draft = await A.evaluate(() => window.klibb.previewFabrics());
     for (const f of Object.values(draft)) made.add(f.id);
     assert(draft.shirt.f.scale === 0.55 && draft.shirt.f.rot === 30 && draft.shirt.f.hue === 90 && draft.shirt.f.cycleHue && draft.shirt.f.hueHz === 0.3 && draft.shirt.f.spin
-      && draft.pants.f.scroll === 0.5 && draft.hair.id !== draft.shirt.id && Object.keys(draft).sort().join() === 'hair,hat,pants,shirt',
+      && draft.pants.f.scroll === 0.5 && draft.hair.id !== draft.shirt.id && Object.keys(draft).sort().join() === 'hair,pants,shirt,shoes',
       'reglagen (Scale, Rotation, Hue, Cycle hue + Speed, Spin + Speed, Scroll) ändrar tyget direkt i förhandsvisningen');
     // Skärmdump på panelen med tygreglagen
     await A.$eval(slot('shirt'), (el) => el.scrollIntoView({ block: 'start' }));
@@ -127,7 +127,7 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
     assert(sameF && !seen.fabrics.skin && mine.fabric.shirt.scale === 0.55, 'B ser A:s tyger (samma bild, samma värden och animationer), och A:s look med tyger sparas på enheten');
     // A i tredje person: ser sin egen galna utstyrsel bakifrån
     await A.evaluate(() => { const k = window.klibb; k.moveTo(1.2, 2.2); k.look(Math.PI * 0.12, -0.05); k.setView('third'); });
-    await A.waitForFunction(() => { const s = window.klibb.selfAvatar(); return s.visible && s.fabrics.shirt?.loaded && s.fabrics.hat?.loaded; }, null, { timeout: 15000 });
+    await A.waitForFunction(() => { const s = window.klibb.selfAvatar(); return s.visible && s.fabrics.shirt?.loaded && s.fabrics.shoes?.loaded; }, null, { timeout: 15000 });
     await B.evaluate(() => { const k = window.klibb; k.moveTo(1.2, -0.6); k.look(Math.PI, -0.12); });
     await A.waitForTimeout(1500);
     await A.screenshot({ path: path.join(OUT, 'fabric-3rd-person-outfit.png') });

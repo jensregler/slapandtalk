@@ -197,7 +197,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     { const sk = $('av-skin'); if (sk) { sk.innerHTML = ''; sk.hidden = true; } }
     colors($('av-hatcolor'), AVATAR.colors.hat, d.hatColor, (c) => set({ hatColor: c }));
     // Face colour/fabric UI removed (t587u); locked photo applied in normalizeLook for @jensreglermanniska.
-    $('av-hat').checked = d.hat; $('av-hat-row').hidden = !d.hat;
+    $('av-hat').checked = false; $('av-hat-row').hidden = true; // Cap UI gone (Jens, 9 Nov 2026)
     fab.render();
     self.avatar?.setLook(d); // live on my avatar in the room
     lockForRoomCharacter();
@@ -215,7 +215,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       el.disabled = on;
     }
   }
-  $('av-hat').onchange = (e) => { av.draft = normalizeLook({ ...av.draft, hat: e.target.checked }); renderAvatarPanel(); };
+  $('av-hat').onchange = () => { /* Cap removed: checkbox stays off */ };
   function openAvatarPanel() {
     av.open = true; av.draft = normalizeLook(shownLook()); fab.reset(av.draft);
     $('av-name').value = me.name || cleanName(artist());

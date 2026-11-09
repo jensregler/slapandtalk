@@ -413,8 +413,9 @@
     <div class="sp-row fab-slot" data-slot="shoes"><div class="fab-head"><b data-t="shoes">Shoes</b></div><div id="av-shoes" class="swatches colors"></div></div>
     <!-- Face: locked photo for @jensreglermanniska (t587u); colour/fabric UI removed. -->
     <div class="sp-row fab-slot" data-slot="face" id="av-face-row" hidden><div class="fab-head"><b data-t="face">Face</b></div><div id="av-face" class="swatches colors"></div></div>
-    <label class="check"><input id="av-hat" type="checkbox" /> <span data-t="cap">Cap</span></label>
-    <div class="sp-row fab-slot" id="av-hat-row" data-slot="hat"><div class="fab-head"><b data-t="capColour">Cap colour</b></div><div id="av-hatcolor" class="swatches colors"></div></div>
+    <!-- Cap removed from avatar (Jens, 9 Nov 2026): kepsen never shown. Checkbox kept hidden for wire/tests that poke #av-hat. -->
+    <label class="check" id="av-hat-label" hidden><input id="av-hat" type="checkbox" /> <span data-t="cap">Cap</span></label>
+    <div class="sp-row fab-slot" id="av-hat-row" data-slot="hat" hidden><div class="fab-head"><b data-t="capColour">Cap colour</b></div><div id="av-hatcolor" class="swatches colors"></div></div>
     <!-- 🌀 Randomize lives inside an opened fabric panel (fabricui.js moves it there); parked here otherwise. -->
     <div id="av-wild-home" hidden><button id="av-wild" type="button" data-t="randomize" data-t-title="randomizeTitle">🌀 Randomize</button></div>
     <input id="fab-file" class="vh-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.png,.jpg,.jpeg,.webp,.gif,.svg" tabindex="-1" aria-hidden="true" />
