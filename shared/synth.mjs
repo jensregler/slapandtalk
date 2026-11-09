@@ -37,7 +37,7 @@ import { cleanSeq, visibleSteps } from './autoslap.mjs';
 // The audio itself never goes in the patch: it is kept on this device (client/src/samples.js).
 // A patch may also carry mods (shared/lfo.mjs: up to 16 nested LFOs) and morph (0–1, see morphPatch).
 
-export const SOUNDS = ['slap', 'peel', 'step', 'duff']; // duff kept for four voices (Low); landing no longer plays it
+export const SOUNDS = ['slap', 'peel', 'step', 'duff']; // duff = peel landing thud (+ four voices Low)
 export const SOUND_TABS = ['slap', 'peel', 'step']; // sound-settings UI only (duff + Effects hidden; Effects driven from the city)
 export const WAVES = ['sine', 'square', 'sawtooth', 'triangle'];
 export const NOISES = ['white', 'pink'];
@@ -206,7 +206,7 @@ export const DEFAULT_PATCHES = {
     L({ kind: 'noise', noise: 'pink', filter: 'lowpass', cutoff: 520, q: 0.7, fEnv: -1, fTime: 0.05, a: 0.002, d: 0.055, level: 0.16 }),
     L({ kind: 'osc', wave: 'sine', freq: 85, pitchAmt: 7, pitchTime: 0.04, a: 0.002, d: 0.05, level: 0.12 }),
   ] },
-  // duff: soft papery thud (kept for four voices Low; peel landing is silent – Jens Nov 2026)
+  // duff: the backing paper landing flat – a soft papery thud (scaled by area, see duffScale)
   duff: { v: 1, gain: 1, layers: [
     L({ kind: 'noise', noise: 'pink', filter: 'lowpass', cutoff: 900, q: 0.8, fEnv: -1.5, fTime: 0.12, a: 0.004, d: 0.13, level: 0.32 }),
     L({ kind: 'osc', wave: 'sine', freq: 62, pitchAmt: 6, pitchTime: 0.06, a: 0.003, d: 0.11, level: 0.26 }),

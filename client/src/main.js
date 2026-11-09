@@ -148,8 +148,22 @@ stamps.keepLive = () => roomHistory(ROOM).map((h) => h.stampId);
 // Peels: baksidespappret som faller till golvet vid varje slap (när rummet har det på), peels.js.
 const peelLayer = new PeelLayer(scene, { room: CITY_OUTSIDE ? CITY : null });
 const slapFx = new SlapFx(scene);
-// Peel landing is silent (Jens Nov 2026). The duff patch stays in SOUNDS for four voices (Low).
-peelLayer.onLand = null;
+// The backing paper lands: a soft "duff", louder and lower the bigger the paper, in the
+// slapper's own sound (their look.sound), from where it landed. Re-enabled (Jens Nov 2026 voice:
+// "när peelen landar på marken … aktiverar det igen" – was silenced in 2c0fb85).
+// Throttle: peels only land once each (peels.js e.landed); array bursts still get a short gap so
+// a fan of papers does not become a machine-gun of thuds.
+let lastDuffAt = 0;
+const DUFF_GAP_MS = 90;
+peelLayer.onLand = (peel, by) => {
+  const now = performance.now();
+  if (now - lastDuffAt < DUFF_GAP_MS) return;
+  lastDuffAt = now;
+  const area = (peel.w || 0.3) * (peel.h || 0.3);
+  const at = [peel.x, 0.02, peel.z];
+  if (by === 'me') sound.play('duff', at, { area, sound: sound.mine });
+  else sound.play('duff', at, { area, sound: together.voiceOf(by) });
+};
 let nopes = 0;
 // Klibbor fastnar inte på baksidespapper: ett litet "nej" och en axelryckning. (Påskägg, står inte i hjälpen.)
 function nope() {

@@ -1,7 +1,7 @@
 // Sounds: every sound in the room is a synth patch (shared/synth.mjs) played by the Tone.js
 // engine in synth.js – no sound files to download, nothing to license.
 //   slap  – a short, punchy "thwack"        peel – a softer "rrrip" with crackle
-//   step  – quiet footsteps while moving    duff – soft papery thud (four voices Low; landing silent)
+//   step  – quiet footsteps while moving    duff – backing-paper landing thud (also four voices Low)
 // Each player has their own variation of the defaults, picked deterministically from a seed in
 // their look (look.sound.seed), so everyone hears YOUR slap the same way with no extra traffic.
 // Paid "Sound settings" can replace a patch and set an FX chain (look.sound.patches / .fx).
