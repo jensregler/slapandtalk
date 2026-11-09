@@ -49,7 +49,7 @@ import { ArrayGhosts } from './arraydrag.js';
 import { arrayPlan, faceFor, PEELS_PER_ARRAY, wheelScaleFactor, clampStampSize } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
 import { initStackMenu } from './stackmenu.js';
-import { createHeldTimer, HELD_VISIBLE_MS, CITY_HELD_VISIBLE_MS } from '../../shared/heldtimer.mjs';
+import { createHeldTimer } from '../../shared/heldtimer.mjs';
 import { createRoomSizer, ROOM_RANGE } from './roomsize.js';
 import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
 import { WHEEL_EXCLUDE, FORMER_MENU_IDS } from './menustickers.js';
@@ -191,18 +191,40 @@ const roomSizer = room.city ? { RANGE: ROOM_RANGE, get: () => ({ width: 96, heig
 // the same as a tap on touch: the crosshair had no sticker to aim with). Moving, keys and the scroll
 // wheel leave a faded one faded. Picking a new design (R / F, the wheel, the sticker book) is choosing,
 // not idling: that one is sharp until placed (deskHeld.choose), as before.
-// City: 0.5 s brush timeout (CITY_HELD_VISIBLE_MS). Rooms: 2 s. Walking must not keepAlive in the
-// city – WASD/look used to refresh the 2 s forever, so the aim brush stayed on while walking.
-const deskHeld = isTouch ? null : createHeldTimer({ visibleMs: IN_CITY ? CITY_HELD_VISIBLE_MS : HELD_VISIBLE_MS });
+const deskHeld = isTouch ? null : createHeldTimer();
+// O toggles the sticker aim tool (held preview + crosshair). Off = no aim brush; persist klibb.aimOff.
+const AIM_OFF_KEY = 'klibb.aimOff';
+let aimOff = false;
+try { aimOff = localStorage.getItem(AIM_OFF_KEY) === '1'; } catch { /* private */ }
+document.body.classList.toggle('aim-off', aimOff);
+function setAimOff(off, { quiet = false } = {}) {
+  aimOff = !!off;
+  try { localStorage.setItem(AIM_OFF_KEY, aimOff ? '1' : '0'); } catch { /* private */ }
+  document.body.classList.toggle('aim-off', aimOff);
+  if (aimOff) {
+    if (deskHeld && (deskHeld.state === 'holding' || deskHeld.state === 'timed')) {
+      const t = performance.now();
+      deskHeld.placed(t - deskHeld.visibleMs - deskHeld.fadeMs); // opacity 0 immediately
+    }
+    preview.hide();
+  } else if (deskHeld && state.selected) {
+    deskHeld.choose(performance.now());
+    if (window.klibb?.ready && state.mode === 'view' && !selfieOn() && !camView) setMode('slap', { quiet: true });
+  }
+  if (controls?.locked) $('crosshair').hidden = aimOff;
+  if (!quiet) toast(aimOff ? 'Aim off (O)' : 'Aim on (O)', 1400);
+  return aimOff;
+}
 function deskActive() {
-  if (!deskHeld) return;
-  if (IN_CITY) return; // city: timer runs out on its own (0.5 s); walk/look do not refresh it
+  if (!deskHeld || aimOff) return;
   const t = performance.now();
   if (deskHeld.state !== 'timed' || deskHeld.faded(t)) return; // faded: only a press brings it back (deskPress)
   if (!deskHeld.canSlap(t)) deskHeld.wake(t); else deskHeld.keepAlive(t); // fading: back sharp; sharp: a fresh 2 s
 }
 // A left press on the 3D view: true = it only woke a completely faded held sticker (do not slap/act).
+// Aim off (O): swallow the click – no slap, no wake (turn aim back on with O).
 function deskPress() {
+  if (aimOff) return true;
   if (!deskHeld || deskHeld.state !== 'timed') return false;
   const t = performance.now();
   if (!deskHeld.faded(t)) return false;
@@ -554,12 +576,7 @@ async function select(img) {
   state.selected = img || null; renderTray(); renderDesignHud();
   if (changed) applySizeLimit(); // nature stickers have their own size limits (shared/nature.mjs)
   if (img && changed) startSize(img);
-  // desktop: room = sharp until placed (choose); city = start the short brush timer (wake), so the
-  // aim tool is not stuck on while you walk after R/F (Jens Nov 2026: 0.5 s in the city).
-  if (img && changed) {
-    if (IN_CITY) deskHeld?.wake(performance.now());
-    else deskHeld?.choose(performance.now());
-  }
+  if (img && changed && !aimOff) deskHeld?.choose(performance.now()); // desktop: a newly chosen sticker is sharp until placed
   // desktop, View mode (after a fade): picking another sticker (R / F, the wheel, the book) means slapping
   // again – back to Slap mode. Not the first pick at start: a room starts in View mode.
   if (img && changed && deskHeld && window.klibb?.ready && state.mode === 'view' && !selfieOn() && !camView) setMode('slap', { quiet: true });
@@ -645,11 +662,8 @@ function wheelUp() {
 function onWheelPick(img, after) {
   select(img);
   after?.(img);
-  // Explicit selection: strip fades now; room keeps held sharp (choose), city starts the 0.5 s brush timer.
-  if (deskHeld && img) {
-    if (IN_CITY) deskHeld.wake(performance.now());
-    else deskHeld.choose(performance.now());
-  }
+  // Explicit selection: strip fades now; held sticker stays sharp for aiming/slapping (unless aim off).
+  if (deskHeld && img && !aimOff) deskHeld.choose(performance.now());
   if (img && state.mode === 'view' && !selfieOn() && !camView) setMode('slap', { quiet: true });
   wheelDown({ fromSelect: true });
   if (isTouch) stackMenu?.chosen();
@@ -1851,7 +1865,7 @@ function viewClick(ndc = CENTER) {
   setMode('slap', { quiet: true }); toast(natureMode() ? S.modeToastNature(isTouch) : S.modeToastSlap(isTouch), 1400);
   // back in Slap mode: a sticker not placed yet stays held sharp until placed (holding); one that
   // faded comes back sharp for a fresh 2 s (and fades back to View mode if it is not used)
-  if (deskHeld && deskHeld.state !== 'holding') deskHeld.wake(performance.now());
+  if (!aimOff && deskHeld && deskHeld.state !== 'holding') deskHeld.wake(performance.now());
   return 'slap';
 }
 const linkDlg = $('link-dialog');
@@ -1966,7 +1980,7 @@ controls.onLockChange = (locked) => {
   if (locked) { setResuming(false); escMenu?.close(); }
   document.body.classList.toggle('locked', locked);
   if (locked) { closeMore(); closeRoomMenu(); }
-  $('crosshair').hidden = !locked;
+  $('crosshair').hidden = !locked || aimOff;
   if (!locked) { preview.hide(); hideCredit(); } // Esc (leaving the room) hides the artist credit
   // Real Esc out of the game → spawn the big-button menu (not a soft unlock for a panel).
   // Never over an open panel (e.g. Sound settings opened from a soft unlock).
@@ -2069,6 +2083,7 @@ if (!isTouch) {
     if (e.code === 'KeyC' && !e.repeat) toggleView();
     if (e.code === 'KeyX' && !e.repeat) startDance(); // runway dance (shared/dance.mjs)
     if (e.code === 'KeyL' && !e.repeat && credit.shown?.link) openLink(credit.shown.link);
+    if (e.code === 'KeyO' && !e.repeat) setAimOff(!aimOff); // sticker aim tool on/off (sikte / held brush)
     if (propsMode()) { // the Props wheel: Q/E turn, R/F the next/previous prop, Delete removes the selected one, Esc lets go
       if (e.code === 'KeyQ') propsUi.turn(1);
       if (e.code === 'KeyE') propsUi.turn(-1);
@@ -2115,7 +2130,7 @@ if (!isTouch) {
   // Any touch on the screen (Jens, 29 Oct 2026) counts as working with the held sticker: while it is
   // up, its 2 s (HELD_VISIBLE_MS) start again; it only fades after 2 s untouched. (A faded one is not
   // revived by this – a tap wakes it, as before.)
-  const touchAlive = (e) => { if (IN_CITY) return; if (e.pointerType !== 'mouse') stackMenu?.held.keepAlive(performance.now()); };
+  const touchAlive = (e) => { if (e.pointerType !== 'mouse') stackMenu?.held.keepAlive(performance.now()); };
   addEventListener('pointerdown', (e) => { touchAlive(e); if (e.pointerType !== 'mouse') touchesDown.add(e.pointerId); }, true);
   addEventListener('pointermove', touchAlive, true);
   for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, (e) => { touchAlive(e); touchesDown.delete(e.pointerId); }, true);
@@ -2245,8 +2260,6 @@ if (!isTouch) {
   $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false');
   stackMenu = initStackMenu({
     pinching: () => !!touchPinch,
-    heldVisibleMs: IN_CITY ? CITY_HELD_VISIBLE_MS : HELD_VISIBLE_MS,
-    briefHeld: !!IN_CITY,
     S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
     peelLast: () => peelLast(), toggleView: () => toggleView(), startDance: () => startDance(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
     chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(), wheel: activeWheelApi, wheelUp, natureOpen: () => natureOpen(),
@@ -3719,7 +3732,7 @@ function frame() {
   if (dragging) { preview.hide(); heldNow = { row: arrayDrag }; } // dragging a row: the ghosts are the preview
   else if (arrayRec) { preview.hide(); heldNow = { msg: arrayRec.msg }; } // released: until the server has the copies
   else if (propsMode()) preview.hide(); // Props mode: the prop's ghost is the preview (propsmode.js)
-  else if (controls.locked && state.selected && !state.adminToken && state.mode === 'slap' && deskHeld && deskHeld.opacity(performance.now()) > 0) {
+  else if (!aimOff && controls.locked && state.selected && !state.adminToken && state.mode === 'slap' && deskHeld && deskHeld.opacity(performance.now()) > 0) {
     if (mouseHeld) deskHeld.keepAlive(performance.now()); // the button held (arrays): no fade meanwhile
     preview.setFade(deskHeld.opacity(performance.now())); // the desktop fade (2 s untouched → 1 s out)
     const h = hitSurface(CENTER);
@@ -3885,7 +3898,7 @@ window.klibb = {
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   wheelUp, touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
-  held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3) }, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
+  held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3), aimOff }, aimOff: () => aimOff, setAimOff, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: wheelIsLit() && !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && Number(getComputedStyle($('design-strip')).opacity) > 0.05, lit: wheelIsLit(), n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON(), packSlot: FILM_STUDIO ? studioSlot : cityPackSlot, label: $('wheel-label')?.textContent || '' }),
   wheelUp, wheelDown, wheelIsLit,
   wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,
