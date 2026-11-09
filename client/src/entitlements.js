@@ -13,15 +13,24 @@ export const entitlements = { full: Object.fromEntries(FEATURES.map((f) => [f, O
 const get = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const set = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* privat läge */ } };
 
-export function credentials() { return { key: get(KEY) || undefined, dev: get(DEV) === '1' }; }
 export function unlockHeaders() {
   const c = credentials(), h = {};
   if (c.key) h['x-unlock'] = c.key;
   if (c.dev) h['x-dev-unlock'] = '1';
+  if (studioUnlock) h['x-studio'] = '1';
   return h;
 }
-export const has = (feature) => !!entitlements.full[feature];
-export const isFull = () => FEATURES.some((f) => entitlements.full[f]);
+// Film studio (?studio=1): client treats every full-version flag as on so patches / fabrics /
+// stickers / uploads are free for Jens's film work. Server mirrors via x-studio (see unlockHeaders).
+let studioUnlock = false;
+export function setStudioUnlock(on) {
+  studioUnlock = !!on;
+  if (studioUnlock) for (const f of FEATURES) entitlements.full[f] = true;
+}
+export const isStudioUnlock = () => studioUnlock;
+export function credentials() { return { key: get(KEY) || undefined, dev: get(DEV) === '1', ...(studioUnlock ? { studio: true } : {}) }; }
+export const has = (feature) => studioUnlock || !!entitlements.full[feature];
+export const isFull = () => studioUnlock || FEATURES.some((f) => entitlements.full[f]);
 export const hasStoredKey = () => !!get(KEY);
 export const isOpenAccess = () => !!entitlements.open;
 
@@ -50,6 +59,7 @@ export async function loadEntitlements() {
     entitlements.devAllowed = !!j.devAllowed;
     entitlements.buy = !entitlements.open && j.buy && typeof j.buy.url === 'string' && /^https:\/\//.test(j.buy.url) ? { url: j.buy.url } : null;
   } catch { /* offline: stay free */ }
+  if (studioUnlock) for (const f of FEATURES) entitlements.full[f] = true;
   return entitlements;
 }
 

@@ -57,8 +57,9 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
     await A.waitForSelector('#avatar-panel', { state: 'visible' });
     const slot = (s) => `#avatar-panel .fab-slot[data-slot="${s}"]`;
     const segs = await A.$$eval('#avatar-panel .fab-slot', (rows) => rows.map((r) => [r.dataset.slot, [...r.querySelectorAll('.fab-seg button')].map((b) => b.textContent).join('|')]));
-    assert(segs.length === 6 && segs.every(([, t]) => t === 'Colour|Fabric') && segs.map(([s]) => s).join() === 'shirt,pants,hair,skin,face,hat',
-      'Min gubbe: varje färgplats (tröja, byxor, hårfärg, hud, ansikte, keps) har en Colour | Fabric-knapp');
+    const withSeg = segs.filter(([, t]) => t);
+    assert(withSeg.map(([s]) => s).join() === 'shirt,pants,hair,skin,shoes' && withSeg.filter(([s, t]) => s !== 'skin').every(([, t]) => t === 'Colour|Fabric'),
+      'Min gubbe: Colour|Fabric on shirt/pants/hair/shoes; skin Fabric-only; face+hat UI gone');
     const plain = await A.evaluate(() => { const b = document.querySelector('#avatar-panel .fab-seg button[data-mode="fabric"]'), ico = b.querySelector('.fab-ico');
       return { ico: !!ico && /^url\("data:image\/png/.test(ico.style.backgroundImage), text: b.textContent, wild: !!document.getElementById('av-wild').offsetParent }; });
     assert(plain.ico && plain.text === 'Fabric' && !plain.wild, 'closed view: the Fabric button is a plain label with a small cotton-weave swatch, and Randomize is not shown');
@@ -120,10 +121,10 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
     await A.click('#av-ok');
 
     // B ser A:s tyger
-    await B.waitForFunction(() => { const f = window.klibb.players()[0].fabrics; return ['shirt', 'pants', 'hair', 'hat'].every((s) => f[s] && f[s].loaded); }, null, { timeout: 15000 });
+    await B.waitForFunction(() => { const f = window.klibb.players()[0].fabrics; return ['shirt', 'pants', 'hair', 'shoes'].every((s) => f[s] && f[s].loaded); }, null, { timeout: 15000 });
     const seen = await B.evaluate(() => window.klibb.players()[0]);
     const mine = await A.evaluate(() => JSON.parse(localStorage.getItem('klibb.avatar')).look);
-    const sameF = ['shirt', 'pants', 'hair', 'hat'].every((s) => JSON.stringify(seen.fabrics[s].f) === JSON.stringify(mine.fabric[s]) && JSON.stringify(seen.look.fabric[s]) === JSON.stringify(mine.fabric[s]));
+    const sameF = ['shirt', 'pants', 'hair', 'shoes'].every((s) => JSON.stringify(seen.fabrics[s].f) === JSON.stringify(mine.fabric[s]) && JSON.stringify(seen.look.fabric[s]) === JSON.stringify(mine.fabric[s]));
     assert(sameF && !seen.fabrics.skin && mine.fabric.shirt.scale === 0.55, 'B ser A:s tyger (samma bild, samma värden och animationer), och A:s look med tyger sparas på enheten');
     // A i tredje person: ser sin egen galna utstyrsel bakifrån
     await A.evaluate(() => { const k = window.klibb; k.moveTo(1.2, 2.2); k.look(Math.PI * 0.12, -0.05); k.setView('third'); });
@@ -137,7 +138,7 @@ async function fabricE2E({ browser, BASE, assert, waitReady, devices, TOKEN }) {
     assert(stats.inUse === 4 && stats.denied === 0, `texturerna cachas per tyg (B har ${stats.inUse} tygtexturer för fyra platser)`);
     // A tar av sig tygerna: B ser färgerna igen och texturerna släpps
     await A.evaluate(() => window.klibb.openAvatarPanel());
-    for (const s of ['shirt', 'pants', 'hair', 'hat']) await A.click(`${slot(s)} .fab-seg button[data-mode="color"]`);
+    for (const s of ['shirt', 'pants', 'hair', 'shoes']) await A.click(`${slot(s)} .fab-seg button[data-mode="color"]`);
     await A.click('#av-ok');
     await B.waitForFunction(() => Object.keys(window.klibb.players()[0].fabrics).length === 0 && !window.klibb.players()[0].look.fabric, null, { timeout: 8000 });
     const freed = await B.evaluate(() => window.klibb.fabricStats().inUse);

@@ -416,6 +416,11 @@
     <!-- Cap removed from avatar (Jens, 9 Nov 2026): kepsen never shown. Checkbox kept hidden for wire/tests that poke #av-hat. -->
     <label class="check" id="av-hat-label" hidden><input id="av-hat" type="checkbox" /> <span data-t="cap">Cap</span></label>
     <div class="sp-row fab-slot" id="av-hat-row" data-slot="hat" hidden><div class="fab-head"><b data-t="capColour">Cap colour</b></div><div id="av-hatcolor" class="swatches colors"></div></div>
+    <!-- Patches on the character menu (Jens, 9 Nov 2026): same black circle / yellow star / upload as Fabric → Patches; applies to the Top (shirt). -->
+    <div class="sp-row" id="av-patches-row" hidden>
+      <div class="fab-head"><b data-t="fabPatches">Patches</b></div>
+      <div id="av-patches" class="fab-picks fab-patches" role="group"></div>
+    </div>
     <!-- 🌀 Randomize lives inside an opened fabric panel (fabricui.js moves it there); parked here otherwise. -->
     <div id="av-wild-home" hidden><button id="av-wild" type="button" data-t="randomize" data-t-title="randomizeTitle">🌀 Randomize</button></div>
     <input id="fab-file" class="vh-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.png,.jpg,.jpeg,.webp,.gif,.svg" tabindex="-1" aria-hidden="true" />
