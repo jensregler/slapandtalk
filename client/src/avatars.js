@@ -323,11 +323,19 @@ export class Avatar {
   // Raycast clothing meshes for a stamp (raycast is normally disabled so stickers miss the body).
   pickStamp(raycaster) {
     const meshes = [];
-    this.root.traverse((m) => { if (m.isMesh && m.visible && m !== this.cap && !m.userData?.ink) meshes.push(m); });
-    for (const m of meshes) m.raycast = THREE.Mesh.prototype.raycast;
+    this.root.traverse((m) => {
+      if (!m.isMesh || !m.visible || m === this.cap || m.userData?.ink) return;
+      if (m.parent === this.patchGroup) return; // don't stamp onto existing patches
+      meshes.push(m);
+    });
+    const saved = meshes.map((m) => m.raycast);
+    for (const m of meshes) {
+      // Skinned meshes need SkinnedMesh.raycast; plain meshes use Mesh.raycast
+      m.raycast = (m.isSkinnedMesh ? THREE.SkinnedMesh.prototype.raycast : THREE.Mesh.prototype.raycast).bind(m);
+    }
     let hit = null;
     try { hit = raycaster.intersectObjects(meshes, false)[0] || null; } finally {
-      for (const m of meshes) m.raycast = () => {};
+      meshes.forEach((m, i) => { m.raycast = saved[i]; });
     }
     return hit;
   }

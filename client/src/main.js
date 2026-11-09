@@ -3922,7 +3922,7 @@ window.klibb = {
   pendingSlaps: () => pendingSlaps.size, // klibbor som syns men inte är bekräftade av servern än
   styleFromSeed, randomSeed, normalizeStyle, currentStyle: () => currentStyle, roomFabric: () => roomFabricInfo(room.surfaces), styleDraft: () => sp.style && JSON.parse(JSON.stringify(sp.style)), canEditStyle, surfaces: room.surfaces,
   net: together.net, players: () => together.players.list(), me: together.me, roomLook: () => together.roomLook(), openChat: together.openChat,
-  openAvatarPanel: together.openAvatarPanel, persistWornLook: () => together.persistWornLook(), goRoom: (id, extra) => goRoom(id, extra || ''), avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
+  openAvatarPanel: together.openAvatarPanel, closeAvatarPanel: together.closeAvatarPanel, stampPatchAt: (...a) => together.stampPatchAt(...a), getPatchTool: () => together.getPatchTool?.(), persistWornLook: () => together.persistWornLook(), goRoom: (id, extra) => goRoom(id, extra || ''), avatarModel: () => import('./avatars.js').then((m) => m.loadAvatarModel()).then(() => true),
   photo: () => snapPhoto(), lastPhoto: () => lastPhoto,
   setAutoCam, startPlacingCam, placingCam: () => placingCam, autoCamPoses: () => Object.fromEntries(autoCamsOf(cams.list()).map((c) => [c.id, liveAutoPose(c)])),
   autoCamPose: () => { const c = autoCamsOf(cams.list())[0]; return c ? liveAutoPose(c) : null; },

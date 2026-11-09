@@ -34,7 +34,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   // roomLook: the room's own character for me (a preset room, free version – main.js, shared/randomlook.mjs).
   // It replaces my look for others, recordings and my own avatar there; my own look stays saved for other rooms.
   let roomLook = null;
-  const shownLook = () => { const l = { ...(roomLook || me.look), sound: sentSound() }; if (me.look.insta) l.insta = me.look.insta; else delete l.insta; if (!has('fabrics') || roomLook) delete l.fabric; return l; };
+  const shownLook = () => { const l = { ...(roomLook || me.look), sound: sentSound() }; if (me.look.insta) l.insta = me.look.insta; else delete l.insta; if (!has('fabrics') || roomLook) { delete l.fabric; delete l.patches; } return l; };
   const players = new Players(scene);
   let status = 'connecting', full = false, unread = 0, serverName = '', mySlot = 0; const talking = new Set(); // serverName = det namn de andra ser på mig
 
