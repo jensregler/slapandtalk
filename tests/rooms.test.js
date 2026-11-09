@@ -332,20 +332,20 @@ async function writeBehind() {
       const after = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
       assert(batch.results[mine2.stamp.id] === 'forbidden' && batch.results.ffffffffffffffff === 'notfound' && batch2.results[mine2.stamp.id] === 'ok'
         && !after.stamps.some((x) => x.id === mine1.stamp.id || x.id === mine2.stamp.id) && after.stamps.length === 3, 'flera på en gång (Peela alla): bara rätt nyckel räknas');
-      // ---------- Bara de senaste 20 per person och rum går att peela ----------
+      // ---------- Bara de senaste 10 per person och rum går att peela (pilhistoriken) ----------
       const a25 = []; for (let i = 0; i < 25; i++) a25.push(await post({ owner: 'enhet-anna-123' }));
       const b2 = [await post({ owner: 'enhet-bosse-456' }), await post({ owner: 'enhet-bosse-456' })];
       await store.flush(); // rummen skrivs i bakgrunden
       const raw2 = (await s3a.get(`rooms/${r.room.id}.json`)).toString();
       const list2 = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).text();
       const ids2 = new Set([...a25, ...b2].map((x) => x.stamp.id)); const keyed = JSON.parse(raw2).stamps.filter((x) => x.peelHash && ids2.has(x.id));
-      assert(keyed.length === 22 && !raw2.includes('enhet-anna') && !list2.includes('peelOwner') && !a25[0].stamp.peelOwner,
-        `servern sparar peel-nycklar bara för de senaste 20 per person (${keyed.length} = 20 + 2), och ägaren syns aldrig`);
+      assert(keyed.length === 12 && !raw2.includes('enhet-anna') && !list2.includes('peelOwner') && !a25[0].stamp.peelOwner,
+        `servern sparar peel-nycklar bara för de senaste 10 per person (${keyed.length} = 10 + 2), och ägaren syns aldrig`);
       const pAll = await (await fetch(`${base}/api/rooms/${r.room.id}/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: [...a25, ...b2].map((x) => ({ id: x.stamp.id, token: x.peelToken })) }) })).json();
       const resA = a25.map((x) => pAll.results[x.stamp.id]);
-      assert(resA.slice(0, 5).every((x) => x === 'forbidden') && resA.slice(5).every((x) => x === 'ok') && b2.every((x) => pAll.results[x.stamp.id] === 'ok'),
-        'de 5 äldsta av 25 går inte längre att peela (403), de senaste 20 går, och en annan persons gräns är egen');
+      assert(resA.slice(0, 15).every((x) => x === 'forbidden') && resA.slice(15).every((x) => x === 'ok') && b2.every((x) => pAll.results[x.stamp.id] === 'ok'),
+        'de 15 äldsta av 25 går inte längre att peela (403), de senaste 10 går, och en annan persons gräns är egen');
       // ---------- Konstnärens namn och länk: tvättas på servern ----------
       const { cleanArtistLink, linkLabel } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'shared', 'artistlink.mjs')).href);
       const GOOD = [['@ulla.k', 'https://www.instagram.com/ulla.k'], ['instagram.com/ulla', 'https://instagram.com/ulla'], ['x.com/ulla', 'https://x.com/ulla'],

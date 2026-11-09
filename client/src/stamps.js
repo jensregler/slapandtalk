@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
 import { facesFromSurfaces, foldStamp, foldGeometry } from './fold.js';
 import { propMeshSurface } from '../../shared/props.mjs';
+import { LIVE_PER_SURFACE, idsToKeepLive } from '../../shared/surfacebake.mjs';
 
 const loader = new THREE.TextureLoader();
 const DEPTH = 0.25; // hur "djup" projektionen är (meter)
@@ -14,8 +15,11 @@ const DEPTH = 0.25; // hur "djup" projektionen är (meter)
 // stora meshar (en per sammanhängande nummerserie, CHUNK_MAX åt gången), med alla designer i
 // en gemensam texturlista (DataArrayTexture, ett lager per design). Ritordningen inne i en
 // sammanslagen mesh följer klibbornas nummer, så nyare hamnar fortfarande ovanpå äldre.
-// Bara de nyaste (LIVE_RECENT i rummet, plus mina egna peel-bara, keepLive) är egna meshar.
-export const LIVE_RECENT = 30;
+// Bara de nyaste LIVE_PER_SURFACE per yta (plus mina egna peel-bara, keepLive) är egna meshar.
+// Older stickers on a surface with more than 20 are painted into one merged draw for that surface.
+export { LIVE_PER_SURFACE };
+/** @deprecated use LIVE_PER_SURFACE – kept as alias for older callers/tests */
+export const LIVE_RECENT = LIVE_PER_SURFACE;
 const BAKE_IDLE_MS = 700; // vänta tills det är lugnt en stund innan man målar in
 const BAKE_MAX_WAIT_MS = 3000; // ... men aldrig längre än så
 const CHUNK_MAX = 4096; // klibbor per sammanslagen mesh
@@ -409,10 +413,8 @@ export class StampLayer {
   // meshar som har ändrats. Svar: hur många som målades in nu.
   bake() {
     clearTimeout(this.bakeTimer); this.bakeTimer = 0; this.bakeSince = 0;
-    const keep = new Set(this.keepLive ? this.keepLive() : []);
     const all = [...this.meshes.values()].map((m) => m.userData.stamp);
-    if (all.length > LIVE_RECENT) all.sort((a, b) => b.order - a.order);
-    for (const s of all.slice(0, LIVE_RECENT)) keep.add(s.id);
+    const keep = idsToKeepLive(all, { perSurface: LIVE_PER_SURFACE, keepExtra: this.keepLive ? this.keepLive() : [] });
     let n = 0;
     for (const [id, m] of this.meshes) {
       if (m.baked || keep.has(id) || id.startsWith('tmp-') || m.userData.stamp.pending || m.userData.hl || m.userData.ownMaterial) continue;
@@ -443,7 +445,12 @@ export class StampLayer {
   // där en levande klibba ligger emellan, så att ritordningen blir exakt som förut.
   rechunk() {
     this.dirty = false;
-    const recs = [...this.baked.values()].sort((a, b) => a.stamp.order - b.stamp.order);
+    // Prefer one merged mesh per surface (a wall of many older stickers → one draw), still
+    // split around live stickers / page / CHUNK_MAX so z-order stays exact.
+    const recs = [...this.baked.values()].sort((a, b) => {
+      const sa = String(a.stamp.surface || ''), sb = String(b.stamp.surface || '');
+      return sa < sb ? -1 : sa > sb ? 1 : a.stamp.order - b.stamp.order;
+    });
     const liveOrders = [];
     for (const m of this.meshes.values()) if (!m.baked) liveOrders.push(m.userData.stamp.order);
     liveOrders.sort((a, b) => a - b);
@@ -452,7 +459,10 @@ export class StampLayer {
     for (const r of recs) {
       let split = false;
       while (li < liveOrders.length && liveOrders[li] < r.stamp.order) { li++; split = true; }
-      if (!cur || split || cur.page !== r.page || cur.recs.length >= CHUNK_MAX) { cur = { page: r.page, recs: [] }; groups.push(cur); }
+      const surf = String(r.stamp.surface || '');
+      if (!cur || split || cur.page !== r.page || cur.surface !== surf || cur.recs.length >= CHUNK_MAX) {
+        cur = { page: r.page, surface: surf, recs: [] }; groups.push(cur);
+      }
       cur.recs.push(r);
     }
     const next = new Map();

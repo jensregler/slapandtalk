@@ -11,21 +11,23 @@
 // started and its house n when house n is started. A copy: what players do in their city never
 // changes the preset (the copied stickers carry no peel key, so nobody but admin can take them off).
 // The build city (shared/city.mjs BUILD_CITY, Jens decorates there): while CITY_BUILD_PHASE is on,
-// every change in it saves the build city into the default preset by itself (autosave(), a few
-// seconds after the last change; flush() at shutdown). Admin can also snapshot any city as a NEW named
-// preset, make another one the default, rename or delete one (/api/admin/citypresets,
+// every change in it saves the build city into the default preset by itself (autosave(), ~3 s after
+// the last change on the affected city parts only; flush() at shutdown). Admin can also snapshot any
+// city as a NEW named preset, make another one the default, rename or delete one (/api/admin/citypresets,
 // scripts/make-preset.js --city …). The Town Hall has no room inside (its door opens the pack shop),
 // so there is nothing of it to keep besides its outside walls – those are part of 'outside'.
 const crypto = require('crypto');
 const CITY = require('../shared/city.mjs');
 
 const ID_RE = /^[a-z0-9]{6,16}$/;
+// Debounced build-city → default-preset write. Fairly frequent, but flush only rewrites dirty layers.
+const AUTOSAVE_MS = 3000;
 const cleanName = (v) => Array.from(String(v ?? '').normalize('NFC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '').replace(/\s+/g, ' ').trim()).slice(0, 40).join('').trim();
 // A sticker as it goes into a preset / into a new city: never a peel key, owner or maker.
 const cleanStamp = ({ peelHash, peelOwner, madeBy, group, ...s }) => s;
 const err = (status, message) => Object.assign(new Error(message), { status });
 
-function createCityPresets(store, { clock = () => Date.now(), autosaveMs = 2000, log = console, timers = { setTimeout, clearTimeout } } = {}) {
+function createCityPresets(store, { clock = () => Date.now(), autosaveMs = AUTOSAVE_MS, log = console, timers = { setTimeout, clearTimeout } } = {}) {
   const adapter = store.adapter;
   const key = (id) => `citypresets/${id}.json`;
   const iso = () => new Date(clock()).toISOString();
@@ -50,40 +52,53 @@ function createCityPresets(store, { clock = () => Date.now(), autosaveMs = 2000,
   const getDefault = async () => (await list()).find((p) => p.default) || null;
   async function put(p) { await adapter.put(key(p.id), Buffer.from(JSON.stringify(p)), 'application/json'); (await load()).set(p.id, p); return p; }
 
+  // One city part (outside or house n) as a preset layer, or null if that room does not exist.
+  async function snapshotLayer(city, layer) {
+    const id = layer === 'outside' ? city : CITY.houseId(city, Number(layer));
+    const r = await store.peek(id); // a storage error throws: never save a half-read city over the preset
+    if (!r) return null;
+    return { stamps: (r.stamps || []).map(cleanStamp), ...(r.geo ? { geo: r.geo } : {}), ...(r.style ? { style: r.style } : {}), ...(Array.isArray(r.props) ? { props: r.props } : {}) };
+  }
   // Everything placed in a city now: { outside: { stamps, geo, style? }, '1': … } (only the parts that exist).
-  async function snapshot(city = CITY.BUILD_CITY) {
+  async function snapshot(city = CITY.BUILD_CITY, onlyLayers = null) {
     if (!CITY.isCityOutside(city)) throw err(400, 'Not a city');
+    const want = onlyLayers && onlyLayers.length ? onlyLayers : CITY.CITY_LAYERS;
     const layers = {};
-    for (const layer of CITY.CITY_LAYERS) {
-      const id = layer === 'outside' ? city : CITY.houseId(city, Number(layer));
-      const r = await store.peek(id); // a storage error throws: never save a half-read city over the preset
-      if (!r) continue;
-      // geo: the box the stickers are in (normalize() in store.js would otherwise put them away / move them)
-      layers[layer] = { stamps: (r.stamps || []).map(cleanStamp), ...(r.geo ? { geo: r.geo } : {}), ...(r.style ? { style: r.style } : {}), ...(Array.isArray(r.props) ? { props: r.props } : {}) }; // props: the 3D props (shared/props.mjs)
+    for (const layer of want) {
+      const snap = await snapshotLayer(city, layer);
+      if (snap) layers[layer] = snap;
     }
     return layers;
   }
   // Save a city as a preset. id: overwrite that one; else a new one. makeDefault: it becomes THE default.
-  function save({ from = CITY.BUILD_CITY, name = '', id = null, makeDefault = false } = {}) {
+  // onlyLayers: when set (and an existing preset is being updated), merge just those layers – other
+  // parts of the city stay as they were in the preset (dirty-surface autosave).
+  function save({ from = CITY.BUILD_CITY, name = '', id = null, makeDefault = false, onlyLayers = null } = {}) {
     return serial(async () => {
-      const layers = await snapshot(from);
+      const partial = Array.isArray(onlyLayers) && onlyLayers.length > 0;
+      const snapped = await snapshot(from, partial ? onlyLayers : null);
       const all = await load();
       const old = id ? all.get(id) : null;
       if (id && !old) throw err(404, 'No such city preset');
       const now = iso();
+      const layers = partial && old ? { ...(old.layers || {}), ...snapped } : snapped;
       const p = { ...(old || { id: crypto.randomBytes(5).toString('hex'), createdAt: now, default: false }), name: cleanName(name) || (old && old.name) || 'A city', source: from, updatedAt: now, layers };
       if (makeDefault || !(await getDefault())) p.default = true; // the first one is the default
       if (p.default) for (const o of all.values()) if (o.id !== p.id && o.default) await put({ ...o, default: false });
       return put(p);
     });
   }
-  // The build city into the default preset (made the first time: "The City").
+  // The build city into the default preset (made the first time: "The City"). Full snapshot.
   async function saveDefault() { const d = await getDefault(); return save({ from: CITY.BUILD_CITY, id: d ? d.id : null, name: d ? d.name : 'The City', makeDefault: true }); }
   let timer = null, dirty = false;
-  // A change in the build city (app.js): save it a moment after the last one (only in the build phase).
+  const dirtyLayers = new Set(); // CITY_LAYERS keys touched since last successful flush
+  // A change in the build city (app.js): save the affected parts a moment after the last one (build phase only).
   function autosave(roomId) {
     if (!CITY.CITY_BUILD_PHASE || (roomId && !CITY.isBuildCity(roomId))) return false;
     dirty = true;
+    const layer = roomId ? CITY.cityLayerOf(roomId) : null;
+    if (layer) dirtyLayers.add(layer);
+    else for (const l of CITY.CITY_LAYERS) dirtyLayers.add(l);
     if (timer) timers.clearTimeout(timer);
     timer = timers.setTimeout(() => { timer = null; flush().catch((e) => log.error?.('[citypresets] autosave failed', e && e.message)); }, autosaveMs);
     if (timer && timer.unref) timer.unref();
@@ -92,9 +107,27 @@ function createCityPresets(store, { clock = () => Date.now(), autosaveMs = 2000,
   async function flush() {
     if (timer) { timers.clearTimeout(timer); timer = null; }
     if (!dirty) return null;
+    const layers = [...dirtyLayers];
     dirty = false;
-    try { const p = await saveDefault(); log.log?.(`[citypresets] build city saved into "${p.name}" (${p.id})`); return p; }
-    catch (e) { dirty = true; throw e; }
+    dirtyLayers.clear();
+    try {
+      const d = await getDefault();
+      // First save, or every layer dirty: full snapshot. Else merge only the affected city parts.
+      const partial = !!(d && layers.length && layers.length < CITY.CITY_LAYERS.length);
+      const p = await save({
+        from: CITY.BUILD_CITY,
+        id: d ? d.id : null,
+        name: d ? d.name : 'The City',
+        makeDefault: true,
+        ...(partial ? { onlyLayers: layers } : {}),
+      });
+      log.log?.(`[citypresets] build city saved into "${p.name}" (${p.id})${partial ? ` [${layers.join(',')}]` : ''}`);
+      return p;
+    } catch (e) {
+      dirty = true;
+      for (const l of layers) dirtyLayers.add(l);
+      throw e;
+    }
   }
   async function setDefault(id) {
     return serial(async () => {
@@ -113,6 +146,11 @@ function createCityPresets(store, { clock = () => Date.now(), autosaveMs = 2000,
     if (!l) return null;
     return { preset: d.id, stamps: structuredClone((l.stamps || []).map(cleanStamp)), ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: structuredClone(l.style) } : {}), ...(Array.isArray(l.props) ? { props: structuredClone(l.props) } : {}) };
   }
-  return { list, get, getDefault, summary, snapshot, save, saveDefault, autosave, flush, setDefault, rename, remove, layerFor, pending: () => dirty };
+  return {
+    list, get, getDefault, summary, snapshot, snapshotLayer, save, saveDefault, autosave, flush, setDefault, rename, remove, layerFor,
+    pending: () => dirty,
+    dirtyLayers: () => [...dirtyLayers],
+    autosaveMs,
+  };
 }
-module.exports = { createCityPresets };
+module.exports = { createCityPresets, AUTOSAVE_MS };

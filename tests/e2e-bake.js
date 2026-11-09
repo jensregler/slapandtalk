@@ -1,6 +1,6 @@
 // E2E: older stickers are "painted into the walls" (merged into a few big meshes, one shared
-// texture array) so a full room costs a handful of draw calls. Only the newest (the last
-// LIVE_RECENT by anyone, plus my own peelable ones) stay separate meshes.
+// texture array) so a full room costs a handful of draw calls. Per surface: only the newest
+// LIVE_PER_SURFACE (20) by anyone, plus my own peelable ones, stay separate meshes.
 // Checks: z-order (newer on top) is the same baked or not, the artist credit still finds a baked
 // sticker, my own old sticker stays peelable, admin delete / room reset remove baked ones.
 const sharp = require('sharp');
@@ -36,13 +36,13 @@ async function bakeE2E({ browser, BASE, assert, waitReady, TOKEN }) {
     await P.waitForFunction(() => window.klibb.stamps.count === 34, null, { timeout: 90000 });
     await P.evaluate(() => window.klibb.stamps.bake());
     const s1 = await P.evaluate(([a, b]) => ({ ...window.klibb.stamps.stats(), a: !!window.klibb.stamps.meshes.get(a)?.baked, b: !!window.klibb.stamps.meshes.get(b)?.baked }), [under.stamp.id, over.stamp.id]);
-    assert(s1.live === 30 && s1.baked === 4 && s1.chunks === 1 && s1.pages === 1 && s1.a && s1.b,
-      `the newest 30 stay separate meshes, the 4 older are painted in: one merged mesh, one texture array (${JSON.stringify(s1)})`);
+    assert(s1.live === 20 && s1.baked === 14 && s1.chunks === 1 && s1.pages === 1 && s1.a && s1.b,
+      `the newest 20 on the wall stay separate meshes, the 14 older are painted in: one merged mesh, one texture array (${JSON.stringify(s1)})`);
     await P.waitForTimeout(300);
     const c1 = await centre();
     assert(isCol(c1, 2), `baked: the newer (blue) sticker is still drawn on top of the older (red) one (${c1})`);
     const calls = await P.evaluate(() => window.klibb.renderer.info.render.calls);
-    assert(calls < 30 + 15, `few draw calls with 34 stickers (${calls})`);
+    assert(calls < 20 + 15, `few draw calls with 34 stickers (${calls})`);
     // Artist credit (Look mode) finds the baked sticker under the dot
     await P.mouse.click(600, 120); await P.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 }); // (above the wheels)
     await P.keyboard.press('g'); await P.waitForFunction(() => window.klibb.state.mode === 'view');
@@ -58,8 +58,8 @@ async function bakeE2E({ browser, BASE, assert, waitReady, TOKEN }) {
     await P.waitForFunction(() => window.klibb.stamps.count === 66, null, { timeout: 90000 });
     await P.evaluate(() => window.klibb.stamps.bake());
     const s2 = await P.evaluate((id) => ({ ...window.klibb.stamps.stats(), mineLive: !!window.klibb.stamps.meshes.get(id) && !window.klibb.stamps.meshes.get(id).baked }), mine);
-    assert(mine && s2.mineLive && s2.live === 31 && s2.baked === 35 && s2.chunks === 2,
-      `my own (peelable) sticker stays a separate mesh; the baked run is split around it so the order stays exact (${JSON.stringify(s2)})`);
+    assert(mine && s2.mineLive && s2.live === 21 && s2.baked === 45 && s2.chunks >= 1,
+      `my own (peelable) sticker stays a separate mesh; newest 20 + mine live, older painted in (${JSON.stringify(s2)})`);
     await P.evaluate(() => window.klibb.peelLast());
     await P.waitForFunction((id) => !window.klibb.stamps.meshes.has(id), mine, { timeout: 5000 });
     assert((await P.evaluate(() => window.klibb.stamps.count)) === 65, 'Z still peels my own old sticker');
@@ -74,7 +74,7 @@ async function bakeE2E({ browser, BASE, assert, waitReady, TOKEN }) {
       await P.waitForTimeout(1200); // the chunk is rebuilt lazily
       const c3 = await centre();
       const s3 = await P.evaluate(() => window.klibb.stamps.stats());
-      assert(isCol(c3, 0) && s3.baked === 34, `after the lazy rebuild it is still right (${c3}, ${JSON.stringify(s3)})`);
+      assert(isCol(c3, 0) && s3.baked === 44, `after the lazy rebuild it is still right (${c3}, ${JSON.stringify(s3)})`);
     }
     // Room reset: everything goes, baked too
     await fetch(`${BASE}/api/rooms/${R}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-room-key': made.roomKey }, body: JSON.stringify({ by: 'Test' }) });

@@ -754,7 +754,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       for (let i = 0; i < 50; i++) { k.look(-0.6 + (i % 10) * 0.13, -0.25 + Math.floor(i / 10) * 0.1); await k.stampAt(0, 0); } });
     const p50 = await pp.evaluate(() => [window.klibb.stamps.count, window.klibb.roomHistory().length, JSON.parse(localStorage.getItem('klibb.history')).filter((h) => h.room === window.klibb.room).length, window.klibb.peelLimit]);
     const rawRoom = await (await fetch(`${BASE}/api/rooms/${PROOM}/stamps`)).json();
-    assert(p50[0] === 50 && p50[1] === 20 && p50[2] === 20 && p50[3] === 20 && rawRoom.stamps.length === 50, `50 klibbor i rummet, men bara de senaste 20 kan peelas (${p50.join('/')})`);
+    assert(p50[0] === 50 && p50[1] === 10 && p50[2] === 10 && p50[3] === 10 && rawRoom.stamps.length === 50, `50 klibbor i rummet, men bara de senaste 10 kan peelas (${p50.join('/')})`);
     // Långsamt nät som på Render (300 ms per peel-anrop), och räkna anropen
     let peelCalls = 0;
     await pp.route('**/peel', async (r) => { peelCalls++; await new Promise((x) => setTimeout(x, 300)); r.continue(); });

@@ -28,7 +28,7 @@ const ROOM_TYPES = ['stad', 'quick', 'profile'];
 const PUBLIC_ROOM = 'stad';
 const VISIT_WRITE_MS = 60_000; // skriv "senast besökt" högst en gång i minuten per rum
 const MAX_VISITORS = 5000; // short hashes kept per room for "people visited" (more are only counted)
-const PEEL_KEEP = 20; // så många av sina senaste stämplar per rum kan man peela
+const PEEL_KEEP = 10; // så många av sina senaste stämplar per rum kan man peela (pilhistoriken / undo)
 // Safety cap: at most this many stickers per room. A new slap beyond it quietly removes the
 // OLDEST sticker (broadcast as an ordinary stamp:remove by app.js). Override: MAX_STAMPS_PER_ROOM.
 const MAX_STAMPS_PER_ROOM = (() => {
