@@ -11,8 +11,8 @@
 //   - Alleys BLEND overlapping fields (multiple effects at once); deeper meetings = extremes.
 //   - Around the Town Hall amounts ≈ 0 (quiet, effect-free).
 //   - Four PEAKS at the inner intersections (±16, ±16): ~4× wider steep-but-smooth curves (not a
-//     hard switch). Each peak fetches effects from the opposite side of the city, plus a distinct
-//     colouration: Distortion on Peak A+C, Bitcrush on Peak B+D (never both on the same peak).
+//     hard switch). Each peak stacks a UNIQUE combo of 3 different effects (“stacks of gradients
+//     i korsningarna”) so no two intersections share the same set. Extreme at the centre; soft-capped.
 //   - Parameters follow the gradients too (delay time short near the Delay house → tempo-synced
 //     mid-alley; feedback, reverb size, mod depth/rate, glitch rate, freq-shift Hz likewise).
 // Inside houses / other rooms: PLACE_NEUTRAL (the room's own reverb does the rest).
@@ -46,7 +46,7 @@ export const PLACE = Object.freeze({
   // Freq shift (ring-mod approximation of a frequency shifter; see decimator.js Place worklet).
   freqHz:    [-800, 800],       // carrier Hz; 0 = no shift
   freqMix:   [0, 1],            // dry/wet of the ring-mod branch
-  // Intersection peaks only (A+C dist, B+D bitcrush) – place-bus WaveShaper, not listener FX.
+  // Intersection Distortion (Peaks that list 'dist') – place-bus WaveShaper, not listener FX.
   distWet:   [0, 0.85],
   distAmount:[0, 1],
   bird:      [0, 2],
@@ -134,13 +134,20 @@ export function peakField(x, z, px, pz, f = FIELD) {
 }
 
 // Peak centres: A NW, B NE, C SW, D SE – the four inner intersections around the Town Hall.
+// Each peak: exactly 3 DIFFERENT effects; every peak's set is unique (Jens, Nov 2026 sketch).
 export const PEAKS = Object.freeze([
-  // Colouration: odd peaks (A,C) → Distortion; even peaks (B,D) → Bitcrush. Deterministic by id order.
-  { id: 'peakA', name: 'Peak A', x: -16, z: -16, effects: ['chorus', 'freq', 'dist'], colour: 'dist' },
-  { id: 'peakB', name: 'Peak B', x:  16, z: -16, effects: ['flanger', 'glitch', 'bitcrush'], colour: 'bitcrush' },
-  { id: 'peakC', name: 'Peak C', x: -16, z:  16, effects: ['reverb', 'chorus', 'dist'], colour: 'dist' },
-  { id: 'peakD', name: 'Peak D', x:  16, z:  16, effects: ['delay', 'flanger', 'bitcrush'], colour: 'bitcrush' },
+  { id: 'peakA', name: 'Peak A', x: -16, z: -16, effects: ['dist', 'delay', 'freq'] },
+  { id: 'peakB', name: 'Peak B', x:  16, z: -16, effects: ['bitcrush', 'reverb', 'chorus'] },
+  { id: 'peakC', name: 'Peak C', x: -16, z:  16, effects: ['dist', 'flanger', 'stutter'] },
+  { id: 'peakD', name: 'Peak D', x:  16, z:  16, effects: ['bitcrush', 'freq', 'reverb'] },
 ]);
+
+/** Sum of peakField amounts for every peak that lists `effect` in its combo. */
+export function peakEffectAmt(effect, peakAmts) {
+  let s = 0;
+  for (const p of PEAKS) if (p.effects.includes(effect)) s += peakAmts[p.id] || 0;
+  return s;
+}
 
 // Soft overlays kept from v1 (nature + broken-radio edge). No loud Town-square echo – the hall
 // area must stay quiet.
@@ -170,19 +177,20 @@ export function fieldAmounts(x, z, f = FIELD) {
   const peakD = peakField(x, z,  16,  16, f);
   const park = parkWeight(x, z);
   const edge = edgeWeight(x, z);
+  const peakAmts = { peakA, peakB, peakC, peakD };
+  // Corner/side fields + unique 3-effect peak stacks (peakEffectAmt).
   return {
     delay, reverb, flanger, chorus, glitch, freq,
     peakA, peakB, peakC, peakD, park, edge,
-    // Combined effect strengths (peaks fetch opposite-side effects).
-    delayAmt: delay + peakD,
-    reverbAmt: reverb + peakC,
-    flangerAmt: flanger + peakB + peakD,
-    chorusAmt: chorus + peakA + peakC,
-    glitchAmt: glitch + peakB,
-    freqAmt: freq + peakA,
-    // Intersection colouration only (not on corner/side fields): A+C dist, B+D bitcrush.
-    distAmt: peakA + peakC,
-    crushAmt: peakB + peakD,
+    delayAmt: delay + peakEffectAmt('delay', peakAmts),
+    reverbAmt: reverb + peakEffectAmt('reverb', peakAmts),
+    flangerAmt: flanger + peakEffectAmt('flanger', peakAmts),
+    chorusAmt: chorus + peakEffectAmt('chorus', peakAmts),
+    glitchAmt: glitch, // SW corner only (crush+stutter+chop bundle); peaks use bitcrush/stutter separately
+    freqAmt: freq + peakEffectAmt('freq', peakAmts),
+    distAmt: peakEffectAmt('dist', peakAmts),
+    crushAmt: peakEffectAmt('bitcrush', peakAmts),
+    stutterAmt: peakEffectAmt('stutter', peakAmts),
   };
 }
 
@@ -242,7 +250,7 @@ function paramsFromFields(A, x, z) {
   v.modRate = mix('modRate', 0.18, 1.1, chorusBias);
   v.modFb = mixLin(0.75, 0, chorusBias) * clamp(fA, 0, 1);
 
-  // --- Glitch (corner SW + peak B) ---
+  // --- Glitch (SW corner only: crush + stutter + chop bundle) ---
   v.decimMix = 0.85 * gA;
   v.decim = mix('decim', 1, 12, clamp(gA, 0, 1));
   v.bits = mixLin(16, 4, clamp(gA, 0, 1));
@@ -251,24 +259,27 @@ function paramsFromFields(A, x, z) {
   v.stutterLen = mix('stutterLen', BEAT / 4, BEAT / 2, 1 - clamp(gA, 0, 1));
   v.chop = 0.75 * gA;
 
-  // --- Freq shift (corner SE + peak A) ---
-  // Hz grows with amount (0 at quiet → ± up to ~480 Hz at extreme). Sign flips gently with z so
-  // the north and south halves of the SE quarter pull opposite ways – keeps motion in the sound.
+  // --- Freq shift (corner SE + peaks that list freq) ---
   // Hz grows with amount; sign follows a smooth N/S bias (no hard flip at z=0).
   const freqSign = clamp(z / 24, -1, 1); // ≈0 on the equator, ±1 deep south/north of SE
   v.freqMix = clamp(0.9 * qA, 0, 1);
   v.freqHz = freqSign * mixLin(0, 480, clamp(qA, 0, 1));
 
-  // --- Intersection peaks: Distortion on A+C, Bitcrush on B+D (extreme at centre, no clip) ---
+  // --- Intersection peak stacks: dist / bitcrush / stutter (extreme at centre; soft-capped, under master guard) ---
   const xDist = softCap(A.distAmt);
   const xCrush = softCap(A.crushAmt);
-  v.distWet = 0.78 * xDist;
-  v.distAmount = mixLin(0.18, 0.88, clamp(xDist, 0, 1));
+  const xStut = softCap(A.stutterAmt || 0);
+  v.distWet = 0.82 * xDist;
+  v.distAmount = mixLin(0.22, 0.92, clamp(xDist, 0, 1));
   if (xCrush > 0) {
-    // Peak bitcrush is its own colour – push harder than the SW glitch corner alone.
-    v.decimMix = Math.max(v.decimMix, 0.92 * xCrush);
-    v.decim = Math.max(v.decim, mix('decim', 1, 28, clamp(xCrush, 0, 1)));
-    v.bits = Math.min(v.bits, mixLin(16, 2.5, clamp(xCrush, 0, 1)));
+    v.decimMix = Math.max(v.decimMix, 0.95 * xCrush);
+    v.decim = Math.max(v.decim, mix('decim', 1, 30, clamp(xCrush, 0, 1)));
+    v.bits = Math.min(v.bits, mixLin(16, 2.2, clamp(xCrush, 0, 1)));
+  }
+  if (xStut > 0) {
+    v.stutter = Math.max(v.stutter, 0.9 * xStut);
+    v.chop = Math.max(v.chop, 0.85 * xStut);
+    v.stutterLen = mix('stutterLen', BEAT / 4, BEAT / 2, 1 - clamp(Math.max(gA, xStut), 0, 1));
   }
 
   // --- Park / edge overlays (additive, light) ---
@@ -287,7 +298,7 @@ function paramsFromFields(A, x, z) {
   }
 
   // Streets base: a tiny slapback wet when nothing else is cooking (time already blended above).
-  const activity = dA + rA + fA + cA + gA + qA + xDist + xCrush;
+  const activity = dA + rA + fA + cA + gA + qA + xDist + xCrush + xStut;
   if (activity < 0.15) {
     const street = 1 - activity / 0.15;
     v.delayWet = Math.max(v.delayWet, 0.12 * street);
@@ -310,10 +321,10 @@ export const CITY_FX = Object.freeze({
     { id: 'chorus', name: 'Chorus quarter', shape: 'field', fx: {} },
     { id: 'glitch', name: 'Glitch quarter', shape: 'field', fx: {} },
     { id: 'freq', name: 'Freq shift quarter', shape: 'field', fx: {} },
-    { id: 'peakA', name: 'Peak A (dist)', shape: 'field', fx: {} },
-    { id: 'peakB', name: 'Peak B (bitcrush)', shape: 'field', fx: {} },
-    { id: 'peakC', name: 'Peak C (dist)', shape: 'field', fx: {} },
-    { id: 'peakD', name: 'Peak D (bitcrush)', shape: 'field', fx: {} },
+    { id: 'peakA', name: 'Peak A (dist+delay+freq)', shape: 'field', fx: {} },
+    { id: 'peakB', name: 'Peak B (bitcrush+reverb+chorus)', shape: 'field', fx: {} },
+    { id: 'peakC', name: 'Peak C (dist+flanger+stutter)', shape: 'field', fx: {} },
+    { id: 'peakD', name: 'Peak D (bitcrush+freq+reverb)', shape: 'field', fx: {} },
     { id: 'park', name: 'North park', shape: 'field', fx: {} },
     { id: 'edge', name: 'City edge', shape: 'field', fx: {} },
   ]),

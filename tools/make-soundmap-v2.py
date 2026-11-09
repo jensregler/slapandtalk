@@ -142,23 +142,26 @@ for x, z, text, col in labels:
         draw.text((px_ - tw / 2, py_ - th / 2 + i * (th + 4) - (th if '\n' in text else 0) / 2),
                   line, font=F_BIG, fill=col)
 
-# Peaks A–D – large clear markers + falloff ring (peakR); Dist (A,C) vs Bitcrush (B,D)
-DIST_COL = (255, 110, 40)
-CRUSH_COL = (255, 230, 80)
+# Peaks A–D – unique 3-effect combos + falloff ring (peakR)
+PEAK_FILLS = {
+    'peakA': (255, 110, 40),   # dist+delay+freq
+    'peakB': (255, 230, 80),   # bitcrush+reverb+chorus
+    'peakC': (255, 80, 160),   # dist+flanger+stutter
+    'peakD': (120, 220, 255),  # bitcrush+freq+reverb
+}
+DIST_COL = PEAK_FILLS['peakA']
+CRUSH_COL = PEAK_FILLS['peakB']
 for p in PEAKS:
     px_, py_ = to_px(p['x'], p['z'])
-    colour = p.get('colour') or ('dist' if 'dist' in p.get('effects', []) else 'bitcrush')
-    fill = DIST_COL if colour == 'dist' else CRUSH_COL
-    # falloff ring at FIELD.peakR
+    fill = PEAK_FILLS.get(p['id'], (255, 230, 80))
     rr = FIELD['peakR'] * SCALE
     draw.ellipse([px_ - rr, py_ - rr, px_ + rr, py_ + rr], outline=fill, width=3)
     R = 28
     draw.ellipse([px_ - R, py_ - R, px_ + R, py_ + R], fill=fill, outline='#111', width=4)
-    letter = p['id'][-1]  # A/B/C/D
+    letter = p['id'][-1]
     bbox = draw.textbbox((0, 0), letter, font=F_BIG)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
     draw.text((px_ - tw / 2, py_ - th / 2 - 4), letter, font=F_BIG, fill='#111')
-    # effect list under the marker
     pair = '+'.join(p['effects'])
     bbox = draw.textbbox((0, 0), pair, font=F_TINY)
     tw = bbox[2] - bbox[0]
@@ -169,7 +172,7 @@ draw.text((MARGIN + 20, TOP + 20), 'N ↑', font=F_MED, fill='#e8eef5')
 
 # title + legend
 draw.text((MARGIN, 40), 'Slap and Talk – sound zones v2', font=F_TITLE, fill='#e8eef5')
-draw.text((MARGIN, 120), f'Continuous fields · alleys blend · peaks ~{FIELD["peakR"]} m · A+C Distortion / B+D Bitcrush', font=F_SM, fill='#9aa8b8')
+draw.text((MARGIN, 120), f'Continuous fields · alleys blend · peaks ~{FIELD["peakR"]} m · each peak a unique 3-effect stack', font=F_SM, fill='#9aa8b8')
 
 # legend at bottom
 legend = [
@@ -179,8 +182,10 @@ legend = [
     ('Freq shift (SE corner, slow)', COLS['q']),
     ('Flanger (W side, half-disc)', COLS['f']),
     ('Chorus (E side, half-disc)', COLS['c']),
-    ('Peak A+C Distortion', DIST_COL),
-    ('Peak B+D Bitcrush', CRUSH_COL),
+    ('Peak A dist+delay+freq', PEAK_FILLS['peakA']),
+    ('Peak B bitcrush+reverb+chorus', PEAK_FILLS['peakB']),
+    ('Peak C dist+flanger+stutter', PEAK_FILLS['peakC']),
+    ('Peak D bitcrush+freq+reverb', PEAK_FILLS['peakD']),
 ]
 lx, ly = MARGIN, TOP + MAP_PX + 40
 for i, (name, col) in enumerate(legend):
@@ -192,7 +197,7 @@ for i, (name, col) in enumerate(legend):
     draw.text((x + 55, y + 4), name, font=F_MED, fill='#e8eef5')
 
 draw.text((MARGIN, OUT_H - 70),
-          'Town Hall ≈ silent · delay time short near Delay house → ⅛-note mid-alley · intersection Dist/Bitcrush keep peaks distinct',
+          'Town Hall ≈ silent · delay time short near Delay house → ⅛-note mid-alley · each intersection stacks 3 unique effects',
           font=F_SM, fill='#9aa8b8')
 
 out = '/workspace/slapandtalk-soundmap-v2.png'

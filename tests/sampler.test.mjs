@@ -250,40 +250,46 @@ ok('city place effect v2: continuous fields, Freq shift replaces Clean, peaks st
   // Extreme combo near where side + corner + peak shoulders meet
   const combo = A(-20, -14);
   assert.ok(combo.delayAmt + combo.flangerAmt > 0.6, 'combo zone has multiple effects');
-  // Peaks: ~4× radius, steep-but-continuous; A+C dist, B+D bitcrush (not both on one peak)
+  // Peaks: ~4× radius; each has a UNIQUE set of 3 different effects
   assert.ok(Math.abs(FIELD.peakR - 12.8) < 1e-9 && Math.abs(FIELD.peakKnee - 1.4) < 1e-9, 'peak radius ×4');
-  assert.equal(PEAKS[0].effects.join('+'), 'chorus+freq+dist');
-  assert.equal(PEAKS[1].effects.join('+'), 'flanger+glitch+bitcrush');
-  assert.equal(PEAKS[2].effects.join('+'), 'reverb+chorus+dist');
-  assert.equal(PEAKS[3].effects.join('+'), 'delay+flanger+bitcrush');
-  assert.equal(PEAKS[0].colour, 'dist'); assert.equal(PEAKS[1].colour, 'bitcrush');
-  assert.equal(PEAKS[2].colour, 'dist'); assert.equal(PEAKS[3].colour, 'bitcrush');
+  assert.equal(PEAKS[0].effects.join('+'), 'dist+delay+freq');
+  assert.equal(PEAKS[1].effects.join('+'), 'bitcrush+reverb+chorus');
+  assert.equal(PEAKS[2].effects.join('+'), 'dist+flanger+stutter');
+  assert.equal(PEAKS[3].effects.join('+'), 'bitcrush+freq+reverb');
+  // uniqueness: every peak has 3 distinct effects; no two peaks share the same set
+  const keys = PEAKS.map((p) => [...p.effects].sort().join('+'));
+  assert.equal(new Set(keys).size, PEAKS.length, 'every peak combo unique');
+  for (const p of PEAKS) assert.equal(new Set(p.effects).size, 3, `${p.id} has 3 different effects`);
   assert.ok(peakField(-16, -16, -16, -16) === 1, 'peak centre = 1');
   assert.ok(peakField(-16, -16, -16 + FIELD.peakR + 0.01, -16) === 0, 'peak outside R = 0');
-  // Continuity: small step past the knee changes amount continuously (not a hard switch)
   const p0 = peakField(-16, -16, -16 + FIELD.peakKnee + 0.5, -16);
   const p1 = peakField(-16, -16, -16 + FIELD.peakKnee + 0.6, -16);
   assert.ok(p0 > p1 && p0 - p1 < 0.25, `peak continuous steep step ${p0}->${p1}`);
-  // Scaled steep falloff (was 1.5 m / 2.5 m before the ×4 radius)
   assert.ok(peakField(-16, -16, -16 + 6, -16) < 0.55, 'peak already down by 6 m');
   assert.ok(peakField(-16, -16, -16 + 10, -16) < 0.2, 'peak nearly gone by 10 m');
-  // Peak A adds Chorus + Freq + Dist even though NW is Delay territory
+  // Peak A: dist + delay + freq (extreme at centre)
   const pa = A(-16, -16);
-  assert.ok(pa.peakA > 0.95 && pa.chorusAmt > 0.9 && pa.freqAmt > 0.9 && pa.distAmt > 0.95, 'Peak A fetches Chorus+Freq+Dist');
-  assert.ok(pa.crushAmt < 0.05, 'Peak A has no bitcrush');
+  assert.ok(pa.peakA > 0.95 && pa.distAmt > 0.95 && pa.delayAmt > 0.9 && pa.freqAmt > 0.9, 'Peak A stack dist+delay+freq');
+  assert.ok(pa.crushAmt < 0.05 && pa.stutterAmt < 0.05, 'Peak A no bitcrush/stutter');
   const pav = at(-16, -16);
-  assert.ok(pav.freqMix > 0.5 && pav.modMix > 0.5 && pav.distWet > 0.5 && pav.distAmount > 0.5, 'Peak A audible as freq+chorus+dist');
-  // Peak B: bitcrush colour (and no dist)
+  assert.ok(pav.distWet > 0.5 && pav.delayWet > 0.3 && pav.freqMix > 0.5, 'Peak A audible as dist+delay+freq');
+  // Peak B: bitcrush + reverb + chorus
   const pb = A(16, -16);
-  assert.ok(pb.peakB > 0.95 && pb.crushAmt > 0.95 && pb.distAmt < 0.05, 'Peak B bitcrush only');
+  assert.ok(pb.peakB > 0.95 && pb.crushAmt > 0.95 && pb.reverbAmt > 0.9 && pb.chorusAmt > 0.9, 'Peak B stack');
+  assert.ok(pb.distAmt < 0.05, 'Peak B no dist');
   const pbv = at(16, -16);
-  assert.ok(pbv.decimMix > 0.5 && pbv.bits < 8 && pbv.distWet < 0.05, 'Peak B audible as bitcrush, not dist');
-  // Peak C: dist
+  assert.ok(pbv.decimMix > 0.5 && pbv.bits < 8 && pbv.verbWet > 0.4 && pbv.modMix > 0.5 && pbv.distWet < 0.05, 'Peak B audible');
+  // Peak C: dist + flanger + stutter
   const pc = A(-16, 16);
-  assert.ok(pc.peakC > 0.95 && pc.distAmt > 0.95 && pc.crushAmt < 0.05, 'Peak C dist only');
-  // Peak D fetches Delay+Flanger + bitcrush
+  assert.ok(pc.peakC > 0.95 && pc.distAmt > 0.95 && pc.flangerAmt > 0.9 && pc.stutterAmt > 0.95, 'Peak C stack');
+  assert.ok(pc.crushAmt < 0.05, 'Peak C no bitcrush');
+  const pcv = at(-16, 16);
+  assert.ok(pcv.distWet > 0.5 && pcv.modMix > 0.5 && pcv.stutter > 0.5 && pcv.modBase < 6, 'Peak C audible dist+flanger+stutter');
+  // Peak D: bitcrush + freq + reverb
   const pd = A(16, 16);
-  assert.ok(pd.peakD > 0.95 && pd.delayAmt > 0.9 && pd.flangerAmt > 0.9 && pd.crushAmt > 0.95, 'Peak D fetches Delay+Flanger+Bitcrush');
+  assert.ok(pd.peakD > 0.95 && pd.crushAmt > 0.95 && pd.freqAmt > 0.9 && pd.reverbAmt > 0.9, 'Peak D stack');
+  const pdv = at(16, 16);
+  assert.ok(pdv.decimMix > 0.5 && pdv.freqMix > 0.5 && pdv.verbWet > 0.4 && pdv.distWet < 0.05, 'Peak D audible');
   assert.ok(PLACE.distWet && PLACE.distAmount, 'dist keys in PLACE');
   assert.equal(PLACE_NEUTRAL.distWet, 0);
   // Delay time short near house, tempo-synced moderate mid-alley
