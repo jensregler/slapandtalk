@@ -671,6 +671,27 @@ body.touch.editing.book-open #stack-menu, body.touch.editing.more-open #stack-me
 .strip-th.sel::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: -7px; height: 3px; border-radius: 2px; background: #ffd400; }
 body.view-mode .strip-th.sel::after { background: none; border-top: 2px dashed #ffd400; }
 body:not(.touch) #mode-hud { bottom: calc(100px * 2.3 + 52px); } /* the small mode label sits just above the wheel */
+/* Desktop: wheel stays dark until R/F (or a drag/scroll on it) lights it; ~1 s idle fades it out. */
+body:not(.touch) #design-strip,
+body:not(.touch) #nature-strip,
+body:not(.touch) #packs-strip {
+  opacity: 0; transition: opacity .28s ease;
+}
+body:not(.touch):not(.wheel-lit) #strip-row,
+body:not(.touch):not(.wheel-lit) #nature-row,
+body:not(.touch):not(.wheel-lit) #packs-row { pointer-events: none !important; }
+body:not(.touch).wheel-lit #design-strip:not([hidden]),
+body:not(.touch).wheel-lit #nature-strip:not([hidden]),
+body:not(.touch).wheel-lit #packs-strip:not([hidden]) { opacity: 1; }
+body:not(.touch):not(.wheel-lit) #mode-hud { bottom: 28px; transition: bottom .28s ease; }
+#wheel-label { position: fixed; left: 50%; bottom: calc(100px * 2.3 + 56px); transform: translateX(-50%); z-index: 5;
+  pointer-events: none; font: 700 12px/1.2 system-ui, sans-serif; color: #ffd400; letter-spacing: .04em;
+  padding: 4px 10px; border-radius: 10px; background: rgba(0,0,0,.5); white-space: nowrap;
+  opacity: 0; transition: opacity .28s ease; }
+body.wheel-lit #wheel-label:not([hidden]) { opacity: 1; }
+body.touch #wheel-label { bottom: calc(150px + env(safe-area-inset-bottom) + 56px); }
+body.camview #wheel-label, body.replay #wheel-label { display: none !important; }
+
 body.camview #design-strip, body.camview #nature-strip, body.camview #packs-strip, body.replay #design-strip, body.replay #nature-strip, body.replay #packs-strip { display: none !important; }
 /* touch: the same wheel in a band above the joystick and the stack, up while you turn it (body.wheel-up) */
 body.touch #design-strip, body.touch #nature-strip, body.touch #packs-strip { left: calc(6px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); width: auto; transform: none; z-index: 6;
@@ -1342,3 +1363,6 @@ body.touch #esc-menu .esc-lab { font-size: 18px; }
 #bus-sheet .bus-tint-green { background: #9fd0a8; }
 #bus-sheet .bus-tint-red { background: #e08a8a; }
 #bus-sheet .bus-tint-blue { background: #8ab4e0; }
+
+/* Temporary film-studio mode (?studio=1 / J): subtle cue, no layout change */
+body.film-studio #mode-hud::before { content: '🎬 '; }

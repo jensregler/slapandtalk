@@ -59,7 +59,7 @@ import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs
 import { buildCityRoom, markDoors } from './city.js';
 import { CITY_FX, cityFxAt, placeNeutral, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
 import { CITY, CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity } from '../../shared/city.mjs';
-import { cityWheel, isPackDesign, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
+import { cityWheel, isPackDesign, PACK_DESIGN_ID, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
 import { initProps } from './propsmode.js';
 import { canEditProps, propMeshSurface } from '../../shared/props.mjs';
@@ -72,6 +72,7 @@ import { offerHighlightReel, highlightState, highlightBlob, highlightPreview } f
 import { findCrossCameraMoments, reelCameras, cityBounds as highlightCityBounds } from '../../shared/highlight.mjs';
 import { roomBounds as highlightRoomBounds } from '../../shared/autocam.mjs';
 import { FILMS_ENABLED } from '../../shared/features.mjs';
+import { createStudioJam } from './studiojam.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -111,6 +112,13 @@ if (filmLog && !filmLog.has('start')) filmLog.add('start', { room: ROOM });
 let busKeep = false; try { busKeep = sessionStorage.getItem('klibb.busKeep') === '1'; if (busKeep) sessionStorage.removeItem('klibb.busKeep'); } catch { /* fine */ }
 const carryReady = IN_CITY ? enterCity(THIS_CITY, { keepPacks: busKeep }) : leaveCity();
 const TESTBUS = testBusEnabled({ search: location.search }); // only ?testbus=1 – never auto-on for random visitors
+// Temporary film-studio mode (Jens, Nov 2026): ?studio=1 (or localStorage klibb.studio=1).
+// Unlocks the whole sticker library in the city as switchable wheels + mic jam recording.
+// Off by default so normal players are unaffected. Toggle live with J (Shift+J also) or klibb.setStudio.
+const STUDIO_KEY = 'klibb.studio';
+let FILM_STUDIO = params.get('studio') === '1' || params.get('studio') === 'true'
+  || (() => { try { return localStorage.getItem(STUDIO_KEY) === '1'; } catch { return false; } })();
+document.body.classList.toggle('film-studio', FILM_STUDIO);
 var cityBusBots = null; // eslint-disable-line no-var
 var cityBusSession = null; // eslint-disable-line no-var
 const room = CITY_OUTSIDE ? buildCityRoom({ hallColor: TESTBUS ? hallColorFor(ROOM) : null, busStop: !!(TESTBUS && isTestBusCity(ROOM)) }) : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
@@ -401,7 +409,7 @@ function designs() { return DEMO ? state.library.filter((d) => !isNat(d)) : show
 const isNat = (d) => !!d && d.library === true && isNature(d);
 // In the city: only what you brought – except in the build phase (CITY_BUILD_PHASE, until release, Jens t492u):
 // then the Nature wheel works in the city's outside and its houses too, so Jens can decorate the city.
-const natureOpen = () => !DEMO && (!IN_CITY || CITY_BUILD_PHASE) && !!entitlements.full.natureStickers;
+const natureOpen = () => FILM_STUDIO ? !DEMO : (!DEMO && (!IN_CITY || CITY_BUILD_PHASE) && !!entitlements.full.natureStickers);
 const keepSel = (l) => !!state.selected && (l.some((d) => d.id === state.selected.id) || (isNat(state.selected) && natureOpen())); // a nature sticker in hand stays in hand
 let natKey = '', natCache = [];
 function natureDesigns() {
@@ -417,8 +425,38 @@ let wheelKey = '', wheelCache = [];
 function wheelDesigns() { return activeWheel() === 'nature' ? natureDesigns() : stickerDesigns(); }
 function stickerDesigns() {
   if (DEMO) return designs();
+  if (IN_CITY && FILM_STUDIO) return studioCityDesigns();
   if (IN_CITY) return cityDesigns();
   return deckDesigns();
+}
+// Film studio in the city: the WHOLE non-nature library, chunked into switchable ~9-sticker wheels
+// (same ←/→ as pack slots). Nature stays on its own wheel (V / ←→).
+const STUDIO_WHEEL_SIZE = 9;
+let studioKey = '', studioCache = [], studioSlot = 0;
+function studioLibraryStickers() {
+  return state.library.filter((d) => d && d.url && !isNat(d) && !WHEEL_EXCLUDE.includes(d.id));
+}
+function studioPackGroups() {
+  const all = studioLibraryStickers();
+  const groups = [];
+  for (let i = 0; i < all.length; i += STUDIO_WHEEL_SIZE) {
+    const stickers = all.slice(i, i + STUDIO_WHEEL_SIZE);
+    const n = Math.floor(i / STUDIO_WHEEL_SIZE) + 1;
+    const total = Math.max(1, Math.ceil(all.length / STUDIO_WHEEL_SIZE));
+    groups.push({ id: `studio-${n}`, name: `Studio ${n}/${total}`, stickers });
+  }
+  if (!groups.length) groups.push({ id: 'studio-0', name: 'Studio', stickers: [] });
+  return groups;
+}
+function studioCityDesigns() {
+  const groups = studioPackGroups();
+  const key = ['studio', state.library.length, studioSlot, groups.map((g) => g.id).join(',')].join('|');
+  if (key === studioKey) return studioCache;
+  studioKey = key;
+  if (studioSlot >= groups.length) studioSlot %= groups.length;
+  if (studioSlot < 0) studioSlot = (studioSlot % groups.length + groups.length) % groups.length;
+  studioCache = groups[studioSlot].stickers.slice();
+  return studioCache;
 }
 // My deck (the normal wheel, outside the city). A paying player's kept city stickers (citymode.js
 // readKept, t479u) are in it too: each in the place of the sticker it replaced (klibb.swaps, like the
@@ -437,13 +475,40 @@ function deckDesigns() {
   return wheelCache;
 }
 // The city wheel (t476u): my pack's 3 stickers (+ the 2 packs I took in the Town Hall: ≤ 9), the
-// exit button and my pack – nothing else (citymode.js cityWheel).
+// exit button and my pack – nothing else (citymode.js cityWheel). ArrowLeft/Right while the wheel is
+// lit steps between carried packs (each pack = its own 3-sticker wheel) without leaving the view.
 let cityKey = '', cityCache = [];
+function cityPackGroups() {
+  const byId = (id) => state.library.find((d) => d.id === id) || state.mine.find((d) => d.id === id) || null;
+  const groups = [];
+  try {
+    const pac = JSON.parse(localStorage.getItem('klibb.pac') || 'null');
+    if (pac && Array.isArray(pac.stickers) && pac.stickers.length) {
+      const stickers = pac.stickers.map((id, k) => byId(id) || pac.designs?.[k] || (pac.urls && pac.urls[k] ? { id, url: pac.urls[k] } : null)).filter(Boolean);
+      if (stickers.length) groups.push({ id: pac.id || 'mine', name: pac.name || S.cityMyPack || 'my pack', stickers });
+    }
+  } catch { /* fine */ }
+  for (const p of takenPacks()) {
+    const stickers = (p.stickers || []).filter((s) => !s.gone).map((s) => byId(s.id) || { id: s.id, url: s.url, width: s.width, height: s.height });
+    if (stickers.length) groups.push({ id: p.id, name: p.name || S.cityMyPack || 'pack', stickers });
+  }
+  return groups;
+}
 function cityDesigns() {
   const byId = (id) => state.library.find((d) => d.id === id) || state.mine.find((d) => d.id === id) || null;
-  const key = [localStorage.getItem('klibb.pac')?.length, localStorage.getItem('klibb.cityTaken'), state.library.length, state.mine.length, cityPackUrl, cityPaid].join('|');
-  // Exit is an Esc-menu button now (no exit sticker on the city wheel).
-  if (key !== cityKey) { cityKey = key; cityCache = cityWheel({ byId, exit: null, max: cityPaid ? DECK_MAX : 9 }); }
+  const groups = cityPackGroups();
+  const key = [localStorage.getItem('klibb.pac')?.length, localStorage.getItem('klibb.cityTaken'), state.library.length, state.mine.length, cityPackUrl, cityPaid, cityPackSlot, groups.map((g) => g.id).join(',')].join('|');
+  if (key === cityKey) return cityCache;
+  cityKey = key;
+  // Paying player with a huge deck: keep the flat cityWheel list (no per-pack slots).
+  if (cityPaid) { cityCache = cityWheel({ byId, exit: null, max: DECK_MAX }); return cityCache; }
+  if (!groups.length) { cityCache = cityWheel({ byId, exit: null, max: 9 }); return cityCache; }
+  if (cityPackSlot >= groups.length) cityPackSlot = cityPackSlot % groups.length;
+  if (cityPackSlot < 0) cityPackSlot = (cityPackSlot % groups.length + groups.length) % groups.length;
+  const g = groups[cityPackSlot];
+  const pack = { id: PACK_DESIGN_ID, url: cityPackUrl || '/start/pac.webp', width: 563, height: 802, name: g.name, cityPack: true };
+  // One pack at a time: its 3 stickers + the pack bag (opens Town Hall) – switch packs with ←/→.
+  cityCache = [...g.stickers.slice(0, 3), pack];
   return cityCache;
 }
 var cityPackUrl = ''; // eslint-disable-line no-var
@@ -522,40 +587,68 @@ function renderDesignHud() {
 // or click turn it (only while the mouse is free: pointer lock sends clicks to the canvas; a click
 // here never slaps or locks the pointer). Touch: a band above the joystick and the stack, up while
 // you swipe it (the stack sideways, or the band itself) and a moment after (stackmenu.js).
-const WHEEL_UP_MS = 2600;
+// Desktop + touch: R/F (or a drag/scroll on the strip) lights the sticker wheel. While you keep
+// turning it the strip stays up; after WHEEL_UP_MS idle it fades out (CSS opacity). A click-pick
+// fades it at once and leaves the held sticker sharp for slapping (Jens, Nov 2026 wheel-fade).
+const WHEEL_UP_MS = 1000;
 let wheelUpTimer = 0;
+let cityPackSlot = 0; // which carried pack's stickers the city sticker wheel shows (0-based)
+function wheelIsLit() { return document.body.classList.contains('wheel-lit') || document.body.classList.contains('wheel-up'); }
+function wheelDown({ fromSelect = false } = {}) {
+  clearTimeout(wheelUpTimer); wheelUpTimer = 0;
+  document.body.classList.remove('wheel-up', 'wheel-lit');
+  const lab = $('wheel-label'); if (lab) lab.hidden = true;
+  // Idle fade (not an explicit pick): hide the held ghost too – no miljöklibbor while walking.
+  if (!fromSelect && deskHeld && (deskHeld.state === 'holding' || deskHeld.state === 'timed')) {
+    const t = performance.now();
+    deskHeld.placed(t - deskHeld.visibleMs - deskHeld.fadeMs); // opacity 0 immediately
+    if (state.mode === 'slap' && !propsMode()) setMode('view', { quiet: true });
+  }
+  const ae = document.activeElement;
+  if (ae && ae.closest && ae.closest('#design-strip, #nature-strip, #packs-strip, #wheel-label')) {
+    try { ae.blur(); } catch { /* fine */ }
+  }
+}
 function wheelUp() {
-  if (!isTouch) return;
   stackMenu?.held.keepAlive(performance.now()); // turning the wheel = working with the held sticker (no fade)
-  document.body.classList.add('wheel-up');
+  document.body.classList.add('wheel-up', 'wheel-lit');
+  updateWheelLabel();
   clearTimeout(wheelUpTimer);
   wheelUpTimer = setTimeout(function down() {
     if (wheel.info().dragging || natureWheel.info().dragging || packsWheel.info().dragging) { wheelUpTimer = setTimeout(down, 400); return; }
-    document.body.classList.remove('wheel-up');
+    wheelDown({ fromSelect: false });
   }, WHEEL_UP_MS);
 }
+function onWheelPick(img, after) {
+  select(img);
+  after?.(img);
+  // Explicit selection: strip fades now; held sticker stays sharp for aiming/slapping.
+  if (deskHeld && img) deskHeld.choose(performance.now());
+  if (img && state.mode === 'view' && !selfieOn() && !camView) setMode('slap', { quiet: true });
+  wheelDown({ fromSelect: true });
+  if (isTouch) stackMenu?.chosen();
+}
 const wheel = createWheel($('strip-row'), {
-  pick: (img) => { select(img); if (isTouch) stackMenu?.chosen(); },
+  pick: (img) => onWheelPick(img),
   onActivity: wheelUp,
 });
 // The Nature wheel (left of the sticker wheel): the same reel, the library's nature stickers only.
 const natureWheel = createWheel($('nature-row'), {
-  pick: (img) => { select(img); if (isTouch) stackMenu?.chosen(); },
+  pick: (img) => onWheelPick(img),
   onActivity: wheelUp,
 });
 const packsWheel = createWheel($('packs-row'), {
   pick: (img) => {
-    // Selecting a pack: hold its picture; in the city, slapping it still opens the Town Hall shop.
-    select(img);
-    if (img?.packId) {
-      try {
-        const all = readPacks();
-        const p = all.find((x) => x.id === img.packId);
-        if (p) localStorage.setItem('klibb.pac', JSON.stringify(p));
-      } catch { /* fine */ }
-      cityWheelChanged();
-    }
-    if (isTouch) stackMenu?.chosen();
+    onWheelPick(img, (picked) => {
+      if (picked?.packId) {
+        try {
+          const all = readPacks();
+          const p = all.find((x) => x.id === picked.packId);
+          if (p) localStorage.setItem('klibb.pac', JSON.stringify(p));
+        } catch { /* fine */ }
+        cityWheelChanged();
+      }
+    });
   },
   onActivity: wheelUp,
 });
@@ -1332,6 +1425,74 @@ function setPacksMode(on, { quiet = false } = {}) {
   if (!quiet && on) toast(S.packsTitle || 'Packs you carry (up to 3)', 1800);
   return packsMode();
 }
+function updateWheelLabel() {
+  const lab = $('wheel-label'); if (!lab) return;
+  if (packsMode()) {
+    const packs = readPacks();
+    lab.textContent = packs.length ? `📦 PACKS · ←/→ ${packs.length}/${PACKS_MAX}` : (S.packsEmpty || 'PACKS');
+    lab.hidden = false; return;
+  }
+  if (activeWheel() === 'nature') {
+    lab.textContent = '🌿 NATURE · ←/→';
+    lab.hidden = false; return;
+  }
+  if (IN_CITY && FILM_STUDIO) {
+    const groups = studioPackGroups();
+    const g = groups[((studioSlot % groups.length) + groups.length) % groups.length];
+    lab.textContent = `🎬 ${g.name} · ←/→ · J = jam`;
+    lab.hidden = false; return;
+  }
+  if (IN_CITY && !cityPaid) {
+    const groups = cityPackGroups();
+    if (groups.length > 1) {
+      const g = groups[((cityPackSlot % groups.length) + groups.length) % groups.length];
+      lab.textContent = `📦 ${g.name || 'pack'} · ${((cityPackSlot % groups.length) + groups.length) % groups.length + 1}/${groups.length} · ←/→`;
+      lab.hidden = false; return;
+    }
+  }
+  lab.textContent = FILM_STUDIO ? '🎬 STICKERS · ←/→ · J = jam' : 'STICKERS · ←/→';
+  lab.hidden = false;
+}
+/** While the wheel is lit: ←/→ switch pack (city) or top-level wheel (stickers/nature/packs). */
+function switchWheelSide(dir) {
+  wheelUp();
+  if (IN_CITY && FILM_STUDIO && !packsMode() && activeWheel() !== 'nature') {
+    const groups = studioPackGroups();
+    if (groups.length > 1) {
+      studioSlot = ((studioSlot + dir) % groups.length + groups.length) % groups.length;
+      studioKey = '';
+      const list = stickerDesigns();
+      select(list[0] || null);
+      renderStrip();
+      updateWheelLabel();
+      return 'studio-pack';
+    }
+  }
+  if (IN_CITY && !FILM_STUDIO && !cityPaid && !packsMode() && activeWheel() !== 'nature') {
+    const groups = cityPackGroups();
+    if (groups.length > 1) {
+      cityPackSlot = ((cityPackSlot + dir) % groups.length + groups.length) % groups.length;
+      cityKey = '';
+      const list = stickerDesigns();
+      select(list.find((d) => d.id !== PACK_DESIGN_ID) || list[0] || null);
+      renderStrip();
+      updateWheelLabel();
+      return 'pack';
+    }
+  }
+  const kinds = ['stickers'];
+  if (natureOpen() && natureDesigns().length) kinds.push('nature');
+  kinds.push('packs');
+  const cur = packsMode() ? 'packs' : activeWheel() === 'nature' ? 'nature' : 'stickers';
+  let i = kinds.indexOf(cur); if (i < 0) i = 0;
+  const next = kinds[(i + dir + kinds.length) % kinds.length];
+  if (next === 'packs') setPacksMode(true, { quiet: true });
+  else if (next === 'nature') { setPacksMode(false, { quiet: true }); setNatureMode(true, { quiet: true }); }
+  else { setPacksMode(false, { quiet: true }); if (natureMode()) setNatureMode(false, { quiet: true }); else { if (state.mode !== 'slap') setMode('slap', { quiet: true }); syncNatureMode(); renderStrip(); } }
+  updateWheelLabel();
+  return next;
+}
+
 function setStickersWheel() {
   if (propsMode()) propsUi.setActive(false);
   setPacksMode(false, { quiet: true });
@@ -1807,7 +1968,7 @@ if (!isTouch) {
       if (menuClick(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1))) return; // a menu sticker
       if (deskPress()) return; // faded: this click only brings the held sticker back
       // No pointer lock in this browser: a click still slaps – one sticker where you clicked (no arrays).
-      if (state.selected && hitSurface(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1))) deskHeld.placed(performance.now());
+      if (state.selected && hitSurface(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1))) { deskHeld.placed(performance.now()); wheelDown({ fromSelect: true }); }
       action(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
       return;
     }
@@ -1822,7 +1983,7 @@ if (!isTouch) {
     else if (deskPress()) { /* faded: this press only brings the held sticker back – no slap (point 10) */ }
     else {
       // Hold the button and look/drag away: the sticker repeats toward the crosshair (sticker arrays).
-      if (state.selected && hitSurface(CENTER)) deskHeld.placed(performance.now()); // each placement restarts its 2 s
+      if (state.selected && hitSurface(CENTER)) { deskHeld.placed(performance.now()); wheelDown({ fromSelect: true }); } // each placement restarts its 2 s; strip fades
       mouseHeld = true;
       action(CENTER, { onStart: (a) => { if (mouseHeld && controls.locked && state.mode === 'slap') startArray(a); } });
     }
@@ -1891,8 +2052,20 @@ if (!isTouch) {
     }
     if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
     if (state.mode === 'slap' && e.code === 'KeyE') setRot(state.rotation + 15);
-    if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) nextDesign(); // hold = keep spinning (key repeat)
-    if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey) prevDesign(); // F = previous design; hold = keep spinning
+    // ←/→ while the sticker wheel is lit: switch pack / wheel without leaving the view
+    if (wheelIsLit() && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
+      e.preventDefault();
+      switchWheelSide(e.code === 'ArrowRight' ? 1 : -1);
+      return;
+    }
+    if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) { // first press lights the wheel AND steps
+      wheelUp();
+      nextDesign();
+    }
+    if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey) {
+      wheelUp();
+      prevDesign();
+    }
   });
 } else {
   // Touch (Jens, 28 Oct 2026): with a sticker in hand (sharp), ONE finger on the room AIMS it: the
@@ -3388,9 +3561,38 @@ function renderMic(st = voice.state) {
   }
 }
 for (const b of micBtns()) b.onclick = (e) => { e.preventDefault(); voice.toggle(); };
+// Film studio jam: J starts/stops mic (+ room bus when available) → downloads a WebM.
+var studioJam = createStudioJam({ sound, toast }); // eslint-disable-line no-var
+function setStudio(on, { quiet = false } = {}) {
+  FILM_STUDIO = !!on;
+  document.body.classList.toggle('film-studio', FILM_STUDIO);
+  try { localStorage.setItem(STUDIO_KEY, FILM_STUDIO ? '1' : '0'); } catch { /* fine */ }
+  studioKey = ''; cityKey = ''; wheelKey = '';
+  if (!FILM_STUDIO) studioJam.dispose();
+  else {
+    // Warm the mic seat so permission is ready while walking/jamming (user still confirms the prompt).
+    import('./mic.js').then((m) => m.getMic('studio-warm')).catch(() => {});
+  }
+  const list = stickerDesigns();
+  if (!keepSel(list)) select(list[0] || null); else renderDesignHud();
+  renderStrip();
+  if (!quiet) toast(FILM_STUDIO
+    ? '🎬 Film studio ON – all stickers in the city · ←/→ wheels · J = jam mic'
+    : 'Film studio off', 2800);
+  return FILM_STUDIO;
+}
+if (FILM_STUDIO) {
+  // URL/localStorage already on: announce once the room is up.
+  addEventListener('load', () => setTimeout(() => toast('🎬 Film studio · all stickers · J = jam', 2600), 800), { once: true });
+}
 addEventListener('keydown', (e) => {
   if (isTouch || e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTyping(e) || together.chatOpen()) return;
   if (e.code === 'KeyB') voice.toggle();
+  if (e.code === 'KeyJ') {
+    if (!FILM_STUDIO) { setStudio(true); return; }
+    if (e.shiftKey) { setStudio(false); return; }
+    studioJam.toggle();
+  }
 });
 renderMic();
 
@@ -3561,6 +3763,7 @@ window.klibb = {
   filmPreview: async (size) => filmPreview({ ...(await filmOpts()), size }), // tests/stills: a frame of the film at any time
   props: propsUi, propsMode, setProps,
   demo: DEMO, config, voice: () => voice.info(), voiceObj: () => voice, toggleMic: () => voice.toggle(), library: () => state.library.slice(),
+  studio: () => FILM_STUDIO, setStudio, studioJam: () => (studioJam ? studioJam.state() : null),
   demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
     closedText: $('demo-closed-text').textContent, invite: inviteState, inviteNote: $('invite-note').hidden ? '' : $('invite-note').textContent, left: demoTimer && demoTimer.left ? demoTimer.left() : null }),
   inviteFriend, mySlot: () => together.mySlot(), talking: () => together.talking(),
@@ -3648,7 +3851,8 @@ window.klibb = {
   wheelUp, touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
   held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3) }, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
-  strip: () => ({ shown: !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && getComputedStyle($('design-strip')).visibility !== 'hidden', n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON() }),
+  strip: () => ({ shown: wheelIsLit() && !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && Number(getComputedStyle($('design-strip')).opacity) > 0.05, lit: wheelIsLit(), n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON(), packSlot: FILM_STUDIO ? studioSlot : cityPackSlot, label: $('wheel-label')?.textContent || '' }),
+  wheelUp, wheelDown, wheelIsLit,
   wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,
   natureStrip: () => ({ shown: !$('nature-strip').hidden && $('nature-strip').getClientRects().length > 0, locked: $('nature-strip').classList.contains('locked'), n: $('nature-row').children.length, sel: $('nature-row').querySelector('.sel')?.dataset.id ?? null, num: $('nature-num').textContent, rect: $('nature-strip').getBoundingClientRect().toJSON() }),
   // the held sticker's drop shadow, and where it and the sticker are on screen (px), for the tests

@@ -74,8 +74,10 @@ async function lum(buf, [x0, y0, x1, y1]) {
     check('scaled to 45 cm by hand: R / F to other stickers keep 45 cm', afterR === 45 && (await size()) === 45, { afterR, now: await size() });
 
     // ---- the wheel (desktop) ----
+    // R/F lights the strip (hidden while walking); keep it lit for the checks below.
+    await P.evaluate(() => window.klibb.wheelUp());
     const w0 = await P.evaluate(() => ({ ...window.klibb.strip(), wheel: window.klibb.wheel(), sel: window.klibb.state.selected.id, ids: window.klibb.designs().map((d) => d.id) }));
-    check(`the wheel runs along the bottom with all ${w0.ids.length} stickers, the held one in the middle (${w0.num})`, w0.shown && w0.n === 6 && w0.sel === w0.strip?.sel || (w0.shown && w0.n === 6 && w0.sel === w0.sel), w0);
+    check(`the wheel runs along the bottom with all ${w0.ids.length} stickers, the held one in the middle (${w0.num})`, w0.shown && w0.lit && w0.n === 6 && w0.sel === w0.strip?.sel || (w0.shown && w0.n === 6 && w0.sel === w0.sel), w0);
     check('it stays clear of the crosshair (lower part of the screen) and the old design box is gone', w0.rect.top > 800 / 2 + 100 && w0.rect.bottom >= 799 && await P.isHidden('#design-hud'), w0.rect);
     const settled = (pg) => pg.waitForFunction(() => { const w = window.klibb.wheel(); return Math.abs(w.pos - w.target) < 0.002; }, null, { timeout: 8000 }).catch(() => {});
     await settled(P);
@@ -106,6 +108,7 @@ async function lum(buf, [x0, y0, x1, y1]) {
     await sleep(600);
 
     // mouse wheel / trackpad over the wheel
+    await P.evaluate(() => window.klibb.wheelUp());
     const cur = () => P.evaluate(() => window.klibb.designs().findIndex((d) => d.id === window.klibb.state.selected.id));
     const c0 = await cur();
     await P.mouse.move(640, 760); await P.mouse.wheel(0, 100); await sleep(500);
@@ -114,12 +117,16 @@ async function lum(buf, [x0, y0, x1, y1]) {
     const c2 = await cur();
     check('the mouse wheel over it turns it (down = next, up = back two)', c1 === (c0 + 1) % 6 && c2 === (c0 + 5) % 6, { c0, c1, c2 });
     // click a neighbour
+    await P.evaluate(() => window.klibb.wheelUp());
     await settled(P); st = await styles(P);
     const right = st.find((x) => near(x.d, 1, 0.01)), count0 = await P.evaluate(() => window.klibb.stamps.count);
     await P.mouse.click(right.rect.left + right.rect.width * 0.8, right.rect.top + right.rect.height * 0.55); await sleep(700);
     const clicked = await P.evaluate(() => ({ sel: window.klibb.state.selected.id, count: window.klibb.stamps.count, locked: window.klibb.controls.locked, w: window.klibb.wheel() }));
     check('clicking the sticker right of the middle picks it and turns it to the middle (no slap, no pointer lock)', clicked.sel === right.id && clicked.count === count0 && !clicked.locked && Number.isInteger(clicked.w.target), { right: right.id, clicked });
+    const afterPick = await P.evaluate(() => ({ lit: window.klibb.wheelIsLit(), shown: window.klibb.strip().shown }));
+    check('picking a sticker fades the wheel at once (back to the room)', !afterPick.lit && !afterPick.shown, afterPick);
     // drag it with the mouse: two stickers' worth to the left → two on
+    await P.evaluate(() => window.klibb.wheelUp());
     const g = await P.evaluate(() => parseFloat(getComputedStyle(document.getElementById('strip-row')).getPropertyValue('--wheel-item')) * 0.4) // = wheel.js gap;
     const d0 = await cur();
     await P.mouse.move(640, 740); await P.mouse.down(); for (let k = 1; k <= 8; k++) { await P.mouse.move(640 - (k * 2 * g) / 8, 740); await sleep(30); } await sleep(250); await P.mouse.up(); await sleep(700);
