@@ -49,7 +49,7 @@ import { ArrayGhosts } from './arraydrag.js';
 import { arrayPlan, faceFor, PEELS_PER_ARRAY, wheelScaleFactor, clampStampSize } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
 import { initStackMenu } from './stackmenu.js';
-import { createHeldTimer } from '../../shared/heldtimer.mjs';
+import { createHeldTimer, HELD_VISIBLE_MS, CITY_HELD_VISIBLE_MS } from '../../shared/heldtimer.mjs';
 import { createRoomSizer, ROOM_RANGE } from './roomsize.js';
 import { PresetLayer, bakeFaces, PRESET_PX_PER_M } from './preset.js';
 import { WHEEL_EXCLUDE, FORMER_MENU_IDS } from './menustickers.js';
@@ -190,9 +190,12 @@ const roomSizer = room.city ? { RANGE: ROOM_RANGE, get: () => ({ width: 96, heig
 // the same as a tap on touch: the crosshair had no sticker to aim with). Moving, keys and the scroll
 // wheel leave a faded one faded. Picking a new design (R / F, the wheel, the sticker book) is choosing,
 // not idling: that one is sharp until placed (deskHeld.choose), as before.
-const deskHeld = isTouch ? null : createHeldTimer();
+// City: 0.5 s brush timeout (CITY_HELD_VISIBLE_MS). Rooms: 2 s. Walking must not keepAlive in the
+// city – WASD/look used to refresh the 2 s forever, so the aim brush stayed on while walking.
+const deskHeld = isTouch ? null : createHeldTimer({ visibleMs: IN_CITY ? CITY_HELD_VISIBLE_MS : HELD_VISIBLE_MS });
 function deskActive() {
   if (!deskHeld) return;
+  if (IN_CITY) return; // city: timer runs out on its own (0.5 s); walk/look do not refresh it
   const t = performance.now();
   if (deskHeld.state !== 'timed' || deskHeld.faded(t)) return; // faded: only a press brings it back (deskPress)
   if (!deskHeld.canSlap(t)) deskHeld.wake(t); else deskHeld.keepAlive(t); // fading: back sharp; sharp: a fresh 2 s
@@ -550,7 +553,12 @@ async function select(img) {
   state.selected = img || null; renderTray(); renderDesignHud();
   if (changed) applySizeLimit(); // nature stickers have their own size limits (shared/nature.mjs)
   if (img && changed) startSize(img);
-  if (img && changed) deskHeld?.choose(performance.now()); // desktop: a newly chosen sticker is sharp until placed
+  // desktop: room = sharp until placed (choose); city = start the short brush timer (wake), so the
+  // aim tool is not stuck on while you walk after R/F (Jens Nov 2026: 0.5 s in the city).
+  if (img && changed) {
+    if (IN_CITY) deskHeld?.wake(performance.now());
+    else deskHeld?.choose(performance.now());
+  }
   // desktop, View mode (after a fade): picking another sticker (R / F, the wheel, the book) means slapping
   // again – back to Slap mode. Not the first pick at start: a room starts in View mode.
   if (img && changed && deskHeld && window.klibb?.ready && state.mode === 'view' && !selfieOn() && !camView) setMode('slap', { quiet: true });
@@ -636,8 +644,11 @@ function wheelUp() {
 function onWheelPick(img, after) {
   select(img);
   after?.(img);
-  // Explicit selection: strip fades now; held sticker stays sharp for aiming/slapping.
-  if (deskHeld && img) deskHeld.choose(performance.now());
+  // Explicit selection: strip fades now; room keeps held sharp (choose), city starts the 0.5 s brush timer.
+  if (deskHeld && img) {
+    if (IN_CITY) deskHeld.wake(performance.now());
+    else deskHeld.choose(performance.now());
+  }
   if (img && state.mode === 'view' && !selfieOn() && !camView) setMode('slap', { quiet: true });
   wheelDown({ fromSelect: true });
   if (isTouch) stackMenu?.chosen();
@@ -2101,7 +2112,7 @@ if (!isTouch) {
   // Any touch on the screen (Jens, 29 Oct 2026) counts as working with the held sticker: while it is
   // up, its 2 s (HELD_VISIBLE_MS) start again; it only fades after 2 s untouched. (A faded one is not
   // revived by this – a tap wakes it, as before.)
-  const touchAlive = (e) => { if (e.pointerType !== 'mouse') stackMenu?.held.keepAlive(performance.now()); };
+  const touchAlive = (e) => { if (IN_CITY) return; if (e.pointerType !== 'mouse') stackMenu?.held.keepAlive(performance.now()); };
   addEventListener('pointerdown', (e) => { touchAlive(e); if (e.pointerType !== 'mouse') touchesDown.add(e.pointerId); }, true);
   addEventListener('pointermove', touchAlive, true);
   for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, (e) => { touchAlive(e); touchesDown.delete(e.pointerId); }, true);
@@ -2231,6 +2242,8 @@ if (!isTouch) {
   $('panel').classList.add('hidden'); $('panel-toggle').setAttribute('aria-expanded', 'false');
   stackMenu = initStackMenu({
     pinching: () => !!touchPinch,
+    heldVisibleMs: IN_CITY ? CITY_HELD_VISIBLE_MS : HELD_VISIBLE_MS,
+    briefHeld: !!IN_CITY,
     S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
     peelLast: () => peelLast(), toggleView: () => toggleView(), startDance: () => startDance(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
     chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(), wheel: activeWheelApi, wheelUp, natureOpen: () => natureOpen(),

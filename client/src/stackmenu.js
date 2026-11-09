@@ -15,7 +15,7 @@
 //   the room: it aims the sticker there (the preview follows the finger) and letting go stamps it
 //   there (main.js, the touch input).
 // - There is no Slap/Look switch on touch: the timer (shared/heldtimer.mjs) decides.
-import { createHeldTimer, HELD_VISIBLE_MS, HELD_FADE_MS } from '../../shared/heldtimer.mjs';
+import { createHeldTimer, HELD_VISIBLE_MS, HELD_FADE_MS, CITY_HELD_VISIBLE_MS } from '../../shared/heldtimer.mjs';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -23,8 +23,9 @@ const RING = { 1: 120, 2: 210 };   // px from the stack's centre
 const STACK = { right: 58, bottom: 66 }; // the stack's centre (px from the bottom-right corner)
 
 export function initStackMenu(o) {
-  const { state, now = () => performance.now() } = o;
-  const held = createHeldTimer();
+  const { state, now = () => performance.now(), heldVisibleMs = HELD_VISIBLE_MS, briefHeld = false } = o;
+  // briefHeld (city): wake/timed instead of indefinite choose; visibleMs usually CITY_HELD_VISIBLE_MS.
+  const held = createHeldTimer({ visibleMs: heldVisibleMs });
   const body = document.body;
 
   // ---- Move the controls that the (hidden) panel used to hold to where they live on touch ----
@@ -154,7 +155,7 @@ export function initStackMenu(o) {
   hold.addEventListener('pointercancel', (e) => letGo(e, false));
 
   // a sticker was chosen (book, swipe, upload): sharp in the holder until it is placed
-  function chosen() { held.choose(now()); }
+  function chosen() { if (briefHeld) held.wake(now()); else held.choose(now()); }
 
   // Mirror the chat's unread count onto the Talk card.
   new MutationObserver(() => { $('sm-unread').textContent = $('chat-unread').textContent; }).observe($('chat-unread'), { childList: true, characterData: true, subtree: true });
@@ -169,7 +170,7 @@ export function initStackMenu(o) {
     open: () => setOpen(true), close: closeMenu, isOpen: () => open, openBook, closeBook, bookOpen: () => !$('sticker-book').hidden,
     info() {
       const t = now(), vis = (id) => { const el = $(id); return !!el && el.getClientRects().length > 0 && Number(getComputedStyle(el).opacity) > 0.01; };
-      return { ...held.info(t), visibleMs: HELD_VISIBLE_MS, fadeMs: HELD_FADE_MS, menuOpen: open, bookOpen: !$('sticker-book').hidden,
+      return { ...held.info(t), visibleMs: heldVisibleMs, fadeMs: HELD_FADE_MS, menuOpen: open, bookOpen: !$('sticker-book').hidden,
         editing: body.classList.contains('editing'), heldRect: $('held').getBoundingClientRect().toJSON(),
         heldShown: vis('held'), heldOpacity: Number($('held').style.opacity || 0) };
     },
