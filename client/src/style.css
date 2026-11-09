@@ -829,6 +829,11 @@ body.start-card-on { overflow: auto; background: #fff; }
 .sc-input { width: 100%; box-sizing: border-box; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 700; font-size: clamp(20px, 4.8cqh, 36px); padding: .35em .45em; border: 3px solid #a00c24; border-radius: 0; background: #111; color: #fff; caret-color: #fff; outline: none; }
 .sc-input:focus { border-color: #fff; box-shadow: 0 0 0 2px #a00c24; }
 .sc-form .sc-msg { min-height: 1.2em; }
+.sc-enter-hint { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 700; font-size: clamp(12px, 2.4cqh, 18px); letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.42); text-align: center; user-select: none; pointer-events: none; padding: .35em 0; }
+.sc-bar-bottom:not(.sc-back-bar) { display: flex; align-items: center; justify-content: center; }
+.sc-city-form .sc-heading { text-align: center; width: 100%; }
+.sc-city-input { font-size: clamp(28px, 7cqh, 56px) !important; text-align: center; padding: .4em .35em !important; }
+.sc-city-go { margin-left: auto; }
 @media (max-width: 480px) {
   .sc-frame { width: min(96vw, calc(100vh - 16px)); padding: 2.6%; }
   .sc-opt-list { font-size: clamp(14px, 3.2cqh, 22px); }

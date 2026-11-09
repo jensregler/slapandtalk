@@ -177,21 +177,15 @@ const EXIT = 'a03b0ba5768979e6';
     check('…its exit menu: Back to the City, Exit to menu (no "back to my room")', JSON.stringify(ex2) === JSON.stringify(['to-city', 'exit-menu', 'back']), ex2);
     await P.click('#menu-choice-list [data-id="back"]');
 
-    // ---- B on the start card: the Join list shows the city's name
+    // ---- B joins the city house via ?room= (landing no longer has Join; city API still lists it)
+    const openRooms = (await (await fetch(`${S.base}/api/rooms/open`)).json()).rooms || [];
+    check('open rooms API: city house listed with city name (was start-card Join)',
+      openRooms.some((r) => r.id === `${CID}-1` && r.city && /Slapville/i.test(r.city.name || '')), openRooms);
     const ctxB = await browser.newContext({ viewport: { width: 1280, height: 860 } });
     const B = await ctxB.newPage(); B.on('pageerror', (e) => errors.push('B: ' + e.message));
-    await B.goto(`${S.base}/?start=1`);
-    await B.waitForSelector('#sc-splash, #sc-new', { timeout: 20000 });
-    if (!(await B.$('#sc-new'))) { await B.click('#start-card'); await B.waitForSelector('#sc-new', { timeout: 10000 }); }
-    await B.click('#sc-join'); await B.waitForSelector('#sc-list .sc-room', { timeout: 20000 }); await sleep(800);
-    const join = await B.evaluate(() => [...document.querySelectorAll('#sc-list .sc-room')].map((b) => ({ id: b.dataset.id, text: b.textContent })));
-    check('start card Join list: the room in the city shows the city name ("🏙 Slapville · house 1")', join.some((r) => r.id === `${CID}-1` && r.text.includes('🏙 Slapville · house 1')), join);
-    await shot(B, '09-join-list-with-city-name.png');
-    // B joins via the list → the house; no pack yet → no pack maker (CREATE is room-only)
-    await B.click(`#sc-list .sc-room[data-id="${CID}-1"]`);
-    await B.waitForSelector('#sc-details', { timeout: 10000 });
-    await B.fill('#sc-name', 'B'); await Promise.all([B.waitForURL(new RegExp(`room=${CID}-1$`), { timeout: 20000 }), B.click('#sc-enter')]);
+    await B.goto(`${S.base}/?room=${CID}-1`);
     await ready(B); await sleep(3000);
+    await shot(B, '09-join-list-with-city-name.png');
     check('joining a city without a pack: pack maker stays closed (CREATE is room-only)', !(await B.evaluate(() => window.klibb.door())).open);
 
     // A: back to the city → in front of house 1; door 1 started, door 2 next

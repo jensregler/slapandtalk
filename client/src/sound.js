@@ -19,6 +19,22 @@ const MUTE_KEY = 'klibb.muted';
 const VOL_KEY = 'klibb.musicVol';
 const VOLUME = { slap: [0.75 / 0.75, 0.9 / 0.75], peel: [1, 0.6 / 0.45], step: [1, 1], duff: [1, 1] }; // [mine, remote]
 
+// Call synchronously inside a user gesture (Enter / tap on the landing) so WebAudio is allowed
+// before main.js constructs Sounds. The primed context is reused by Sounds.ensure().
+export function primeAudioFromGesture() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    let ctx = window.__klibbAudioCtx;
+    if (!ctx || ctx.state === 'closed') {
+      try { ctx = new AC({ latencyHint: 'interactive' }); } catch { try { ctx = new AC(); } catch { return null; } }
+      window.__klibbAudioCtx = ctx;
+    }
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    return ctx;
+  } catch { return null; }
+}
+
 export class Sounds {
   constructor() {
     this.ctx = null; this.engine = null; this.Tone = null;
@@ -42,8 +58,13 @@ export class Sounds {
   // The AudioContext is made right away (inside the click); Tone.js loads in the background.
   ensure() {
     if (this.ctx) return this.ctx;
-    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
-    try { this.ctx = new AC({ latencyHint: 'interactive' }); } catch { try { this.ctx = new AC(); } catch { return null; } }
+    // Landing Enter/tap may have primed a context under the user gesture (startcard.js).
+    if (typeof window !== 'undefined' && window.__klibbAudioCtx) {
+      this.ctx = window.__klibbAudioCtx;
+    } else {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+      try { this.ctx = new AC({ latencyHint: 'interactive' }); } catch { try { this.ctx = new AC(); } catch { return null; } }
+    }
     this.ready = loadTone().then((Tone) => {
       Tone.setContext(new Tone.Context(this.ctx));
       this.Tone = Tone;
