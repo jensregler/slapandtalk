@@ -332,8 +332,9 @@ export const EN = {
   peelsClear: '🧹 Sweep up the peels', peelsOnToast: 'Peels on: the backing paper lands on the floor.', peelsOffToast: 'Peels off.', peelsCleared: 'The floor is swept.',
   // Fabrics: an image repeated over a body part instead of the colour
   fabColour: 'Colour', fabFabric: 'Fabric', fabModeAria: (part) => `${part}: colour or fabric`,
-  fabUpload: '📷 Upload image', fabUploadTitle: 'Use a picture from your device as fabric (it gets repeated)',
-  fabPickHint: 'or pick one of these (your stickers, recent fabrics, patterns):',
+  fabUpload: '📷 Upload', fabUploadTitle: 'Upload a patch image (PNG/WebP/GIF/SVG with transparency kept)',
+  fabPatches: 'Patches', fabPatch: (name) => `Patch: ${name}`,
+  fabPickHint: 'or pick a patch, your stickers, recent fabrics, patterns:',
   fabBaseHint: 'Colour under the fabric (shows through transparent parts):',
   fabNone: 'Pick an image to wear.',
   fabScale: 'Scale', fabRotation: 'Rotation', fabHue: 'Hue', fabCycleHue: 'Cycle hue', fabSpin: 'Spin', fabSpeed: 'Speed', fabScroll: 'Scroll',

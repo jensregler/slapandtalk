@@ -7,7 +7,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
-import { FABRIC, cleanFabric, cleanFabrics, cleanParam, fabricPhase, fabricSize, randomFabricParams, defaultFabric } from '../shared/fabric.mjs';
+import { FABRIC, cleanFabric, cleanFabrics, cleanParam, fabricPhase, fabricSize, randomFabricParams, defaultFabric, afterTwist } from '../shared/fabric.mjs';
 
 const require = createRequire(import.meta.url);
 const sharp = require('sharp');
@@ -56,7 +56,11 @@ const seeded = (seed) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let 
   const rs = [...Array(200)].map(() => randomFabricParams(ID, rand));
   assert(rs.every((r) => same(cleanFabric(r), r)) && new Set(rs.map((r) => r.scale)).size > 50, '🌀 Randomize ger alltid giltiga (och olika) värden');
   assert(same(defaultFabric(ID), cleanFabric({ id: ID })), 'defaultFabric = standardvärden');
+  const spun = cleanFabric({ id: ID, spin: true, spinHz: 0.2, rot: 10 });
+  const twisted = afterTwist(spun, 45);
+  assert(twisted.spin === false && twisted.rot === 45 && twisted.spinHz === spun.spinHz, 'one twist disables auto-rotate (spin off, rot kept)');
 }
+
 
 // ---------- Servern har samma regler som webbläsaren ----------
 {

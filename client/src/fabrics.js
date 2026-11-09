@@ -174,13 +174,39 @@ export function tickFabric(mat, tMs = Date.now()) {
 
 // ---------- Images: resize in the browser, then upload ----------
 const toBlob = (c, type, q) => new Promise((r) => c.toBlob(r, type, q));
+// Decode a user image for fabric/patch use. Keeps alpha (clear canvas → WebP/PNG).
+// PNG/WebP/JPEG via createImageBitmap; GIF uses the first frame; SVG is rasterized via <img>
+// (blob URL from the file picker only – no network fetch) so scripts/external refs stay inert.
+async function decodeFabricSource(blob) {
+  const type = (blob.type || '').toLowerCase();
+  const name = (blob.name || '').toLowerCase();
+  const isSvg = type.includes('svg') || name.endsWith('.svg');
+  if (isSvg) {
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('Could not read that SVG'));
+        el.src = url;
+      });
+      const w = Math.max(1, img.naturalWidth || img.width || 256);
+      const h = Math.max(1, img.naturalHeight || img.height || 256);
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0);
+      return await createImageBitmap(c);
+    } finally { URL.revokeObjectURL(url); }
+  }
+  // GIF: createImageBitmap yields the first frame; PNG/WebP keep transparency.
+  return createImageBitmap(blob);
+}
 export async function prepareFabricImage(blob) {
-  const bmp = await createImageBitmap(blob);
+  const bmp = await decodeFabricSource(blob);
   let size = fabricSize(bmp.width, bmp.height);
   const c = document.createElement('canvas');
   for (;;) {
     c.width = c.height = size;
-    const g = c.getContext('2d'); g.clearRect(0, 0, size, size);
+    const g = c.getContext('2d'); g.clearRect(0, 0, size, size); // keep alpha for sticker-like patches
     const k = Math.min(size / bmp.width, size / bmp.height), w = bmp.width * k, h = bmp.height * k;
     g.imageSmoothingQuality = 'high'; g.drawImage(bmp, (size - w) / 2, (size - h) / 2, w, h);
     let out = await toBlob(c, 'image/webp', 0.88);
@@ -223,8 +249,32 @@ export const PRESETS = {
   stars: { name: 'Stars', transparent: true, draw(g, s) { g.fillStyle = POP[1]; const star = (cx, cy, r) => { g.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; g.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); } g.fill(); }; star(s / 4, s / 4, s / 7); star(3 * s / 4, 3 * s / 4, s / 7); } },
   ulla: { name: 'ULLA', draw(g, s) { g.fillStyle = POP[0]; g.fillRect(0, 0, s, s); g.fillStyle = POP[1]; g.font = `900 ${s / 4.2}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('ULLA', s / 2, s / 4); g.fillStyle = POP[2]; g.fillText('ULLA', s / 2, 3 * s / 4); } },
 };
+// Clothing patches (Min gubbe → Fabric → Patches tab): black circle, yellow star, then upload.
+// Transparent outside the shape so the shirt colour shows through (sticker-like).
+function drawStar(g, cx, cy, r) {
+  g.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.42 : r;
+    g.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+  }
+  g.closePath(); g.fill();
+}
+export const PATCHES = {
+  circle: { name: 'Black circle', transparent: true, draw(g, s) {
+    g.clearRect(0, 0, s, s);
+    g.fillStyle = '#111111';
+    g.beginPath(); g.arc(s / 2, s / 2, s * 0.38, 0, Math.PI * 2); g.fill();
+  } },
+  star: { name: 'Yellow star', transparent: true, draw(g, s) {
+    g.clearRect(0, 0, s, s);
+    g.fillStyle = '#ffd400';
+    drawStar(g, s / 2, s / 2, s * 0.42);
+  } },
+};
+export const PATCH_ORDER = ['circle', 'star']; // upload comes after these in the UI
+const ALL_DRAWS = { ...PRESETS, ...PATCHES };
 export function presetCanvas(key, size = 256) {
   const c = document.createElement('canvas'); c.width = c.height = size;
-  const g = c.getContext('2d'); PRESETS[key].draw(g, size); return c;
+  const g = c.getContext('2d'); ALL_DRAWS[key].draw(g, size); return c;
 }
 export const presetBlob = (key) => toBlob(presetCanvas(key), 'image/png');

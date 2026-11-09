@@ -1,8 +1,8 @@
 // "Min gubbe": the Colour | Fabric switch on every colour slot, the fabric picker and sliders,
 // and 🌀 Randomize. together.js owns the draft look; this file only edits draft.fabric.
 import { S } from './strings.js';
-import { FABRIC, cleanFabric, fabricPhase, fabricUrl, prepareFabricImage, prepareFacePhoto, uploadFabric, PRESETS, presetCanvas, presetBlob } from './fabrics.js';
-import { randomFabricParams } from '../../shared/fabric.mjs';
+import { FABRIC, cleanFabric, fabricPhase, fabricUrl, prepareFabricImage, prepareFacePhoto, uploadFabric, PRESETS, PATCHES, PATCH_ORDER, presetCanvas, presetBlob } from './fabrics.js';
+import { randomFabricParams, afterTwist } from '../../shared/fabric.mjs';
 import { readMine, getBlob } from './designs.js';
 import { has } from './entitlements.js';
 
@@ -104,23 +104,31 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     const pv = document.createElement('div'); pv.className = 'fab-preview'; pv.setAttribute('role', 'img'); pv.setAttribute('aria-label', S.fabPreview);
     const tile = document.createElement('div'); tile.className = 'fab-tile'; pv.appendChild(tile);
     const src = document.createElement('div'); src.className = 'fab-src';
-    const up = document.createElement('button'); up.type = 'button'; up.className = 'fab-up'; up.textContent = S.fabUpload; up.title = S.fabUploadTitle;
-    up.onclick = () => { fileSlot = slot; filePhoto = false; file.click(); };
     const hint = document.createElement('small'); hint.textContent = f?.photo ? `${S.facePhotoOn} ${S.fabPickHint}` : f ? S.fabPickHint : `${S.fabNone} ${S.fabPickHint}`;
-    const srcBtns = [up];
-    // face photo UI removed (t587u: face locked)
-    const picks = document.createElement('div'); picks.className = 'fab-picks';
+    // Patches tab: black circle, yellow star, then upload last (Jens). Alpha kept via prepareFabricImage.
+    const patchLab = document.createElement('div'); patchLab.className = 'fab-tab-label'; patchLab.textContent = S.fabPatches;
+    const patchRow = document.createElement('div'); patchRow.className = 'fab-picks fab-patches'; patchRow.setAttribute('role', 'group'); patchRow.setAttribute('aria-label', S.fabPatches);
     const curId = f?.id;
     const fromSticker = readJson(FROM_STICKER_KEY, {}), presetIds = readJson(PRESET_KEY, {});
+    for (const k of PATCH_ORDER) {
+      const p = PATCHES[k];
+      patchRow.appendChild(pickButton(S.fabPatch(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId, 'patch', () => useSource(slot, () => idForPreset(k))));
+    }
+    const up = document.createElement('button'); up.type = 'button'; up.className = 'fab-up fab-patch-up'; up.textContent = S.fabUpload; up.title = S.fabUploadTitle;
+    up.onclick = () => { fileSlot = slot; filePhoto = false; file.click(); };
+    patchRow.appendChild(up); // upload last in the patch tab
+    // Patterns + recent + own stickers below the patch tab
+    const picks = document.createElement('div'); picks.className = 'fab-picks';
     for (const st of readMine().slice().reverse().slice(0, 12)) {
       picks.appendChild(pickButton(S.fabMine, st.url, fromSticker[st.id] && fromSticker[st.id] === curId, 'mine', () => useSource(slot, () => idForSticker(st))));
     }
     const shown = new Set([...Object.values(fromSticker), ...Object.values(presetIds)]);
     for (const id of readRecent()) if (!shown.has(id)) picks.appendChild(pickButton(S.fabRecent, fabricUrl(id), id === curId, null, () => useSource(slot, async () => id)));
     for (const [k, p] of Object.entries(PRESETS)) picks.appendChild(pickButton(S.fabPreset(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId, null, () => useSource(slot, () => idForPreset(k))));
-    src.append(...srcBtns, hint, picks);
+    src.append(hint, patchLab, patchRow, picks);
     top.append(pv, src); ctl.appendChild(top);
     const vals = f || cleanFabric({ ...(params[slot] || {}), id: '0000000000000000' });
+    const spinRowRef = { cb: null, row: null };
     for (const [k, label, flag] of SLIDERS) {
       const p = FABRIC.params[k], row = document.createElement('div'); row.className = 'fab-sl'; row.dataset.param = k;
       let lab;
@@ -130,11 +138,20 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
         cb.onchange = () => { edit(slot, { [flag]: cb.checked }); row.classList.toggle('off', !cb.checked); };
         lab.append(cb, document.createTextNode(' ' + label()));
         if (!vals[flag]) row.classList.add('off');
+        if (flag === 'spin') { spinRowRef.cb = cb; spinRowRef.row = row; }
       } else { lab = document.createElement('span'); lab.textContent = label(); }
       const r = document.createElement('input'); r.type = 'range'; r.min = p.min; r.max = p.max; r.step = p.step; r.value = vals[k]; r.disabled = !f;
       r.setAttribute('aria-label', flag ? `${label()} ${S.fabSpeed}` : label());
       const out = document.createElement('output'); out.textContent = fmt(k, vals[k]);
-      r.oninput = () => { const v = Number(r.value); out.textContent = fmt(k, v); edit(slot, { [k]: v }); };
+      r.oninput = () => {
+        const v = Number(r.value); out.textContent = fmt(k, v);
+        // One twist disables auto-rotate: dragging Rotation turns Spin off (Jens).
+        if (k === 'rot') {
+          const next = afterTwist(getDraft().fabric?.[slot] || vals, v);
+          edit(slot, { rot: next.rot, spin: next.spin });
+          if (spinRowRef.cb) { spinRowRef.cb.checked = false; spinRowRef.row?.classList.add('off'); }
+        } else edit(slot, { [k]: v });
+      };
       row.append(lab, r, out); ctl.appendChild(row);
     }
     return ctl;
@@ -238,3 +255,5 @@ export function weaveIcon() {
   weaveUrl = c.toDataURL();
   return weaveUrl;
 }
+
+export { afterTwist as twistDisablesSpin };

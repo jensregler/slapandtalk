@@ -268,6 +268,11 @@ body.avatar-view #scene:active { cursor: grabbing; }
 .fab-picks button { width: 32px; height: 32px; padding: 0; border-radius: 7px; border: 2px solid #444; background-size: cover; background-position: center; background-color: #333; }
 .fab-picks button.sel { border-color: #ffd400; }
 .fab-picks button.mine { border-style: dashed; }
+.fab-tab-label { font-size: 11px; font-weight: 700; color: #ccc; letter-spacing: .02em; margin-top: 2px; }
+.fab-patches { max-height: none; align-items: center; }
+.fab-patches button.patch { border-color: #666; background-color: #2a2a2a; background-size: 70%; background-repeat: no-repeat; }
+.fab-patches .fab-patch-up { width: auto; min-width: 72px; height: 32px; padding: 0 8px; font-size: 12px; border-radius: 7px; border: 2px dashed #888; background: #222; color: #eee; }
+body.touch .fab-patches .fab-patch-up { height: 38px; }
 .fab-sl { display: grid; grid-template-columns: 84px 1fr 58px; align-items: center; gap: 6px; font-size: 12px; }
 .fab-sl input[type=range] { width: 100%; margin: 0; accent-color: #ffd400; }
 .fab-sl output { text-align: right; color: #ccc; font-variant-numeric: tabular-nums; }

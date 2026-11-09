@@ -60,6 +60,11 @@ export function fabricSize(w, h) {
 }
 
 // Wild random params (for 🌀 Randomize).
+
+// Manual twist (Rotation slider): turn auto-spin off so the user's turn sticks (Jens).
+export function afterTwist(f, rot) {
+  return cleanFabric({ ...(f || {}), rot, spin: false });
+}
 export function randomFabricParams(id, rand = Math.random) {
   const r = (a, b) => a + (b - a) * rand();
   return cleanFabric({
