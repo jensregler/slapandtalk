@@ -261,6 +261,8 @@ export const EN = {
   scNoPresets: 'No presets yet – try Empty room.',
   scRoomFacts: (free, st, vis, age) => `${free} free spot${free === 1 ? '' : 's'} · ${st} sticker${st === 1 ? '' : 's'} · ${vis} visitor${vis === 1 ? '' : 's'} · ${age}`,
   scName: 'NAME', scInsta: 'INSTAGRAM', scRoomName: 'ROOM NAME', scBack: 'back', scSaveEnter: 'save and enter', scEnterGo: 'ENTER', scMaking: 'Making your room…', scFailed: 'Could not make the room.',
+  scCityNameTitle: 'NAME THE NEW CITY', scCityGo: 'ENTER', scMakingCity: 'Starting your city…',
+  scEnterHint: 'Enter ↵', scTapHint: 'tap',
   scRoomType: 'room?', scBlankRoom: 'Blank room', scPickChange: 'change ▸', scPickTitle: 'Choose your room',
   scCodeTitle: 'I have a code', scCodePlaceholder: 'the room code (or its link)', scCodeGo: 'enter', scCodeBad: 'A code has letters, digits and dashes.', scCodeUnknown: 'There is no room with that code (any more).',
   soundReset: 'All sounds, effects and Master volume are back to default – Save to keep it.',

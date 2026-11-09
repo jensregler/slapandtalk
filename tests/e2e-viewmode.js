@@ -79,14 +79,16 @@ const CUSTOM = { patches: { slap: { gain: 0.3, layers: [{ kind: 'osc', wave: 'sq
     await p.goto(`${S.base}/?room=stad`); await p.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 }); await sleep(500);
     const city = await p.evaluate(() => ({ me: window.klibb.voiceOf(null), vol: window.klibb.sound.volume, groove: window.klibb.groove().scale }));
     check('…into the City: my sound settings come along', !!city.me.patches && city.vol === 0.4 && city.groove === 2, city);
-    // Exit to menu: all back to default
+    // Exit to menu (landing): sound settings reset; rooms are no longer created from the landing.
     await p.goto(`${S.base}/?start=1`);
-    await p.waitForSelector('#sc-splash, #sc-new', { timeout: 15000 });
-    if (!(await p.$('#sc-new'))) { await p.click('#start-card'); await p.waitForSelector('#sc-new', { timeout: 10000 }); }
+    await p.waitForSelector('#sc-splash', { timeout: 15000 });
     const menu = await p.evaluate(() => ['klibb.sound', 'klibb.musicVol', 'klibb.grooveScale'].map((k) => sessionStorage.getItem(k)));
     check('"Exit to menu": every sound setting back to default', menu.every((x) => x === null), menu);
-    await p.click('#sc-new'); await p.click('#sc-empty');
-    await p.waitForSelector('#sc-details', { timeout: 10000 }); await p.fill('#sc-name', 'Jens'); await p.click('#sc-enter');
+    check('landing has no NEW GAME / room menus (city-name flow only)',
+      await p.evaluate(() => !document.getElementById('sc-new') && !document.getElementById('sc-empty') && !!document.getElementById('sc-splash')));
+    // Fresh room via API + ?room= (room/CREATE is no longer on the landing).
+    const freshRoom = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preset: false, name: 'Fresh' }) })).json();
+    await p.goto(`${S.base}/?room=${freshRoom.room.id}`);
     await p.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 }); await sleep(500);
     const fresh = await p.evaluate(() => ({ me: window.klibb.voiceOf(null), vol: window.klibb.sound.volume, groove: window.klibb.groove().scale, mode: window.klibb.state.mode }));
     check('…a new room starts with the default sound (and in View mode)', !fresh.me.patches && !fresh.me.fx && fresh.vol === 1 && fresh.groove === 1 && fresh.mode === 'view', fresh);

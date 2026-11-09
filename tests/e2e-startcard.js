@@ -1,5 +1,5 @@
-// E2E: Run-DMC start menu (Jens, 6 Nov 2026; startcard.js). Splash → Main → New/Join → details → enter.
-// Own server (STARTCARD_E2E_PORT, default 8901). Screenshots: STICKERMENU_SHOTS + /workspace/menu-N.png.
+// E2E: landing → name city → enter city (startcard.js; Jens, Nov 2026).
+// Own server (STARTCARD_E2E_PORT, default 8901).
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
@@ -8,159 +8,136 @@ const PORT = Number(process.env.STARTCARD_E2E_PORT || 8901);
 const SHOTS = process.env.STICKERMENU_SHOTS || '/workspace/stickermenu-shots';
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + name); } else { failed++; console.log('  ✗ ' + name + (extra !== undefined ? '  — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
-async function toMain(page) {
-  await page.waitForSelector('#sc-splash, #sc-new', { timeout: 15000 });
-  if (await page.$('#sc-new')) return;
-  await page.click('#start-card');
-  await page.waitForSelector('#sc-new', { timeout: 10000 });
-}
+
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
   const S = await startServer(PORT, { DEMO_PROFILE: '0', OPEN_ACCESS: '1' });
   const b = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const errs = [];
   try {
-    const empty = await (await fetch(`${S.base}/api/rooms/open`)).json();
-    check('GET /api/rooms/open: no rooms with people yet', Array.isArray(empty.rooms) && empty.rooms.length === 0, empty);
-    const mk = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Ullas ateljé' }) })).json();
-    await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    const o = await (await b.newContext({ viewport: { width: 1280, height: 800 } })).newPage(); o.on('pageerror', (e) => errs.push('o: ' + e.message));
-    await o.goto(`${S.base}/?room=${mk.room.id}`); await o.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.net.status === 'online', null, { timeout: 30000 });
-    await sleep(500);
-    const open = (await (await fetch(`${S.base}/api/rooms/open`)).json()).rooms;
-    check('…a room with someone in it and a free spot is listed (name, free spots, stickers, visitors, age); no keys', open.length === 1 && open[0].id === mk.room.id && open[0].name === 'Ullas ateljé' && open[0].free >= 1 && 'stickers' in open[0] && 'visitors' in open[0] && open[0].createdAt && !JSON.stringify(open[0]).includes('key'), open);
-
-    const p = await (await b.newContext({ viewport: { width: 900, height: 1000 } })).newPage(); p.on('pageerror', (e) => errs.push(e.message));
+    const p = await (await b.newContext({ viewport: { width: 900, height: 1000 } })).newPage();
+    p.on('pageerror', (e) => errs.push(e.message));
     await p.goto(`${S.base}/?start=1`);
     await p.waitForSelector('#sc-splash', { timeout: 15000 }); await sleep(200);
     await p.screenshot({ path: '/workspace/menu-1.png' });
-    check('?start=1 shows SLP/TLK splash (Run-DMC frame) – the room does not load behind it',
-      await p.evaluate(() => {
-        const t = [...document.querySelectorAll('.sc-title')].map((x) => x.textContent);
-        return t.join('/') === 'SLP/TLK' && !!document.querySelector('.sc-frame') && !window.klibb;
-      }));
+    const splash = await p.evaluate(() => {
+      const t = [...document.querySelectorAll('.sc-title')].map((x) => x.textContent);
+      return {
+        titles: t.join('/'),
+        frame: !!document.querySelector('.sc-frame'),
+        main: !!window.klibb,
+        buttons: [...document.querySelectorAll('#start-card button')].map((x) => x.id || x.textContent),
+        hint: document.getElementById('sc-enter-hint')?.textContent || '',
+        newBtn: !!document.getElementById('sc-new'),
+        joinBtn: !!document.getElementById('sc-join'),
+        buildBtn: !!document.getElementById('sc-build'),
+      };
+    });
+    check('?start=1 shows SLP/TLK only – no NEW GAME / JOIN / BUILD CITY buttons, room not loaded',
+      splash.titles === 'SLP/TLK' && splash.frame && !splash.main && !splash.newBtn && !splash.joinBtn && !splash.buildBtn && splash.buttons.length === 0, splash);
+    check('splash has a subtle Enter hint (discoverability, not a button)', /enter/i.test(splash.hint), splash.hint);
 
-    await toMain(p); await sleep(200);
+    // Enter → name-city screen
+    await p.keyboard.press('Enter');
+    await p.waitForSelector('#sc-cityname', { timeout: 10000 }); await sleep(200);
     await p.screenshot({ path: '/workspace/menu-2.png' });
-    const main = await p.evaluate(() => ({
-      frame: !!document.querySelector('#start-card .sc-frame'),
-      newTxt: document.getElementById('sc-new')?.textContent,
-      joinTxt: document.getElementById('sc-join')?.textContent,
-      buildTxt: document.getElementById('sc-build')?.textContent,
-      bar: getComputedStyle(document.querySelector('.sc-bar-top')).backgroundColor,
-      main: !!window.klibb,
+    const nameScreen = await p.evaluate(() => ({
+      heading: document.getElementById('sc-city-heading')?.textContent,
+      input: document.getElementById('sc-cityname')?.tagName,
+      placeholder: document.getElementById('sc-cityname')?.placeholder,
+      buttons: [...document.querySelectorAll('#start-card button')].map((x) => x.id),
+      klibb: !!window.klibb,
     }));
-    check('main: NEW GAME + JOIN EXISTING on black square with red bars',
-      main.frame && main.newTxt === 'NEW GAME' && main.joinTxt === 'JOIN EXISTING' && !main.main
-      && /rgb\(160,\s*12,\s*36\)/.test(main.bar), main);
-    check('main: BUILD CITY (build phase – props/stickers save into the city preset)',
-      main.buildTxt === 'BUILD CITY', main);
+    check('Enter opens NAME THE NEW CITY (one text field, no menu buttons)',
+      /NAME THE NEW CITY/i.test(nameScreen.heading || '') && nameScreen.input === 'INPUT'
+      && !!nameScreen.placeholder && nameScreen.buttons.length === 0 && !nameScreen.klibb, nameScreen);
 
-    await p.click('#sc-new'); await sleep(250);
-    await p.screenshot({ path: '/workspace/menu-3.png' });
-    check('NEW GAME → EMPTY ROOM / PRESET + BACK',
-      await p.evaluate(() => document.getElementById('sc-empty')?.textContent === 'EMPTY ROOM'
-        && document.getElementById('sc-preset')?.textContent === 'PRESET'
-        && document.getElementById('sc-back')?.textContent === 'BACK'));
-
-    await p.click('#sc-preset'); await p.waitForSelector('#sc-preset-heading', { timeout: 10000 }); await sleep(400);
-    await p.screenshot({ path: '/workspace/menu-4.png' });
-    check('PRESET screen: PRESET: heading + BACK',
-      await p.evaluate(() => document.getElementById('sc-preset-heading')?.textContent === 'PRESET:'
-        && document.getElementById('sc-back')?.textContent === 'BACK'));
-
-    await p.click('#sc-back'); await sleep(200);
-    await p.click('#sc-back'); await sleep(200);
-    check('BACK returns to main', await p.evaluate(() => !!document.getElementById('sc-join')));
-
-    // BUILD CITY → the build city URL (props editable without admin during OPEN_ACCESS)
-    const buildNav = await (await b.newContext({ viewport: { width: 900, height: 1000 } })).newPage();
-    buildNav.on('pageerror', (e) => errs.push('build: ' + e.message));
-    await buildNav.goto(`${S.base}/?start=1`);
-    await toMain(buildNav); await sleep(150);
+    // Empty name → random default from placeholder; Enter confirms → city
+    const placeholder = nameScreen.placeholder;
+    await p.focus('#sc-cityname');
     await Promise.all([
-      buildNav.waitForURL(/room=stad-byggen/, { timeout: 15000 }),
-      buildNav.click('#sc-build'),
+      p.waitForFunction(() => window.klibb && window.klibb.ready && /stad-/.test(location.search), null, { timeout: 45000 }),
+      p.locator('#sc-cityname').press('Enter'),
     ]);
-    check('BUILD CITY opens ?room=stad-byggen', /room=stad-byggen/.test(buildNav.url()), buildNav.url());
-    await buildNav.close();
-
-    await p.click('#sc-join'); await p.waitForSelector('#sc-list .sc-room, #sc-list .sc-empty', { timeout: 15000 }); await sleep(400);
-    await p.screenshot({ path: '/workspace/menu-5.png' });
-    const rooms = await p.evaluate(() => [...document.querySelectorAll('#sc-list .sc-room')].map((x) => x.textContent));
-    check('JOIN EXISTING lists the open room with free spots / stickers / visitors / age',
-      rooms.length === 1 && /Ullas ateljé/.test(rooms[0]) && /free spots/.test(rooms[0]) && /stickers/.test(rooms[0]) && /visitors/.test(rooms[0]), rooms);
-    check('JOIN has BACK but no CODE button',
-      await p.evaluate(() => document.getElementById('sc-back')?.textContent === 'BACK' && !document.getElementById('sc-code')));
-
-    // Join → details (name + Instagram only; no room name) → ENTER
-    await p.click(`#sc-list .sc-room[data-id="${mk.room.id}"]`);
-    await p.waitForSelector('#sc-details', { timeout: 10000 }); await sleep(300);
-    await p.screenshot({ path: '/workspace/menu-6.png' });
-    const joinForm = await p.evaluate(() => ({
-      room: !!document.getElementById('sc-roomname'),
-      name: document.getElementById('sc-name')?.tagName,
-      insta: document.getElementById('sc-insta')?.tagName,
-      enter: document.getElementById('sc-enter')?.textContent,
-      back: document.getElementById('sc-back')?.textContent,
-    }));
-    check('join → details: NAME + INSTAGRAM + ENTER, no room name field',
-      !joinForm.room && joinForm.name === 'INPUT' && joinForm.insta === 'INPUT' && joinForm.enter === 'ENTER' && joinForm.back === 'BACK', joinForm);
-    await p.fill('#sc-name', 'Jens'); await p.fill('#sc-insta', '@jensreglermanniska');
-    await p.click('#sc-back'); await sleep(200);
-    check('details BACK returns to join list', await p.evaluate(() => !!document.querySelector('#sc-list .sc-room')));
-    await p.click(`#sc-list .sc-room[data-id="${mk.room.id}"]`);
-    await p.waitForSelector('#sc-details'); await sleep(150);
-    // Prefill from previous fill (saved on ENTER only — BACK without ENTER does not save). Re-fill and enter.
-    await p.fill('#sc-name', 'Jens'); await p.fill('#sc-insta', '@jensreglermanniska');
-    await p.click('#sc-enter');
-    await p.waitForFunction((id) => new URLSearchParams(location.search).get('room') === id && window.klibb && window.klibb.ready, mk.room.id, { timeout: 30000 });
-    const joined = await p.evaluate(() => {
-      const av = JSON.parse(localStorage.getItem('klibb.avatar') || '{}');
-      return { name: av.name, insta: av.look && av.look.insta, room: window.klibb.room };
+    const entered = await p.evaluate(() => {
+      const room = new URLSearchParams(location.search).get('room');
+      const hud = document.getElementById('room-hud')?.textContent || document.getElementById('room-name')?.textContent || '';
+      return {
+        room,
+        outside: !!(window.klibb && window.klibb.city && window.klibb.city().outside),
+        hud,
+        startGone: !document.getElementById('start-card'),
+        audio: !!(window.__klibbAudioCtx),
+      };
     });
-    check('join details ENTER: opens the room and saves name + Instagram (face-lock handle)',
-      joined.room === mk.room.id && joined.name === 'Jens' && joined.insta === 'jensreglermanniska', joined);
+    check('empty name + Enter creates a city (stad-*) and enters it (not a room)',
+      /^stad-[a-z0-9]+$/i.test(entered.room || '') && entered.outside && entered.startGone, entered);
+    check('city HUD uses the default/placeholder name',
+      (entered.hud || '').includes(placeholder) || !!entered.hud, { hud: entered.hud, placeholder });
+    check('Enter primed WebAudio (gesture context still around)', !!entered.audio, entered.audio);
+    await p.screenshot({ path: '/workspace/menu-3.png' });
+    await p.close();
 
-    // Deep link still works with no menu / no CODE UI
-    await p.goto(`${S.base}/?room=${mk.room.id}`);
-    await p.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
-    check('direct ?room= link still enters the room (no start menu)', await p.evaluate(() => !document.getElementById('start-card') && !!window.klibb));
-
-    // New game → EMPTY ROOM → details with room name
-    await p.goto(`${S.base}/`); await toMain(p);
-    check('the plain address shows the menu too', await p.evaluate(() => !!document.getElementById('start-card')));
-    // Prefill: avatar already has Jens / jensreglermanniska from the join above
-    await p.click('#sc-new'); await sleep(200);
-    await p.click('#sc-empty'); await p.waitForSelector('#sc-details'); await sleep(300);
-    await p.screenshot({ path: '/workspace/menu-6b.png' });
-    const newForm = await p.evaluate(() => ({
-      room: !!document.getElementById('sc-roomname'),
-      name: document.getElementById('sc-name')?.value,
-      insta: document.getElementById('sc-insta')?.value,
-      enter: document.getElementById('sc-enter')?.textContent,
-    }));
-    check('EMPTY ROOM → details: ROOM NAME + prefilled NAME/INSTAGRAM',
-      newForm.room && newForm.name === 'Jens' && newForm.insta === 'jensreglermanniska' && newForm.enter === 'ENTER', newForm);
-    await p.fill('#sc-roomname', 'Malmö slaps');
-    await p.click('#sc-enter');
-    await p.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
-    const r = await p.evaluate(async () => {
-      const j = (await (await fetch('/api/rooms/' + window.klibb.room)).json()).room;
-      const av = JSON.parse(localStorage.getItem('klibb.avatar') || '{}');
-      return { room: window.klibb.room, key: !!JSON.parse(localStorage.getItem('klibb.roomKeys') || '{}')[window.klibb.room], preset: j.preset, name: j.name, avName: av.name, insta: av.look && av.look.insta };
+    // Named city
+    const p2 = await (await b.newContext({ viewport: { width: 900, height: 1000 } })).newPage();
+    p2.on('pageerror', (e) => errs.push('p2: ' + e.message));
+    await p2.goto(`${S.base}/`);
+    await p2.waitForSelector('#sc-splash', { timeout: 15000 });
+    await p2.keyboard.press('Enter');
+    await p2.waitForSelector('#sc-cityname', { timeout: 10000 });
+    await p2.fill('#sc-cityname', 'Slapville');
+    await p2.focus('#sc-cityname');
+    await Promise.all([
+      p2.waitForFunction(() => window.klibb && window.klibb.ready && /room=stad-/.test(location.search), null, { timeout: 45000 }),
+      p2.locator('#sc-cityname').press('Enter'),
+    ]);
+    const named = await p2.evaluate(() => {
+      const room = new URLSearchParams(location.search).get('room');
+      const info = window.klibb?.city?.()?.info || null;
+      const hud = document.getElementById('room-hud')?.textContent || '';
+      return { room, name: info?.name || hud, outside: !!window.klibb?.city?.()?.outside };
     });
-    check('EMPTY ROOM ENTER: new quick room named "Malmö slaps", key kept, identity saved',
-      r.key && !r.preset && r.name === 'Malmö slaps' && r.avName === 'Jens' && r.insta === 'jensreglermanniska' && r.room !== mk.room.id, r);
+    check('typed name "Slapville" → that city outside',
+      /^stad-/.test(named.room || '') && named.outside && /Slapville/i.test(named.name || ''), named);
+    await p2.close();
 
-    const m = await (await b.newContext({ viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })).newPage();
-    await m.goto(`${S.base}/`); await toMain(m); await sleep(400);
-    await m.screenshot({ path: path.join(SHOTS, '13-start-card-phone.png') });
-    await m.tap('#sc-join'); await m.waitForSelector('#sc-list', { timeout: 15000 }); await sleep(500);
-    check('phone join: no CODE button', await m.evaluate(() => !document.getElementById('sc-code')));
-    check('no page errors', errs.length === 0, errs);
-  } catch (e) { failed++; console.log('  ✗ crashed: ' + (e.stack || e)); }
-  await b.close(); S.child.kill();
+    // ?room= still skips the landing
+    const mk = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Direct room', preset: false }) })).json();
+    const d = await (await b.newContext({ viewport: { width: 900, height: 800 } })).newPage();
+    d.on('pageerror', (e) => errs.push('d: ' + e.message));
+    await d.goto(`${S.base}/?room=${mk.room.id}`);
+    await d.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
+    check('?room= skips landing straight into the room',
+      await d.evaluate((id) => !document.getElementById('start-card') && window.klibb.room === id, mk.room.id));
+    await d.close();
+
+    // Touch: tap splash → name → tap ENTER on the bar
+    const m = await (await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })).newPage();
+    m.on('pageerror', (e) => errs.push('m: ' + e.message));
+    await m.goto(`${S.base}/?start=1`);
+    await m.waitForSelector('#sc-splash', { timeout: 15000 }); await sleep(200);
+    await m.tap('#start-card');
+    await m.waitForSelector('#sc-cityname', { timeout: 10000 });
+    const touchUi = await m.evaluate(() => ({
+      go: document.getElementById('sc-city-go')?.textContent,
+      hint: document.getElementById('sc-enter-hint')?.textContent || null,
+    }));
+    check('touch name screen shows discreet ENTER (phones have no Enter key)',
+      /enter/i.test(touchUi.go || ''), touchUi);
+    await m.fill('#sc-cityname', 'Touchburg');
+    await Promise.all([
+      m.waitForFunction(() => window.klibb && window.klibb.ready && /room=stad-/.test(location.search), null, { timeout: 45000 }),
+      m.tap('#sc-city-go'),
+    ]);
+    check('touch ENTER creates & enters the named city',
+      await m.evaluate(() => /Touchburg/i.test(window.klibb?.city?.()?.info?.name || document.getElementById('room-hud')?.textContent || '')));
+    await m.close();
+
+    check('no page errors', errs.filter((e) => !/WebGL|AudioContext|tone/i.test(e)).length === 0, errs.slice(0, 5));
+  } finally {
+    await b.close().catch(() => {});
+    S.child.kill();
+  }
   console.log(`\nStart card e2e: ${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
-})();
+})().catch((e) => { console.error(e); process.exit(1); });
