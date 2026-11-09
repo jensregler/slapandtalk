@@ -3,6 +3,7 @@
 import { S } from './strings.js';
 import { FABRIC, cleanFabric, fabricPhase, fabricUrl, prepareFabricImage, prepareFacePhoto, uploadFabric, PRESETS, PATCHES, PATCH_ORDER, presetCanvas, presetBlob } from './fabrics.js';
 import { randomFabricParams, afterTwist } from '../../shared/fabric.mjs';
+import { cleanPatch, defaultPatchParams, randomPatchParams } from '../../shared/patches.mjs';
 import { readMine, getBlob } from './designs.js';
 import { has } from './entitlements.js';
 import { FACE3, FACE3_ID, FACE3_URL } from '../../shared/face3.mjs';
@@ -124,6 +125,27 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
       b.classList.toggle('sel', sel);
     }
   }
+  // Params for the next stamp / editing the last placed patch (own instance, not garment fabric).
+  let patchDraft = { scale: 1, rot: 0, hue: 0, hueHz: 0.25, spinHz: 0.1, scroll: 0, cycleHue: false, spin: false };
+  function lastPatch() {
+    const list = getDraft().patches;
+    return Array.isArray(list) && list.length ? list[list.length - 1] : null;
+  }
+  function editLastPatch(patch) {
+    const d = getDraft();
+    const list = Array.isArray(d.patches) ? d.patches.slice() : [];
+    if (!list.length) { Object.assign(patchDraft, patch); return; }
+    const cur = list[list.length - 1];
+    const next = cleanPatch({ ...cur, ...patch });
+    if (!next) return;
+    list[list.length - 1] = next;
+    Object.assign(patchDraft, next);
+    setDraft({ patches: list }, { rerender: false });
+  }
+  function editPatchSeedOrLast(patch) {
+    if (lastPatch()) editLastPatch(patch);
+    else Object.assign(patchDraft, patch);
+  }
   function fillPatchRow(row) {
     row.innerHTML = '';
     row.setAttribute('role', 'group');
@@ -155,6 +177,49 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     clr.onclick = () => { setDraft({ patches: undefined }, { rerender: true }); setPatchTool(null); };
     row.append(undo, clr);
   }
+  // Same sliders as fabric, bound to the last placed patch (or the next stamp's seed).
+  function fillPatchControls(host) {
+    host.innerHTML = '';
+    const last = lastPatch();
+    const vals = last ? { ...last } : { ...patchDraft };
+    Object.assign(patchDraft, vals);
+    const ctl = document.createElement('div'); ctl.className = 'fab-ctl fab-patch-ctl';
+    const spinRowRef = { cb: null, row: null };
+    const hasStamp = !!last;
+    for (const [k, label, flag] of SLIDERS) {
+      const p = FABRIC.params[k], row = document.createElement('div'); row.className = 'fab-sl'; row.dataset.param = k;
+      let lab;
+      if (flag) {
+        lab = document.createElement('label'); lab.className = 'check';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.dataset.flag = flag; cb.checked = !!vals[flag];
+        cb.onchange = () => { editPatchSeedOrLast({ [flag]: cb.checked }); row.classList.toggle('off', !cb.checked); };
+        lab.append(cb, document.createTextNode(' ' + label()));
+        if (!vals[flag]) row.classList.add('off');
+        if (flag === 'spin') { spinRowRef.cb = cb; spinRowRef.row = row; }
+      } else { lab = document.createElement('span'); lab.textContent = label(); }
+      const r = document.createElement('input'); r.type = 'range'; r.min = p.min; r.max = p.max; r.step = p.step; r.value = vals[k];
+      r.setAttribute('aria-label', flag ? `${label()} ${S.fabSpeed}` : label());
+      const out = document.createElement('output'); out.textContent = fmt(k, vals[k]);
+      r.oninput = () => {
+        const v = Number(r.value); out.textContent = fmt(k, v);
+        if (k === 'rot') {
+          editPatchSeedOrLast({ rot: v, spin: false });
+          if (spinRowRef.cb) { spinRowRef.cb.checked = false; spinRowRef.row?.classList.add('off'); }
+        } else editPatchSeedOrLast({ [k]: v });
+      };
+      row.append(lab, r, out); ctl.appendChild(row);
+    }
+    const wild = document.createElement('button'); wild.type = 'button'; wild.className = 'fab-patch-wild';
+    wild.textContent = S.randomize; wild.title = S.fabPatchRandomizeTitle || S.randomizeTitle;
+    wild.disabled = !hasStamp;
+    wild.onclick = () => {
+      const cur = lastPatch(); if (!cur) return;
+      editLastPatch(randomPatchParams(cur));
+      fillPatchControls(host);
+    };
+    ctl.appendChild(wild);
+    host.appendChild(ctl);
+  }
 
   function controls(slot, f) {
     const ctl = document.createElement('div'); ctl.className = 'fab-ctl';
@@ -182,17 +247,17 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
       for (const [k, p] of Object.entries(PRESETS)) picks.appendChild(pickButton(S.fabPreset(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId && !f?.photo, null, () => useSource(slot, () => idForPreset(k))));
       src.append(hint, picks);
     } else {
-      // Patches tab: black circle, yellow star, then upload last (Jens). Alpha kept via prepareFabricImage.
-      const patchLab = document.createElement('div'); patchLab.className = 'fab-tab-label'; patchLab.textContent = S.fabPatches;
-      const patchRow = document.createElement('div'); patchRow.className = 'fab-picks fab-patches';
-      fillPatchRow(patchRow);
+      // Garment fabric only — patches are a separate instance under Min gubbe → Patches (Jens).
       for (const st of readMine().slice().reverse().slice(0, 12)) {
         picks.appendChild(pickButton(S.fabMine, st.url, fromSticker[st.id] && fromSticker[st.id] === curId, 'mine', () => useSource(slot, () => idForSticker(st))));
       }
       const shown = new Set([...Object.values(fromSticker), ...Object.values(presetIds)]);
       for (const id of readRecent()) if (!shown.has(id)) picks.appendChild(pickButton(S.fabRecent, fabricUrl(id), id === curId, null, () => useSource(slot, async () => id)));
       for (const [k, p] of Object.entries(PRESETS)) picks.appendChild(pickButton(S.fabPreset(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId, null, () => useSource(slot, () => idForPreset(k))));
-      src.append(hint, patchLab, patchRow, picks);
+      const up = document.createElement('button'); up.type = 'button'; up.className = 'fab-up'; up.textContent = S.fabUpload; up.title = S.fabUploadTitle;
+      up.onclick = () => { fileSlot = slot; filePhoto = false; file.click(); };
+      picks.prepend(up);
+      src.append(hint, picks);
     }
     top.append(pv, src); ctl.appendChild(top);
     const vals = f || cleanFabric({ ...(params[slot] || {}), id: '0000000000000000' });
@@ -270,16 +335,22 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
         row.insertBefore(base, sw);
       }
     }
-    // Character-menu Patches (same shapes + upload as Fabric → Patches). Applies to Top (shirt).
-    // Kept in the Fabric tab too so existing muscle memory still works.
+    // Character-menu Patches: own instance (buttons + fabric-like sliders). Never mixed into garment fabric.
     const patchHome = $('av-patches-row'), patchBox = $('av-patches');
+    let patchCtl = $('av-patches-ctl');
     if (patchHome && patchBox) {
       if (full) {
         patchHome.hidden = false;
+        if (!patchCtl) {
+          patchCtl = document.createElement('div'); patchCtl.id = 'av-patches-ctl';
+          patchHome.appendChild(patchCtl);
+        }
         fillPatchRow(patchBox);
+        fillPatchControls(patchCtl);
       } else {
         patchHome.hidden = true;
         patchBox.innerHTML = '';
+        if (patchCtl) patchCtl.innerHTML = '';
       }
     }
     tick();
@@ -321,10 +392,14 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     render, tick, reset, wild, busy: () => busy > 0, modes,
     getPatchTool: () => patchTool,
     clearPatchTool: () => setPatchTool(null),
+    patchParams: () => ({ ...patchDraft }),
     addPatch(patch) {
       const d = getDraft();
       const list = Array.isArray(d.patches) ? d.patches.slice() : [];
-      list.push(patch);
+      const seed = { ...patchDraft, ...patch };
+      const clean = cleanPatch(seed) || defaultPatchParams(patch.id, patch.slot || 'shirt', patch.p || [0, 1.1, 0.2]);
+      list.push(clean);
+      Object.assign(patchDraft, clean);
       setDraft({ patches: list }, { rerender: true });
     },
   };

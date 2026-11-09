@@ -253,10 +253,9 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     if (self.avatar) self.avatar.root.visible = self.want;
     $('avatar-panel').hidden = true; onBusyChange();
   }
-  // Stamp a clothing patch onto Min gubbe at the canvas hit (look.patches).
+  // Stamp a clothing patch onto Min gubbe at the canvas hit (look.patches → garment atlas).
   const patchRay = new THREE.Raycaster();
   const patchNdc = new THREE.Vector2();
-  const _z = new THREE.Vector3(0, 0, 1), _n = new THREE.Vector3(), _q = new THREE.Quaternion(), _inv = new THREE.Matrix4();
   function stampPatchAt(clientX, clientY, cam) {
     const tool = fab.getPatchTool?.();
     if (!tool?.id || !av.open || !self.avatar) return false;
@@ -264,14 +263,11 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     patchRay.setFromCamera(patchNdc, cam);
     const hit = self.avatar.pickStamp(patchRay);
     if (!hit) { toast('Missed — tap the body', 1400); return false; }
-    const localP = self.avatar.root.worldToLocal(hit.point.clone());
-    if (hit.face) _n.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
-    else _n.set(0, 0, 1);
-    _inv.copy(self.avatar.root.matrixWorld).invert();
-    _n.transformDirection(_inv).normalize();
-    _q.setFromUnitVectors(_z, _n);
-    localP.addScaledVector(_n, 0.012);
-    fab.addPatch({ id: tool.id, p: [localP.x, localP.y, localP.z], q: [_q.x, _q.y, _q.z, _q.w], size: 0.14 });
+    const slot = self.avatar.slotOfHit(hit) || 'shirt';
+    const p = self.avatar.restPosOfHit(hit);
+    // Seed from the Patches-panel sliders (last-edited values); each stamp keeps its own copy.
+    const seed = fab.patchParams?.() || {};
+    fab.addPatch({ id: tool.id, slot, p, ...seed });
     toast('Patch stamped', 1200);
     return true;
   }

@@ -103,27 +103,36 @@ export const fabricStats = () => ({ ...stats, alive: cache.size, inUse: [...cach
   ids: [...cache.keys()], max: FABRIC.maxTextures });
 
 // ---------- The shader ----------
+// Fabric (tiled triplanar) + clothing patches (cylindrical fabPos unwrap atlas). Patches are
+// composited into a per-slot atlas and blended here so they sit IN the garment surface and
+// follow skinning — not floating decal meshes (Jens, 9 Nov 2026).
 const VERT_PARS = 'varying vec3 vFabPos;\nuniform float fabUnit;\n#ifdef USE_SKINNING\nattribute vec3 fabPos;\n#endif\n';
 const VERT = `
 #ifdef USE_SKINNING
-  vFabPos = fabPos * fabUnit; // var hörnet sitter i viloläge (avatars.js), så mönstret följer kroppen
+  vFabPos = fabPos * fabUnit; // rest-pose metres (avatars.js), so patterns follow the body
 #else
   vFabPos = position * fabUnit;
 #endif
 `;
 const FRAG_PARS = `varying vec3 vFabPos;
 uniform sampler2D fabMap; uniform float fabAsp; uniform vec4 fabXf; uniform vec2 fabOff; uniform float fabHue; uniform float fabTint; uniform vec4 fabFace;
+uniform sampler2D patchMap; uniform vec2 patchY; // patchY = (y0, y1) for cylindrical unwrap
 vec3 fabHueShift(vec3 c, float a) { const vec3 k = vec3(0.57735); float ca = cos(a); return c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca); }
-vec4 fabSample(vec2 p, mat2 R) { vec2 q = R * p * fabXf.z; q.x /= fabAsp; return texture2D(fabMap, q + fabOff); } // (a tile is the picture's shape: aspect = width / height)
+vec4 fabSample(vec2 p, mat2 R) { vec2 q = R * p * fabXf.z; q.x /= fabAsp; return texture2D(fabMap, q + fabOff); }
+vec2 patchUV(vec3 p) {
+  float u = atan(p.x, p.z) / 6.28318530718 + 0.5;
+  float v = clamp((p.y - patchY.x) / max(1e-4, patchY.y - patchY.x), 0.0, 1.0);
+  return vec2(fract(u), v);
+}
 `;
-const FRAG = `
+const FRAG_FABRIC = `
+#ifdef USE_FABRIC
   {
     vec3 fp = vFabPos;
     vec3 fw = abs(normalize(cross(dFdx(fp), dFdy(fp))));
     fw = pow(fw, vec3(4.0)); fw /= (fw.x + fw.y + fw.z + 1e-5);
     mat2 R = mat2(fabXf.x, fabXf.y, -fabXf.y, fabXf.x);
 #ifdef USE_FABPHOTO
-    // A face photo: one square over the front of the head (avatars.js FACE), zoom = scale, tilt = rot.
     vec2 q = R * ((fp.xy - fabFace.xy) / (fabFace.z * fabXf.w)) + 0.5;
     vec4 fc = texture2D(fabMap, clamp(q, 0.002, 0.998));
     vec2 e = smoothstep(vec2(0.0), vec2(0.02), q) * smoothstep(vec2(0.0), vec2(0.02), 1.0 - q);
@@ -134,21 +143,39 @@ const FRAG = `
     fc.rgb = max(fabHueShift(fc.rgb, fabHue), 0.0) * fabTint;
     diffuseColor.rgb = mix(diffuseColor.rgb, fc.rgb, fc.a);
   }
+#endif
+#ifdef USE_PATCHES
+  {
+    vec4 pc = texture2D(patchMap, patchUV(vFabPos));
+    diffuseColor.rgb = mix(diffuseColor.rgb, pc.rgb, pc.a);
+  }
+#endif
 `;
 function fabricCompile(shader) {
   const u = this.userData.fab;
-  Object.assign(shader.uniforms, { fabMap: u.map, fabAsp: u.asp, fabXf: u.xf, fabOff: u.off, fabHue: u.hue, fabTint: u.tint, fabUnit: u.unit, fabFace: u.face });
-  if (!this.defines || !('USE_FABRIC' in this.defines)) return;
+  Object.assign(shader.uniforms, {
+    fabMap: u.map, fabAsp: u.asp, fabXf: u.xf, fabOff: u.off, fabHue: u.hue, fabTint: u.tint, fabUnit: u.unit, fabFace: u.face,
+    patchMap: u.patchMap, patchY: u.patchY,
+  });
+  const d = this.defines || {};
+  const need = ('USE_FABRIC' in d) || ('USE_PATCHES' in d);
+  if (!need) return;
   shader.vertexShader = VERT_PARS + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n' + VERT);
-  shader.fragmentShader = FRAG_PARS + shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + FRAG);
+  shader.fragmentShader = FRAG_PARS + shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + FRAG_FABRIC);
 }
-const cacheKey = function () { const d = this.defines || {}; return 'fabric3' + ('USE_FABRIC' in d ? '+' : '-') + ('USE_FABPHOTO' in d ? 'p' : ''); };
-// Make a material able to wear a fabric (does nothing until setFabric).
+const cacheKey = function () {
+  const d = this.defines || {};
+  return 'fabric4' + ('USE_FABRIC' in d ? '+' : '-') + ('USE_FABPHOTO' in d ? 'p' : '') + ('USE_PATCHES' in d ? 'P' : '');
+};
+// Make a material able to wear a fabric and/or clothing patches.
 // face = avatars.js FACE: this material is the face's and may wear a face photo (f.photo).
 export function makeFabricable(mat, { tint = 1, unit = 1, face = null } = {}) {
-  mat.userData.fab = { map: { value: null }, asp: { value: 1 }, xf: { value: new THREE.Vector4(1, 0, 4, 0) }, off: { value: new THREE.Vector2() },
+  mat.userData.fab = {
+    map: { value: null }, asp: { value: 1 }, xf: { value: new THREE.Vector4(1, 0, 4, 0) }, off: { value: new THREE.Vector2() },
     hue: { value: 0 }, tint: { value: tint }, unit: { value: unit }, f: null,
-    canPhoto: !!face, face: { value: face ? new THREE.Vector4(face.cx, face.cy, face.size, face.zMin) : new THREE.Vector4(0, 0, 1, 0) } };
+    canPhoto: !!face, face: { value: face ? new THREE.Vector4(face.cx, face.cy, face.size, face.zMin) : new THREE.Vector4(0, 0, 1, 0) },
+    patchMap: { value: null }, patchY: { value: new THREE.Vector2(0.85, 1.55) },
+  };
   mat.onBeforeCompile = fabricCompile; mat.customProgramCacheKey = cacheKey;
   return mat;
 }
@@ -158,12 +185,27 @@ export function setFabric(mat, tex, f) {
   u.map.value = on ? tex : null; u.f = on ? f : null;
   u.asp.value = on ? Math.min(16, Math.max(1 / 16, tex.userData?.aspect || 1)) : 1;
   const photo = on && u.canPhoto && !!f.photo, d = mat.defines || {};
+  const patchesOn = 'USE_PATCHES' in d;
   if (on !== 'USE_FABRIC' in d || photo !== 'USE_FABPHOTO' in d) {
     const nd = { ...d }; delete nd.USE_FABRIC; delete nd.USE_FABPHOTO;
     if (on) nd.USE_FABRIC = ''; if (photo) nd.USE_FABPHOTO = '';
+    if (patchesOn) nd.USE_PATCHES = '';
     mat.defines = nd; mat.needsUpdate = true;
   }
   if (on) tickFabric(mat);
+}
+// Bind (or clear) the clothing-patch atlas on a garment material.
+export function setPatchMap(mat, tex, y0 = 0.85, y1 = 1.55) {
+  const u = mat.userData.fab; if (!u) return;
+  const on = !!tex;
+  u.patchMap.value = tex || null;
+  u.patchY.value.set(y0, y1);
+  const d = mat.defines || {};
+  if (on !== 'USE_PATCHES' in d) {
+    const nd = { ...d }; delete nd.USE_PATCHES;
+    if (on) nd.USE_PATCHES = '';
+    mat.defines = nd; mat.needsUpdate = true;
+  }
 }
 const DEG = Math.PI / 180;
 export function tickFabric(mat, tMs = Date.now()) {

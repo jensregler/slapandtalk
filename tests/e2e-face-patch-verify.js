@@ -1,5 +1,5 @@
 // Verify (a) Face tab clicks change the face (b) patch stamps on Min gubbe.
-// Screenshots: /workspace/face-change.png, /workspace/patch-stamp.png
+// Screenshots: /workspace/face-change.png, /workspace/patch-own-menu.png, /workspace/patch-own-stamp.png
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
@@ -159,6 +159,34 @@ const check = (name, ok, extra) => {
       await P.evaluate(() => window.klibb.openAvatarPanel());
       await P.waitForFunction(() => window.klibb.avatarView()?.visible, null, { timeout: 15000 });
 
+      // Patches section has its own fabric-like sliders; garment fabric must NOT list patch tools.
+      const uiSep = await P.evaluate(() => {
+        const row = document.getElementById('av-patches-row');
+        const ctl = document.getElementById('av-patches-ctl');
+        const sliders = [...(ctl?.querySelectorAll('.fab-sl') || [])].map((r) => r.dataset.param);
+        // Open Trousers → Fabric and ensure no .fab-patches inside that garment panel
+        const pants = document.querySelector('.fab-slot[data-slot="pants"]');
+        const fabBtn = pants?.querySelector('.fab-seg button[data-mode="fabric"]');
+        fabBtn?.click();
+        const pantsCtl = pants?.querySelector('.fab-ctl');
+        const leaked = !!pantsCtl?.querySelector('.fab-patches, button.patch');
+        const hint = pantsCtl?.querySelector('.fab-src small')?.textContent || '';
+        // close fabric again so patches stay visible
+        const colBtn = pants?.querySelector('.fab-seg button[data-mode="color"]');
+        colBtn?.click();
+        return {
+          rowVisible: row && !row.hidden,
+          sliders,
+          leaked,
+          hint,
+          hasPickAPatch: /pick a patch/i.test(hint),
+        };
+      });
+      check('patch: Patches row visible with Scale/Rotation/Hue sliders', uiSep.rowVisible && ['scale','rot','hue'].every((k) => uiSep.sliders.includes(k)), uiSep);
+      check('patch: garment fabric picker has no patch tools', !uiSep.leaked && !uiSep.hasPickAPatch, uiSep);
+      await P.screenshot({ path: '/workspace/patch-own-menu.png' });
+      check('patch: wrote /workspace/patch-own-menu.png', fs.existsSync('/workspace/patch-own-menu.png'));
+
       // Select black circle patch tool
       const tool = await P.evaluate(async () => {
         const row = document.getElementById('av-patches');
@@ -201,6 +229,11 @@ const check = (name, ok, extra) => {
         return { shirtFabric: d.fabric?.shirt || null, patches: d.patches?.length || 0 };
       });
       check('patch: shirt fabric NOT set by patch tool (no tiling)', !tiling.shirtFabric && tiling.patches >= 2, tiling);
+      const shape = await P.evaluate(() => {
+        const list = window.klibb.avatarView().draft.patches || [];
+        return list.map((p) => ({ id: p.id, slot: p.slot, scale: p.scale, hasQ: 'q' in p, hasSize: 'size' in p, hue: p.hue }));
+      });
+      check('patch: stamps are atlas ops (slot+scale, no floating q)', shape.length >= 2 && shape.every((p) => p.slot && p.scale > 0 && !p.hasQ), shape);
 
       // Undo last
       await P.evaluate(() => document.querySelector('.fab-patch-undo')?.click());
@@ -254,8 +287,10 @@ const check = (name, ok, extra) => {
       // Screenshot with patches (open panel again on A)
       await P.evaluate(() => window.klibb.openAvatarPanel());
       await sleep(800);
+      await P.screenshot({ path: '/workspace/patch-own-stamp.png' });
+      check('patch: wrote /workspace/patch-own-stamp.png', fs.existsSync('/workspace/patch-own-stamp.png'));
+      // keep legacy path too for older references
       await P.screenshot({ path: '/workspace/patch-stamp.png' });
-      check('patch: wrote /workspace/patch-stamp.png', fs.existsSync('/workspace/patch-stamp.png'));
 
       // Reload A — init script must not wipe klibb.avatar
       await P.reload();

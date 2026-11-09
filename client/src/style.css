@@ -1388,6 +1388,8 @@ body.aim-off.touch #held.up { visibility: hidden; }
 
 /* Patch stamp tool active: crosshair over the avatar view */
 body.patch-stamp.avatar-view canvas { cursor: crosshair; }
+.fab-patch-ctl { margin-top: 8px; }
+.fab-patch-wild { margin-top: 6px; }
 .fab-patches .fab-patch-undo, .fab-patches .fab-patch-clear {
   width: 36px; height: 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,.25);
   background: rgba(0,0,0,.35); color: #fff; cursor: pointer; font-size: 16px;

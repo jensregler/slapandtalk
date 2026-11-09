@@ -418,10 +418,11 @@
     <!-- Cap removed from avatar (Jens, 9 Nov 2026): kepsen never shown. Checkbox kept in DOM (hidden) for wire/tests that poke #av-hat. -->
     <label class="check" id="av-hat-label" hidden aria-hidden="true" style="display:none"><input id="av-hat" type="checkbox" tabindex="-1" /> <span data-t="cap">Cap</span></label>
     <div class="sp-row fab-slot" id="av-hat-row" data-slot="hat" hidden aria-hidden="true" style="display:none"><div class="fab-head"><b data-t="capColour">Cap colour</b></div><div id="av-hatcolor" class="swatches colors"></div></div>
-    <!-- Patches on the character menu (Jens, 9 Nov 2026): same black circle / yellow star / upload as Fabric → Patches; applies to the Top (shirt). -->
+    <!-- Patches: own instance (circle/star/upload + fabric-like sliders). Composited into the garment atlas, not floating meshes. -->
     <div class="sp-row" id="av-patches-row" hidden>
       <div class="fab-head"><b data-t="fabPatches">Patches</b></div>
       <div id="av-patches" class="fab-picks fab-patches" role="group"></div>
+      <div id="av-patches-ctl"></div>
     </div>
     <!-- 🌀 Randomize lives inside an opened fabric panel (fabricui.js moves it there); parked here otherwise. -->
     <div id="av-wild-home" hidden><button id="av-wild" type="button" data-t="randomize" data-t-title="randomizeTitle">🌀 Randomize</button></div>

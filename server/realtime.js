@@ -102,17 +102,37 @@ const LOCKED_FACE_INSTA = 'jensreglermanniska';
 const LOCKED_FACE = Object.freeze({ id: '70cf6e844298da52', scale: 1.15, rot: 0, hue: 0, hueHz: 0.25, spinHz: 0.1, scroll: 0, cycleHue: false, spin: false, photo: true });
 
 const PATCH_ID_RE = /^[a-f0-9]{16}$/;
-const PATCH_SIZE_DEFAULT = 0.14, PATCH_SIZE_MIN = 0.04, PATCH_SIZE_MAX = 0.4, PATCHES_MAX = 24;
+const PATCHES_MAX = 24;
+const PATCH_SLOTS = ['shirt', 'pants', 'shoes', 'hair', 'skin', 'face', 'hat'];
+function patchSlotFromP(p) {
+  const y = p[1];
+  if (y >= 1.45) return 'hair';
+  if (y >= 0.85) return 'shirt';
+  if (y >= 0.35) return 'pants';
+  return 'shoes';
+}
+function cleanPatchParam(name, v) {
+  const p = FAB.params[name];
+  let n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return p.def;
+  n = p.wrap ? ((n % 360) + 360) % 360 : Math.min(p.max, Math.max(p.min, n));
+  return round(n);
+}
+// Kept in sync with shared/patches.mjs (atlas stamps; legacy {q,size} accepted).
 function cleanPatches(list) {
   if (!Array.isArray(list)) return null;
   const out = [];
   for (const raw of list) {
     if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !PATCH_ID_RE.test(raw.id)) continue;
     if (!Array.isArray(raw.p) || raw.p.length !== 3 || !raw.p.every(isNum)) continue;
-    if (!Array.isArray(raw.q) || raw.q.length !== 4 || !raw.q.every(isNum)) continue;
-    const m = Math.hypot(...raw.q); if (!(m > 1e-6)) continue;
-    const size = Math.min(PATCH_SIZE_MAX, Math.max(PATCH_SIZE_MIN, isNum(raw.size) ? raw.size : PATCH_SIZE_DEFAULT));
-    out.push({ id: raw.id, p: raw.p.map((x) => round(x)), q: raw.q.map((x) => round(x / m)), size: round(size) });
+    const p = raw.p.map((x) => round(x));
+    const slot = (typeof raw.slot === 'string' && PATCH_SLOTS.includes(raw.slot)) ? raw.slot : patchSlotFromP(p);
+    let scale = raw.scale;
+    if (scale == null && isNum(raw.size)) scale = raw.size / 0.14;
+    const o = { id: raw.id, slot, p };
+    for (const k of Object.keys(FAB.params)) o[k] = cleanPatchParam(k, raw[k] != null ? raw[k] : (k === 'scale' ? scale : undefined));
+    for (const k of FAB.flags) if (k !== 'photo') o[k] = raw[k] === true;
+    out.push(o);
     if (out.length >= PATCHES_MAX) break;
   }
   return out.length ? out : null;

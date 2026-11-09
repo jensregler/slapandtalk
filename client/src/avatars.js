@@ -15,8 +15,9 @@ let danceClock = null;
 export function setDanceClock(fn) { danceClock = typeof fn === 'function' ? fn : null; }
 function clockNow() { try { const c = danceClock && danceClock(); return c && Number.isFinite(c.nowMs) ? c : null; } catch { return null; } }
 import { cleanFabrics } from '../../shared/fabric.mjs';
-import { cleanPatches } from '../../shared/patches.mjs';
-import { acquireFabric, releaseFabric, makeFabricable, setFabric, tickFabric } from './fabrics.js';
+import { acquireFabric, releaseFabric, makeFabricable, setFabric, setPatchMap, tickFabric } from './fabrics.js';
+import { buildSlotAtlas, loadPatchImages } from './patchatlas.js';
+import { cleanPatches, PATCH_Y, slotFromP } from '../../shared/patches.mjs';
 import { Mouth, MOUTH } from './mouth.js';
 import { FACE, isFaceTriangle, effectiveFabrics } from './face.js';
 import { cleanInsta } from '../../shared/insta.mjs';
@@ -325,12 +326,10 @@ export class Avatar {
     const meshes = [];
     this.root.traverse((m) => {
       if (!m.isMesh || !m.visible || m === this.cap || m.userData?.ink) return;
-      if (m.parent === this.patchGroup) return; // don't stamp onto existing patches
       meshes.push(m);
     });
     const saved = meshes.map((m) => m.raycast);
     for (const m of meshes) {
-      // Skinned meshes need SkinnedMesh.raycast; plain meshes use Mesh.raycast
       m.raycast = (m.isSkinnedMesh ? THREE.SkinnedMesh.prototype.raycast : THREE.Mesh.prototype.raycast).bind(m);
     }
     let hit = null;
@@ -339,43 +338,87 @@ export class Avatar {
     }
     return hit;
   }
-  // Clothing patches: single decals in avatar-root local space (look.patches). Not tiled fabric.
+  // Slot for a hit mesh material (shirt/pants/…); used when stamping into that garment's atlas.
+  slotOfHit(hit) {
+    if (!hit?.object) return null;
+    const mats = hit.object.material;
+    const list = Array.isArray(mats) ? mats : [mats];
+    const idx = hit.face?.materialIndex || 0;
+    const mat = list[Math.min(idx, list.length - 1)];
+    for (const [slot, arr] of Object.entries(this.slotMats)) {
+      if (arr.includes(mat)) return slot;
+    }
+    return null;
+  }
+  // Rest-pose fabPos at the hit (matches the shader's vFabPos) via barycentric fabPos attrs.
+  restPosOfHit(hit) {
+    const g = hit?.object?.geometry, fp = g?.attributes?.fabPos, face = hit?.face, bc = hit?.barycoord;
+    if (fp && face && bc) {
+      const a = face.a, b = face.b, c = face.c;
+      return [
+        fp.getX(a) * bc.x + fp.getX(b) * bc.y + fp.getX(c) * bc.z,
+        fp.getY(a) * bc.x + fp.getY(b) * bc.y + fp.getY(c) * bc.z,
+        fp.getZ(a) * bc.x + fp.getZ(b) * bc.y + fp.getZ(c) * bc.z,
+      ];
+    }
+    // Fallback: root-local / SCALE ≈ fabPos
+    const local = this.root.worldToLocal(hit.point.clone());
+    return [local.x / SCALE, local.y / SCALE, local.z / SCALE];
+  }
+  // Clothing patches: composite into per-slot atlases bound on the garment materials (not floating meshes).
   applyPatches(list) {
-    if (!this.patchGroup) {
-      this.patchGroup = new THREE.Group(); this.patchGroup.name = 'patches';
-      this.root.add(this.patchGroup);
+    this._patchList = Array.isArray(list) ? list.slice() : [];
+    if (!this._patchList.length) { this._clearPatchAtlases(); return; }
+    const ids = this._patchList.map((x) => x.id);
+    if (this._patchImages && ids.every((id) => this._patchImages.has(id))) this._paintPatchAtlases();
+    else this._rebuildPatchAtlases();
+  }
+  _clearPatchAtlases() {
+    if (this._patchRelease) { this._patchRelease(); this._patchRelease = null; }
+    this._patchImages = null;
+    if (this._patchAtlas) {
+      for (const tex of Object.values(this._patchAtlas)) tex?.dispose?.();
+      this._patchAtlas = {};
     }
-    // Tear down previous
-    while (this.patchGroup.children.length) {
-      const m = this.patchGroup.children[0]; this.patchGroup.remove(m);
-      m.geometry?.dispose?.();
-      if (m.material) {
-        if (m.userData.patchOk) releaseFabric(m.userData.patchId);
-        m.material.map = null; m.material.dispose();
-      }
+    for (const [slot, mats] of Object.entries(this.slotMats || {})) {
+      const yR = PATCH_Y[slot] || PATCH_Y.shirt;
+      for (const m of mats) setPatchMap(m, null, yR[0], yR[1]);
     }
-    const patches = Array.isArray(list) ? list : [];
+  }
+  _rebuildPatchAtlases() {
+    const patches = this._patchList || [];
+    if (!patches.length) { this._clearPatchAtlases(); return; }
+    const gen = (this._patchGen = (this._patchGen || 0) + 1);
+    const ids = patches.map((p) => p.id);
+    loadPatchImages(ids).then(({ map, release }) => {
+      if (this.disposed || gen !== this._patchGen) { release(); return; }
+      if (this._patchRelease) this._patchRelease();
+      this._patchRelease = release;
+      this._patchImages = map;
+      this._paintPatchAtlases();
+    });
+  }
+  _paintPatchAtlases(tMs = Date.now()) {
+    const patches = this._patchList || [];
+    const images = this._patchImages;
+    if (!images) return;
+    this._patchAtlas ||= {};
+    const bySlot = {};
     for (const p of patches) {
-      if (!p?.id) continue;
-      const size = p.size || 0.14;
-      const geo = new THREE.PlaneGeometry(size, size);
-      const mat = new THREE.MeshBasicMaterial({
-        transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.renderOrder = 20;
-      mesh.position.fromArray(p.p);
-      mesh.quaternion.fromArray(p.q);
-      mesh.userData = { patchId: p.id, patchOk: false };
-      this.patchGroup.add(mesh);
-      const entry = mesh;
-      const prom = acquireFabric(p.id);
-      if (!prom) continue;
-      entry.userData.patchOk = true;
-      prom.then((tex) => {
-        if (this.disposed || !tex || !entry.parent) return;
-        entry.material.map = tex; entry.material.needsUpdate = true;
-      });
+      const slot = p.slot || slotFromP(p.p);
+      (bySlot[slot] ||= []).push(p);
+    }
+    for (const [slot, mats] of Object.entries(this.slotMats || {})) {
+      const yR = PATCH_Y[slot] || PATCH_Y.shirt;
+      const list = bySlot[slot] || [];
+      if (!list.length) {
+        if (this._patchAtlas[slot]) { this._patchAtlas[slot].dispose(); delete this._patchAtlas[slot]; }
+        for (const m of mats) setPatchMap(m, null, yR[0], yR[1]);
+        continue;
+      }
+      const tex = buildSlotAtlas(list, images, tMs, this._patchAtlas[slot] || null);
+      this._patchAtlas[slot] = tex;
+      for (const m of mats) setPatchMap(m, tex, yR[0], yR[1]);
     }
   }
   // Samma tyg-id som förut: bara nya värden. Nytt id: hämta texturen (cachad), färgen syns tills den är laddad.
@@ -480,6 +523,8 @@ export class Avatar {
     this.gesture.apply(this.root);
     const now = Date.now();
     for (const [slot, e] of Object.entries(this.fab)) if (e.tex) this.slotMats[slot].forEach((m) => tickFabric(m, now));
+    // Rebuild patch atlases when any stamp is animating (cycle hue / spin / scroll).
+    if (this._patchList?.some((p) => p.cycleHue || p.spin || p.scroll) && this._patchImages) this._paintPatchAtlases(now);
     if (this.mouth && this.head) {
       this.mouth.update(dt, this.mouthT);
       if (this.mouth.group.visible) {
@@ -574,6 +619,7 @@ export class Avatar {
     this.disposed = true;
     for (const e of Object.values(this.fab)) if (e.ok) releaseFabric(e.id);
     this.fab = {};
+    this._clearPatchAtlases?.();
     for (const list of Object.values(this.mats)) list.forEach((m) => m.dispose());
     this.capMat.dispose(); this.mixer.stopAllAction();
   }
