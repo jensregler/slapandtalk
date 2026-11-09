@@ -157,10 +157,10 @@ export const EN = {
   // ---------- Desktop / touch help ----------
   enter: 'Enter the room',
   resumeHint: 'Click to enter',
-  quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C camera (1st / 3rd / front) · X dance · T chat',
+  quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C camera (1st / 3rd / front) · O aim on/off · X dance · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
     + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker, V = Slap mode / 🌿 Nature mode (nature stickers), G = look mode on/off '
-    + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), X = 💃 dance (your character does the runway dance; switches to 3rd person while it plays), P = 📷 photo of what you see, Esc = big menu (Sound / Avatar / Room / City / Exit / Name; Esc again = back into the room). '
+    + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), O = sticker aim tool on/off (crosshair + held brush), X = 💃 dance (your character does the runway dance; switches to 3rd person while it plays), P = 📷 photo of what you see, Esc = big menu (Sound / Avatar / Room / City / Exit / Name; Esc again = back into the room). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Visit the City opens the shared room (the plain address takes you to your most recent room). '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
@@ -471,7 +471,7 @@ export const EN = {
   inviteUsed: (name) => (name ? `${name} came in with your invite.` : 'Your invite has been used.'),
   inviteFull: 'The room is full.',
   inviteNone: 'You can invite one friend.',
-  quickHelpDemo: 'Click to enter · WASD walk · click = slap · R/F next/prev sticker · Z peel · V look mode · C 3rd person · X dance · T chat · B talk',
+  quickHelpDemo: 'Click to enter · WASD walk · click = slap · R/F next/prev sticker · Z peel · V look mode · C 3rd person · O aim on/off · X dance · T chat · B talk',
   helpDemoDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, scroll wheel = size, Q/E = rotate, '
     + 'R/F = next/previous sticker from the library, Z = peel your last sticker, V = look mode (click a sticker to see who made it), C = 1st/3rd person, Esc = menu. '
     + '<b>Together:</b> invite one friend with ✉ Invite a friend (the link works once). T or Enter = chat, 🎙 or B = talk (B again mutes). '

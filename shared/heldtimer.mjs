@@ -11,9 +11,6 @@
 // only wakes it – so a wake-up tap never slaps by accident. Pure: every call takes the time (ms).
 export const HELD_VISIBLE_MS = 2000; // visible this long after a stamp / a wake-up tap (Jens, 29 Oct 2026: 2 s, was 10 s)
 export const HELD_FADE_MS = 1000;     // then fades out over this long
-// City only (Jens Nov 2026): the aim brush / held preview times out after 0.5 s so it is not
-// constantly in front of you while walking. Rooms keep HELD_VISIBLE_MS.
-export const CITY_HELD_VISIBLE_MS = 500;
 
 export function createHeldTimer({ visibleMs = HELD_VISIBLE_MS, fadeMs = HELD_FADE_MS } = {}) {
   let state = 'idle', since = 0;

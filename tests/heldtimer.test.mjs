@@ -3,20 +3,13 @@
 // (touch, aim, pinch, twist, size/rotation, the wheel) keeps it up: keepAlive restarts the 2 s.
 // Run: node tests/heldtimer.test.mjs
 import assert from 'node:assert/strict';
-import { createHeldTimer, HELD_VISIBLE_MS as V, HELD_FADE_MS as F, CITY_HELD_VISIBLE_MS as CV } from '../shared/heldtimer.mjs';
+import { createHeldTimer, HELD_VISIBLE_MS as V, HELD_FADE_MS as F } from '../shared/heldtimer.mjs';
 
 let n = 0;
 const test = (name, fn) => { fn(); n++; console.log('✔ ' + name); };
 
-test('the timings are named constants: 2 s visible (untouched), 1 s fade; city 0.5 s', () => {
-  assert.equal(V, 2000); assert.equal(F, 1000); assert.equal(CV, 500);
-});
-test('city brush: 0.5 s visible after slap, then fades (createHeldTimer visibleMs)', () => {
-  const h = createHeldTimer({ visibleMs: CV });
-  h.placed(0);
-  assert.equal(h.opacity(CV - 1), 1);
-  assert.ok(h.opacity(CV + F / 2) < 1);
-  assert.equal(h.opacity(CV + F), 0);
+test('the timings are named constants: 2 s visible (untouched), 1 s fade', () => {
+  assert.equal(V, 2000); assert.equal(F, 1000);
 });
 test('start-up: nothing held, a tap only wakes it (never a slap)', () => {
   const h = createHeldTimer();
