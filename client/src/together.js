@@ -176,7 +176,22 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       if (hex === sel) b.classList.add('sel'); b.onclick = () => pick(hex); el.appendChild(b);
     }
   }
-  // faceColors removed (t587u): face UI gone; locked face is applied in normalizeLook.
+  // The face's colour: 'Same as skin' (no face field: it follows the skin), the swatches, or any colour.
+  // Locked face for @jensreglermanniska is still forced in normalizeLook (shared/lockedface.mjs).
+  function faceColors(el, d, set) {
+    if (!el) return;
+    colors(el, AVATAR.colors.face, d.face || null, (c) => set({ face: c }));
+    const same = document.createElement('button'); same.type = 'button'; same.className = 'face-same'; same.dataset.id = 'skin';
+    same.textContent = S.faceSameAsSkin; same.title = S.faceSameAsSkinTitle; same.style.background = d.skin;
+    if (!d.face) same.classList.add('sel');
+    same.onclick = () => { const { face, ...rest } = av.draft; av.draft = normalizeLook(rest); renderAvatarPanel(); };
+    const pick = document.createElement('input'); pick.type = 'color'; pick.id = 'av-face-any'; pick.title = S.faceCustomTitle; pick.setAttribute('aria-label', S.faceCustom);
+    pick.value = d.face || d.skin;
+    if (d.face && !AVATAR.colors.face.includes(d.face)) pick.classList.add('sel');
+    pick.oninput = () => { av.draft = normalizeLook({ ...av.draft, face: pick.value }); self.avatar?.setLook(av.draft); };
+    pick.onchange = () => set({ face: pick.value });
+    el.prepend(same); el.appendChild(pick);
+  }
   // Tyger: Colour | Fabric på varje färgplats (fabricui.js). rerender: false = bara förhandsvisningen (slidrar).
   const fab = initFabricUI({
     $, toast, getDraft: () => av.draft,
@@ -196,7 +211,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     colors($('av-shoes'), AVATAR.colors.shoes, d.shoes, (c) => set({ shoes: c }));
     { const sk = $('av-skin'); if (sk) { sk.innerHTML = ''; sk.hidden = true; } }
     colors($('av-hatcolor'), AVATAR.colors.hat, d.hatColor, (c) => set({ hatColor: c }));
-    // Face colour/fabric UI removed (t587u); locked photo applied in normalizeLook for @jensreglermanniska.
+    faceColors($('av-face'), d, set);
     $('av-hat').checked = false; $('av-hat-row').hidden = true; // Cap UI gone (Jens, 9 Nov 2026)
     fab.render();
     self.avatar?.setLook(d); // live on my avatar in the room

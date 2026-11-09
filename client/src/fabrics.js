@@ -13,10 +13,11 @@
 import * as THREE from 'three';
 import { FABRIC, FABRIC_ID_RE, cleanFabric, fabricPhase, fabricSize } from '../../shared/fabric.mjs';
 import { LOCKED_FACE_ID, LOCKED_FACE_URL } from '../../shared/lockedface.mjs';
+import { FACE3_ID, FACE3_URL } from '../../shared/face3.mjs';
 import { unlockHeaders } from './entitlements.js';
 
 export { FABRIC, cleanFabric, fabricPhase };
-export const fabricUrl = (id) => (id === LOCKED_FACE_ID ? LOCKED_FACE_URL : `/uploads/${id}.webp`);
+export const fabricUrl = (id) => (id === LOCKED_FACE_ID ? LOCKED_FACE_URL : id === FACE3_ID ? FACE3_URL : `/uploads/${id}.webp`);
 
 // ---------- Texture cache ----------
 const GRACE_MS = 15_000;

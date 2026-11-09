@@ -5,6 +5,7 @@ import { FABRIC, cleanFabric, fabricPhase, fabricUrl, prepareFabricImage, prepar
 import { randomFabricParams, afterTwist } from '../../shared/fabric.mjs';
 import { readMine, getBlob } from './designs.js';
 import { has } from './entitlements.js';
+import { FACE3, FACE3_ID, FACE3_URL } from '../../shared/face3.mjs';
 
 export const SLOTS = { shirt: 'shirt', pants: 'pants', hair: 'hairColor', skin: 'skin', shoes: 'shoes', hat: 'hatColor', face: 'face' }; // plats -> färgfältet i looken
 const SLOT_LABEL = { shirt: () => S.shirt, pants: () => S.pants, hair: () => S.hairColor, skin: () => S.skin, shoes: () => S.shoes, hat: () => S.capColour, face: () => S.face };
@@ -84,6 +85,7 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
         const cur = getDraft().fabric?.[slot];
         if (m === 'color') { if (cur) params[slot] = cur; setSlot(slot, null); }
         else if (params[slot]?.id) setSlot(slot, cleanFabric(params[slot])); // samma tyg som sist
+        else if (slot === 'face') { setSlot(slot, { ...FACE3 }); } // Face 3 default when opening Fabric
         else setDraft({}, { rerender: true });
       };
       box.appendChild(b);
@@ -121,21 +123,37 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     const tile = document.createElement('div'); tile.className = 'fab-tile'; pv.appendChild(tile);
     const src = document.createElement('div'); src.className = 'fab-src';
     const hint = document.createElement('small'); hint.textContent = f?.photo ? `${S.facePhotoOn} ${S.fabPickHint}` : f ? S.fabPickHint : `${S.fabNone} ${S.fabPickHint}`;
-    // Patches tab: black circle, yellow star, then upload last (Jens). Alpha kept via prepareFabricImage.
-    const patchLab = document.createElement('div'); patchLab.className = 'fab-tab-label'; patchLab.textContent = S.fabPatches;
-    const patchRow = document.createElement('div'); patchRow.className = 'fab-picks fab-patches';
     const curId = f?.id;
-    fillPatchRow(patchRow, slot, curId);
     const fromSticker = readJson(FROM_STICKER_KEY, {}), presetIds = readJson(PRESET_KEY, {});
-    // Patterns + recent + own stickers below the patch tab
     const picks = document.createElement('div'); picks.className = 'fab-picks';
-    for (const st of readMine().slice().reverse().slice(0, 12)) {
-      picks.appendChild(pickButton(S.fabMine, st.url, fromSticker[st.id] && fromSticker[st.id] === curId, 'mine', () => useSource(slot, () => idForSticker(st))));
+    if (slot === 'face') {
+      // Face 3 baked photo (Jens, 9 Nov 2026) – primary face texture for modding.
+      picks.appendChild(pickButton('Face 3', FACE3_URL, curId === FACE3_ID && !!f?.photo, 'face3', () => {
+        modes[slot] = 'fabric';
+        setSlot(slot, { ...FACE3 });
+      }));
+      const ph = document.createElement('button'); ph.type = 'button'; ph.className = 'fab-up fab-photo'; ph.textContent = S.facePhoto; ph.title = S.facePhotoTitle;
+      if (f?.photo && curId !== FACE3_ID) ph.classList.add('sel');
+      ph.onclick = () => { fileSlot = slot; filePhoto = true; file.click(); };
+      picks.appendChild(ph);
+      const up = document.createElement('button'); up.type = 'button'; up.className = 'fab-up'; up.textContent = S.fabUpload; up.title = S.fabUploadTitle;
+      up.onclick = () => { fileSlot = slot; filePhoto = false; file.click(); };
+      picks.appendChild(up);
+      for (const [k, p] of Object.entries(PRESETS)) picks.appendChild(pickButton(S.fabPreset(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId && !f?.photo, null, () => useSource(slot, () => idForPreset(k))));
+      src.append(hint, picks);
+    } else {
+      // Patches tab: black circle, yellow star, then upload last (Jens). Alpha kept via prepareFabricImage.
+      const patchLab = document.createElement('div'); patchLab.className = 'fab-tab-label'; patchLab.textContent = S.fabPatches;
+      const patchRow = document.createElement('div'); patchRow.className = 'fab-picks fab-patches';
+      fillPatchRow(patchRow, slot, curId);
+      for (const st of readMine().slice().reverse().slice(0, 12)) {
+        picks.appendChild(pickButton(S.fabMine, st.url, fromSticker[st.id] && fromSticker[st.id] === curId, 'mine', () => useSource(slot, () => idForSticker(st))));
+      }
+      const shown = new Set([...Object.values(fromSticker), ...Object.values(presetIds)]);
+      for (const id of readRecent()) if (!shown.has(id)) picks.appendChild(pickButton(S.fabRecent, fabricUrl(id), id === curId, null, () => useSource(slot, async () => id)));
+      for (const [k, p] of Object.entries(PRESETS)) picks.appendChild(pickButton(S.fabPreset(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId, null, () => useSource(slot, () => idForPreset(k))));
+      src.append(hint, patchLab, patchRow, picks);
     }
-    const shown = new Set([...Object.values(fromSticker), ...Object.values(presetIds)]);
-    for (const id of readRecent()) if (!shown.has(id)) picks.appendChild(pickButton(S.fabRecent, fabricUrl(id), id === curId, null, () => useSource(slot, async () => id)));
-    for (const [k, p] of Object.entries(PRESETS)) picks.appendChild(pickButton(S.fabPreset(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId, null, () => useSource(slot, () => idForPreset(k))));
-    src.append(hint, patchLab, patchRow, picks);
     top.append(pv, src); ctl.appendChild(top);
     const vals = f || cleanFabric({ ...(params[slot] || {}), id: '0000000000000000' });
     const spinRowRef = { cb: null, row: null };
@@ -183,8 +201,8 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     let wildPlaced = false;
     for (const row of document.querySelectorAll('#avatar-panel .fab-slot')) {
       const slot = row.dataset.slot;
-      if (slot === 'face') { row.hidden = true; continue; } // face locked / no UI (t587u)
       if (slot === 'hat') { row.hidden = true; continue; } // Cap removed (Jens, 9 Nov 2026)
+      if (slot === 'face') row.hidden = false; // Face tab re-opened (Jens, 9 Nov 2026)
       const f = full ? d.fabric?.[slot] || null : null;
       if (f) { modes[slot] = 'fabric'; params[slot] = f; }
       if (!full) modes[slot] = 'color';
