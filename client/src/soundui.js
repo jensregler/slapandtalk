@@ -1,6 +1,6 @@
-// Sound settings (full version, entitlements.full.soundDesign): synth panels for slap, peel and
-// steps (SOUND_TABS). Duff stays in SOUNDS for four voices but has no tab. Effects data (st.fx)
-// stays and is driven from the city (cityfx) – the Effects tab is kept in code but not shown.
+// Sound settings (full version, entitlements.full.soundDesign): synth panels for slap, peel,
+// steps and Landing/duff (SOUND_TABS). Effects data (st.fx) stays and is driven from the city
+// (cityfx) – the Effects tab is kept in code but not shown.
 // Personal (Jens, 2 Nov 2026 / session model 6 Nov 2026): my sound settings are mine only –
 // sessionStorage 'klibb.sound' (and voice FX / Hear myself / Music vol / groove / run / mic). They
 // come along from a room out into the City (and around inside the city), never sent to anyone.
@@ -190,7 +190,7 @@ export function lfoSliderFor(l, target) {
   return null;
 }
 const FX_UNITS = [['reverb', 'Reverb'], ['delay', 'Delay'], ['filter', 'Filter'], ['crush', 'Bitcrush'], ['dist', 'Distortion']];
-const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Duff', fx: 'Effects' }; // duff + fx kept for code paths, not listed in SOUND_TABS
+const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Landing', fx: 'Effects' }; // Landing = peel landing thud (duff); fx kept for city code paths, not listed in SOUND_TABS
 
 // musicVol: { get, set, def } – master volume (was Music vol header; now in Master section).
 // radioBlock: () => Master section (volume + city sound). radio: Radio instance (walk tempo on Steps).
@@ -586,8 +586,8 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const body = $('snd-body'); body.innerHTML = '';
     const rb = $('snd-radio'); if (rb) { rb.innerHTML = ''; if (radioBlock) rb.appendChild(radioBlock()); }
     const tabs = $('snd-tabs'); tabs.innerHTML = '';
-    // Only Slap / Peel / Steps. Duff + Effects stay in SOUNDS/state (city drives fx; Low voice uses duff).
-    // Effects render branch below stays for programmatic/city use; the tab button is not shown.
+    // Slap / Peel / Steps / Landing (duff). Effects stay in state (city drives fx); tab button not shown.
+    // Effects render branch below stays for programmatic/city use.
     if (st.tab !== 'fx' && !SOUND_TABS.includes(st.tab)) st.tab = 'slap';
     for (const t of SOUND_TABS) {
       const b = el('button', null, TAB_NAMES[t]); b.type = 'button'; b.dataset.tab = t; b.setAttribute('aria-pressed', String(st.tab === t));

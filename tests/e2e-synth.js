@@ -3,7 +3,7 @@
 //  - free: no Sound settings anywhere, but B has its own variation of the default sounds and
 //    HEARS A's custom sounds (A's look carries the patches; nothing else goes over the network)
 //  - A: Sound settings → synth panel per sound + effects, preview, randomize, reset, save
-//  - footsteps while walking; peel landing is silent (duff patch kept for four voices)
+//  - footsteps while walking; a "duff"/Landing when a peel lands (louder for bigger paper)
 //  - Tone.Offline render: every default patch (and players' variations, room acoustics, FX) is
 //    audible and doesn't clip.
 const path = require('path');
@@ -48,9 +48,9 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     const tabs = await A.$$eval('#snd-tabs button', (b) => b.map((x) => x.textContent));
     const panel = await A.evaluate(() => ({ layers: document.querySelectorAll('#snd-body .snd-layer').length, sliders: [...document.querySelectorAll('#snd-body .snd-sl')].map((r) => r.dataset.param),
       selects: [...document.querySelectorAll('#snd-body select')].map((s) => s.dataset.name) }));
-    assert(tabs.join() === 'Slap,Peel,Steps' && panel.layers === 3 && ['cutoff', 'q', 'a', 'd', 's', 'r', 'freq', 'pitchAmt', 'level', 'drive'].every((k) => panel.sliders.includes(k))
+    assert(tabs.join() === 'Slap,Peel,Steps,Landing' && panel.layers === 3 && ['cutoff', 'q', 'a', 'd', 's', 'r', 'freq', 'pitchAmt', 'level', 'drive'].every((k) => panel.sliders.includes(k))
       && ['Source', 'Wave', 'Filter'].every((k) => panel.selects.includes(k)),
-      `synth panel per sound (${tabs.join(', ')}): Slap/Peel/Steps only; slap has its 3 layers with source/wave/filter and ${panel.sliders.length} sliders`);
+      `synth panel per sound (${tabs.join(', ')}): Slap/Peel/Steps/Landing; slap has its 3 layers with source/wave/filter and ${panel.sliders.length} sliders`);
     // Tweak: slap layer 1 cutoff + layer-2 pitch LFO via the LFO? ask button (t600u)
     await A.$eval('#snd-body .snd-layer[data-layer="0"] .snd-sl[data-param="cutoff"] input', (r) => { r.value = '700'; r.dispatchEvent(new Event('input', { bubbles: true })); });
     await A.$eval('#snd-body .snd-layer[data-layer="1"] .snd-sl[data-param="freq"] input', (r) => {
@@ -125,17 +125,17 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     assert(s1[0] - s0[0] >= 2 && s1[0] - s0[0] <= 6 && s1[1] > s0[1] && s2 === jumps0,
       `footsteps: walking ~2.9 m gives ${s1[0] - s0[0]} quiet steps for A (on the shared groove, shared/groove.mjs), B hears A's steps (${s1[1] - s0[1]}), a teleport makes no sound`);
 
-    // ---------- Peel landing is silent (duff patch kept for four voices) ----------
+    // ---------- Peel landing plays duff (Landing tab in Sound settings) ----------
     const put = await fetch(`${BASE}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': KEY }, body: JSON.stringify({ on: true }) });
     await A.waitForFunction(() => window.klibb.peels().on, null, { timeout: 5000 });
     await A.evaluate(() => { const k = window.klibb; k.state.size = 0.3; k.moveTo(0, -3.0); k.look(0, 0.1); });
     const nLand = await A.evaluate(() => window.klibb.soundLog().length);
     await A.evaluate(async () => { await window.klibb.stampAt(0, 0); });
     await A.waitForFunction((n) => window.klibb.peels().landed >= 1, nLand, { timeout: 10000 }).catch(() => {});
-    await A.waitForTimeout(500);
+    await A.waitForFunction((n) => window.klibb.soundLog().slice(n).some((e) => e.kind === 'duff'), nLand, { timeout: 10000 });
     const landCheck = await A.evaluate((n) => ({ peels: window.klibb.peels(), duffs: window.klibb.soundLog().slice(n).filter((e) => e.kind === 'duff') }), nLand);
-    assert(put.status === 200 && landCheck.peels.landed >= 1 && landCheck.duffs.length === 0,
-      `peel lands silently: ${landCheck.peels.landed} landed, ${landCheck.duffs.length} duff sounds (expected 0)`);
+    assert(put.status === 200 && landCheck.peels.landed >= 1 && landCheck.duffs.length >= 1,
+      `peel landing duff: ${landCheck.peels.landed} landed, ${landCheck.duffs.length} duff sounds (expected ≥1)`);
 
     // ---------- Offline render: audible and never clipping ----------
     const seeds = ['jens', 'sylvester', 'ulla', 'guest-42', 'x7Kq2pLm'];
