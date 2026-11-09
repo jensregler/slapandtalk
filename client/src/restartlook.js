@@ -10,7 +10,7 @@ const KEYS = ['outfit', 'hair', 'shirt', 'pants', 'hairColor', 'skin', 'hat', 'h
 const any = (list, rnd) => list[Math.floor(rnd() * list.length)];
 export function rollLook(rnd = Math.random) {
   return { outfit: any(Object.keys(AV.outfits), rnd), hair: any(Object.keys(AV.hair), rnd), shirt: any(AV.colors.shirt, rnd), pants: any(AV.colors.pants, rnd),
-    hairColor: any(AV.colors.hair, rnd), skin: any(AV.colors.skin, rnd), hat: rnd() < 0.3, hatColor: any(AV.colors.hat, rnd) };
+    hairColor: any(AV.colors.hair, rnd), skin: any(AV.colors.skin, rnd), hat: false, hatColor: any(AV.colors.hat, rnd) };
 }
 export const sameLook = (a, b) => !!a && !!b && KEYS.every((k) => a[k] === b[k]);
 // A fresh look unlike prev (outfit, hair or shirt differ, so it visibly changes); keeps insta + fabric.

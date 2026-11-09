@@ -76,7 +76,10 @@ function makeEntitlements(env = process.env, { licenses = null } = {}) {
     if (devAllowed && (dev === true || dev === '1')) return all();
     return none();
   };
-  const resolve = (creds = {}) => (open ? all() : bought(creds)); // OPEN ACCESS: no paywall anywhere (shared/openaccess.mjs)
+  // Film studio (?studio=1 → x-studio: 1): same feature unlock as open access for patches/fabrics/
+  // stickers, without marking the player "paid" (city pack archive rules stay). Normal-mode pack
+  // limits (3 packs × 3) and CREATE-only-in-room are unchanged client-side.
+  const resolve = (creds = {}) => (open || creds.studio ? all() : bought(creds)); // OPEN ACCESS / film studio
   // A paying player (the City's pack archive and carrying packs home, t479u): a real key, a Lemon
   // Squeezy license or the dev unlock – NOT open access (while it is on, everyone is "free" there, so
   // packs still leave after a week). DEV_UNLOCK=1 + klibb.devUnlock = "1" makes a paid tester.
@@ -99,8 +102,8 @@ function makeEntitlements(env = process.env, { licenses = null } = {}) {
   return resolve;
 }
 // Credentials from an HTTP request (headers set by client/src/entitlements.js).
-const fromReq = (req) => ({ key: req.get('x-unlock') || undefined, dev: req.get('x-dev-unlock') === '1' });
-// … and from a WebSocket hello: { unlock: { key, dev } }.
-const fromHello = (m) => { const u = m && typeof m.unlock === 'object' && m.unlock ? m.unlock : {}; return { key: typeof u.key === 'string' ? u.key : undefined, dev: u.dev === true }; };
+const fromReq = (req) => ({ key: req.get('x-unlock') || undefined, dev: req.get('x-dev-unlock') === '1', studio: req.get('x-studio') === '1' });
+// … and from a WebSocket hello: { unlock: { key, dev, studio } }.
+const fromHello = (m) => { const u = m && typeof m.unlock === 'object' && m.unlock ? m.unlock : {}; return { key: typeof u.key === 'string' ? u.key : undefined, dev: u.dev === true, studio: u.studio === true }; };
 
 module.exports = { openAccessOn, FEATURES, FREE_MAX_PLAYERS, maxPlayersFor, FREE_MAX_STICKER_M, FREE_MIN_STICKER_M, KEY_RE, makeEntitlements, fromReq, fromHello, none, all };

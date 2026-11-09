@@ -98,6 +98,22 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
   const presetThumbs = {};
   const presetThumb = (k) => (presetThumbs[k] ||= presetCanvas(k, 64).toDataURL());
 
+  // Black circle, yellow star, upload last (alpha via prepareFabricImage). Shared by Fabric → Patches
+  // and the character-menu Patches row (Jens, 9 Nov 2026).
+  function fillPatchRow(row, slot, curId) {
+    row.innerHTML = '';
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', S.fabPatches);
+    const presetIds = readJson(PRESET_KEY, {});
+    for (const k of PATCH_ORDER) {
+      const p = PATCHES[k];
+      row.appendChild(pickButton(S.fabPatch(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId, 'patch', () => useSource(slot, () => idForPreset(k))));
+    }
+    const up = document.createElement('button'); up.type = 'button'; up.className = 'fab-up fab-patch-up'; up.textContent = S.fabUpload; up.title = S.fabUploadTitle;
+    up.onclick = () => { fileSlot = slot; filePhoto = false; file.click(); };
+    row.appendChild(up);
+  }
+
   function controls(slot, f) {
     const ctl = document.createElement('div'); ctl.className = 'fab-ctl';
     const top = document.createElement('div'); top.className = 'fab-top';
@@ -107,16 +123,10 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     const hint = document.createElement('small'); hint.textContent = f?.photo ? `${S.facePhotoOn} ${S.fabPickHint}` : f ? S.fabPickHint : `${S.fabNone} ${S.fabPickHint}`;
     // Patches tab: black circle, yellow star, then upload last (Jens). Alpha kept via prepareFabricImage.
     const patchLab = document.createElement('div'); patchLab.className = 'fab-tab-label'; patchLab.textContent = S.fabPatches;
-    const patchRow = document.createElement('div'); patchRow.className = 'fab-picks fab-patches'; patchRow.setAttribute('role', 'group'); patchRow.setAttribute('aria-label', S.fabPatches);
+    const patchRow = document.createElement('div'); patchRow.className = 'fab-picks fab-patches';
     const curId = f?.id;
+    fillPatchRow(patchRow, slot, curId);
     const fromSticker = readJson(FROM_STICKER_KEY, {}), presetIds = readJson(PRESET_KEY, {});
-    for (const k of PATCH_ORDER) {
-      const p = PATCHES[k];
-      patchRow.appendChild(pickButton(S.fabPatch(p.name), presetThumb(k), presetIds[k] && presetIds[k] === curId, 'patch', () => useSource(slot, () => idForPreset(k))));
-    }
-    const up = document.createElement('button'); up.type = 'button'; up.className = 'fab-up fab-patch-up'; up.textContent = S.fabUpload; up.title = S.fabUploadTitle;
-    up.onclick = () => { fileSlot = slot; filePhoto = false; file.click(); };
-    patchRow.appendChild(up); // upload last in the patch tab
     // Patterns + recent + own stickers below the patch tab
     const picks = document.createElement('div'); picks.className = 'fab-picks';
     for (const st of readMine().slice().reverse().slice(0, 12)) {
@@ -174,6 +184,7 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
     for (const row of document.querySelectorAll('#avatar-panel .fab-slot')) {
       const slot = row.dataset.slot;
       if (slot === 'face') { row.hidden = true; continue; } // face locked / no UI (t587u)
+      if (slot === 'hat') { row.hidden = true; continue; } // Cap removed (Jens, 9 Nov 2026)
       const f = full ? d.fabric?.[slot] || null : null;
       if (f) { modes[slot] = 'fabric'; params[slot] = f; }
       if (!full) modes[slot] = 'color';
@@ -199,6 +210,18 @@ export function initFabricUI({ $, getDraft, setDraft, preview, toast }) {
         const base = document.createElement('div'); base.className = 'fab-base';
         const s = document.createElement('small'); s.textContent = S.fabBaseHint; base.appendChild(s);
         row.insertBefore(base, sw);
+      }
+    }
+    // Character-menu Patches (same shapes + upload as Fabric → Patches). Applies to Top (shirt).
+    // Kept in the Fabric tab too so existing muscle memory still works.
+    const patchHome = $('av-patches-row'), patchBox = $('av-patches');
+    if (patchHome && patchBox) {
+      if (full) {
+        patchHome.hidden = false;
+        fillPatchRow(patchBox, 'shirt', d.fabric?.shirt?.id || null);
+      } else {
+        patchHome.hidden = true;
+        patchBox.innerHTML = '';
       }
     }
     tick();

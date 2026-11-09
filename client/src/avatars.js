@@ -44,7 +44,7 @@ export function normalizeLook(l) {
     hairColor: pickColor(l.hairColor, AV.colors.hair, d.hairColor),
     skin: pickColor(l.skin, AV.colors.skin, d.skin),
     shoes: pickColor(l.shoes, AV.colors.shoes, d.shoes || '#222222'),
-    hat: l.hat === true,
+    hat: false, // Cap never shown (Jens, 9 Nov 2026); field kept for saved looks / wire compat
     hatColor: pickColor(l.hatColor, AV.colors.hat, d.hatColor),
     ...(typeof l.face === 'string' && FACE_HEX.test(l.face) ? { face: l.face.toLowerCase() } : {}), // own face colour; absent = skin
     ...(cleanFabrics(l.fabric) ? { fabric: cleanFabrics(l.fabric) } : {}), // tyger (valfritt), se shared/fabric.mjs
@@ -57,7 +57,7 @@ const any = (list) => list[Math.floor(Math.random() * list.length)];
 export function randomLook(prev) {
   return normalizeLook(keepFace(prev, {
     outfit: any(Object.keys(AV.outfits)), hair: any(Object.keys(AV.hair)), shirt: any(AV.colors.shirt), pants: any(AV.colors.pants),
-    hairColor: any(AV.colors.hair), skin: AV.default.skin, shoes: any(AV.colors.shoes), hat: Math.random() < 0.3, hatColor: any(AV.colors.hat),
+    hairColor: any(AV.colors.hair), skin: AV.default.skin, shoes: any(AV.colors.shoes), hat: false, hatColor: any(AV.colors.hat),
   }));
 }
 // Samma regler som servern: inga kontroll-/osynliga tecken, högst 24 tecken (emoji klipps inte itu).
@@ -311,7 +311,8 @@ export class Avatar {
     set('skin', L.skin); set('skinDark', L.skin, 0.82); set('hair', L.hairColor); set('brows', L.hairColor, 0.55);
     set('shirt', L.shirt); set('pants', L.pants); set('shoes', L.shoes || '#222222');
     set('face', L.face || L.skin); set('faceDark', L.face || L.skin, 0.82);
-    this.cap.visible = L.hat; this.capMat.color.set(L.hatColor);
+    // Cap never shown on the avatar (Jens, 9 Nov 2026) – same idea as earrings always off.
+    this.cap.visible = false; this.capMat.color.set(L.hatColor);
     this.applyFabrics(effectiveFabrics(L));
     this.updateFaceFeatures();
     if ((L.insta || '') !== (this.insta ?? '') && this.name !== undefined) this.setName(this.name, L.insta || '');

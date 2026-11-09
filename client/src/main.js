@@ -25,7 +25,7 @@ import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadVi
 import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
 import { PeelLayer } from './peels.js';
 import { PEEL, peelPlan, onFloor, stampDims } from '../../shared/peels.mjs';
-import { entitlements, loadEntitlements, credentials } from './entitlements.js';
+import { entitlements, loadEntitlements, credentials, setStudioUnlock } from './entitlements.js';
 import { uploadsToReplace, shownUploads } from '../../shared/uploads.mjs';
 import { openNameTag as openNameTagTool, nameTagOpen, nameTagState } from './nametag.js';
 import { openDoorPick, doorOpen, doorState } from './door.js';
@@ -119,6 +119,7 @@ const STUDIO_KEY = 'klibb.studio';
 let FILM_STUDIO = params.get('studio') === '1' || params.get('studio') === 'true'
   || (() => { try { return localStorage.getItem(STUDIO_KEY) === '1'; } catch { return false; } })();
 document.body.classList.toggle('film-studio', FILM_STUDIO);
+setStudioUnlock(FILM_STUDIO); // patches / fabrics / sticker gates open in film studio
 var cityBusBots = null; // eslint-disable-line no-var
 var cityBusSession = null; // eslint-disable-line no-var
 const room = CITY_OUTSIDE ? buildCityRoom({ hallColor: TESTBUS ? hallColorFor(ROOM) : null, busStop: !!(TESTBUS && isTestBusCity(ROOM)) }) : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
@@ -3595,6 +3596,7 @@ var studioJam = createStudioJam({ sound, toast }); // eslint-disable-line no-var
 function setStudio(on, { quiet = false } = {}) {
   FILM_STUDIO = !!on;
   document.body.classList.toggle('film-studio', FILM_STUDIO);
+  setStudioUnlock(FILM_STUDIO);
   try { localStorage.setItem(STUDIO_KEY, FILM_STUDIO ? '1' : '0'); } catch { /* fine */ }
   studioKey = ''; cityKey = ''; wheelKey = '';
   if (!FILM_STUDIO) studioJam.dispose();
@@ -3602,6 +3604,10 @@ function setStudio(on, { quiet = false } = {}) {
     // Warm the mic seat so permission is ready while walking/jamming (user still confirms the prompt).
     import('./mic.js').then((m) => m.getMic('studio-warm')).catch(() => {});
   }
+  // Refresh fabric/patch UI; leaving studio re-reads server flags (open access still wins).
+  const refreshEnt = () => { try { together.sendUnlock?.(credentials()); } catch {} try { together.entitlementsChanged?.(); } catch {} try { onEntitlements?.(); } catch {} };
+  if (FILM_STUDIO) refreshEnt();
+  else loadEntitlements().then(refreshEnt).catch(refreshEnt);
   const list = stickerDesigns();
   if (!keepSel(list)) select(list[0] || null); else renderDesignHud();
   renderStrip();

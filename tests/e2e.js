@@ -1069,13 +1069,13 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await A.fill('#av-name', '   Ulla   <3 ');
     await A.click('#av-outfit button[data-id="kostym"]'); await A.click('#av-hair button[data-id="lang"]');
     await A.click('#av-shirt button[data-id="#e63946"]'); await A.click('#av-haircolor button[data-id="#d4a35a"]');
-    await A.check('#av-hat'); await A.click('#av-hatcolor button[data-id="#ffd400"]');
+    // Cap removed from avatar (Jens, 9 Nov 2026) – no #av-hat UI.
     await A.evaluate(() => { document.getElementById('avatar-panel').scrollTop = 0; });
     await A.waitForTimeout(1200);
     await A.screenshot({ path: path.join(SHOTS, '25-gubbe-dator.png') });
     const blocked = await A.evaluate(async () => { const n = window.klibb.stamps.count; const r = await window.klibb.stampAt(0, 0); return r === null && window.klibb.stamps.count === n; });
     await A.click('#av-ok');
-    await B.waitForFunction(() => { const p = window.klibb.players()[0]; return p && p.name === 'Ulla <3' && p.look.outfit === 'kostym' && p.look.hat && p.look.shirt === '#e63946'; }, null, { timeout: 5000 });
+    await B.waitForFunction(() => { const p = window.klibb.players()[0]; return p && p.name === 'Ulla <3' && p.look.outfit === 'kostym' && !p.look.hat && p.look.shirt === '#e63946'; }, null, { timeout: 5000 });
     assert(blocked && (await A.evaluate(() => JSON.parse(localStorage.getItem('klibb.avatar')).look.outfit)) === 'kostym', 'Min gubbe: valen sparas på enheten och syns för den andra direkt');
     const tagB = await B.evaluate(() => [window.klibb.players()[0].tag, [...document.querySelectorAll('#people li')].map((l) => l.textContent), [...document.querySelectorAll('#chat-log li.sys')].map((l) => l.textContent)]);
     const shownA = await A.waitForFunction(() => window.klibb.me().shownAs === 'Ulla <3', null, { timeout: 5000 }).then(() => true, () => false);
@@ -1201,7 +1201,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await B.waitForFunction(() => { const p = window.klibb.players(); return p.length === 1 && p[0].name === 'Ulla <3' && p[0].look.outfit === 'kostym' && p[0].look.hair === 'lang'; }, null, { timeout: 8000 });
     assert((await B.evaluate(() => window.klibb.players()[0].tag)) === 'Ulla <3' && (await B.$$eval('#chat-log li.sys', (l) => l.map((x) => x.textContent))).filter((t) => t === 'Ulla <3 joined').length >= 1,
       'efter omladdning kommer A in igen som "Ulla <3" (namnskylt och "kom in"-rad)');
-    assert(meAfter.name === 'Ulla <3' && meAfter.look.hat && meAfter.look.hatColor === '#ffd400', 'Min gubbe finns kvar efter omladdning och syns likadan för de andra');
+    assert(meAfter.name === 'Ulla <3' && !meAfter.look.hat && meAfter.look.outfit === 'kostym' && meAfter.look.shirt === '#e63946', 'Min gubbe finns kvar efter omladdning och syns likadan för de andra');
     // Servern startar om: båda kopplar upp sig igen av sig själva och ser varandra igen
     execSync('npx pm2 restart slapandtalk', { cwd: path.join(__dirname, '..'), stdio: 'ignore' });
     await A.waitForFunction(() => window.klibb.net.status !== 'online', null, { timeout: 8000 }).catch(() => {});

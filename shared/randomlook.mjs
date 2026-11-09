@@ -19,7 +19,7 @@ export function seededLook(AV, seed) {
   const look = {
     outfit: any(Object.keys(AV.outfits)), hair: any(Object.keys(AV.hair)), shirt: any(AV.colors.shirt), pants: any(AV.colors.pants),
     hairColor: any(AV.colors.hair), skin: any(AV.colors.skin),
-    shoes: any(AV.colors.shoes || ['#222222']), hat: r() < 0.3, hatColor: any(AV.colors.hat),
+    shoes: any(AV.colors.shoes || ['#222222']), hat: false, hatColor: any(AV.colors.hat),
   };
   // Face colour UI is gone (t587u); room characters no longer roll a separate face colour.
   return look;
