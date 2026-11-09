@@ -10,8 +10,9 @@
 //     the alleys / centre.
 //   - Alleys BLEND overlapping fields (multiple effects at once); deeper meetings = extremes.
 //   - Around the Town Hall amounts ≈ 0 (quiet, effect-free).
-//   - Four small PEAKS at the inner intersections (±16, ±16): steep-but-smooth curves (not a
-//     hard switch). Each peak fetches effects from the opposite side of the city.
+//   - Four PEAKS at the inner intersections (±16, ±16): ~4× wider steep-but-smooth curves (not a
+//     hard switch). Each peak fetches effects from the opposite side of the city, plus a distinct
+//     colouration: Distortion on Peak A+C, Bitcrush on Peak B+D (never both on the same peak).
 //   - Parameters follow the gradients too (delay time short near the Delay house → tempo-synced
 //     mid-alley; feedback, reverb size, mod depth/rate, glitch rate, freq-shift Hz likewise).
 // Inside houses / other rooms: PLACE_NEUTRAL (the room's own reverb does the rest).
@@ -45,6 +46,9 @@ export const PLACE = Object.freeze({
   // Freq shift (ring-mod approximation of a frequency shifter; see decimator.js Place worklet).
   freqHz:    [-800, 800],       // carrier Hz; 0 = no shift
   freqMix:   [0, 1],            // dry/wet of the ring-mod branch
+  // Intersection peaks only (A+C dist, B+D bitcrush) – place-bus WaveShaper, not listener FX.
+  distWet:   [0, 0.85],
+  distAmount:[0, 1],
   bird:      [0, 2],
   wind:      [0, 2],
 });
@@ -53,7 +57,7 @@ export const PLACE_NEUTRAL = Object.freeze({
   delay2Time: 0.5, delay2Fb: 0, delay2Wet: 0,
   modMix: 0, modBase: 15, modDepth: 3, modRate: 0.5, modFb: 0,
   cutoff: 20000, decim: 1, bits: 16, decimMix: 0, stutter: 0, stutterLen: 1 / 6, chop: 0,
-  freqHz: 0, freqMix: 0, bird: 1, wind: 1,
+  freqHz: 0, freqMix: 0, distWet: 0, distAmount: 0.2, bird: 1, wind: 1,
 });
 const BEAT = 60 / MASTER.bpm; // ⅔ s at 90 BPM
 export const PLACE_SLEW = 0.25;
@@ -70,9 +74,9 @@ export const FIELD = Object.freeze({
   // Side half-disc: from the inner face of Flanger/Chorus toward the centre / alleys.
   sideFull: 3,
   sideZero: 28,           // house-centred; Town Hall at 32 m → ~0; alleys still filled
-  // Peaks at the four inner intersections around the Town Hall.
-  peakR: 3.2,               // metres to ~0 (steep smooth falloff)
-  peakKnee: 0.35,           // metres still ~100 %
+  // Peaks at the four inner intersections around the Town Hall (~4× prior radius, gentler).
+  peakR: 12.8,              // metres to ~0 (was 3.2; delay/reverb/freqshift peak zones grow with this)
+  peakKnee: 1.4,            // metres still ~100 % (was 0.35)
   peakPower: 3,             // >1 → steeper shoulders than plain smoothstep
 });
 
@@ -131,10 +135,11 @@ export function peakField(x, z, px, pz, f = FIELD) {
 
 // Peak centres: A NW, B NE, C SW, D SE – the four inner intersections around the Town Hall.
 export const PEAKS = Object.freeze([
-  { id: 'peakA', name: 'Peak A', x: -16, z: -16, effects: ['chorus', 'freq'] },
-  { id: 'peakB', name: 'Peak B', x:  16, z: -16, effects: ['flanger', 'glitch'] },
-  { id: 'peakC', name: 'Peak C', x: -16, z:  16, effects: ['reverb', 'chorus'] },
-  { id: 'peakD', name: 'Peak D', x:  16, z:  16, effects: ['delay', 'flanger'] },
+  // Colouration: odd peaks (A,C) → Distortion; even peaks (B,D) → Bitcrush. Deterministic by id order.
+  { id: 'peakA', name: 'Peak A', x: -16, z: -16, effects: ['chorus', 'freq', 'dist'], colour: 'dist' },
+  { id: 'peakB', name: 'Peak B', x:  16, z: -16, effects: ['flanger', 'glitch', 'bitcrush'], colour: 'bitcrush' },
+  { id: 'peakC', name: 'Peak C', x: -16, z:  16, effects: ['reverb', 'chorus', 'dist'], colour: 'dist' },
+  { id: 'peakD', name: 'Peak D', x:  16, z:  16, effects: ['delay', 'flanger', 'bitcrush'], colour: 'bitcrush' },
 ]);
 
 // Soft overlays kept from v1 (nature + broken-radio edge). No loud Town-square echo – the hall
@@ -175,6 +180,9 @@ export function fieldAmounts(x, z, f = FIELD) {
     chorusAmt: chorus + peakA + peakC,
     glitchAmt: glitch + peakB,
     freqAmt: freq + peakA,
+    // Intersection colouration only (not on corner/side fields): A+C dist, B+D bitcrush.
+    distAmt: peakA + peakC,
+    crushAmt: peakB + peakD,
   };
 }
 
@@ -251,6 +259,18 @@ function paramsFromFields(A, x, z) {
   v.freqMix = clamp(0.9 * qA, 0, 1);
   v.freqHz = freqSign * mixLin(0, 480, clamp(qA, 0, 1));
 
+  // --- Intersection peaks: Distortion on A+C, Bitcrush on B+D (extreme at centre, no clip) ---
+  const xDist = softCap(A.distAmt);
+  const xCrush = softCap(A.crushAmt);
+  v.distWet = 0.78 * xDist;
+  v.distAmount = mixLin(0.18, 0.88, clamp(xDist, 0, 1));
+  if (xCrush > 0) {
+    // Peak bitcrush is its own colour – push harder than the SW glitch corner alone.
+    v.decimMix = Math.max(v.decimMix, 0.92 * xCrush);
+    v.decim = Math.max(v.decim, mix('decim', 1, 28, clamp(xCrush, 0, 1)));
+    v.bits = Math.min(v.bits, mixLin(16, 2.5, clamp(xCrush, 0, 1)));
+  }
+
   // --- Park / edge overlays (additive, light) ---
   if (park > 0) {
     v.bird = mixLin(v.bird, 2, park);
@@ -267,7 +287,7 @@ function paramsFromFields(A, x, z) {
   }
 
   // Streets base: a tiny slapback wet when nothing else is cooking (time already blended above).
-  const activity = dA + rA + fA + cA + gA + qA;
+  const activity = dA + rA + fA + cA + gA + qA + xDist + xCrush;
   if (activity < 0.15) {
     const street = 1 - activity / 0.15;
     v.delayWet = Math.max(v.delayWet, 0.12 * street);
@@ -290,10 +310,10 @@ export const CITY_FX = Object.freeze({
     { id: 'chorus', name: 'Chorus quarter', shape: 'field', fx: {} },
     { id: 'glitch', name: 'Glitch quarter', shape: 'field', fx: {} },
     { id: 'freq', name: 'Freq shift quarter', shape: 'field', fx: {} },
-    { id: 'peakA', name: 'Peak A', shape: 'field', fx: {} },
-    { id: 'peakB', name: 'Peak B', shape: 'field', fx: {} },
-    { id: 'peakC', name: 'Peak C', shape: 'field', fx: {} },
-    { id: 'peakD', name: 'Peak D', shape: 'field', fx: {} },
+    { id: 'peakA', name: 'Peak A (dist)', shape: 'field', fx: {} },
+    { id: 'peakB', name: 'Peak B (bitcrush)', shape: 'field', fx: {} },
+    { id: 'peakC', name: 'Peak C (dist)', shape: 'field', fx: {} },
+    { id: 'peakD', name: 'Peak D (bitcrush)', shape: 'field', fx: {} },
     { id: 'park', name: 'North park', shape: 'field', fx: {} },
     { id: 'edge', name: 'City edge', shape: 'field', fx: {} },
   ]),

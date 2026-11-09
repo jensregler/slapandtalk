@@ -70,6 +70,7 @@ export class SynthEngine {
   // Built ONCE (the first time a non-neutral place is set), between the room bus and my ears:
   //   out → low-pass → place worklet (flanger/chorus, decimate+bits, stutter/chop) → mix
   //   mix → ears (dry) · mix → delay A/B → ears · mix → small/big reverb → ears
+  //   mix → distSend → WaveShaper (intersection Dist peaks) → soft level → ears
   //   ears → [listener FX] → master → guard → speakers
   // After that only plain AudioParams move (setTargetAtTime, PLACE_SLEW): no graph rebuilds.
   // Place follows MY position (per listener); nothing is sent to anyone.
@@ -84,11 +85,16 @@ export class SynthEngine {
     const intoEars = (n) => { try { T.connect(n, ears); } catch { try { n.connect(ears.input || ears); } catch { /* ok */ } } };
     const tap = (max) => { const d = ctx.createDelay(max), fb = ctx.createGain(), send = ctx.createGain(); fb.gain.value = 0; send.gain.value = 0; mix.connect(send); send.connect(d); d.connect(fb); fb.connect(d); intoEars(d); return { d, fb, send }; };
     const verb = (decay, pre) => { const v = new T.Reverb({ decay, preDelay: pre, wet: 1 }), send = ctx.createGain(); send.gain.value = 0; mix.connect(send); T.connect(send, v); intoEars(v); return { v, send }; };
+    // Intersection Distortion (Peaks A+C): soft fold WaveShaper on a wet send; level kept under the master guard.
+    const dist = ctx.createWaveShaper(); dist.curve = placeDistCurve(0.2); dist.oversample = '2x';
+    const distSend = ctx.createGain(); distSend.gain.value = 0;
+    const distGain = ctx.createGain(); distGain.gain.value = 0.55; // makeup under soft-clip so peaks don't clip
+    mix.connect(distSend); distSend.connect(dist); dist.connect(distGain); intoEars(distGain);
     try { this.out.disconnect(); } catch { /* ok */ } // was out → ears
     T.connect(this.out, lp);
     if (node) { lp.connect(node); node.connect(mix); } else lp.connect(mix);
     mix.connect(dryGain); intoEars(dryGain);
-    this.place = { lp, node, mix, dryGain, city: 0, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), last: null, sets: 0 };
+    this.place = { lp, node, mix, dryGain, city: 0, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), dist, distSend, distGain, distAmt: 0.2, last: null, sets: 0 };
     return this.place;
   }
   // v: the values from cityFxAt (or PLACE_NEUTRAL). Neutral before the bus exists = nothing to do.
@@ -104,6 +110,12 @@ export class SynthEngine {
     to(P.a.d.delayTime, v.delayTime); to(P.a.fb.gain, v.delayFb); to(P.a.send.gain, (v.delayWet || 0) * c);
     to(P.b.d.delayTime, v.delay2Time); to(P.b.fb.gain, v.delay2Fb); to(P.b.send.gain, (v.delay2Wet || 0) * c);
     to(P.small.send.gain, (v.verbWet || 0) * (1 - v.verbSize) * c); to(P.big.send.gain, (v.verbWet || 0) * v.verbSize * c);
+    // Distortion wet send (Peaks A+C). Curve rebuild only when amount steps enough (no audio glitch every tick).
+    to(P.distSend.gain, (v.distWet || 0) * c);
+    if (Number.isFinite(v.distAmount)) {
+      const a = Math.round((v.distAmount || 0) * 50) / 50;
+      if (a !== P.distAmt) { P.dist.curve = placeDistCurve(a); P.distAmt = a; }
+    }
     if (P.node) for (const k of ['modMix', 'modBase', 'modDepth', 'modRate', 'modFb', 'decim', 'bits', 'decimMix', 'stutter', 'stutterLen', 'chop', 'freqHz', 'freqMix']) {
       const prm = P.node.parameters.get(k); if (!prm) continue;
       let x = v[k];
@@ -518,6 +530,16 @@ export class SynthEngine {
 function softClipCurve() {
   const n = 2048, c = new Float32Array(n);
   for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.abs(x) < 0.5 ? x : Math.sign(x) * (0.5 + 0.5 * Math.tanh((Math.abs(x) - 0.5) / 0.5)); }
+  return c;
+}
+// Soft fold for city intersection Distortion peaks (amount 0..1). Output stays in ±1 so the master guard does not engage hard.
+function placeDistCurve(amount = 0.2) {
+  const k = Math.max(0.01, Math.min(1, amount) * 28);
+  const n = 2048, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    c[i] = ((1 + k) * x) / (1 + k * Math.abs(x));
+  }
   return c;
 }
 // Why the voices are plain Web Audio and not Tone instruments: every Tone node wraps its params

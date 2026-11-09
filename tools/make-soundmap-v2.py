@@ -142,27 +142,34 @@ for x, z, text, col in labels:
         draw.text((px_ - tw / 2, py_ - th / 2 + i * (th + 4) - (th if '\n' in text else 0) / 2),
                   line, font=F_BIG, fill=col)
 
-# Peaks A–D – large clear markers
+# Peaks A–D – large clear markers + falloff ring (peakR); Dist (A,C) vs Bitcrush (B,D)
+DIST_COL = (255, 110, 40)
+CRUSH_COL = (255, 230, 80)
 for p in PEAKS:
     px_, py_ = to_px(p['x'], p['z'])
+    colour = p.get('colour') or ('dist' if 'dist' in p.get('effects', []) else 'bitcrush')
+    fill = DIST_COL if colour == 'dist' else CRUSH_COL
+    # falloff ring at FIELD.peakR
+    rr = FIELD['peakR'] * SCALE
+    draw.ellipse([px_ - rr, py_ - rr, px_ + rr, py_ + rr], outline=fill, width=3)
     R = 28
-    draw.ellipse([px_ - R, py_ - R, px_ + R, py_ + R], fill='#ffe850', outline='#111', width=4)
+    draw.ellipse([px_ - R, py_ - R, px_ + R, py_ + R], fill=fill, outline='#111', width=4)
     letter = p['id'][-1]  # A/B/C/D
     bbox = draw.textbbox((0, 0), letter, font=F_BIG)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
     draw.text((px_ - tw / 2, py_ - th / 2 - 4), letter, font=F_BIG, fill='#111')
-    # effect pair under the marker
+    # effect list under the marker
     pair = '+'.join(p['effects'])
     bbox = draw.textbbox((0, 0), pair, font=F_TINY)
     tw = bbox[2] - bbox[0]
-    draw.text((px_ - tw / 2, py_ + R + 6), pair, font=F_TINY, fill='#ffe850')
+    draw.text((px_ - tw / 2, py_ + R + 6), pair, font=F_TINY, fill=fill)
 
 # compass
 draw.text((MARGIN + 20, TOP + 20), 'N ↑', font=F_MED, fill='#e8eef5')
 
 # title + legend
 draw.text((MARGIN, 40), 'Slap and Talk – sound zones v2', font=F_TITLE, fill='#e8eef5')
-draw.text((MARGIN, 120), 'Continuous gradient fields · alleys blend · peaks A–D fetch opposite-side effects', font=F_SM, fill='#9aa8b8')
+draw.text((MARGIN, 120), f'Continuous fields · alleys blend · peaks ~{FIELD["peakR"]} m · A+C Distortion / B+D Bitcrush', font=F_SM, fill='#9aa8b8')
 
 # legend at bottom
 legend = [
@@ -172,7 +179,8 @@ legend = [
     ('Freq shift (SE corner, slow)', COLS['q']),
     ('Flanger (W side, half-disc)', COLS['f']),
     ('Chorus (E side, half-disc)', COLS['c']),
-    ('Peak A–D (steep smooth)', PEAK_COL),
+    ('Peak A+C Distortion', DIST_COL),
+    ('Peak B+D Bitcrush', CRUSH_COL),
 ]
 lx, ly = MARGIN, TOP + MAP_PX + 40
 for i, (name, col) in enumerate(legend):
@@ -184,7 +192,7 @@ for i, (name, col) in enumerate(legend):
     draw.text((x + 55, y + 4), name, font=F_MED, fill='#e8eef5')
 
 draw.text((MARGIN, OUT_H - 70),
-          'Town Hall ≈ silent · delay time short near Delay house → ⅛-note mid-alley · Freq shift = ring-mod in place bus',
+          'Town Hall ≈ silent · delay time short near Delay house → ⅛-note mid-alley · intersection Dist/Bitcrush keep peaks distinct',
           font=F_SM, fill='#9aa8b8')
 
 out = '/workspace/slapandtalk-soundmap-v2.png'

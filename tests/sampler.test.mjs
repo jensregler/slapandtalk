@@ -250,28 +250,42 @@ ok('city place effect v2: continuous fields, Freq shift replaces Clean, peaks st
   // Extreme combo near where side + corner + peak shoulders meet
   const combo = A(-20, -14);
   assert.ok(combo.delayAmt + combo.flangerAmt > 0.6, 'combo zone has multiple effects');
-  // Peaks: steep-but-continuous, correct effect pairs
-  assert.equal(PEAKS[0].effects.join('+'), 'chorus+freq');
-  assert.equal(PEAKS[1].effects.join('+'), 'flanger+glitch');
-  assert.equal(PEAKS[2].effects.join('+'), 'reverb+chorus');
-  assert.equal(PEAKS[3].effects.join('+'), 'delay+flanger');
+  // Peaks: ~4× radius, steep-but-continuous; A+C dist, B+D bitcrush (not both on one peak)
+  assert.ok(Math.abs(FIELD.peakR - 12.8) < 1e-9 && Math.abs(FIELD.peakKnee - 1.4) < 1e-9, 'peak radius ×4');
+  assert.equal(PEAKS[0].effects.join('+'), 'chorus+freq+dist');
+  assert.equal(PEAKS[1].effects.join('+'), 'flanger+glitch+bitcrush');
+  assert.equal(PEAKS[2].effects.join('+'), 'reverb+chorus+dist');
+  assert.equal(PEAKS[3].effects.join('+'), 'delay+flanger+bitcrush');
+  assert.equal(PEAKS[0].colour, 'dist'); assert.equal(PEAKS[1].colour, 'bitcrush');
+  assert.equal(PEAKS[2].colour, 'dist'); assert.equal(PEAKS[3].colour, 'bitcrush');
   assert.ok(peakField(-16, -16, -16, -16) === 1, 'peak centre = 1');
   assert.ok(peakField(-16, -16, -16 + FIELD.peakR + 0.01, -16) === 0, 'peak outside R = 0');
-  // Continuity: small step near the knee changes amount continuously (not a hard switch)
-  const p0 = peakField(-16, -16, -16 + 0.5, -16);
-  const p1 = peakField(-16, -16, -16 + 0.6, -16);
+  // Continuity: small step past the knee changes amount continuously (not a hard switch)
+  const p0 = peakField(-16, -16, -16 + FIELD.peakKnee + 0.5, -16);
+  const p1 = peakField(-16, -16, -16 + FIELD.peakKnee + 0.6, -16);
   assert.ok(p0 > p1 && p0 - p1 < 0.25, `peak continuous steep step ${p0}->${p1}`);
-  // Very steep: most of the drop happens inside a few metres
-  assert.ok(peakField(-16, -16, -16 + 1.5, -16) < 0.55, 'peak already down by 1.5 m');
-  assert.ok(peakField(-16, -16, -16 + 2.5, -16) < 0.2, 'peak nearly gone by 2.5 m');
-  // Peak A adds Chorus + Freq even though NW is Delay territory
+  // Scaled steep falloff (was 1.5 m / 2.5 m before the ×4 radius)
+  assert.ok(peakField(-16, -16, -16 + 6, -16) < 0.55, 'peak already down by 6 m');
+  assert.ok(peakField(-16, -16, -16 + 10, -16) < 0.2, 'peak nearly gone by 10 m');
+  // Peak A adds Chorus + Freq + Dist even though NW is Delay territory
   const pa = A(-16, -16);
-  assert.ok(pa.peakA > 0.95 && pa.chorusAmt > 0.9 && pa.freqAmt > 0.9, 'Peak A fetches Chorus+Freq');
+  assert.ok(pa.peakA > 0.95 && pa.chorusAmt > 0.9 && pa.freqAmt > 0.9 && pa.distAmt > 0.95, 'Peak A fetches Chorus+Freq+Dist');
+  assert.ok(pa.crushAmt < 0.05, 'Peak A has no bitcrush');
   const pav = at(-16, -16);
-  assert.ok(pav.freqMix > 0.5 && pav.modMix > 0.5, 'Peak A audible as freq+chorus');
-  // Peak D fetches Delay+Flanger
+  assert.ok(pav.freqMix > 0.5 && pav.modMix > 0.5 && pav.distWet > 0.5 && pav.distAmount > 0.5, 'Peak A audible as freq+chorus+dist');
+  // Peak B: bitcrush colour (and no dist)
+  const pb = A(16, -16);
+  assert.ok(pb.peakB > 0.95 && pb.crushAmt > 0.95 && pb.distAmt < 0.05, 'Peak B bitcrush only');
+  const pbv = at(16, -16);
+  assert.ok(pbv.decimMix > 0.5 && pbv.bits < 8 && pbv.distWet < 0.05, 'Peak B audible as bitcrush, not dist');
+  // Peak C: dist
+  const pc = A(-16, 16);
+  assert.ok(pc.peakC > 0.95 && pc.distAmt > 0.95 && pc.crushAmt < 0.05, 'Peak C dist only');
+  // Peak D fetches Delay+Flanger + bitcrush
   const pd = A(16, 16);
-  assert.ok(pd.peakD > 0.95 && pd.delayAmt > 0.9 && pd.flangerAmt > 0.9, 'Peak D fetches Delay+Flanger');
+  assert.ok(pd.peakD > 0.95 && pd.delayAmt > 0.9 && pd.flangerAmt > 0.9 && pd.crushAmt > 0.95, 'Peak D fetches Delay+Flanger+Bitcrush');
+  assert.ok(PLACE.distWet && PLACE.distAmount, 'dist keys in PLACE');
+  assert.equal(PLACE_NEUTRAL.distWet, 0);
   // Delay time short near house, tempo-synced moderate mid-alley
   const nearHouse = delayParamsAt(-40, -40);
   const midAlley = delayParamsAt(-32, -8);
