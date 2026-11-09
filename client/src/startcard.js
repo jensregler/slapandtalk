@@ -1,8 +1,9 @@
 // Landing → name a new city → enter that city (Jens, Nov 2026).
-// Bare slapandtalk.com / ?start=1: SLP/TLK art only (no menus/buttons). Enter (or tap on
-// touch) opens one big "NAME THE NEW CITY" field; Enter confirms (empty → random default)
-// and POST /api/cities, then the boot continues into that city without a full reload so the
-// same gesture can unlock WebAudio. Direct ?room= / city links still skip this (boot.js).
+// Bare slapandtalk.com / ?start=1: SLP/TLK art only (no menus/buttons). One click anywhere
+// (desktop), Enter, or tap (touch) opens one big "NAME THE NEW CITY" field; Enter confirms
+// (empty → random default) and POST /api/cities, then the boot continues straight into that
+// city (outside, no room/door/pac intro) without a full reload so the same gesture can unlock
+// WebAudio. Direct ?room= / city links still skip this (boot.js). Esc CITY / door remain.
 import { S } from './strings.js';
 import { resetPersonalSound } from './soundui.js';
 import { leaveCity } from './cityleave.js';
@@ -38,17 +39,57 @@ const isTouch = () => {
   catch { return false; }
 };
 
-// Sync inside Enter/tap so WebAudio is allowed; Sounds.ensure() reuses window.__klibbAudioCtx.
+// Sync inside click/Enter/tap so WebAudio is allowed; Sounds.ensure() reuses window.__klibbAudioCtx.
 function primeAudioFromGesture() {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
+    if (!AC) return null;
     let ctx = window.__klibbAudioCtx;
     if (!ctx || ctx.state === 'closed') {
-      try { ctx = new AC({ latencyHint: 'interactive' }); } catch { try { ctx = new AC(); } catch { return; } }
+      try { ctx = new AC({ latencyHint: 'interactive' }); } catch { try { ctx = new AC(); } catch { return null; } }
       window.__klibbAudioCtx = ctx;
     }
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    return ctx;
+  } catch { return null; }
+}
+
+// Original Slap-and-Talk startup jingle (same file videocomposer.js mixes into finished videos:
+// client/src/videocomposer.js:6 and :65 — /intro/sat-intro-ljud.wav). Preload on splash advance
+// (gesture already primed WebAudio); play when the city name is confirmed.
+let startupJingleBuf = null;
+let startupJingleLoading = null;
+function preloadStartupJingle() {
+  try {
+    const ctx = primeAudioFromGesture();
+    if (!ctx || startupJingleLoading) return startupJingleLoading;
+    startupJingleLoading = fetch('/intro/sat-intro-ljud.wav')
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('jingle ' + r.status))))
+      .then((buf) => new Promise((res, rej) => ctx.decodeAudioData(buf.slice(0), res, rej)))
+      .then((audio) => { startupJingleBuf = audio; return audio; })
+      .catch(() => null);
+    return startupJingleLoading;
+  } catch { return null; }
+}
+function playStartupJingle() {
+  try {
+    const ctx = primeAudioFromGesture();
+    if (!ctx) return;
+    const go = (audio) => {
+      if (!audio) return;
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = audio;
+        src.connect(ctx.destination);
+        src.start(0);
+        window.__klibbStartupJingle = true;
+      } catch { /* fine */ }
+    };
+    if (startupJingleBuf) go(startupJingleBuf);
+    else {
+      const p = preloadStartupJingle();
+      if (p && p.then) p.then(go);
+    }
   } catch { /* fine */ }
 }
 
@@ -127,15 +168,35 @@ export function showStartCard() {
       bottom.append(go);
     } else {
       // Desktop discoverability: tiny hint only (no button).
-      const hint = el('div', { className: 'sc-enter-hint', id: 'sc-enter-hint', textContent: S.scEnterHint || 'Enter ↵' });
+      const hint = el('div', { className: 'sc-enter-hint', id: 'sc-enter-hint', textContent: S.scEnterHint || 'click / Enter ↵' });
       bottom.append(hint);
     }
 
+    // The splash advance used pointerdown; the same gesture's click must not also hit ENTER /
+    // submit and skip the name screen. Arm submit only after the current pointer gesture ends.
+    let armed = false;
+    const arm = () => { armed = true; };
+    const armAfterGesture = () => {
+      const done = () => {
+        window.removeEventListener('pointerup', done, true);
+        window.removeEventListener('pointercancel', done, true);
+        window.removeEventListener('keyup', done, true);
+        setTimeout(arm, 0);
+      };
+      window.addEventListener('pointerup', done, true);
+      window.addEventListener('pointercancel', done, true);
+      window.addEventListener('keyup', done, true);
+      // Enter-key advance has no pointerup – arm on next macrotask as fallback.
+      setTimeout(arm, 50);
+    };
+    armAfterGesture();
+
     let busy = false;
     const submit = async () => {
-      if (busy) return;
+      if (!armed || busy) return;
       busy = true;
       primeAudioFromGesture();
+      playStartupJingle(); // sat-intro-ljud.wav — videocomposer.js:65 / :6
       const typed = inp.value.trim();
       const name = typed || inp.placeholder || defaultCityName();
       const ok = await enterCity(name);
@@ -156,20 +217,21 @@ export function showStartCard() {
       el('div', { className: 'sc-title', textContent: 'TLK' }),
     ]);
     body.append(stack);
-    // Subtle discoverability only – no menu, no button.
-    const hint = el('div', { className: 'sc-enter-hint', id: 'sc-enter-hint', textContent: isTouch() ? (S.scTapHint || 'tap') : (S.scEnterHint || 'Enter ↵') });
+    // Subtle discoverability only – no menu, no button. Desktop: click or Enter; touch: tap.
+    const hint = el('div', { className: 'sc-enter-hint', id: 'sc-enter-hint', textContent: isTouch() ? (S.scTapHint || 'tap') : (S.scEnterHint || 'click / Enter ↵') });
     bottom.append(hint);
 
     let gone = false;
     const advance = () => {
       if (gone) return; gone = true;
       primeAudioFromGesture();
+      preloadStartupJingle();
       root.removeEventListener('pointerdown', onPtr);
       root.removeEventListener('keydown', onKey);
       nameCity();
     };
     const onPtr = (e) => {
-      // Touch / click anywhere advances; keep it invisible (no button chrome).
+      // Desktop mouse click, pen, or touch anywhere advances (left button only for mouse).
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       e.preventDefault();
       advance();

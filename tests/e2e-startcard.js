@@ -1,4 +1,5 @@
 // E2E: landing → name city → enter city (startcard.js; Jens, Nov 2026).
+// Covers Enter, desktop mouse click, and touch tap → NAME THE NEW CITY → city outside.
 // Own server (STARTCARD_E2E_PORT, default 8901).
 const fs = require('fs');
 const path = require('path');
@@ -110,6 +111,49 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     check('?room= skips landing straight into the room',
       await d.evaluate((id) => !document.getElementById('start-card') && window.klibb.room === id, mk.room.id));
     await d.close();
+
+    // Desktop mouse click anywhere on splash → NAME THE NEW CITY (not Enter, not touch)
+    const clickP = await (await b.newContext({ viewport: { width: 900, height: 1000 } })).newPage();
+    clickP.on('pageerror', (e) => errs.push('click: ' + e.message));
+    await clickP.goto(`${S.base}/?start=1`);
+    await clickP.waitForSelector('#sc-splash', { timeout: 15000 }); await sleep(200);
+    await clickP.mouse.click(450, 500);
+    await clickP.waitForSelector('#sc-cityname', { timeout: 10000 }); await sleep(200);
+    await clickP.screenshot({ path: '/workspace/start-click-name.png' });
+    const clickUi = await clickP.evaluate(() => ({
+      heading: document.getElementById('sc-city-heading')?.textContent,
+      focus: document.activeElement?.id,
+      audio: !!(window.__klibbAudioCtx),
+      klibb: !!window.klibb,
+      room: new URLSearchParams(location.search).get('room'),
+      buttons: [...document.querySelectorAll('#start-card button')].map((x) => x.id),
+    }));
+    check('desktop mouse click opens NAME THE NEW CITY (focus on field, audio primed, no city yet)',
+      /NAME THE NEW CITY/i.test(clickUi.heading || '') && clickUi.focus === 'sc-cityname'
+      && clickUi.audio && !clickUi.klibb && !clickUi.room && clickUi.buttons.length === 0, clickUi);
+    // Same click must not have skipped past the name screen; confirm with Enter → city outside + jingle
+    await Promise.all([
+      clickP.waitForFunction(() => window.klibb && window.klibb.ready && /stad-/.test(location.search), null, { timeout: 45000 }),
+      clickP.locator('#sc-cityname').press('Enter'),
+    ]);
+    await clickP.waitForFunction(() => window.__klibbStartupJingle === true, null, { timeout: 8000 }).catch(() => {});
+    const clickEntered = await clickP.evaluate(() => {
+      const c = window.klibb?.city?.() || {};
+      return {
+        room: new URLSearchParams(location.search).get('room'),
+        outside: !!c.outside,
+        house: c.house,
+        door: !!document.getElementById('door-flow'),
+        nametag: !!document.getElementById('nametag'),
+        jingle: !!window.__klibbStartupJingle,
+        startGone: !document.getElementById('start-card'),
+      };
+    });
+    check('after name confirm: straight into city outside (no door/pac/nametag)',
+      /^stad-/.test(clickEntered.room || '') && clickEntered.outside && clickEntered.house === 0
+      && !clickEntered.door && !clickEntered.nametag && clickEntered.startGone, clickEntered);
+    check('startup jingle flagged (sat-intro-ljud.wav played on confirm)', !!clickEntered.jingle, clickEntered);
+    await clickP.close();
 
     // Touch: tap splash → name → tap ENTER on the bar
     const m = await (await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })).newPage();
