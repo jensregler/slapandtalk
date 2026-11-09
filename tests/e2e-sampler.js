@@ -238,7 +238,7 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     const q = {};
     for (const [id, x, z] of [['delay', -42, -42], ['reverb', 42, -42], ['flanger', -20, 0], ['chorus', 20, 0], ['glitch', -42, 42], ['freq', 42, 42], ['hall', 0, 0]]) q[id] = await go(x, z);
     check('city: one place bus (worklet) after my master; each quarter is heard where it is (delay, reverb, flanger, chorus, glitch, freq)',
-      q.delay.bus && q.delay.worklet && q.delay.now.zones.delay > 0.85 && q.delay.live.a > 0.25 && q.reverb.live.big > 0.4 && q.flanger.live.mod > 0.7 && q.chorus.live.mod > 0.6 && q.glitch.live.st > 0.3 && q.glitch.live.dm > 0.5 && q.freq.live.fm > 0.4 && Math.abs(q.freq.live.fh) > 50,
+      q.delay.bus && q.delay.worklet && q.delay.now.zones.delay > 0.85 && q.delay.live.a > 0.25 && q.reverb.live.big > 0.4 && q.flanger.live.mod > 0.7 && q.chorus.live.mod > 0.6 && q.glitch.live.st > 0.3 && q.glitch.live.dm > 0.5 && q.glitch.live.a > 0.5 && q.glitch.live.mod > 0.7 && q.freq.live.fm > 0.4 && Math.abs(q.freq.live.fh) > 50,
       Object.fromEntries(Object.entries(q).map(([k, v]) => [k, v.live])));
     check('…Town Hall is quiet (no strong sends / freq / glitch)', q.hall.live.a < 0.25 && q.hall.live.big < 0.25 && q.hall.live.mod < 0.2 && (q.hall.live.fm || 0) < 0.15 && q.hall.live.st < 0.15, q.hall.live);
     check('…a big label says where I am ("🎛 Delay quarter" / "🎛 Freq shift quarter")', q.delay.chip === '🎛 Delay quarter' && q.freq.chip === '🎛 Freq shift quarter', [q.delay.chip, q.freq.chip]);

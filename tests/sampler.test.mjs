@@ -8,7 +8,7 @@ import { MASTER, roomTempo, loopSteps, barMsAt, barsAtTime } from '../shared/clo
 import { cleanRadio, cleanPreset, cleanBpm, knobToBpm, bpmToKnob, FOUR_VOICES, voiceEvents, VOICE_CYCLE_MS, birdPhrase, RADIO } from '../shared/radio.mjs';
 import { decimate } from '../client/src/decimator.js';
 import { knobToMorph, RADIO_DEFAULTS } from '../shared/radio.mjs';
-import { CITY_FX, PLACE, PLACE_NEUTRAL, cityFxAt, zoneWeight, cleanCityFx, fieldAmounts, cornerField, sideField, peakField, delayParamsAt, PEAKS, FIELD, BEAT } from '../shared/cityfx.mjs';
+import { CITY_FX, PLACE, PLACE_NEUTRAL, cityFxAt, zoneWeight, cleanCityFx, fieldAmounts, cornerField, sideField, peakField, delayParamsAt, glitchDelayParamsAt, PEAKS, FIELD, BEAT } from '../shared/cityfx.mjs';
 import fs from 'fs';
 
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ✓ ' + name); };
@@ -311,6 +311,28 @@ ok('city place effect v2: continuous fields, Freq shift replaces Clean, peaks st
   assert.ok(at(-18, 0).modBase < 4 && at(-18, 0).modFb > 0.4, 'flanger: short + feedback');
   assert.ok(at(18, 0).modBase > 10 && at(18, 0).modFb < 0.15, 'chorus: longer, little feedback');
   const g = at(-40, 40); assert.ok(g.stutter > 0.3 && g.decimMix > 0.5 && g.bits < 10, 'glitch: crush + stutter');
+  // Glitch SW also drives delay + flanger with depth (0 at edge → max / 100% fb at tip), hotter than other quarters
+  const gTip = at(-48, 48);
+  const gMid = at(-24, 24);
+  const gEdge = at(20, 40); // far from SW tip; glitch field ≈ 0
+  const nwTip = at(-48, -48);
+  const flW = at(-32, 0);
+  assert.ok(gTip.delayWet >= 0.9 && gTip.delayFb >= 0.99, `glitch tip: max delay + 100% fb (wet=${gTip.delayWet} fb=${gTip.delayFb})`);
+  assert.ok(gTip.modMix >= 0.95 && gTip.modBase < 4 && gTip.modFb >= 0.85, 'glitch tip: max flanger');
+  assert.ok(gTip.modDepth > flW.modDepth + 2, `glitch tip flanger depth hotter than Flanger W (${gTip.modDepth} vs ${flW.modDepth})`);
+  assert.ok(gTip.delayWet > nwTip.delayWet + 0.2 && gTip.delayFb > nwTip.delayFb + 0.3, 'glitch tip hotter than Delay NW wet/fb');
+  assert.ok(gTip.stutter > 0.3 && gTip.decimMix > 0.5 && gTip.chop > 0.4, 'glitch tip keeps crush+stutter+chop');
+  assert.ok(gMid.delayWet > 0.25 && gMid.delayWet < gTip.delayWet, 'glitch mid: intermediate delay wet');
+  assert.ok(gMid.delayFb > 0.25 && gMid.delayFb < gTip.delayFb, 'glitch mid: intermediate delay fb');
+  assert.ok(gMid.modMix > 0.4 && gMid.modMix <= gTip.modMix, 'glitch mid: intermediate flanger');
+  assert.ok(gEdge.delayWet < 0.05 && gEdge.delayFb < 0.05 && gEdge.modMix < 0.08, 'glitch field edge: ~0 extra delay/flanger/fb');
+  // Along the outer wall: delay TIME changes with position (not just on/off)
+  const wallNear = at(-48, 40); // close to tip along west wall
+  const wallFar = at(-48, 20);  // further north along west wall
+  assert.ok(Math.abs(wallNear.delayTime - wallFar.delayTime) > 0.15, `wall delay time moves (${wallNear.delayTime} vs ${wallFar.delayTime})`);
+  const gpNear = glitchDelayParamsAt(-48, 40), gpFar = glitchDelayParamsAt(-48, 20);
+  assert.ok(gpNear.along < gpFar.along && gpNear.delayTime < gpFar.delayTime, 'glitchDelayParamsAt: time grows along the wall');
+  assert.ok(PLACE.delayFb[1] >= 1, 'PLACE.delayFb allows 100% feedback for glitch tip');
   assert.ok(Math.abs(at(40, 40).freqHz) > 100 && at(40, 40).freqMix > 0.5, 'freq shift: Hz + mix');
   assert.ok(at(47.5, 0).decimMix > 0.5 && at(47.5, 0).cutoff < 8000, 'edge: broken radio');
   // Walking: every 10 cm step changes each value by only a small part of its range (no jumps)

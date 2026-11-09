@@ -15,6 +15,9 @@
 //     i korsningarna”) so no two intersections share the same set. Extreme at the centre; soft-capped.
 //   - Parameters follow the gradients too (delay time short near the Delay house → tempo-synced
 //     mid-alley; feedback, reverb size, mod depth/rate, glitch rate, freq-shift Hz likewise).
+//   - Glitch SW also drives delay + flanger (on top of crush+stutter+chop): wet/fb/mod scale with
+//     corner depth (0 at the field edge → max / 100 % feedback at the tip). Delay TIME additionally
+//     slides with position along the outer walls. Glitch maxima are hotter than Delay NW / Flanger W.
 // Inside houses / other rooms: PLACE_NEUTRAL (the room's own reverb does the rest).
 // Coordinates: metres on the city map – 96 × 96 m (x, z −48…48), 3 × 3 plots of 32 m, Town Hall
 // at (0, 0), door facing south (+z), spawn at (0, 17). North = −z.
@@ -26,11 +29,12 @@ export const PLACE = Object.freeze({
   verbWet:   [0, 0.8],
   verbSize:  [0, 1],
   delayTime: [0.02, 0.6, true],
-  delayFb:   [0, 0.7],
-  delayWet:  [0, 0.8],
+  // delayFb max 1.0 so Glitch SW can hit 100 % feedback at the tip (other quarters stay ≤~0.55).
+  delayFb:   [0, 1],
+  delayWet:  [0, 1],
   delay2Time: [0.02, 1.2, true],
-  delay2Fb:  [0, 0.7],
-  delay2Wet: [0, 0.8],
+  delay2Fb:  [0, 1],
+  delay2Wet: [0, 1],
   modMix:    [0, 1],
   modBase:   [0.5, 30, true],   // ms: ~1–3 = flanger, ~12–25 = chorus
   modDepth:  [0, 10],
@@ -186,7 +190,7 @@ export function fieldAmounts(x, z, f = FIELD) {
     reverbAmt: reverb + peakEffectAmt('reverb', peakAmts),
     flangerAmt: flanger + peakEffectAmt('flanger', peakAmts),
     chorusAmt: chorus + peakEffectAmt('chorus', peakAmts),
-    glitchAmt: glitch, // SW corner only (crush+stutter+chop bundle); peaks use bitcrush/stutter separately
+    glitchAmt: glitch, // SW corner: crush+stutter+chop + (via paramsFromFields) delay+flanger; peaks use bitcrush/stutter separately
     freqAmt: freq + peakEffectAmt('freq', peakAmts),
     distAmt: peakEffectAmt('dist', peakAmts),
     crushAmt: peakEffectAmt('bitcrush', peakAmts),
@@ -206,6 +210,19 @@ export function delayParamsAt(x, z, f = FIELD) {
   const delayFb = mixLin(0.55, 0.28, tSmooth);
   const delay2Fb = mixLin(0.48, 0.22, tSmooth);
   return { delayTime, delay2Time, delayFb, delay2Fb, t: tSmooth };
+}
+
+// Glitch-SW delay TIME along the outer walls (Jens, voice Nov 2026):
+// L-distance from the SW tip (−half,+half) along either wall. 0 at the tip → grows as you slide
+// west-wall north or south-wall east. Audible continuous change; independent of wet/fb depth.
+export function glitchDelayParamsAt(x, z, f = FIELD) {
+  const along = (x - (-f.half)) + (f.half - z);
+  const t = clamp(along / 36, 0, 1);
+  const tSmooth = smooth(t);
+  // Wild range past the NW house's short slap: tip snaps short, wall stretch goes long.
+  const delayTime = mixLin(0.04, 0.58, tSmooth);
+  const delay2Time = mixLin(0.08, 1.05, tSmooth);
+  return { delayTime, delay2Time, t: tSmooth, along };
 }
 
 // Map field amounts → PLACE params. Soft-cap so alley extremes stay musical.
@@ -236,21 +253,27 @@ function paramsFromFields(A, x, z) {
   v.verbWet = 0.72 * rA;
   v.verbSize = mixLin(0.35, 1, clamp(rA, 0, 1));
 
-  // --- Flanger (side W + peaks B,D) vs Chorus (side E + peaks A,C) ---
-  // When both are up (alley blend), bias modBase toward the stronger one.
-  // Always write the params (even at ~0 mix) so walking out of a field never snaps modBase
-  // back to PLACE_NEUTRAL mid-value.
-  const modSum = fA + cA;
-  v.modMix = clamp(0.95 * softCap(modSum, 1), 0, 1);
+  // --- Flanger (side W + peaks + Glitch SW) vs Chorus (side E + peaks) ---
+  // Glitch corner adds EXTRA flanger energy (raw depth, soft-cap bypassed) so SW outruns Flanger W.
+  const gRaw = clamp(A.glitchAmt, 0, 1); // 0 at glitch-field edge → 1 at innermost SW tip
+  const fGlitch = gRaw * 1.35;           // hotter than a normal side-field peak
+  const fTotal = fA + fGlitch;
+  const modSum = fTotal + cA;
+  v.modMix = clamp(0.99 * softCap(modSum, 1.15), 0, 1);
   // Soften bias when both fields are tiny so a 0↔ε crossing can't swing modBase across its whole range.
   const rawBias = modSum > 1e-9 ? cA / modSum : 0.5; // 0 = pure flanger, 1 = pure chorus
   const chorusBias = mixLin(0.5, rawBias, clamp(modSum / 0.1, 0, 1));
   v.modBase = mix('modBase', 1.5, 18, chorusBias);
-  v.modDepth = mixLin(1.3, 5.5, chorusBias) * clamp(modSum, 0, 1.2);
+  v.modDepth = mixLin(1.3, 5.5, chorusBias) * clamp(modSum, 0, 1.35);
+  // Glitch tip pushes depth/feedback past the west-side peak.
+  if (gRaw > 0) {
+    v.modDepth = Math.max(v.modDepth, mixLin(2.5, 9.8, gRaw) * gRaw);
+  }
   v.modRate = mix('modRate', 0.18, 1.1, chorusBias);
-  v.modFb = mixLin(0.75, 0, chorusBias) * clamp(fA, 0, 1);
+  v.modFb = mixLin(0.75, 0, chorusBias) * clamp(fTotal, 0, 1.2);
+  if (gRaw > 0) v.modFb = Math.max(v.modFb, 0.9 * gRaw);
 
-  // --- Glitch (SW corner only: crush + stutter + chop bundle) ---
+  // --- Glitch (SW corner: crush + stutter + chop bundle — kept) ---
   v.decimMix = 0.85 * gA;
   v.decim = mix('decim', 1, 12, clamp(gA, 0, 1));
   v.bits = mixLin(16, 4, clamp(gA, 0, 1));
@@ -258,6 +281,21 @@ function paramsFromFields(A, x, z) {
   // Near the house (high amount): dense 16ths; further out: longer slices.
   v.stutterLen = mix('stutterLen', BEAT / 4, BEAT / 2, 1 - clamp(gA, 0, 1));
   v.chop = 0.75 * gA;
+
+  // --- Glitch SW EXTRA delay (Jens voice Nov 2026): wet + 100 % feedback at tip; TIME along wall ---
+  // Soft-cap bypassed for wet/fb so SW is wildly hotter than Delay NW (~0.52 wet / ~0.55 fb).
+  // Math.max so NW Delay / peaks keep their identity where they dominate.
+  if (gRaw > 0) {
+    const gp = glitchDelayParamsAt(x, z);
+    v.delayWet = Math.max(v.delayWet, 0.98 * gRaw);
+    v.delay2Wet = Math.max(v.delay2Wet, 0.88 * gRaw);
+    v.delayFb = Math.max(v.delayFb, 1.0 * gRaw);     // → 100 % at innermost SW
+    v.delay2Fb = Math.max(v.delay2Fb, 0.95 * gRaw);
+    // Engage wall-time morph as soon as we're meaningfully in the glitch field.
+    const gPres = clamp(gRaw / 0.2, 0, 1);
+    v.delayTime = mixLin(v.delayTime, gp.delayTime, gPres);
+    v.delay2Time = mixLin(v.delay2Time, gp.delay2Time, gPres);
+  }
 
   // --- Freq shift (corner SE + peaks that list freq) ---
   // Hz grows with amount; sign follows a smooth N/S bias (no hard flip at z=0).
