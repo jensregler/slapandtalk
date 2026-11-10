@@ -212,6 +212,18 @@ function client(base, room, hello = {}) {
     dc.send({ t: 'dance', stop: true }); // never danced
     await sleep(200);
     assert(db.msgs.filter((m) => m.t === 'dance' && m.stop).length === before, 'dance stop without a dance on is not relayed');
+    assert(dmsg.loop === undefined, 'dance: a one-shot start carries no loop flag');
+    // looping (Jens t814u: X starts it, it loops until X again): loop: true is relayed, and the stop
+    // stays relayable for as long as it loops (no 19.5 s one-shot window)
+    const dAt2 = Date.now();
+    da.send({ t: 'dance', at: dAt2, bpm: 90, phaseMs: 0, loop: true });
+    const dloop = await db.wait((m) => m.t === 'dance' && m.loop === true);
+    assert(dloop && dloop.id === dwa.id && dloop.at === dAt2 && dloop.bpm === 90, 'dance loop: relayed with loop: true + the clock');
+    assert(!da.msgs.some((m) => m.t === 'dance'), 'dance loop: no echo to the dancer');
+    const before2 = db.msgs.filter((m) => m.t === 'dance' && m.stop).length;
+    da.send({ t: 'dance', stop: true });
+    await db.wait((m) => m.t === 'dance' && m.stop === true && db.msgs.filter((x) => x.t === 'dance' && x.stop).length > before2);
+    assert(db.msgs.filter((m) => m.t === 'dance' && m.stop).length === before2 + 1, 'dance loop: X again (stop) is relayed');
 
     rt.close();
     await sleep(150);

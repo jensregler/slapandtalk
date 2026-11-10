@@ -12,14 +12,14 @@
 //                    unlock {unlock: {key, dev}}  (new full-version key in an open tab)
 //                    ping · signal {to, data}  (signal = för röstchatt via WebRTC, se nedan)
 //                    talk {l} · held {h}  (recording only: my voice level / the sticker I aim with, never relayed)
-//                    dance {at?, bpm?, phaseMs?, stop?}  (runway dance, shared/dance.mjs: I start the one-shot dance; others see it.
+//                    dance {at?, bpm?, phaseMs?, loop?, stop?}  (runway dance, shared/dance.mjs: I start the dance (loop = until I stop it); others see it.
 //                    stop: true = I stopped it early – only relayed while my dance is on, so it needs no limiter of its own)
 //                    sit {chair: prop id | null, draw}  (3D props, shared/props.mjs: I sit down on a chair – drawing –
 //                    or stand up; one person per chair, the server keeps who sits where)
 //   server → klient: welcome {id, you, players, chat, max, full, rec, now (server ms: the shared clock for the footstep groove)} · join {player} · leave {id}
 //                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
 //                    event {e} · signal {from, data} · pong · error {error}
-//                    dance {id, at?, bpm?, phaseMs?, stop?}  (someone started the runway dance – at = server ms of the press, on that
+//                    dance {id, at?, bpm?, phaseMs?, loop?, stop?}  (someone started the runway dance – at = server ms of the press, on that
 //                    clock – or stopped it early)
 //                    sit {id, chair, draw}  (someone sat down / stood up; to the sender with taken: id when that chair was taken)
 //   a player (welcome.players, join) carries sit: { chair, draw } while seated.
@@ -460,7 +460,10 @@ function attachRealtime(server, {
         return toRoom(r, { t: 'dance', id: c.id, stop: true }, c);
       }
       if (!c.danceLimit()) return;
-      c.danceUntil = Date.now() + DANCE_MS;
+      // loop: true (Jens t814u) = it repeats every 4 bars until they stop it (X again, W/A/S/D) –
+      // the stop stays relayable for as long as it is on.
+      const loop = m.loop === true;
+      c.danceUntil = loop ? Infinity : Date.now() + DANCE_MS;
       // Standing up if they were seated – the dance needs the floor.
       if (c.sit) {
         if (r.seats.get(c.sit.chair) === c.id) r.seats.delete(c.sit.chair);
@@ -470,7 +473,7 @@ function attachRealtime(server, {
       // when (server-clock ms) + the clock it runs on, so every screen plays the same beats (shared/dance.mjs)
       const now = Date.now(), at = isNum(m.at) && Math.abs(m.at - now) < 5000 ? Math.round(m.at) : null;
       const sync = at !== null && isNum(m.bpm) && m.bpm >= 1 && m.bpm <= 120000 ? { at, bpm: round(m.bpm), phaseMs: isNum(m.phaseMs) ? round(clampN(m.phaseMs, -60000, 60000)) : 0 } : {};
-      return toRoom(r, { t: 'dance', id: c.id, ...sync }, c);
+      return toRoom(r, { t: 'dance', id: c.id, ...sync, ...(loop ? { loop: true } : {}) }, c);
     }
     if (m.t === 'sit') {
       // Sitting down on a chair (3D props): the chair is a prop id; one person per chair. null = stand up.

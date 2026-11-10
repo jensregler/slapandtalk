@@ -13,7 +13,7 @@ export class GrooveSteps {
   constructor(sound, { now = () => Date.now() } = {}) {
     this.sound = sound; this.wall = now; this.offset = 0;
     this.groove = { ...DEFAULT_GROOVE };
-    this.track = new Map();   // id -> { x, z, t, v, walkUntil, until, buzz, buzzKey }
+    this.track = new Map();   // id -> { x, z, t, v, walkUntil, moveUntil, until, buzz, buzzKey } (moveUntil: really moving; walkUntil: + dancing, Jens t814u)
     this.anchor = null;       // { wall, audio }: wall-clock ms ↔ AudioContext seconds
     this.log = [];            // the last step events (tests, curious people): { id, slot, t, tick, n, scale }
     this.events = 0; this.buzzing = 0;
@@ -22,7 +22,7 @@ export class GrooveSteps {
     this.run = null;
     // Watchdog: no frames (a hidden tab, a stall) = nobody is walking as far as we know: the buzz
     // must not loop on by itself.
-    this.watch = setInterval(() => { if (this.lastFrame && this.now() - this.lastFrame > WALK.maxAheadMs) { this.stopAll(); for (const t of this.track.values()) t.walkUntil = 0; this.buzzing = 0; } }, 250);
+    this.watch = setInterval(() => { if (this.lastFrame && this.now() - this.lastFrame > WALK.maxAheadMs) { this.stopAll(); for (const t of this.track.values()) { t.walkUntil = 0; t.moveUntil = 0; } this.buzzing = 0; } }, 250);
   }
   now() { return this.wall() + this.offset; }
   // serverNow (ms) from the WebSocket welcome: the shared clock.
@@ -54,7 +54,8 @@ export class GrooveSteps {
     return this.anchor.audio + (ms - this.anchor.wall) / 1000;
   }
 
-  // walkers: [{ id, x, z, at: [x,y,z] | null (me), voice: look.sound | undefined (me), onPeel: feet on backing paper }]
+  // walkers: [{ id, x, z, at: [x,y,z] | null (me), voice: look.sound | undefined (me), onPeel: feet on backing paper,
+  //            dancing: the dance is on – counts as walking (Jens t814u) for as long as it is }]
   update(walkers, nowMs = this.now()) {
     const seen = new Set(); let budget = WALK.maxPerFrame;
     // look ahead at least 1.5 frames (slow machines), at most WALK.maxAheadMs
@@ -63,12 +64,16 @@ export class GrooveSteps {
     for (const w of walkers) {
       seen.add(w.id);
       let t = this.track.get(w.id);
-      if (!t) { this.track.set(w.id, { x: w.x, z: w.z, t: nowMs, v: 0, walkUntil: 0, until: nowMs, buzz: null }); continue; }
+      if (!t) { this.track.set(w.id, { x: w.x, z: w.z, t: nowMs, v: 0, walkUntil: 0, moveUntil: 0, until: nowMs, buzz: null }); continue; }
       const dt = Math.max(1, nowMs - t.t), d = Math.hypot(w.x - t.x, w.z - t.z);
       t.x = w.x; t.z = w.z; t.t = nowMs;
-      if (d > WALK.jump && d / (dt / 1000) > WALK.jumpSpeed) { t.v = 0; t.walkUntil = 0; } // a teleport, not a walk
+      if (d > WALK.jump && d / (dt / 1000) > WALK.jumpSpeed) { t.v = 0; t.walkUntil = 0; t.moveUntil = 0; } // a teleport, not a walk
       else { const v = d / (dt / 1000), k = Math.min(1, dt / 120); t.v += (v - t.v) * k; }
-      if (t.v > WALK.speed) t.walkUntil = nowMs + Math.min(WALK.maxAheadMs, Math.max(WALK.holdMs, frame * 1.5));
+      const hold = nowMs + Math.min(WALK.maxAheadMs, Math.max(WALK.holdMs, frame * 1.5));
+      if (t.v > WALK.speed) { t.walkUntil = hold; t.moveUntil = hold; }
+      // dancing = walking (Jens t814u): kept up every frame while the dance is on; when it stops, the
+      // same hold as a real stop (≤ WALK.holdMs) and then quiet. moveUntil stays on real movement only.
+      if (w.dancing) t.walkUntil = Math.max(t.walkUntil, hold);
       const walking = nowMs < t.walkUntil;
       const voice = w.voice === undefined ? this.sound.mine : w.voice;
       const slot = voice && Number.isInteger(voice.colour) ? voice.colour : 0;

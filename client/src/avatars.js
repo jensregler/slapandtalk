@@ -8,7 +8,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import AV from '../../shared/avatar.json';
 import { ArmGesture } from './slapanim.js';
-import { DANCE, dancePoseAt, dancePhase, danceGrid, danceDuration } from '../../shared/dance.mjs';
+import { DANCE, dancePoseAt, dancePhase, danceGrid, danceDuration, danceLoopTime, danceLoops } from '../../shared/dance.mjs';
 export { DANCE, dancePoseAt, dancePhase };
 // The master clock the dance's beats lock to (main.js: () => ({ nowMs, tempo })); null = the fixed 120 BPM.
 let danceClock = null;
@@ -570,24 +570,26 @@ export class Avatar {
     for (const [b, qa] of P.a) { if (k) b.quaternion.slerpQuaternions(qa, P.b.get(b), k); else b.quaternion.copy(qa); }
     this.model.position.set(0, -SIT.drop, SIT.back);
   }
-  // Runway dance (Jens t540u/t546u): one-shot keyframe routine on this avatar, 4 bars on the master
-  // clock. Refuses while seated. from = { at (server-clock ms of the press), bpm, phaseMs } – someone
+  // Runway dance (Jens t540u/t546u): keyframe routine on this avatar, 4 bars on the master clock.
+  // Refuses while seated. from = { at (server-clock ms of the press), bpm, phaseMs, loop } – someone
   // else's dance as they sent it, so it plays on THEIR clock grid at the same moment on every screen
-  // (joined late: picks up mid-dance). Without it: mine, now, on my clock. Returns false if it did
-  // not start, else { at, bpm, phaseMs } (what to send to the room).
-  startDance(from = null) {
+  // (joined late: picks up mid-dance). Without it: mine, now, on my clock. loop (Jens t814u): it
+  // repeats every 4 bars on the clock until stopped (X again, W/A/S/D, sitting) instead of playing
+  // once. Returns false if it did not start, else { at, bpm, phaseMs, loop } (what to send to the room).
+  startDance(from = null, { loop = false } = {}) {
     if (this.seated || this.dance) return false;
     const c = clockNow();
     let at, tempo;
+    if (from && from.loop === true) loop = true;
     if (from && Number.isFinite(from.at) && from.bpm > 0) { at = from.at; tempo = { bpm: from.bpm, phaseMs: Number.isFinite(from.phaseMs) ? from.phaseMs : 0 }; }
     else { at = c ? Math.round(c.nowMs) : null; tempo = c && c.tempo ? { bpm: Math.round(c.tempo.bpm * 1000) / 1000, phaseMs: Math.round((c.tempo.phaseMs || 0) * 1000) / 1000 } : null; } // rounded like the server relays it: the same grid everywhere
     const grid = at != null && tempo ? danceGrid(at, tempo) : null;
-    const t0 = at != null && c ? Math.max(0, (c.nowMs - at) / 1000) : 0;
-    if (t0 >= danceDuration(grid)) return false; // it is already over
+    const raw = at != null && c ? Math.max(0, (c.nowMs - at) / 1000) : 0;
+    if (!loop && raw >= danceDuration(grid)) return false; // it is already over
     this.waveUntil = 0; this.actions.Wave?.stop();
     this.gesture.h = null; this.gesture.g = null; // no slap/hold fighting the arms
-    this.dance = { t: t0, at, grid, end: danceDuration(grid) };
-    return { at, bpm: tempo ? tempo.bpm : null, phaseMs: tempo ? tempo.phaseMs || 0 : 0 };
+    this.dance = { raw, t: loop ? danceLoopTime(raw, grid) : raw, at, grid, end: danceDuration(grid), loop: !!loop };
+    return { at, bpm: tempo ? tempo.bpm : null, phaseMs: tempo ? tempo.phaseMs || 0 : 0, loop: !!loop };
   }
   stopDance() {
     if (!this.dance) return;
@@ -600,11 +602,14 @@ export class Avatar {
   get dancePhase() { return this.dance ? dancePhase(this.dance.t, this.dance.grid) : null; }
   get danceAt() { return this.dance && this.dance.at != null ? this.dance.at : null; }
   get danceGrid() { return this.dance && this.dance.grid ? { ...this.dance.grid } : null; }
+  get danceLoop() { return !!this.dance?.loop; }
+  get danceLoops() { return this.dance ? danceLoops(this.dance.raw, this.dance.grid) : 0; }
   applyDance(dt) {
     const d = this.dance; if (!d) return;
     const c = d.at != null ? clockNow() : null;
-    d.t = c ? Math.max(0, (c.nowMs - d.at) / 1000) : d.t + dt; // on the clock: no drift, same moment everywhere
-    if (d.t >= d.end) { this.stopDance(); return; }
+    d.raw = c ? Math.max(0, (c.nowMs - d.at) / 1000) : d.raw + dt; // on the clock: no drift, same moment everywhere
+    if (d.loop) d.t = danceLoopTime(d.raw, d.grid); // wraps every 4 bars, on the clock's beats
+    else { d.t = d.raw; if (d.t >= d.end) { this.stopDance(); return; } }
     for (const [b, q] of this._rest) b.quaternion.copy(q);
     const S = dancePoseAt(d.t, d.grid);
     danceTurns(this, S);
@@ -712,6 +717,6 @@ export class Players {
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
       walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false,
-      gestures: p.gestures || 0, slot: p.slot, sit: p.sit ? { ...p.sit } : null, seated: !!p.avatar?.seated, dancing: !!p.avatar?.dancing, dancePhase: p.avatar?.dancePhase || null, danceTime: p.avatar ? +p.avatar.danceTime.toFixed(2) : 0, danceAt: p.avatar?.danceAt ?? null, danceBpm: p.avatar?.danceGrid?.bpm ?? null, capWorld: p.avatar?.cap.visible ? p.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
+      gestures: p.gestures || 0, slot: p.slot, sit: p.sit ? { ...p.sit } : null, seated: !!p.avatar?.seated, dancing: !!p.avatar?.dancing, dancePhase: p.avatar?.dancePhase || null, danceTime: p.avatar ? +p.avatar.danceTime.toFixed(2) : 0, danceAt: p.avatar?.danceAt ?? null, danceBpm: p.avatar?.danceGrid?.bpm ?? null, danceLoop: !!p.avatar?.danceLoop, danceLoops: p.avatar?.danceLoops || 0, capWorld: p.avatar?.cap.visible ? p.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
   }
 }

@@ -2098,7 +2098,7 @@ if (!isTouch) {
     if (e.code === 'KeyM' && !e.repeat) setMuted(!sound.muted);
     if (e.code === 'KeyP' && !e.repeat) snapPhoto(); // 📷 Photo
     if (e.code === 'KeyC' && !e.repeat) toggleView();
-    if (e.code === 'KeyX' && !e.repeat) startDance(); // runway dance (shared/dance.mjs)
+    if (e.code === 'KeyX' && !e.repeat) toggleDance(); // runway dance (shared/dance.mjs): X starts it looping, X again stops it
     if (e.code === 'KeyL' && !e.repeat && credit.shown?.link) openLink(credit.shown.link);
     if (e.code === 'KeyO' && !e.repeat) setAimOff(!aimOff); // aim tool on/off (sikte; stickers, nature, assets)
     if (propsMode()) { // the Props wheel: Q/E turn, R/F the next/previous prop, Delete removes the selected one, Esc lets go
@@ -2278,7 +2278,7 @@ if (!isTouch) {
   stackMenu = initStackMenu({
     pinching: () => !!touchPinch,
     S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
-    peelLast: () => peelLast(), toggleView: () => toggleView(), startDance: () => startDance(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
+    peelLast: () => peelLast(), toggleView: () => toggleView(), startDance: () => toggleDance(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
     chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(), wheel: activeWheelApi, wheelUp, natureOpen: () => natureOpen(),
     release: (x, y) => { if (!camView && !placingCam) heldTap(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), x, y); },
   });
@@ -2726,6 +2726,9 @@ const delayRoom = delayRoomTimes();
 // The reverb room (plot 4, shared/reverbroom.mjs): nothing is held. Its three sines' volume-LFO frequencies are my
 // distance to each point (cityFxAt, live); here only the look is added: pitch from where I look (reverbPitchesAt,
 // live even standing still) and the look-out fade (reverbGazeYaw – walk out or look out shuts the tones).
+// meWalking (e2e hook only, Jens t814u): really moving = groove track 'me'.moveUntil. Dancing counts as walking
+// for the steps and the walk sequencers (walkUntil) but not as moving. Nothing in the reverb room reads it.
+const meWalking = () => { const me = groove?.track?.get('me'); return !!(me && !camView && (me.moveUntil || 0) > groove.now()); };
 function placeTick() {
   const eng = sound.engine; if (!eng) return;
   const now = performance.now(); if (now - placeAt < PLACE_EVERY_MS) return; placeAt = now;
@@ -3402,7 +3405,16 @@ const toggleView = () => setView(nextView(view));
 
 // Runway dance (Jens t540u): X on desktop, 💃 in the phone menu. Switches to 3rd person so you
 // can see your own character, plays the keyframe routine, restores the previous view when done.
-let dancePrevView = null, danceWatch = 0;
+// Loop (Jens t814u, 11 Nov 2026): X starts it and it LOOPS (4 bars at a time, on the clock) until
+// X again – or W/A/S/D / the joystick (cancelDance). While it is on it counts as walking for my
+// footsteps and the walk sound's sequencers (walkSounds below).
+let dancePrevView = null, danceWatch = 0, danceStarting = false;
+function toggleDance() {
+  if (together.dancing()) return cancelDance();
+  if (danceStarting) return false; // (a second press while my avatar is still being built)
+  danceStarting = true;
+  return startDance().finally(() => { danceStarting = false; });
+}
 async function startDance() {
   if (together.dancing()) return false;
   if (together.selfSeat() || propsUi?.seated()) { // stand up first (the dance needs the floor)
@@ -3414,7 +3426,7 @@ async function startDance() {
   else dancePrevView = null;
   const ok = await together.startDance();
   if (!ok) { if (dancePrevView) setView(dancePrevView, { quiet: true }); dancePrevView = null; toast('Could not start the dance just now.', 1800); return false; }
-  toast(isTouch ? '💃 Dance!' : '💃 Dance! (X)', 1600);
+  toast(isTouch ? '💃 Dance! (tap Dance again to stop)' : '💃 Dance! (X again to stop)', 1600);
   controls.keys.clear(); controls.joy.set(0, 0); // a key/stick already held when it started doesn't cancel it
   clearInterval(danceWatch);
   danceWatch = setInterval(() => {
@@ -3424,7 +3436,7 @@ async function startDance() {
   }, 200);
   return true;
 }
-// Cancel the dance (Jens t544u): W/A/S/D (and the arrows) or the phone joystick stop it at once;
+// Cancel the dance (Jens t544u): W/A/S/D (and the arrows), the phone joystick or X again (t814u) stop it at once;
 // the view goes back like when it ends by itself, and the room is told (dance { stop }).
 function cancelDance() {
   if (!together.dancing()) return false;
@@ -3476,8 +3488,10 @@ function updateFront(dt) {
 // ONE shared bar, so the room's footsteps are one groove. Mine while I walk, the others' from where they walk.
 function walkSounds() {
   // onPeel: feet on backing paper on the floor = the muffled "paper" step (shared/peelstep.mjs)
-  const walkers = [{ id: 'me', x: camera.position.x, z: camera.position.z, at: null, onPeel: peelLayer.under(camera.position.x, camera.position.z) }];
-  for (const pl of together.players.map.values()) walkers.push({ id: pl.id, x: pl.pos.x, z: pl.pos.z, at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id), onPeel: peelLayer.under(pl.pos.x, pl.pos.z) }); // their seed + slot colour
+  // dancing (Jens t814u): while the dance is on it counts as walking – the footsteps and the walk
+  // sound's sequencers go on for as long as it does (groove.js: walkUntil kept up, moveUntil not).
+  const walkers = [{ id: 'me', x: camera.position.x, z: camera.position.z, at: null, onPeel: peelLayer.under(camera.position.x, camera.position.z), dancing: !camView && together.dancing() }];
+  for (const pl of together.players.map.values()) walkers.push({ id: pl.id, x: pl.pos.x, z: pl.pos.z, at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id), onPeel: peelLayer.under(pl.pos.x, pl.pos.z), dancing: !!pl.avatar?.dancing }); // their seed + slot colour
   // Run mode (Jens t544u): Shift + moving = my steps on the run tempo/pitch (shared/runmode.mjs).
   const running = !camView && !together.dancing() && !!controls.running;
   if (running) { const rc = loadRunMode(), rr = runRate(rc); groove.setRun({ rate: rr.rate, tune: pitchRatio(rc.pitch) }); } else groove.setRun(null);
@@ -3877,7 +3891,7 @@ window.klibb = {
     closedText: $('demo-closed-text').textContent, invite: inviteState, inviteNote: $('invite-note').hidden ? '' : $('invite-note').textContent, left: demoTimer && demoTimer.left ? demoTimer.left() : null }),
   inviteFriend, mySlot: () => together.mySlot(), talking: () => together.talking(),
   soundUi: () => soundUi, delayRoom: () => ({ ...delayRoom.state, times: delayRoom.times, live: sound.engine?.place?.room ? sound.engine.place.room.map((r) => ({ time: r.d.delayTime.value, fb: r.fb.gain.value, send: r.send.gain.value, ret: r.ret.gain.value })) : null }), reverbRoom: () => ({ inside: insideReverbRoom(camera.position.x, camera.position.z), gaze: placeNow?.rvGaze, live: sound.engine?.place?.verbRoom ? sound.engine.place.verbRoom.map((r) => ({ time: r.pre.delayTime.value, fb: r.fb.gain.value, send: r.send.gain.value, ret: r.ret.gain.value, toneInLoop: !!r.toneInLoop, toneInSend: !!r.toneInSend, toneInTail: !!r.toneInTail, toneInEars: !!r.toneInEars, toneOut: !!r.toneOut, toneRet: r.toneRet ? r.toneRet.gain.value : null, wires: (r.wires || []).map((w) => w.slice()), toneHz: r.osc.frequency.value, toneLvl: r.lvl.gain.value, toneWet: r.toneWet ? r.toneWet.gain.value : null, lfoHz: r.lfo.frequency.value, lfoBase: r.am.gain.value, lfoDepth: r.depth.gain.value })) : null, street: sound.engine?.place ? { small: sound.engine.place.small.send.gain.value, big: sound.engine.place.big.send.gain.value } : null }), place: () => ({ now: placeNow, bus: !!sound.engine?.place, worklet: !!sound.engine?.place?.node, sets: sound.engine?.place?.sets || 0, cfg: placeCfg }), setCityFx: (cfg) => { placeCfg = cfg ? (cleanCityFx(cfg) || CITY_FX) : CITY_FX; placeAt = 0; return placeCfg; }, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
-  groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
+  groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), moving: (t.moveUntil || 0) > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
   setGrooveScale, grooveObj: () => groove,
   autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundMine: () => sound.mine, prepareSoundForPlace, resetPersonalSound, voiceOf: (id) => together.voiceOf(id),
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
@@ -3974,7 +3988,7 @@ window.klibb = {
     };
     return { ...st, view, screen: st.visible ? { sticker: px(preview.mesh), shadow: px(preview.shadow) } : null };
   },
-  setView, toggleView, startDance, cancelDance, dancing: () => together.dancing(), runMode: () => ({ ...loadRunMode(), running: !!controls.running, run: groove.run ? { ...groove.run } : null }), view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
+  setView, toggleView, startDance, cancelDance, toggleDance, dancing: () => together.dancing(), meWalking: () => meWalking(), walkUntil: () => radio.walk.until, runMode: () => ({ ...loadRunMode(), running: !!controls.running, run: groove.run ? { ...groove.run } : null }), view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, toggleNature, setNatureMode, natureMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, dropsPeel, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };

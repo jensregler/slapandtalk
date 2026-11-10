@@ -51,6 +51,21 @@ const cleanGrid = (g) => (g && g.beat > 0 && Number.isFinite(g.beat) ? { beat: g
 export const danceDuration = (grid = null) => { const g = cleanGrid(grid); return g.lead + DANCE.beats * g.beat; };
 /** Beats since the dance's first (clock) beat at dance time t (s); negative during the lead-in. */
 export const danceBeats = (t, grid = null) => { const g = cleanGrid(grid); return (t - g.lead) / g.beat; };
+/**
+ * Looping dance (Jens t814u, 11 Nov 2026: X starts it, it loops until X again). tRaw = seconds since
+ * the press (on the clock); returns the time inside the routine. The first pass is as before (lead-in
+ * + 16 beats); after that it wraps every 16 clock beats from the first beat, so each new pass starts
+ * exactly on a clock beat (a whole 4 bars later) – it never drifts off the BPM grid. The routine ends
+ * and starts standing, so the seam is seamless.
+ */
+export function danceLoopTime(tRaw, grid = null) {
+  const g = cleanGrid(grid), len = DANCE.beats * g.beat;
+  if (!(tRaw > 0)) return 0;
+  if (tRaw < g.lead + len) return tRaw;
+  return g.lead + (((tRaw - g.lead) % len) + len) % len;
+}
+/** How many whole passes have finished at tRaw (0 during the first pass). */
+export const danceLoops = (tRaw, grid = null) => { const g = cleanGrid(grid); return tRaw > g.lead ? Math.floor((tRaw - g.lead) / (DANCE.beats * g.beat)) : 0; };
 
 const clamp01 = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -269,13 +284,16 @@ export function dancePoseAt(tSec, grid = null) {
     const u = (t - 18) / 1;
     const base = mix(SQUAT, STAND, smooth(u));
     const step = Math.sin(u * Math.PI) * 0.2;
+    // the step back fades out over the last beat-and-a-bit so the pose lands exactly on STAND – the loop
+    // (Jens t814u) goes straight back into the strut, so there must be no snap at the seam
+    const sb = u * (1 - smooth((u - 0.6) / 0.4));
     return {
       ...base,
       legL: base.legL + step * 0.25,
       legR: base.legR - step * 0.15,
-      back: -u * 0.08,
-      armLX: base.armLX - u * 0.1,
-      armRX: base.armRX - u * 0.1,
+      back: -sb * 0.08,
+      armLX: base.armLX - sb * 0.1,
+      armRX: base.armRX - sb * 0.1,
     };
   }
 }

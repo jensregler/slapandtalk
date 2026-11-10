@@ -117,7 +117,7 @@ export function connect(roomId, handlers) {
     sendTalk: (l) => send({ t: 'talk', l }), // my own voice level 0…15 while I talk (recordings only)
     sendHeld: (h) => send({ t: 'held', h }), // the sticker I hold and aim with, or null (recordings only)
     sendSit: (chair, draw = false) => send({ t: 'sit', chair: chair || null, draw: !!draw }), // I sit down on a chair (prop id) / stand up (null)
-    sendDance: (stop = false, d = null) => send(stop ? { t: 'dance', stop: true } : { t: 'dance', ...(d && Number.isFinite(d.at) && d.bpm > 0 ? { at: Math.round(d.at), bpm: d.bpm, phaseMs: d.phaseMs || 0 } : {}) }), // I start the runway dance (others see it on my avatar) / stop it early
+    sendDance: (stop = false, d = null) => send(stop ? { t: 'dance', stop: true } : { t: 'dance', ...(d && Number.isFinite(d.at) && d.bpm > 0 ? { at: Math.round(d.at), bpm: d.bpm, phaseMs: d.phaseMs || 0 } : {}), ...(d && d.loop ? { loop: true } : {}) }), // I start the runway dance (others see it on my avatar) / stop it early
     sendInvite: (action = 'create') => send({ t: 'invite', action }), // demo: my single-use invite link
     get denied() { return deniedCode; },
     reconnectNow: now,
