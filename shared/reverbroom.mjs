@@ -4,7 +4,7 @@
 //   - THREE points along the back wall (the EAST wall, opposite the opening), 1 m in from it and from the
 //     side walls: 1 left, 2 centre, 3 right as you look in from the opening (looking east: left = north/−z,
 //     right = south/+z – +z is south in this city).
-//   - TONES: one pure SINE per point, rest pitch 440 Hz, each with ONE sine volume LFO, always 0 … 100 %
+//   - TONES: one pure SINE per point (pitch from where I look, below), each with ONE sine volume LFO, always 0 … 100 %
 //     (0.5 + 0.5·sin – silence to full; the depth never changes). "lfo freq = avstånd character − punkt":
 //     the distance d from me (the camera) to the point is the ONLY thing it drives – that LFO's frequency, live:
 //       lfoHz = lfoMin + (lfoMax − lfoMin) · min(d, diagonal) / diagonal   (2 Hz on the point … 1000 Hz at the
@@ -17,13 +17,16 @@
 //     from where I stand) is followed to the first face of the room's inner box: back wall → 1; a side wall hit
 //     e metres in from its open end → smooth(e / lookFade) (lookFade 2 m); out through the opening → 0.
 //     It multiplies only the tones' level, on top of the presence (walk out OR look out shuts them).
-//   - LOOK-DRIVEN PITCH: the look ray's hit on the three walls UNFOLDED into one strip (left/north wall from its
-//     open end → back wall → right/south wall to its open end, 46.4 m), s = −1 (far left) … 0 (back-wall centre)
-//     … +1 (far right), and the hit height on that wall, h = −1 (floor) … 0 (eye height) … +1 (roof):
-//       tone 1 = 440 · 2^h          (vertical look: 220 … 880 Hz)
-//       tone 2 = 440 · 2^max(0, s)  (how far right: 440 … 880 Hz)
-//       tone 3 = 440 · 2^max(0, −s) (how far left: 440 … 880 Hz)
-//     Looking at the back wall's centre at eye height = all three at 440 Hz (the rest point), from anywhere.
+//   - LOOK-DRIVEN PITCH (Jens t813u/t815u: "det på väggarna är det man tittar på … dom 3 oscillatorernas frekvens
+//     som går från 20hz upp till 2000hz"; the orange stripe on his sketch is just these walls unfolded – nothing
+//     outside the room changes): the look ray's hit on the three walls UNFOLDED into one strip (C = the left/north
+//     opening jamb → left wall → B = back-wall centre → right wall → A = the right/south opening jamb, 46.4 m),
+//     s = −1 (C) … 0 (B) … +1 (A), and the hit height on that wall, h = −1 (floor) … 0 (eye height) … +1 (roof).
+//     Logarithmic in Hz, 20 … 2000 Hz (0 % at the opening ends, 100 % at the back wall):
+//       tone 1 = 20 · (2000/20)^((h + 1) / 2)    (vertical look: floor 20 Hz … eye height 200 Hz … roof 2000 Hz)
+//       tone 2 = 2000 · (20/2000)^max(0, s)      (right: B 2000 Hz … A 20 Hz; looking left keeps 2000 Hz)
+//       tone 3 = 2000 · (20/2000)^max(0, −s)     (left:  B 2000 Hz … C 20 Hz; looking right keeps 2000 Hz)
+//     Looking at the back wall's centre at eye height = 200 / 2000 / 2000 Hz (the rest point), from anywhere.
 //   - THE ROOM'S OWN REVERB (voices, footsteps, my sound): a plain FIXED reverb while I'm inside – the same
 //     three diffuse cells (client/src/synth.js), but with fixed pre-delays, a fixed modest loop gain and a fixed
 //     send; nothing follows my distance or my slaps. Presence is simply inside (1) / outside (0), with a short
@@ -55,11 +58,12 @@ export const REVERB_ROOM = Object.freeze({
   diagonal: Math.hypot(BACK - OPEN, ZMAX - ZMIN), // ≈ 21.8 m
   // The room's own reverb – FIXED while inside (no distance, no slap): send, loop gain, per-cell pre-delays (s).
   wet: 0.35, loopGain: 0.5, preTimes: Object.freeze([0.019, 0.027, 0.037]), maxPre: 0.1,
-  // The three sines (rest 440 Hz) and their volume LFOs (frequency = my distance to the point).
-  toneHz: 440, toneLevel: 0.12,    // per tone at full presence (× City sound) – a quiet bed under my sound
+  // The three sines and their volume LFOs (frequency = my distance to the point). restHz = the pitches looking at
+  // the back-wall centre at eye height (tone 1 200 Hz, tones 2 and 3 2000 Hz).
+  restHz: Object.freeze([200, 2000, 2000]), toneLevel: 0.12,    // per tone at full presence (× City sound) – a quiet bed under my sound
   lfoMin: 2, lfoMax: 1000,         // Hz: standing on the point … at the diagonal (or further)
   lfoDepth: 1,                     // ALWAYS 0 … 100 % volume (full depth) – only the frequency changes
-  toneMinHz: 220, toneMaxHz: 880,  // the look-driven pitch range (one octave either side of 440)
+  toneMinHz: 20, toneMaxHz: 2000,  // the look-driven pitch range (log): opening ends / floor … back wall / roof
   lookFade: 2,                     // m: the tones fade over the last 2 m of the side walls toward the opening
   presenceFade: 2,                 // m: walking in / out through the opening – a short step, no click or jump
 });
@@ -126,6 +130,6 @@ export function reverbLookAt(x, z, yaw, pitch = 0, eyeY = 1.7, R = REVERB_ROOM) 
 // The three sine pitches (Hz) for where I look.
 export function reverbPitchesAt(x, z, yaw, pitch = 0, eyeY = 1.7, R = REVERB_ROOM) {
   const { s, h } = reverbLookAt(x, z, yaw, pitch, eyeY, R);
-  const f = (k) => clamp(R.toneHz * Math.pow(2, k), R.toneMinHz, R.toneMaxHz);
-  return [f(h), f(Math.max(0, s)), f(Math.max(0, -s))];
+  const lo = R.toneMinHz, hi = R.toneMaxHz, f = (t) => clamp(lo * Math.pow(hi / lo, clamp(t, 0, 1)), lo, hi); // t 0 → lo, 1 → hi
+  return [f((h + 1) / 2), f(1 - Math.max(0, s)), f(1 - Math.max(0, -s))];
 }

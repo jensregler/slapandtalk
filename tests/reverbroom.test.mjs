@@ -1,5 +1,5 @@
 // The reverb room (plot 4) – Jens, voice 10 Nov 2026, corrected t808u–t812u (shared/reverbroom.mjs): three points
-// on the back (east) wall, one sine per point (rest 440 Hz, pitch from where I look) with ONE sine volume LFO each,
+// on the back (east) wall, one sine per point (pitch from where I look on the unfolded walls, log 20 … 2000 Hz) with ONE sine volume LFO each,
 // always 0…100 %, whose FREQUENCY is my distance to the point (2 Hz on it … 1000 Hz at the diagonal) – nothing
 // else follows that distance (no distance feedback, no slap times, no send × gate law). The sines fade out when I
 // look out through the opening; a plain fixed room reverb inside; nothing outside the room.
@@ -75,24 +75,36 @@ ok('the room reverb is fixed (no distance, no slap): constant send, modest loop 
 ok('the delay room is unchanged by the reverb room (same values as delayroom.mjs, no reverb-room values there)', () => {
   const v = F.cityFxAt(30, 0); assert.equal(v.roomWet, DELAY_ROOM.wet); assert.equal(v.rvWet, 0); assert.equal(v.rvTone, 0);
 });
-ok('pitch: rest 440 Hz looking at the back wall centre at eye height – from anywhere (the vector does NOT move the pitch)', () => {
+ok('pitch: rest 200 / 2000 / 2000 Hz looking at the back wall centre (B) at eye height – from anywhere (the vector does NOT move the pitch)', () => {
+  assert.equal(R.toneMinHz, 20); assert.equal(R.toneMaxHz, 2000); assert.deepEqual([...R.restHz], [200, 2000, 2000]);
   for (const [x, z] of [[-38, 0], [-30, 5], [-27, -6], [-35, -3]]) {
     const cx = R.box.x1, cz = 0, yaw = yawTo(cx - x, cz - z);
-    const hz = reverbPitchesAt(x, z, yaw, 0, 1.7); assert.ok(hz.every((f) => Math.abs(f - 440) < 1e-6), `${x},${z}: ${hz}`);
+    const hz = reverbPitchesAt(x, z, yaw, 0, 1.7); assert.ok(near(hz[0], 200, 1e-6) && near(hz[1], 2000, 1e-6) && near(hz[2], 2000, 1e-6), `${x},${z}: ${hz}`);
   }
-  assert.deepEqual([F.cityFxAt(-30, 2).rvHz1, F.cityFxAt(-38, -5).rvHz2], [440, 440], 'position alone never changes the pitch');
+  assert.deepEqual([F.cityFxAt(-30, 2).rvHz1, F.cityFxAt(-38, -5).rvHz2, F.cityFxAt(-38, -5).rvHz3], [200, 2000, 2000], 'position alone never changes the pitch');
+  assert.deepEqual([F.placeNeutral().rvHz1, F.placeNeutral().rvHz2, F.placeNeutral().rvHz3], [200, 2000, 2000]);
 });
-ok('pitch from the look: up/down → tone 1, how far right → tone 2, how far left → tone 3 (unfolded walls, 220 … 880 Hz)', () => {
+ok('pitch from the look, log 20 … 2000 Hz: floor 20 / eye 200 / roof 2000 (tone 1); B 2000 → A 20 (tone 2, right); B 2000 → C 20 (tone 3, left)', () => {
   const x = -32, z = 0, east = yawTo(1, 0);
   const up = reverbPitchesAt(x, z, east, 0.6), down = reverbPitchesAt(x, z, east, -0.3);
-  assert.ok(up[0] > 440 && down[0] < 440 && up[1] === 440 && up[2] === 440, `${up} / ${down}`);
+  assert.ok(up[0] > 200 && down[0] < 200 && near(up[1], 2000, 1e-6) && near(up[2], 2000, 1e-6), `${up} / ${down}`);
+  assert.ok(near(reverbPitchesAt(x, z, east, 1.5)[0], 2000, 1e-6) && near(reverbPitchesAt(x, z, east, -1.5)[0], 20, 1e-6), 'roof 2000, floor 20');
   const right = reverbPitchesAt(x, z, yawTo(1, 0.8)), farRight = reverbPitchesAt(x, z, yawTo(0, 1)), left = reverbPitchesAt(x, z, yawTo(1, -0.8));
-  assert.ok(right[1] > 440 && farRight[1] > right[1] && right[2] === 440, `${right} ${farRight}`);
-  assert.ok(left[2] > 440 && left[1] === 440, String(left));
+  assert.ok(right[1] < 2000 && farRight[1] < right[1] && near(right[2], 2000, 1e-6), `${right} ${farRight}`);
+  assert.ok(left[2] < 2000 && near(left[1], 2000, 1e-6), String(left));
+  // the opening ends: A = the right (south, +z) jamb, C = the left (north, −z) jamb → 20 Hz
+  const jA = reverbPitchesAt(x, z, yawTo(R.box.x0 + 1e-4 - x, R.box.z1 - z)), jC = reverbPitchesAt(x, z, yawTo(R.box.x0 + 1e-4 - x, R.box.z0 - z));
+  assert.ok(near(jA[1], 20, 0.01) && near(jA[2], 2000, 1e-6) && near(jC[2], 20, 0.01) && near(jC[1], 2000, 1e-6), `${jA} / ${jC}`);
+  // exactly the formulas, for any look
+  for (let k = 0; k < 200; k++) {
+    const px = -39.5 + (k * 0.37) % 15, pz = -7 + (k * 0.53) % 14, yaw = k * 0.71, pitch = Math.sin(k) * 1.4;
+    const L = reverbLookAt(px, pz, yaw, pitch, 1.7), hz = reverbPitchesAt(px, pz, yaw, pitch, 1.7);
+    const want = [20 * Math.pow(100, (L.h + 1) / 2), 2000 * Math.pow(0.01, Math.max(0, L.s)), 2000 * Math.pow(0.01, Math.max(0, -L.s))];
+    for (let i = 0; i < 3; i++) assert.ok(Math.abs(hz[i] - want[i]) <= want[i] * 1e-9 && hz[i] >= 20 && hz[i] <= 2000, `${k}: ${hz} vs ${want}`);
+  }
   assert.ok(Math.abs(reverbLookAt(x, z, east).s) < 1e-9 && reverbLookAt(x, z, yawTo(0, 1)).face === 'side');
   // continuous across the corner (back wall → side wall)
   let prev = null; for (let a = -0.3; a <= 0.3; a += 0.002) { const c = Math.atan2(7.6, 7.6); const s = reverbLookAt(x, z, yawTo(Math.cos(c + a), Math.sin(c + a))).s; if (prev !== null) assert.ok(Math.abs(s - prev) < 0.02); prev = s; }
-  for (let k = 0; k < 50; k++) { const hz = reverbPitchesAt(-39 + k * 0.28, -7 + k * 0.28, k * 0.7, Math.sin(k) * 1.4); assert.ok(hz.every((f) => f >= 220 && f <= 880)); }
 });
 ok('LOOK-OUT FADE: back wall = 1, toward the side walls\' open ends = reduced, out through the opening = 0; smooth', () => {
   const x = -32, z = 0;

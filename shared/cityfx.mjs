@@ -76,7 +76,7 @@ export const PLACE = Object.freeze({
   rvWet:     [0, 1],
   rvTone:    [0, 1],
   rvLfo1:    [REVERB_ROOM.lfoMin, REVERB_ROOM.lfoMax], rvLfo2: [REVERB_ROOM.lfoMin, REVERB_ROOM.lfoMax], rvLfo3: [REVERB_ROOM.lfoMin, REVERB_ROOM.lfoMax],
-  // rvHz1–3 = the sines' pitches (rest 440 Hz; the client sets them from where I look – reverbPitchesAt).
+  // rvHz1–3 = the sines' pitches (20 … 2000 Hz, log; rest 200 / 2000 / 2000 Hz; the client sets them from where I look – reverbPitchesAt).
   rvHz1:     [REVERB_ROOM.toneMinHz, REVERB_ROOM.toneMaxHz], rvHz2: [REVERB_ROOM.toneMinHz, REVERB_ROOM.toneMaxHz], rvHz3: [REVERB_ROOM.toneMinHz, REVERB_ROOM.toneMaxHz],
   bird:      [0, 2],
   wind:      [0, 2],
@@ -88,7 +88,7 @@ export const PLACE_NEUTRAL = Object.freeze({
   cutoff: 20000, decim: 1, bits: 16, decimMix: 0, stutter: 0, stutterLen: 1 / 6, chop: 0,
   freqHz: 0, freqMix: 0, distWet: 0, distAmount: 0.2, noiseWet: 0, noiseBed: 0,
   roomWet: 0, roomFb1: 0, roomFb2: 0, roomFb3: 0, roomTime1: 0.5, roomTime2: 0.5, roomTime3: 0.5,
-  rvWet: 0, rvTone: 0, rvLfo1: 2, rvLfo2: 2, rvLfo3: 2, rvHz1: 440, rvHz2: 440, rvHz3: 440, bird: 1, wind: 1,
+  rvWet: 0, rvTone: 0, rvLfo1: 2, rvLfo2: 2, rvLfo3: 2, rvHz1: REVERB_ROOM.restHz[0], rvHz2: REVERB_ROOM.restHz[1], rvHz3: REVERB_ROOM.restHz[2], bird: 1, wind: 1,
 });
 // Inside a kept house (1, 3, 6, 8 – the "breathing holes", pt781u): no place effect and the outdoor
 // bird/wind bed turned well down, so it is clearly calmer than the street.
@@ -391,7 +391,7 @@ function paramsFromFields(A, x, z) {
     const lf = reverbLfoRatesAt(x, z);
     v.rvWet = REVERB_ROOM.wet * rR; v.rvTone = REVERB_ROOM.toneLevel * rR;
     v.rvLfo1 = lf[0]; v.rvLfo2 = lf[1]; v.rvLfo3 = lf[2];
-    v.rvHz1 = v.rvHz2 = v.rvHz3 = REVERB_ROOM.toneHz; // the rest pitch; the client adds where I look
+    [v.rvHz1, v.rvHz2, v.rvHz3] = REVERB_ROOM.restHz; // the rest pitches; the client adds where I look
   }
   { // the delay room: three delays on the back wall (shared/delayroom.mjs) – feedback follows me, times by distance
     // (no BPM). Wet and feedback are 0 outside the room; the times are always "for where I stand" (continuous) –

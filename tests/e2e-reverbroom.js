@@ -1,5 +1,5 @@
 // The reverb room (plot 4) in the browser – Jens, voice 10 Nov 2026, corrected t808u–t812u (shared/reverbroom.mjs):
-// three sines (rest 440 Hz, pitch from my look) each with a sine volume LFO, always 0…100 %, whose FREQUENCY is my
+// three sines (pitch from my look on the unfolded walls, log 20 … 2000 Hz; rest 200 / 2000 / 2000 Hz) each with a sine volume LFO, always 0…100 %, whose FREQUENCY is my
 // distance to its point (2 Hz on it … 1000 Hz at the diagonal) – live, also after a teleport; the sines are dry only
 // (never in a loop); a plain FIXED room reverb inside (no distance feedback, no slap times, no gate law); shut outside
 // and behind the back wall; the look-out fade; and the delay room left alone.
@@ -56,7 +56,7 @@ const EAST = yawTo(1, 0), WEST = yawTo(-1, 0);
 
     const mid = await at(-28, 0, EAST, 2000);
     check('mid-room: fixed room reverb open (send = wet × City, ret 1, loop + pre-delays unchanged), street reverb out, delay room shut', mid.live.every((r) => Math.abs(r.send - R.wet) < 0.01 && r.ret > 0.95) && fixed(mid.live) && mid.street.small < 0.01 && mid.street.big < 0.01 && mid.delay.every((r) => r.send < 1e-3 && r.ret < 1e-3), mid);
-    check('the sines: 440 Hz looking at the back wall centre, LFO always 0…100 % (0.5 + 0.5·sin), audible; LFO Hz = distance (teleported: still live)', mid.live.every((r) => Math.abs(r.toneHz - 440) < 1 && r.toneLvl > 0.1) && full(mid.live) && lfoNear(mid.live, D.reverbLfoRatesAt(-28, 0)), { live: mid.live, want: D.reverbLfoRatesAt(-28, 0) });
+    check('the sines: 200 / 2000 / 2000 Hz looking at the back wall centre (B) at eye height, LFO always 0…100 % (0.5 + 0.5·sin), audible; LFO Hz = distance (teleported: still live)', mid.live.every((r, i) => Math.abs(r.toneHz - R.restHz[i]) < R.restHz[i] * 0.005 && r.toneLvl > 0.1) && full(mid.live) && lfoNear(mid.live, D.reverbLfoRatesAt(-28, 0)), { live: mid.live, want: D.reverbLfoRatesAt(-28, 0) });
     await P.screenshot({ path: path.join(SHOTS, '02-mid-room-looking-at-the-back-wall.png') });
 
     // on point 1: its LFO at 2 Hz, the far one (point 3) much faster; walk away → point 1 speeds up
@@ -68,7 +68,7 @@ const EAST = yawTo(1, 0), WEST = yawTo(-1, 0);
     check('walked to the far corner: point 1 now near the top of the range, point 3 slow; = the live distances', far.live[0].lfoHz > 800 && far.live[2].lfoHz < far.live[0].lfoHz && lfoNear(far.live, W2) && full(far.live), { live: far.live.map((r) => r.lfoHz), want: W2 });
     await look(yawTo(0.3, 1), 0.5); await sleep(2000); // standing still, up and to the right: the pitches glide (PLACE_SLEW)
     const lk = await read();
-    check('standing still, looking up and to the right: pitches change (tone 1 up, tone 2 up), LFO frequencies hold (same distances), depth still 0…100 %', lk.live[0].toneHz > 460 && lk.live[1].toneHz > 490 && Math.abs(lk.live[2].toneHz - 440) < 3 && lfoNear(lk.live, W2) && full(lk.live) && close(lk.now.hz, D.reverbPitchesAt(-38, 6, yawTo(0.3, 1), 0.5), 1e-6), { lk: lk.live, now: lk.now });
+    check('standing still, looking up and to the right: pitches change (tone 1 up from 200, tone 2 down from 2000 toward A, tone 3 stays 2000), LFO frequencies hold (same distances), depth still 0…100 %', lk.live[0].toneHz > 205 && lk.live[1].toneHz < 1900 && Math.abs(lk.live[2].toneHz - 2000) < 10 && close(lk.live.map((r) => r.toneHz), lk.now.hz, 0.01 * 2000) && lfoNear(lk.live, W2) && full(lk.live) && close(lk.now.hz, D.reverbPitchesAt(-38, 6, yawTo(0.3, 1), 0.5), 1e-6), { lk: lk.live, now: lk.now });
     await look(EAST, 0);
 
     // look-out fade

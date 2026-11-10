@@ -75,7 +75,7 @@ export class SynthEngine {
   //   mix → distSend → WaveShaper (intersection Dist peaks) → soft level → ears
   //   mix (+ voices, voiceIn) → delay room 1/2/3 (send → delay ⟲ fb → ret) → ears (plot 5 only: shared/delayroom.mjs)
   //   mix (+ voices) → reverb room 1/2/3 (send → pre-delay → 2 all-passes → damp → fb ⟲ ; → diffuse tail → ret) → ears
-  //   (fixed settings, plot 4 only) + three 440 Hz sines, volume LFO 0…100 % (2 … 1000 Hz = my distance to the
+  //   (fixed settings, plot 4 only) + three sines (20 … 2000 Hz from my look), volume LFO 0…100 % (2 … 1000 Hz = my distance to the
   //   point) → ears DRY only (shared/reverbroom.mjs)
   //   ears → [listener FX] → master → guard → speakers
   // After that only plain AudioParams move (setTargetAtTime, PLACE_SLEW): no graph rebuilds.
@@ -123,7 +123,7 @@ export class SynthEngine {
     //   send → pre (fixed pre-delay) → AP1 → AP2 (Schroeder all-passes, |H| = 1) → damp (one-pole low-pass, |H| ≤ 1)
     //   → fb (fixed loopGain 0.5) ↻ back into pre; AP2 → tail (a ~1.6 s decaying-noise convolver) → ret → ears.
     // Nothing here follows my distance or my slaps; send / ret open only while I'm inside (rvWet).
-    // Plus ONE pure sine per point (rest 440 Hz; pitch from where I look – rvHz): osc → am (0.5 + 0.5·LFO = always
+    // Plus ONE pure sine per point (pitch from where I look, 20 … 2000 Hz – rvHz): osc → am (0.5 + 0.5·LFO = always
     // 0 … 100 % volume; the LFO frequency = my distance to the point, 2 … 1000 Hz – rvLfo) → lvl (tone level ×
     // presence × look-out × City sound) → ears, DRY. The sines are NOT fed into the loops (that howled).
     const sr = ctx.sampleRate;
@@ -147,8 +147,8 @@ export class SynthEngine {
       const tail = ctx.createConvolver(); tail.normalize = true; tail.buffer = tailIR(1.6, 0x9e3779b9 + i * 7919);
       mix.connect(send); voiceIn.connect(send); send.connect(pre); pre.connect(a1.inp); a1.out.connect(a2.inp); a2.out.connect(damp); damp.connect(fb); fb.connect(pre);
       a2.out.connect(tail); tail.connect(ret); intoEars(ret);
-      // the point's sine: rest 440 Hz, pitch from my look (rvHz); its volume LFO's FREQUENCY = my distance (rvLfo)
-      const osc = ctx.createOscillator(); osc.type = 'sine'; osc.frequency.value = REVERB_ROOM.toneHz;
+      // the point's sine: pitch from my look (rvHz, 20 … 2000 Hz; rest 200 / 2000 / 2000); its volume LFO's FREQUENCY = my distance (rvLfo)
+      const osc = ctx.createOscillator(); osc.type = 'sine'; osc.frequency.value = REVERB_ROOM.restHz[i];
       const am = ctx.createGain(); am.gain.value = 0.5; // 0.5 + 0.5·sin = 0 … 1
       const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = REVERB_ROOM.lfoMin;
       const depth = ctx.createGain(); depth.gain.value = 0.5 * REVERB_ROOM.lfoDepth;
