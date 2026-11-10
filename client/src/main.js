@@ -59,7 +59,7 @@ import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs
 import { buildCityRoom, markDoors } from './city.js';
 import { CITY_FX, cityFxAt, placeNeutral, placeHouse, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
 import { delayRoomTimes } from '../../shared/delayroom.mjs';
-import { reverbRoomTimes, reverbGazeYaw, reverbPitchesAt, reverbLfoLock } from '../../shared/reverbroom.mjs';
+import { reverbGazeYaw, reverbPitchesAt, insideReverbRoom } from '../../shared/reverbroom.mjs';
 import { CITY, CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, PACK_DESIGN_ID, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
@@ -1057,8 +1057,6 @@ async function slapAt(ndc, info, onStart, auto = null) {
   { const [aw, ah] = stampDims(design, slapSize); sound.play('slap', null, { area: aw * ah, size: slapSize, ...(auto ? { volume: auto.volume } : {}) }); } // bigger sticker = bigger slap (same curve as duff)
   // The delay room: a slap sets its three delay times from MY distance to each delay (not the sticker's).
   if (CITY_OUTSIDE && delayRoom.slap(camera.position.x, camera.position.z)) placeAt = 0;
-  // The reverb room (plot 4, shared/reverbroom.mjs): the same – its three pre-delay / loop times from MY distance.
-  if (CITY_OUTSIDE && reverbRoom.slap(camera.position.x, camera.position.z)) placeAt = 0;
   const nonce = Math.random().toString(36).slice(2, 12);
   myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
   const body = { nonce, owner: deviceId(), ...(together.net.id ? { by: together.net.id } : {}), // by: så de andra ser min gubbe slappa
@@ -2725,19 +2723,14 @@ let placeCfg = CITY_FX, placeAt = 0, placeNow = null;
 // The delay room (plot 5, Jens's sketch t790u; shared/delayroom.mjs): its three delay times are held here –
 // set from where I stand when I walk in (every entry) and when I slap in the room, kept while I walk.
 const delayRoom = delayRoomTimes();
-// The reverb room (plot 4, shared/reverbroom.mjs): its three times held the same way (the LFO rates follow me live);
-// the three sines also fade out when I LOOK out through the opening (reverbGazeYaw – walk out or look out).
-const reverbRoom = reverbRoomTimes();
-// …its sines: pitch from where I look (live), LFO rates from my distance to each point – LOCKED while I stand still
-// (the footsteps' walking test: groove track 'me'.walkUntil), free again when I walk / run.
-const reverbLfo = reverbLfoLock();
-const meWalking = () => { const me = groove?.track?.get('me'); return !!(me && !camView && me.walkUntil > groove.now()); };
+// The reverb room (plot 4, shared/reverbroom.mjs): nothing is held. Its three sines' volume-LFO frequencies are my
+// distance to each point (cityFxAt, live); here only the look is added: pitch from where I look (reverbPitchesAt,
+// live even standing still) and the look-out fade (reverbGazeYaw – walk out or look out shuts the tones).
 function placeTick() {
   const eng = sound.engine; if (!eng) return;
   const now = performance.now(); if (now - placeAt < PLACE_EVERY_MS) return; placeAt = now;
   const v = CITY_OUTSIDE ? cityFxAt(camera.position.x, camera.position.z, placeCfg) : IN_HOUSE ? placeHouse() : placeNeutral();
-  if (CITY_OUTSIDE) { const t = delayRoom.update(camera.position.x, camera.position.z); v.roomTime1 = t[0]; v.roomTime2 = t[1]; v.roomTime3 = t[2]; const r = reverbRoom.update(camera.position.x, camera.position.z); v.rvTime1 = r[0]; v.rvTime2 = r[1]; v.rvTime3 = r[2]; v.rvGaze = reverbGazeYaw(camera.position.x, camera.position.z, controls.yaw); v.rvTone = (v.rvTone || 0) * v.rvGaze;
-    const lf = reverbLfo.update(camera.position.x, camera.position.z, meWalking()); v.rvLfo1 = lf[0]; v.rvLfo2 = lf[1]; v.rvLfo3 = lf[2];
+  if (CITY_OUTSIDE) { const t = delayRoom.update(camera.position.x, camera.position.z); v.roomTime1 = t[0]; v.roomTime2 = t[1]; v.roomTime3 = t[2]; v.rvGaze = reverbGazeYaw(camera.position.x, camera.position.z, controls.yaw); v.rvTone = (v.rvTone || 0) * v.rvGaze;
     const hz = reverbPitchesAt(camera.position.x, camera.position.z, controls.yaw, controls.pitch || 0, camera.position.y); v.rvHz1 = hz[0]; v.rvHz2 = hz[1]; v.rvHz3 = hz[2]; }
   // City sound dry/wet only outside; in a room keep dry=1 so the slider does not mute the room.
   const city = CITY_OUTSIDE ? (radio.state?.city ?? 0) : 0;
@@ -3883,7 +3876,7 @@ window.klibb = {
   demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
     closedText: $('demo-closed-text').textContent, invite: inviteState, inviteNote: $('invite-note').hidden ? '' : $('invite-note').textContent, left: demoTimer && demoTimer.left ? demoTimer.left() : null }),
   inviteFriend, mySlot: () => together.mySlot(), talking: () => together.talking(),
-  soundUi: () => soundUi, delayRoom: () => ({ ...delayRoom.state, times: delayRoom.times, live: sound.engine?.place?.room ? sound.engine.place.room.map((r) => ({ time: r.d.delayTime.value, fb: r.fb.gain.value, send: r.send.gain.value, ret: r.ret.gain.value })) : null }), reverbRoom: () => ({ ...reverbRoom.state, lfoLock: { ...reverbLfo.state, rates: reverbLfo.rates }, walking: meWalking(), gaze: placeNow?.rvGaze, times: reverbRoom.times, live: sound.engine?.place?.verbRoom ? sound.engine.place.verbRoom.map((r) => ({ time: r.pre.delayTime.value, fb: r.fb.gain.value, send: r.send.gain.value, ret: r.ret.gain.value, toneHz: r.osc.frequency.value, toneLvl: r.lvl.gain.value, lfoHz: r.lfo.frequency.value, lfoBase: r.am.gain.value, lfoDepth: r.depth.gain.value })) : null, street: sound.engine?.place ? { small: sound.engine.place.small.send.gain.value, big: sound.engine.place.big.send.gain.value } : null }), place: () => ({ now: placeNow, bus: !!sound.engine?.place, worklet: !!sound.engine?.place?.node, sets: sound.engine?.place?.sets || 0, cfg: placeCfg }), setCityFx: (cfg) => { placeCfg = cfg ? (cleanCityFx(cfg) || CITY_FX) : CITY_FX; placeAt = 0; return placeCfg; }, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
+  soundUi: () => soundUi, delayRoom: () => ({ ...delayRoom.state, times: delayRoom.times, live: sound.engine?.place?.room ? sound.engine.place.room.map((r) => ({ time: r.d.delayTime.value, fb: r.fb.gain.value, send: r.send.gain.value, ret: r.ret.gain.value })) : null }), reverbRoom: () => ({ inside: insideReverbRoom(camera.position.x, camera.position.z), gaze: placeNow?.rvGaze, live: sound.engine?.place?.verbRoom ? sound.engine.place.verbRoom.map((r) => ({ time: r.pre.delayTime.value, fb: r.fb.gain.value, send: r.send.gain.value, ret: r.ret.gain.value, toneInLoop: !!r.toneInLoop, toneHz: r.osc.frequency.value, toneLvl: r.lvl.gain.value, lfoHz: r.lfo.frequency.value, lfoBase: r.am.gain.value, lfoDepth: r.depth.gain.value })) : null, street: sound.engine?.place ? { small: sound.engine.place.small.send.gain.value, big: sound.engine.place.big.send.gain.value } : null }), place: () => ({ now: placeNow, bus: !!sound.engine?.place, worklet: !!sound.engine?.place?.node, sets: sound.engine?.place?.sets || 0, cfg: placeCfg }), setCityFx: (cfg) => { placeCfg = cfg ? (cleanCityFx(cfg) || CITY_FX) : CITY_FX; placeAt = 0; return placeCfg; }, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
   groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
   setGrooveScale, grooveObj: () => groove,
   autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundMine: () => sound.mine, prepareSoundForPlace, resetPersonalSound, voiceOf: (id) => together.voiceOf(id),

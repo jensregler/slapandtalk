@@ -21,13 +21,14 @@
 // Inside houses / other rooms: PLACE_NEUTRAL (the room's own reverb does the rest); kept city houses: PLACE_HOUSE.
 // Rebuild (10 Nov 2026): open FX rooms on plots 4 (reverb), 5 (delay), 7 (noise) – fxRoomField below.
 // Delay room redesign (Jens's sketch, t790u): three delays, spatial feedback, times on slap – shared/delayroom.mjs.
-// Reverb room (Jens, voice 10 Nov 2026): the same three-point setup + three pulsing 440 Hz sines – shared/reverbroom.mjs.
+// Reverb room (Jens, voice 10 Nov 2026; corrected t808u–t812u): three pulsing sines (LFO rate = my distance to
+// each point, 2 … 1000 Hz) + a plain fixed room reverb inside – shared/reverbroom.mjs.
 // Coordinates: metres on the city map – 96 × 96 m (x, z −48…48), 3 × 3 plots of 32 m, Town Hall
 // at (0, 0), door facing south (+z), spawn at (0, 17). North = −z.
 import { CITY, FX_ROOMS, HOUSE, WALL_T, FX_OPENING } from './city.mjs';
 import { MASTER } from './clock.mjs';
 import { DELAY_ROOM, delayRoomGate, delayFeedbackAt, delayTimesAt } from './delayroom.mjs';
-import { REVERB_ROOM, reverbRoomGate, reverbFeedbackAt, reverbTimesAt, reverbLfoRatesAt } from './reverbroom.mjs';
+import { REVERB_ROOM, reverbRoomPresence, reverbLfoRatesAt } from './reverbroom.mjs';
 
 // Every place parameter: [min, max, log?]. Plain numbers – fed to existing audio params.
 export const PLACE = Object.freeze({
@@ -69,12 +70,10 @@ export const PLACE = Object.freeze({
   roomWet:   [0, 1],
   roomFb1:   [0, 1], roomFb2: [0, 1], roomFb3: [0, 1],
   roomTime1: [DELAY_ROOM.minTime, DELAY_ROOM.maxTime], roomTime2: [DELAY_ROOM.minTime, DELAY_ROOM.maxTime], roomTime3: [DELAY_ROOM.minTime, DELAY_ROOM.maxTime],
-  // Reverb room (plot 4, Jens 10 Nov 2026 – shared/reverbroom.mjs): the same three-point law as the delay room.
-  // rvWet = each point's send (0 outside), rvFb1–3 = feedback 0 … 1, rvTime1–3 = pre-delay / loop time (10 ms … 1 s,
-  // held by the client), rvTone = the three sines' level (0 outside), rvLfo1–3 = their volume-LFO rates (Hz).
+  // Reverb room (plot 4, Jens 10 Nov 2026, corrected t808u–t812u – shared/reverbroom.mjs):
+  // rvWet = the room's own FIXED reverb send (REVERB_ROOM.wet inside, 0 outside – no distance, no slap, no gate),
+  // rvTone = the three sines' level (0 outside), rvLfo1–3 = their volume-LFO frequencies (Hz) = my distance to each point.
   rvWet:     [0, 1],
-  rvFb1:     [0, 1], rvFb2: [0, 1], rvFb3: [0, 1],
-  rvTime1:   [REVERB_ROOM.minTime, REVERB_ROOM.maxTime], rvTime2: [REVERB_ROOM.minTime, REVERB_ROOM.maxTime], rvTime3: [REVERB_ROOM.minTime, REVERB_ROOM.maxTime],
   rvTone:    [0, 1],
   rvLfo1:    [REVERB_ROOM.lfoMin, REVERB_ROOM.lfoMax], rvLfo2: [REVERB_ROOM.lfoMin, REVERB_ROOM.lfoMax], rvLfo3: [REVERB_ROOM.lfoMin, REVERB_ROOM.lfoMax],
   // rvHz1–3 = the sines' pitches (rest 440 Hz; the client sets them from where I look – reverbPitchesAt).
@@ -89,7 +88,7 @@ export const PLACE_NEUTRAL = Object.freeze({
   cutoff: 20000, decim: 1, bits: 16, decimMix: 0, stutter: 0, stutterLen: 1 / 6, chop: 0,
   freqHz: 0, freqMix: 0, distWet: 0, distAmount: 0.2, noiseWet: 0, noiseBed: 0,
   roomWet: 0, roomFb1: 0, roomFb2: 0, roomFb3: 0, roomTime1: 0.5, roomTime2: 0.5, roomTime3: 0.5,
-  rvWet: 0, rvFb1: 0, rvFb2: 0, rvFb3: 0, rvTime1: 0.5, rvTime2: 0.5, rvTime3: 0.5, rvTone: 0, rvLfo1: 1, rvLfo2: 1, rvLfo3: 1, rvHz1: 440, rvHz2: 440, rvHz3: 440, bird: 1, wind: 1,
+  rvWet: 0, rvTone: 0, rvLfo1: 2, rvLfo2: 2, rvLfo3: 2, rvHz1: 440, rvHz2: 440, rvHz3: 440, bird: 1, wind: 1,
 });
 // Inside a kept house (1, 3, 6, 8 – the "breathing holes", pt781u): no place effect and the outdoor
 // bird/wind bed turned well down, so it is clearly calmer than the street.
@@ -141,8 +140,8 @@ function openness(p, x, z, f = FX_ROOM) {
 export function fxRoomField(x, z, p, f = FX_ROOM) {
   // The delay room (Jens's sketch: NO DELAY OUTSIDE THE ROOM): no spill through the opening or the walls.
   if (p.fx === 'delay') return delayRoomGate(x, z);
-  // The reverb room (Jens 10 Nov 2026: same setup as the delay room): no spill either.
-  if (p.fx === 'reverb') return reverbRoomGate(x, z);
+  // The reverb room (Jens 10 Nov 2026): inside 1, outside 0 (a short 2 m step at the opening) – no spill into the street.
+  if (p.fx === 'reverb') return reverbRoomPresence(x, z);
   const inner = HOUSE.width / 2 - WALL_T;
   const dx = Math.max(0, Math.abs(x - p.x) - inner), dz = Math.max(0, Math.abs(z - p.z) - inner), d = Math.hypot(dx, dz);
   if (d <= 0) return 1;
@@ -387,13 +386,10 @@ function paramsFromFields(A, x, z) {
 
   // --- Open FX rooms (plot 4 reverb, 5 delay, 7 noise) – Math.max so the room is the boss inside ---
   const rR = A.fxReverb || 0, rD = A.fxDelay || 0, rN = A.fxNoise || 0;
-  { // the reverb room: three reverb points on the back (east) wall + three pulsing 440 Hz sines (shared/reverbroom.mjs).
-    // Wet, feedback and tone level are 0 outside the room; times / LFO rates are "for where I stand" (the client
-    // swaps in the held times); the LFO rates follow me live.
-    const fb = reverbFeedbackAt(x, z), tm = reverbTimesAt(x, z), lf = reverbLfoRatesAt(x, z);
+  { // the reverb room (shared/reverbroom.mjs): a plain fixed room reverb inside + three pulsing sines whose
+    // volume-LFO frequency is my distance to each point (2 Hz on it … 1000 Hz at the diagonal) – nothing else.
+    const lf = reverbLfoRatesAt(x, z);
     v.rvWet = REVERB_ROOM.wet * rR; v.rvTone = REVERB_ROOM.toneLevel * rR;
-    v.rvFb1 = fb[0]; v.rvFb2 = fb[1]; v.rvFb3 = fb[2];
-    v.rvTime1 = tm[0]; v.rvTime2 = tm[1]; v.rvTime3 = tm[2];
     v.rvLfo1 = lf[0]; v.rvLfo2 = lf[1]; v.rvLfo3 = lf[2];
     v.rvHz1 = v.rvHz2 = v.rvHz3 = REVERB_ROOM.toneHz; // the rest pitch; the client adds where I look
   }
@@ -437,7 +433,7 @@ function paramsFromFields(A, x, z) {
 
   // Inside the delay room only its three delays echo: the street's delay A/B (slapback, ducked fields) fade out.
   if (rD > 0) { const k = 1 - rD; v.delayWet *= k; v.delay2Wet *= k; v.delayFb *= k; v.delay2Fb *= k; }
-  // Inside the reverb room only its three points ring: the street's small/big reverb fades out.
+  // Inside the reverb room its own fixed reverb takes over: the street's small/big reverb fades out (no double verb).
   if (rR > 0) v.verbWet *= 1 - rR;
 
   for (const k of KEYS) v[k] = clamp(v[k], PLACE[k][0], PLACE[k][1]);

@@ -1,30 +1,22 @@
-// The reverb room (plot 4, open to the WEST) – Jens, voice 10 Nov 2026 (~22:02): "three feedback points in
-// the reverb room, same setup as the delay room: point 1, 2 and 3 at the back left, centre and right".
-// Same control law as the delay room (shared/delayroom.mjs), mirrored for a room that opens to the west:
+// The reverb room (plot 4, open to the WEST) – Jens, voice 10 Nov 2026, corrected the same night (t808u–t812u):
+// the delay-room-copied control law (distance feedback 8 m → 14.6 m, pre-delay / loop times set on slap, send
+// 0 … 0.5 × City sound × a 3 m opening gate) was "allt fel". What is left:
 //   - THREE points along the back wall (the EAST wall, opposite the opening), 1 m in from it and from the
 //     side walls: 1 left, 2 centre, 3 right as you look in from the opening (looking east: left = north/−z,
 //     right = south/+z – +z is south in this city).
-//   - FEEDBACK follows where I stand: 100 % within fbFull (8 m) of a point, smooth to 0 % at the opening's
-//     distance (14.6 m); the three 100 % zones overlap mid-room toward the back; at the opening all are 0 %.
-//     "100 %" = loop gain loopMax (0.95) so it can't run away.
-//   - NO REVERB OUTSIDE THE ROOM: the gate is 1 inside the walls, fades to 0 over the last 3 m before the
-//     opening, 0 everywhere outside. It drives each point's send, feedback and return (a ringing tail is
-//     cut when I walk out). No spill through the opening or the walls (the old hall's 5 m / 3 m is gone).
-//   - TIMES are set when I slap, from ME (the camera, not the sticker): t = 0.010 + 0.99 · d / diagonal,
-//     clamped 10 ms … 1 s; held until the next slap; set from where I walk in on every entry. No BPM.
-//     In the reverb the time is each point's PRE-DELAY and the period of its diffuse feedback loop
-//     (client/src/synth.js: pre-delay → 2 Schroeder all-passes → damping → feedback ↻, → diffuse tail).
-//   - TONES (Jens, same evening, corrected): one pure SINE per point, rest pitch 440 Hz. The vector from me to
-//     a point never moves its pitch; only where I LOOK does (below). Each tone's volume is pulsed by an LFO from 0 to 100 % (full depth). The VECTOR from me to the
-//     point sets that LFO's RATE (how fast it pulses), live while I walk: its length d →
-//       lfoHz = lfoMax − (lfoMax − lfoMin) · min(d, diagonal) / diagonal   (8 Hz at the point … 0.5 Hz at the diagonal)
-//     – closer = faster. Only the length is used (direction does not matter). Same gate as the points.
-//   - LOOK-OUT FADE (Jens, same evening): if I LOOK out of the room (past the ends of the side walls, out
-//     through the opening) the three sines fade to silence; looking back at the walls brings them back.
-//     My horizontal look ray (yaw only, from where I stand) is followed to the first face of the room's
-//     inner box: back wall → 1; a side wall hit e metres in from its open end → smooth(e / lookFade)
-//     (lookFade 2 m, so the fade happens along the last 2 m of the side walls); out through the opening → 0.
-//     It multiplies the tones' level on top of the body gate (walk out OR look out shuts them).
+//   - TONES: one pure SINE per point, rest pitch 440 Hz, each with ONE sine volume LFO, always 0 … 100 %
+//     (0.5 + 0.5·sin – silence to full; the depth never changes). "lfo freq = avstånd character − punkt":
+//     the distance d from me (the camera) to the point is the ONLY thing it drives – that LFO's frequency, live:
+//       lfoHz = lfoMin + (lfoMax − lfoMin) · min(d, diagonal) / diagonal   (2 Hz on the point … 1000 Hz at the
+//     21.8 m diagonal or further) – further away = faster. Only the length is used (direction does not matter).
+//     Standing still the distance is constant, so the rate simply holds (no lock needed).
+//   - The sines go to my ears DRY (after their LFO and the look-out / presence fade) – never into a feedback
+//     loop (the live 0.95 loops with the sines injected howled mid-room).
+//   - LOOK-OUT FADE: if I LOOK out of the room (past the ends of the side walls, out through the opening) the
+//     three sines fade to silence; looking back at the walls brings them back. My horizontal look ray (yaw only,
+//     from where I stand) is followed to the first face of the room's inner box: back wall → 1; a side wall hit
+//     e metres in from its open end → smooth(e / lookFade) (lookFade 2 m); out through the opening → 0.
+//     It multiplies only the tones' level, on top of the presence (walk out OR look out shuts them).
 //   - LOOK-DRIVEN PITCH: the look ray's hit on the three walls UNFOLDED into one strip (left/north wall from its
 //     open end → back wall → right/south wall to its open end, 46.4 m), s = −1 (far left) … 0 (back-wall centre)
 //     … +1 (far right), and the hit height on that wall, h = −1 (floor) … 0 (eye height) … +1 (roof):
@@ -32,12 +24,12 @@
 //       tone 2 = 440 · 2^max(0, s)  (how far right: 440 … 880 Hz)
 //       tone 3 = 440 · 2^max(0, −s) (how far left: 440 … 880 Hz)
 //     Looking at the back wall's centre at eye height = all three at 440 Hz (the rest point), from anywhere.
-//   - STANDING STILL LOCKS THE LFO RATES (Jens, same evening): while I'm not walking/running (the footstep
-//     sequencer's walking test) the three LFO rates stay at their values from when I stopped – the LFOs keep
-//     pulsing 0 … 100 % at those rates; walking again unlocks them (they follow the live vectors). Entering the
-//     room (or being outside) always takes the live rates. Nothing else locks (feedback, times, gates, pitch).
+//   - THE ROOM'S OWN REVERB (voices, footsteps, my sound): a plain FIXED reverb while I'm inside – the same
+//     three diffuse cells (client/src/synth.js), but with fixed pre-delays, a fixed modest loop gain and a fixed
+//     send; nothing follows my distance or my slaps. Presence is simply inside (1) / outside (0), with a short
+//     2 m smooth step just inside the opening (no click, no jump), so nothing spills into the street.
 // Pure maths (no audio): shared/cityfx.mjs puts it in the place values, client/src/synth.js plays it,
-// client/src/main.js holds the times (reverbRoomTimes).
+// client/src/main.js adds the look (pitch, look-out fade).
 import { FX_ROOMS, HOUSE, WALL_T } from './city.mjs';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -60,51 +52,42 @@ export const REVERB_ROOM = Object.freeze({
     Object.freeze([BACK - INSET, P4.z]),
     Object.freeze([BACK - INSET, ZMAX - INSET]),
   ]),
-  diagonal: Math.hypot(BACK - OPEN, ZMAX - ZMIN), // ≈ 21.8 m = 1 s
-  minTime: 0.010, maxTime: 1.0,
-  fbFull: 8,
-  fbZero: (BACK - INSET) - OPEN,   // 14.6 m – the opening is 0 % for all three
-  openFade: 3,
-  wet: 0.5,                        // per-point send at full presence (× City sound)
-  loopMax: 0.95,
-  // The three sines (pitch fixed) and their volume LFOs (rate from my distance to the point).
+  diagonal: Math.hypot(BACK - OPEN, ZMAX - ZMIN), // ≈ 21.8 m
+  // The room's own reverb – FIXED while inside (no distance, no slap): send, loop gain, per-cell pre-delays (s).
+  wet: 0.35, loopGain: 0.5, preTimes: Object.freeze([0.019, 0.027, 0.037]), maxPre: 0.1,
+  // The three sines (rest 440 Hz) and their volume LFOs (frequency = my distance to the point).
   toneHz: 440, toneLevel: 0.12,    // per tone at full presence (× City sound) – a quiet bed under my sound
-  lfoMin: 0.5, lfoMax: 8,          // Hz: at the diagonal (or further) … standing on the point
-  lfoDepth: 1,                     // 0 … 100 % volume (full depth)
+  lfoMin: 2, lfoMax: 1000,         // Hz: standing on the point … at the diagonal (or further)
+  lfoDepth: 1,                     // ALWAYS 0 … 100 % volume (full depth) – only the frequency changes
   toneMinHz: 220, toneMaxHz: 880,  // the look-driven pitch range (one octave either side of 440)
   lookFade: 2,                     // m: the tones fade over the last 2 m of the side walls toward the opening
+  presenceFade: 2,                 // m: walking in / out through the opening – a short step, no click or jump
 });
 
 export function insideReverbRoom(x, z, R = REVERB_ROOM) {
   return Number.isFinite(x) && Number.isFinite(z) && x > R.box.x0 && x < R.box.x1 && z > R.box.z0 && z < R.box.z1;
 }
-// 0 … 1: 0 outside, 1 inside, a smooth fade over the last openFade metres before the (west) opening.
-export function reverbRoomGate(x, z, R = REVERB_ROOM) {
+// Presence: 1 inside the walls, 0 outside, with a short smooth step over the last presenceFade (2 m) inside the
+// opening so walking in / out never clicks or jumps. Only an on/off for the room – it is not the old 3 m gate
+// (no feedback rides on it, and nothing else in the room depends on where I stand).
+export function reverbRoomPresence(x, z, R = REVERB_ROOM) {
   if (!insideReverbRoom(x, z, R)) return 0;
-  return smooth((x - R.open) / R.openFade);
+  return smooth((x - R.open) / R.presenceFade);
 }
 // The vectors from me (x, z) to the three points, and their lengths.
 export const reverbVectors = (x, z, R = REVERB_ROOM) => R.points.map(([px, pz]) => [px - x, pz - z]);
 export const reverbDistances = (x, z, R = REVERB_ROOM) => R.points.map(([px, pz]) => Math.hypot(x - px, z - pz));
-export function reverbTimeFor(dist, R = REVERB_ROOM) {
-  const d = Number.isFinite(dist) ? Math.max(0, dist) : R.diagonal;
-  return clamp(R.minTime + (R.maxTime - R.minTime) * (d / R.diagonal), R.minTime, R.maxTime);
-}
-export const reverbTimesAt = (x, z, R = REVERB_ROOM) => reverbDistances(x, z, R).map((d) => reverbTimeFor(d, R));
-export function reverbFeedbackAt(x, z, R = REVERB_ROOM) {
-  if (!insideReverbRoom(x, z, R)) return [0, 0, 0];
-  return reverbDistances(x, z, R).map((d) => (d <= R.fbFull ? 1 : d >= R.fbZero ? 0 : 1 - smooth((d - R.fbFull) / (R.fbZero - R.fbFull))));
-}
-// The LFO rate (Hz) for one vector [dx, dz] from me to a point: its length, linear, closer = faster.
+// The volume-LFO frequency (Hz) for one vector [dx, dz] from me to a point (or a distance): its length, linear,
+// further = faster – 2 Hz on the point … 1000 Hz at the diagonal or beyond.
 export function lfoRateFor(vec, R = REVERB_ROOM) {
   const d = Array.isArray(vec) ? Math.hypot(vec[0], vec[1]) : vec;
   const k = Number.isFinite(d) ? clamp(Math.max(0, d) / R.diagonal, 0, 1) : 1;
-  return R.lfoMax - (R.lfoMax - R.lfoMin) * k;
+  return clamp(R.lfoMin + (R.lfoMax - R.lfoMin) * k, R.lfoMin, R.lfoMax);
 }
 export const reverbLfoRatesAt = (x, z, R = REVERB_ROOM) => reverbVectors(x, z, R).map((v) => lfoRateFor(v, R));
 
 // 0 … 1: how much of the tones I hear for where I LOOK, standing at (x, z) looking along (dx, dz) (horizontal
-// forward; the client passes (−sin yaw, −cos yaw)). Outside the room: 0 (the body gate shuts it anyway).
+// forward; the client passes (−sin yaw, −cos yaw)). Outside the room: 0 (the presence shuts it anyway).
 export function reverbGazeAt(x, z, dx, dz, R = REVERB_ROOM) {
   if (!insideReverbRoom(x, z, R)) return 0;
   const hit = lookHit(x, z, dx, dz, R); if (!hit) return 1; // straight up / down: no horizontal look → keep
@@ -145,40 +128,4 @@ export function reverbPitchesAt(x, z, yaw, pitch = 0, eyeY = 1.7, R = REVERB_ROO
   const { s, h } = reverbLookAt(x, z, yaw, pitch, eyeY, R);
   const f = (k) => clamp(R.toneHz * Math.pow(2, k), R.toneMinHz, R.toneMaxHz);
   return [f(h), f(Math.max(0, s)), f(Math.max(0, -s))];
-}
-// The LFO-rate lock (client: one per page). update(x, z, walking) every place tick → the three rates to play.
-export function reverbLfoLock(R = REVERB_ROOM) {
-  const s = { inside: false, locked: false, rates: reverbLfoRatesAt((R.box.x0 + R.box.x1) / 2, (R.box.z0 + R.box.z1) / 2, R), locks: 0 };
-  return {
-    state: s,
-    get rates() { return s.rates.slice(); },
-    update(x, z, walking) {
-      const inside = insideReverbRoom(x, z, R), entering = inside && !s.inside;
-      s.inside = inside;
-      if (!inside || entering || walking) { s.rates = reverbLfoRatesAt(x, z, R); s.locked = false; }
-      else if (!s.locked) { s.locked = true; s.locks++; } // stopped: keep the rates from the last moving tick
-      return s.rates.slice();
-    },
-  };
-}
-
-// The held times (client: one per page), exactly like delayRoomTimes.
-export function reverbRoomTimes(R = REVERB_ROOM) {
-  const s = { inside: false, times: reverbTimesAt((R.box.x0 + R.box.x1) / 2, (R.box.z0 + R.box.z1) / 2, R), slapped: false, entries: 0, slaps: 0, from: 'start' };
-  return {
-    state: s,
-    get times() { return s.times.slice(); },
-    update(x, z) {
-      const inside = insideReverbRoom(x, z, R);
-      if (inside && !s.inside) { s.times = reverbTimesAt(x, z, R); s.slapped = false; s.entries++; s.from = 'entry'; }
-      s.inside = inside;
-      return s.times.slice();
-    },
-    slap(x, z) {
-      if (!insideReverbRoom(x, z, R)) return false;
-      if (!s.inside) this.update(x, z);
-      s.times = reverbTimesAt(x, z, R); s.slapped = true; s.slaps++; s.from = 'slap';
-      return true;
-    },
-  };
 }
