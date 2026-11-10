@@ -74,7 +74,7 @@ export class SynthEngine {
   //   mix → ears (dry) · mix → delay A/B → ears · mix → small/big reverb → ears
   //   mix → distSend → WaveShaper (intersection Dist peaks) → soft level → ears
   //   mix (+ voices, voiceIn) → delay room 1/2/3 (send → delay ⟲ fb → ret) → ears (plot 5 only: shared/delayroom.mjs)
-  //   mix (+ voices) → reverb room 1/2/3 (send → pre-delay → 2 all-passes → damp → fb ⟲ ; → diffuse tail → ret) → ears
+  //   mix (+ voices, + its sine via toneWet) → reverb room 1/2/3 (send → pre-delay → 2 all-passes → damp → fb ⟲ ; → diffuse tail → ret) → ears
   //   (fixed settings, plot 4 only) + three sines (20 … 2000 Hz from my look), volume LFO 0…100 % (2 … 1000 Hz = my distance to the
   //   point) → ears DRY only (shared/reverbroom.mjs)
   //   ears → [listener FX] → master → guard → speakers
@@ -125,7 +125,11 @@ export class SynthEngine {
     // Nothing here follows my distance or my slaps; send / ret open only while I'm inside (rvWet).
     // Plus ONE pure sine per point (pitch from where I look, 20 … 2000 Hz – rvHz): osc → am (0.5 + 0.5·LFO = always
     // 0 … 100 % volume; the LFO frequency = my distance to the point, 2 … 1000 Hz – rvLfo) → lvl (tone level ×
-    // presence × look-out × City sound) → ears, DRY. The sines are NOT fed into the loops (that howled).
+    // presence × look-out × City sound) → ears, dry; AND, in parallel, am → toneWet (= rvTone, the look-out/presence
+    // gate, no City) → send, so the sines enter the reverb exactly like my sound and voices do (Jens t818u). Wet tone
+    // = rvTone × rvWet × City (City once, via send). The sines never touch pre / fb directly (that howled), and
+    // ret only goes to the ears – nothing from the reverb ever reaches osc, LFO, am or lvl. Every link here is
+    // listed in point.wires (from → to) so the e2e can check the graph.
     const sr = ctx.sampleRate;
     const allpass = (sec, g) => { // y = −g·v + v[n−D], v = x + g·v[n−D]
       const inp = ctx.createGain(), v = ctx.createGain(), d = ctx.createDelay(0.1), fbg = ctx.createGain(), neg = ctx.createGain(), out = ctx.createGain();
@@ -140,22 +144,27 @@ export class SynthEngine {
     };
     const AP = [[0.0047, 0.0113], [0.0053, 0.0127], [0.0061, 0.0139]];
     const verbPoint = (i) => {
+      const wires = [], wire = (a, b, from, to) => { a.connect(b); wires.push([from, to]); };
       const send = ctx.createGain(), pre = ctx.createDelay(REVERB_ROOM.maxPre), fb = ctx.createGain(), ret = ctx.createGain();
       send.gain.value = 0; fb.gain.value = REVERB_ROOM.loopGain; ret.gain.value = 0; pre.delayTime.value = REVERB_ROOM.preTimes[i];
       const a1 = allpass(AP[i][0], 0.6), a2 = allpass(AP[i][1], 0.55);
       let damp; try { damp = ctx.createIIRFilter([0.45], [1, -0.55]); } catch { damp = ctx.createGain(); damp.gain.value = 0.9; }
       const tail = ctx.createConvolver(); tail.normalize = true; tail.buffer = tailIR(1.6, 0x9e3779b9 + i * 7919);
-      mix.connect(send); voiceIn.connect(send); send.connect(pre); pre.connect(a1.inp); a1.out.connect(a2.inp); a2.out.connect(damp); damp.connect(fb); fb.connect(pre);
-      a2.out.connect(tail); tail.connect(ret); intoEars(ret);
+      wire(mix, send, 'mix', 'send'); wire(voiceIn, send, 'voiceIn', 'send'); wire(send, pre, 'send', 'pre');
+      wire(pre, a1.inp, 'pre', 'a1'); wire(a1.out, a2.inp, 'a1', 'a2'); wire(a2.out, damp, 'a2', 'damp'); wire(damp, fb, 'damp', 'fb'); wire(fb, pre, 'fb', 'pre');
+      wire(a2.out, tail, 'a2', 'tail'); wire(tail, ret, 'tail', 'ret'); intoEars(ret); wires.push(['ret', 'ears']);
       // the point's sine: pitch from my look (rvHz, 20 … 2000 Hz; rest 200 / 2000 / 2000); its volume LFO's FREQUENCY = my distance (rvLfo)
       const osc = ctx.createOscillator(); osc.type = 'sine'; osc.frequency.value = REVERB_ROOM.restHz[i];
       const am = ctx.createGain(); am.gain.value = 0.5; // 0.5 + 0.5·sin = 0 … 1
       const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = REVERB_ROOM.lfoMin;
       const depth = ctx.createGain(); depth.gain.value = 0.5 * REVERB_ROOM.lfoDepth;
-      const lvl = ctx.createGain(); lvl.gain.value = 0;
-      lfo.connect(depth); depth.connect(am.gain); osc.connect(am); am.connect(lvl); intoEars(lvl); // dry only – not into pre
+      const lvl = ctx.createGain(); lvl.gain.value = 0;       // dry:  rvTone × City
+      const toneWet = ctx.createGain(); toneWet.gain.value = 0; // wet tap: rvTone (City comes from send)
+      wire(lfo, depth, 'lfo', 'depth'); wire(depth, am.gain, 'depth', 'am.gain'); wire(osc, am, 'osc', 'am');
+      wire(am, lvl, 'am', 'lvl'); intoEars(lvl); wires.push(['lvl', 'ears']);   // dry, straight out
+      wire(am, toneWet, 'am', 'toneWet'); wire(toneWet, send, 'toneWet', 'send'); // effect send – the reverb input, not pre / fb
       try { osc.start(); lfo.start(); } catch { /* ok */ }
-      return { send, pre, fb, ret, tail, osc, lfo, am, depth, lvl, toneInLoop: false };
+      return { send, pre, fb, ret, tail, osc, lfo, am, depth, lvl, toneWet, wires, toneInLoop: false, toneInSend: true };
     };
     const verbRoom = [verbPoint(0), verbPoint(1), verbPoint(2)];
     for (const n of this.plugged || []) { try { n.connect(voiceIn); } catch { /* ok */ } }
@@ -203,12 +212,14 @@ export class SynthEngine {
       const tm = v['roomTime' + (i + 1)]; if (Number.isFinite(tm)) to(r.d.delayTime, Math.min(DELAY_ROOM.maxTime, Math.max(DELAY_ROOM.minTime, tm)));
     });
     // Reverb room: the fixed room reverb opens inside (send = rvWet × City sound, ret = presence); feedback and
-    // pre-delays stay fixed (set at build). The sines: level = rvTone × City sound (0 outside / looking out),
+    // pre-delays stay fixed (set at build). The sines: dry level = rvTone × City sound (0 outside / looking out),
+    // wet tap toneWet = rvTone (into send, which adds rvWet × City – City applied once, wet gated by look-out too),
     // pitch = rvHz (look), volume-LFO frequency = rvLfo (my distance, 2 … 1000 Hz); the LFO depth never changes.
     const vopen = Math.min(1, Math.max(0, (v.rvWet || 0) / REVERB_ROOM.wet));
     P.verbRoom.forEach((r, i) => {
       to(r.send.gain, (v.rvWet || 0) * c); to(r.ret.gain, vopen);
-      to(r.lvl.gain, Math.min(1, Math.max(0, v.rvTone || 0)) * c);
+      const tone = Math.min(1, Math.max(0, v.rvTone || 0));
+      to(r.lvl.gain, tone * c); to(r.toneWet.gain, tone);
       const f = v['rvHz' + (i + 1)]; if (Number.isFinite(f)) to(r.osc.frequency, Math.min(REVERB_ROOM.toneMaxHz, Math.max(REVERB_ROOM.toneMinHz, f)));
       const hz = v['rvLfo' + (i + 1)]; if (Number.isFinite(hz)) to(r.lfo.frequency, Math.min(REVERB_ROOM.lfoMax, Math.max(REVERB_ROOM.lfoMin, hz)));
     });
