@@ -256,21 +256,37 @@ export function colourPatch(patch, slot, sound = '') {
   return cleanPatch({ ...patch, layers: patch.layers.map((l) => ({ ...l, freq: l.freq * c.pitch, cutoff: l.cutoff * c.pitch * c.bright })) });
 }
 
-// ---------- Size → loudness / pitch (duff + slap) ----------
-// area in m² (w × h of the peel / sticker). Reference: a 30 × 30 cm sticker (0.09 m²) → gain 1, rate 1.
-// Bigger = louder and lower; smaller = quieter and higher. Shared by the backing-paper landing (duff)
-// and the slap itself (Jens, 6 Nov 2026), so a trapezoid array rises or falls across the row.
-export function duffScale(area) {
-  const a = Math.max(0.0004, Math.min(4, isNum(area) ? area : 0.09));
+// ---------- Size → loudness / pitch (duff + slap + peel) ----------
+// Pitch (Jens, 10 Nov 2026, t785u): follows the sticker's size (longest side, m) over the whole size
+// range, 10 cm – 4 m (shared/nature.mjs STICKER_LIMITS). It used to be (0.3 / side)^0.36 on a square's
+// side, floored at 0.55 – so it stopped getting lower at ~1.5 m (the old max size). Now the same
+// span – the old 10 cm pitch (×1.485) down to the old 1.5 m pitch (×0.56) – is stretched log-linearly
+// over 10 cm → 4 m: rate = hi · (lo / hi)^(ln(side / 0.1) / ln(40)), clamped at the two ends.
+// Bigger = lower; smaller = higher. Used by the slap, the peel (pulling a sticker off) and the
+// backing paper's landing (duff).
+export const SIZE_PITCH = Object.freeze({ minM: 0.10, maxM: 4.0, hi: 1.485, lo: 0.56 });
+export function sizeRate(side) {
+  const { minM, maxM, hi, lo } = SIZE_PITCH;
+  const s = Math.max(minM, Math.min(maxM, isNum(side) && side > 0 ? side : 0.3));
+  const t = Math.log(s / minM) / Math.log(maxM / minM);
+  return +(hi * Math.pow(lo / hi, t)).toFixed(3);
+}
+// Loudness: area in m² (w × h of the peel / sticker). Reference: a 30 × 30 cm sticker (0.09 m²) → gain 1.
+// Bigger = louder; smaller = quieter. Shared by the backing-paper landing (duff) and the slap itself
+// (Jens, 6 Nov 2026), so a trapezoid array rises or falls across the row.
+// side: the longest side (m) for the pitch; without it the square's side (√area).
+export function duffScale(area, side = null) {
+  const raw = isNum(area) && area > 0 ? area : 0.09;
+  const a = Math.max(0.0004, Math.min(16, raw));
   const gain = Math.min(2, Math.max(0.15, Math.pow(a / 0.09, 0.35)));
-  const rate = Math.min(1.7, Math.max(0.55, Math.pow(0.09 / a, 0.18)));
-  return { gain: +gain.toFixed(3), rate: +rate.toFixed(3) };
+  const rate = sizeRate(isNum(side) && side > 0 ? side : Math.sqrt(raw));
+  return { gain: +gain.toFixed(3), rate };
 }
 // Slap: same curve. Pass the sticker's area (w × h), or its longest side in metres (treated as square).
 export function slapScale(sizeOrArea, asArea = false) {
   if (asArea) return duffScale(sizeOrArea);
-  const s = isNum(sizeOrArea) ? sizeOrArea : 0.3;
-  return duffScale(s * s);
+  const s = isNum(sizeOrArea) && sizeOrArea > 0 ? sizeOrArea : 0.3;
+  return duffScale(s * s, s);
 }
 // Scale a patch's pitch (and filter) by rate – used for duff and the small per-play wobble.
 export function retune(patch, rate) {

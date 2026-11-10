@@ -16,7 +16,7 @@
 //                     with LS (store + product must match) and caches the verdict.
 //   DEV_UNLOCK=1      dev/test servers only: a browser with localStorage "klibb.devUnlock" = "1"
 //                     gets everything. Ignored unless the server sets this.
-// bigStickers: stickers larger than FREE_MAX_STICKER_M (up to 1.5 m) and smaller than
+// bigStickers: stickers larger than FREE_MAX_STICKER_M (up to 4 m, STICKER_LIMITS.full.maxCm) and smaller than
 // FREE_MIN_STICKER_M (down to 10 cm; shared/nature.mjs STICKER_LIMITS). Free = 15 cm – 1 m.
 // cleanVideo: finished videos (and photos) without the 'slap and talk' channel bug and the link ticker.
 // multiCam: more than one auto cameraman (up to 6), each started with a click in the room, with an

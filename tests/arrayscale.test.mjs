@@ -68,6 +68,7 @@ ok('fan shrinking: last sticker smaller, sizes fall', () => {
 ok('slapScale mirrors duffScale: bigger = louder + lower', () => {
   const tiny = slapScale(0.1), mid = slapScale(0.3), big = slapScale(0.8);
   assert.deepEqual(mid, duffScale(0.09)); // 0.3² = 0.09 reference
+  assert.ok(slapScale(2).rate > slapScale(4).rate && slapScale(1.5).rate > slapScale(2).rate); // keeps falling past the old 1.5 m
   assert.ok(tiny.gain < mid.gain && mid.gain < big.gain);
   assert.ok(tiny.rate > mid.rate && mid.rate > big.rate);
   assert.deepEqual(slapScale(0.25, true), duffScale(0.25)); // asArea

@@ -44,7 +44,13 @@ export const PEEL = {
   // Keep the mid-fall flutter inside the room: sway/curve are clamped against the walls so the
   // paper slides along a surface instead of going through it.
   pathMargin: 0.08,         // m: mid-path stay this far inside the walls
+  // Jens, 10 Nov 2026 (t785u): "det ser så knäppt ut när det faller jättestora peels" – a sticker whose
+  // longest side is over this drops NO backing paper (no falling animation, nothing on the floor; like
+  // nature stickers). The landing "duff" still plays, pitched by size (client/src/main.js paperlessDuff).
+  maxPaperSide: 1.0,        // m (longest side)
 };
+// Does a sticker of this size (longest side, m) drop backing paper? (client + server)
+export const dropsPaper = (size) => !(Number(size) > PEEL.maxPaperSide + 1e-9);
 
 // City-outside peels (Jens, Nov 2026): always on in the experience. Same lifetime as room peels;
 // launch a bit more out from the wall ("mer från väggen"). No room-box clamp — land on the city

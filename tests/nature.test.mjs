@@ -94,9 +94,9 @@ try {
       assert.equal(await slap(wide, 24, KEY), 24); assert.ok(near(await slap(wide, 60, KEY), 60));
     });
     await ok('a key with only natureStickers (no bigStickers): nature keeps min 10 cm, no upper cap', async () => { assert.equal(await slap(tree, 3, NKEY), 3); assert.equal(await slap(tree, 0.03, NKEY), 0.1); assert.equal(await slap(tree, 50, NKEY), 50); });
-    await ok('other stickers: free/full keep mins only (no upper cap, Jens Nov 2026); a user upload named "nature…" is NOT nature', async () => {
-      assert.equal(await slap(plain, 3), 3); assert.equal(await slap(plain, 0.06), 0.15); assert.equal(await slap(plain, 0.5), 0.5);
-      assert.equal(await slap(plain, 9, KEY), 9); assert.equal(await slap(plain, 0.06, KEY), 0.1); assert.equal(await slap(plain, 1.2, KEY), 1.2);
+    await ok('other stickers: free/full keep their mins, max 4 m (Jens, 10 Nov 2026); a user upload named "nature…" is NOT nature', async () => {
+      assert.equal(await slap(plain, 3), 3); assert.equal(await slap(plain, 0.06), 0.15); assert.equal(await slap(plain, 0.5), 0.5); assert.equal(await slap(plain, 9), 4);
+      assert.equal(await slap(plain, 9, KEY), 4); assert.equal(await slap(plain, 4, KEY), 4); assert.equal(await slap(plain, 0.06, KEY), 0.1); assert.equal(await slap(plain, 1.2, KEY), 1.2);
       assert.equal(await slap(upload.id, 3), 3);
     });
     await ok('sane guards: NaN / below 2 cm / strings refused, also for nature', async () => {
@@ -120,6 +120,21 @@ try {
       assert.ok(norm.peel, 'normal sticker: its paper'); assert.equal(await count(), 1);
       const row2 = await (await post(`/api/rooms/${R}/stamps/array`, { anchor: { id: norm.stamp.id, token: norm.peelToken }, to: [3.2, 1.5, -5], nonce: 'plainrow1' })).json();
       assert.equal(await count(), 1 + row2.stamps.length, 'a normal row: one paper per copy as before');
+    });
+    await ok('peels on: a sticker over 1 m drops NO backing paper (single slap and a row); 1 m and below still does (Jens, 10 Nov 2026)', async () => {
+      const post = (url, body, h = {}) => fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify(body) });
+      const { room: { id: R }, roomKey: RK } = await (await post('/api/rooms', {})).json();
+      assert.ok((await fetch(`${base}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': RK }, body: JSON.stringify({ on: true }) })).ok, 'peels on');
+      const count = async () => (await store.peelState(R)).peels.length;
+      const one = (size, x) => post(`/api/rooms/${R}/stamps`, { imageId: plain, position: [x, 2, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size, surface: 'vägg-norr', owner: 'device-bigpaper' }, { 'x-unlock': KEY }).then((r) => r.json());
+      const at1 = await one(1, -4);
+      assert.ok(at1.stamp && at1.peel, '1 m: its paper'); assert.equal(await count(), 1);
+      const big = await one(1.2, 0);
+      assert.ok(big.stamp && Math.abs(big.stamp.size - 1.2) < 1e-9 && !big.peel, '1.2 m: stamp, no paper'); assert.equal(await count(), 1);
+      const huge = await one(4, 4);
+      assert.ok(huge.stamp && !huge.peel, '4 m: no paper'); assert.equal(await count(), 1);
+      const row = await (await post(`/api/rooms/${R}/stamps/array`, { anchor: { id: big.stamp.id, token: big.peelToken }, to: [6, 2, -5], nonce: 'bigrow1' }, { 'x-unlock': KEY })).json();
+      assert.ok(Array.isArray(row.stamps) && row.stamps.length >= 2 && row.stamps.every((r) => !r.peel), JSON.stringify(row).slice(0, 200)); assert.equal(await count(), 1, 'no papers for a 1.2 m row');
     });
   } finally { server.close(); }
 } finally { fs.rmSync(tmp, { recursive: true, force: true }); }

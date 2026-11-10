@@ -24,7 +24,7 @@ import { showPose, freeRect } from './avatarview.js';
 import { CHASE, chaseOpts, chasePose, smoothDist, aimNear, surfaceCaster, loadView, saveView, nextView, frontPose, FRONT } from './chasecam.js';
 import { cleanArtistLink, cleanArtistName, linkLabel } from '../../shared/artistlink.mjs';
 import { PeelLayer } from './peels.js';
-import { PEEL, peelPlan, onFloor, stampDims } from '../../shared/peels.mjs';
+import { PEEL, peelPlan, pathParams, dropsPaper, onFloor, stampDims } from '../../shared/peels.mjs';
 import { entitlements, loadEntitlements, credentials, setStudioUnlock } from './entitlements.js';
 import { uploadsToReplace, shownUploads } from '../../shared/uploads.mjs';
 import { openNameTag as openNameTagTool, nameTagOpen, nameTagState } from './nametag.js';
@@ -161,15 +161,29 @@ const slapFx = new SlapFx(scene);
 // a fan of papers does not become a machine-gun of thuds.
 let lastDuffAt = 0;
 const DUFF_GAP_MS = 90;
-peelLayer.onLand = (peel, by) => {
+// Pitch follows the paper's longest side (= the sticker's size, 10 cm – 4 m; shared/synth.mjs sizeRate).
+function playDuff(w, h, at, by) {
   const now = performance.now();
   if (now - lastDuffAt < DUFF_GAP_MS) return;
   lastDuffAt = now;
-  const area = (peel.w || 0.3) * (peel.h || 0.3);
-  const at = [peel.x, 0.02, peel.z];
-  if (by === 'me') sound.play('duff', at, { area, sound: sound.mine });
-  else sound.play('duff', at, { area, sound: together.voiceOf(by) });
-};
+  const area = (w || 0.3) * (h || 0.3), size = Math.max(w || 0.3, h || 0.3);
+  if (by === 'me') sound.play('duff', at, { area, size, sound: sound.mine });
+  else sound.play('duff', at, { area, size, sound: together.voiceOf(by) });
+}
+peelLayer.onLand = (peel, by) => playDuff(peel.w, peel.h, [peel.x, 0.02, peel.z], by);
+// A sticker over 1 m drops no paper (PEEL.maxPaperSide, Jens 10 Nov 2026: huge falling peels look
+// silly) – the landing "duff" still plays, when and where its paper would have landed (seed = nonce).
+function paperlessDuff(design, size, seed, from, position, normal, by) {
+  if (!peelLayer.on || !dropsPeel(design) || dropsPaper(size)) return false;
+  let at = [position[0], 0.02, position[2]], ms = PEEL.fallMin * 1000;
+  try {
+    ms = pathParams(seed).dur * 1000;
+    if (from) { const p = peelPlan(seed, from, position, CITY_OUTSIDE ? CITY : undefined, normal); at = [p.x, 0.02, p.z]; }
+  } catch { /* keep the spot under the sticker */ }
+  const [w, h] = stampDims(design, size);
+  setTimeout(() => playDuff(w, h, at, by), ms);
+  return true;
+}
 let nopes = 0;
 // Klibbor fastnar inte på baksidespapper: ett litet "nej" och en axelryckning. (Påskägg, står inte i hjälpen.)
 function nope() {
@@ -820,8 +834,8 @@ async function validateDesigns() {
   await handleMissing(missing);
 }
 
-// Storleken = klibbans längsta sida (shared/nature.mjs STICKER_LIMITS). Jens Nov 2026: no upper cap
-// (maxCm = Infinity); keep mins. The size slider needs a finite end → SLIDER_UI_CM (100 m).
+// Storleken = klibbans längsta sida (shared/nature.mjs STICKER_LIMITS): 10 cm – 4 m (Jens, 10 Nov 2026,
+// t785u). Nature stickers: no upper cap – the size slider needs a finite end → SLIDER_UI_CM (100 m).
 const FREE_MAX_CM = STICKER_LIMITS.free.maxCm;
 const FREE_MIN_CM = STICKER_LIMITS.free.minCm;
 const FULL_MIN_CM = STICKER_LIMITS.full.minCm;
@@ -832,7 +846,8 @@ const versionLimits = () => (entitlements.full.bigStickers ? { minCm: FULL_MIN_C
 const limitsFor = (img = state.selected) => (img && img.library === true ? sizeLimitsCm(img, versionLimits(), { maxHeightCm: natureMaxHeightCmIn(ROOM) }) : versionLimits());
 const maxSizeCm = (img) => limitsFor(img).maxCm;
 // Nature stickers drop no backing paper (Jens, 28 Oct 2026: they get too large) – the server makes none either.
-const dropsPeel = (img) => !(img && img.library === true && isNature(img));
+// size (m, longest side; optional): neither does a sticker over 1 m (PEEL.maxPaperSide, Jens 10 Nov 2026).
+const dropsPeel = (img, size) => !(img && img.library === true && isNature(img)) && dropsPaper(size);
 const minSizeCm = (img) => limitsFor(img).minCm;
 const showSize = () => {
   const cm = Math.round(state.size * 200) / 2;
@@ -1056,10 +1071,10 @@ async function slapAt(ndc, info, onStart, auto = null) {
   delete temp.owner; delete temp.nonce; delete temp.by; delete temp.peelFrom;
   // Peels på: pappret börjar falla direkt (samma bana som servern räknar ut, seed = nonce).
   const tempPeel = 'tmp-' + nonce;
-  if (peelLayer.on && dropsPeel(design)) {
+  if (peelLayer.on && dropsPeel(design, slapSize)) {
     const [pw, ph] = stampDims(design, slapSize);
     peelLayer.add({ id: tempPeel, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, { x: camera.position.x, z: camera.position.z, yaw: controls.yaw }, body.position, CITY_OUTSIDE ? CITY : undefined, body.normal) }, design, { animate: true, by: 'me' });
-  }
+  } else paperlessDuff(design, slapSize, nonce, { x: camera.position.x, z: camera.position.z, yaw: controls.yaw }, body.position, body.normal, 'me');
   let settle; const settled = new Promise((r) => { settle = r; });
   pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, ...(auto ? { burst: auto.burst } : {}) });
   stamps.add(temp, design).then(updateCount);
@@ -1232,11 +1247,11 @@ function commitArray() {
     const tempId = 'tmp-' + nonce;
     pendingSlaps.set(nonce, { tempId, image: design, peel: false, settled, row: a.nonce });
     stamps.add({ ...a.temp, id: tempId, position, size: copySize, order: stamps.topOrder() + 1, createdAt: now, pending: true }, design).then(updateCount);
-    if (peelLayer.on && dropsPeel(design) && papers < PEELS_PER_ARRAY) {
+    if (peelLayer.on && dropsPeel(design, copySize) && papers < PEELS_PER_ARRAY) {
       papers++;
       const pw = it.w || d.w, ph = it.h || d.h;
       peelLayer.add({ id: tempId, imageId: design.id, w: pw, h: ph, seed: nonce, ...peelPlan(nonce, from, position, CITY_OUTSIDE ? CITY : undefined, a.normal.toArray()) }, design, { animate: true, by: 'me' });
-    }
+    } else if (papers < PEELS_PER_ARRAY && paperlessDuff(design, copySize, nonce, from, position, a.normal.toArray(), 'me')) papers++;
     op.temps.push({ i, nonce, tempId, size: copySize, area: (it.w || d.w) * (it.h || d.h) });
   }
   // Soft rattle along the row; each copy's slap follows its size (fan → rising/falling slap).
@@ -1294,7 +1309,7 @@ function peelArrayOp(op) {
   const pa = pendingSlaps.get(op.a.nonce);
   if (pa) { pa.peel = true; stamps.peelAway(pa.tempId).then(updateCount); } // the anchor itself is still pending
   else op.a.result.then((st) => { const h = st && roomHistory(ROOM).find((x) => x.stampId === st.id); if (h) startPeel([h], { quiet: true }); });
-  sound.play('peel'); toast(S.peeled, 900);
+  sound.play('peel', null, { size: op.a.size }); toast(S.peeled, 900);
   return op.done.then(() => op.a.result).then(() => peelSettled()).then(() => true);
 }
 
@@ -1557,6 +1572,7 @@ const idsOf = (h) => [h.stampId, ...(Array.isArray(h.extra) ? h.extra : [])];
 function startPeel(entries, { quiet = false } = {}) {
   const fresh = entries.filter((h) => !peeling.has(h.stampId));
   if (!fresh.length) return 0;
+  const size = stamps.meshes.get(fresh[0].stampId)?.userData.stamp?.size; // the peel's pitch follows it (sizeRate)
   peelGesture(fresh[0].stampId);
   for (const h of fresh) {
     for (const id of idsOf(h)) {
@@ -1568,7 +1584,7 @@ function startPeel(entries, { quiet = false } = {}) {
     }
   }
   peelOutbox.push(...fresh);
-  if (!quiet) sound.play('peel');
+  if (!quiet) sound.play('peel', null, { size });
   updateCount(); scheduleHistory();
   flushPeels();
   return fresh.length;
@@ -1615,9 +1631,10 @@ function peelLast() {
   if (pend && pend.burst) return peelBurst(pend.burst);
   if (pend) {
     pend.peel = true;
+    const size = stamps.meshes.get(pend.tempId)?.userData.stamp?.size;
     peelGesture(pend.tempId);
     stamps.peelAway(pend.tempId).then(updateCount);
-    sound.play('peel'); toast(S.peeled, 900);
+    sound.play('peel', null, { size }); toast(S.peeled, 900);
     return pend.settled.then(() => peelSettled()).then(() => true);
   }
   const list = peelable();
@@ -2500,6 +2517,7 @@ function onRoomEvent(e) {
     // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
     if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); if (e.peel) peelLayer.confirm('tmp-' + e.nonce, e.peel); return; } // min egen, redan synlig
     if (e.peel && !(e.nonce && myNonces.has(e.nonce))) peelLayer.add(e.peel, e.image, { animate: true, by: e.by }); // någon annans papper faller
+    else if (!e.peel && !(e.nonce && myNonces.has(e.nonce)) && !stamps.meshes.has(e.stamp.id) && Array.isArray(e.stamp.position)) paperlessDuff(e.image, e.stamp.size, e.nonce || e.stamp.id, null, e.stamp.position, e.stamp.normal, e.by); // over 1 m: no paper, still the landing sound
     // A sticker array comes as one stamp:add per copy (e.batch = { g, i, n }): one gesture per row,
     // but each copy plays its own sized slap so a fan rises/falls across the row (remote hear it too).
     const quietCopy = !!(e.batch && typeof e.batch.g === 'string' && rowHeard(e.batch.g));
@@ -2523,7 +2541,7 @@ function onRoomEvent(e) {
     if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); scheduleHistory(); }
   } else if (e.type === 'stamp:remove') {
     const m = stamps.meshes.get(e.id);
-    if (m && !myPeels.has(e.id)) sound.play('peel', m.userData.stamp.position, { sound: together.voiceOf(e.by) });
+    if (m && !myPeels.has(e.id)) sound.play('peel', m.userData.stamp.position, { sound: together.voiceOf(e.by), size: m.userData.stamp.size });
     if (m && typeof e.by === 'string' && e.by !== together.net.id && !myPeels.has(e.id)) together.players.gesture(e.by, 'peel', m.userData.stamp.position, m.userData.stamp.normal);
     stamps.peelAway(e.id).then(updateCount);
     if (roomHistory(ROOM).some((h) => h.stampId === e.id)) { removeHistory([e.id]); scheduleHistory(); }

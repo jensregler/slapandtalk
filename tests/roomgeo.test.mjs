@@ -15,8 +15,8 @@ const require = createRequire(import.meta.url);
 let n = 0; const ok = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); };
 
 await ok('the room is 16 × 8 × 16 m', () => { assert.deepEqual([ROOM.width, ROOM.height, ROOM.depth], [16, 8, 16]); assert.equal(CURRENT_KEY, '16x8x16'); });
-await ok('sizes: stickers 10 cm – 1.5 m (free 15 cm – 1 m); nature 10 cm up to the room height (8 m) high', () => {
-  assert.deepEqual({ ...STICKER_LIMITS.full }, { minCm: 10, maxCm: 150 }); assert.deepEqual({ ...STICKER_LIMITS.free }, { minCm: 15, maxCm: 100 });
+await ok('sizes: stickers 10 cm – 4 m (free 15 cm – 4 m; Jens, 10 Nov 2026); nature 10 cm, room height hint 8 m', () => {
+  assert.deepEqual({ ...STICKER_LIMITS.full }, { minCm: 10, maxCm: 400 }); assert.deepEqual({ ...STICKER_LIMITS.free }, { minCm: 15, maxCm: 400 });
   assert.equal(NATURE.minCm, 10); assert.equal(NATURE.maxHeightCm, 800);
   assert.equal(natureMaxSideCm({ width: 500, height: 1000 }), 800); assert.equal(natureMaxSideCm({ width: 1000, height: 500 }), 1600);
 });

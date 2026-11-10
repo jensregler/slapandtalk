@@ -7,7 +7,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
-import { SYNTH, SOUNDS, SOUND_TABS, DEFAULT_PATCHES, FX_DEFAULTS, cleanPatch, cleanLayer, cleanFx, cleanSound, variant, duffScale, slapScale, roomAcoustics,
+import { SYNTH, SOUNDS, SOUND_TABS, DEFAULT_PATCHES, FX_DEFAULTS, cleanPatch, cleanLayer, cleanFx, cleanSound, variant, duffScale, slapScale, sizeRate, SIZE_PITCH, roomAcoustics,
   ACOUSTICS, randomPatch, randomFx, delaySeconds, retune, hashSeed, VARIATION } from '../shared/synth.mjs';
 import { FOUR_VOICES } from '../shared/radio.mjs';
 
@@ -72,11 +72,22 @@ assert(hashSeed('x') === hashSeed('x') && hashSeed('x') !== hashSeed('y'), 'seed
 
 // ---------- Duff: bigger paper = louder and lower ----------
 const areas = [0.0025, 0.01, 0.04, 0.09, 0.25, 0.64, 1.44];
-const ds = areas.map(duffScale);
-assert(ds.every((d, i) => i === 0 || (d.gain >= ds[i - 1].gain && d.rate <= ds[i - 1].rate)) && ds[0].gain < ds[6].gain && ds[0].rate > ds[6].rate && same(duffScale(0.09), { gain: 1, rate: 1 }),
+const ds = areas.map((a) => duffScale(a));
+assert(ds.every((d, i) => i === 0 || (d.gain >= ds[i - 1].gain && d.rate <= ds[i - 1].rate)) && ds[0].gain < ds[6].gain && ds[0].rate > ds[6].rate && same(duffScale(0.09), { gain: 1, rate: sizeRate(0.3) }),
   `duff: volume rises and pitch falls with peel area (${ds.map((d, i) => `${areas[i]} m² → ×${d.gain} vol, ×${d.rate} pitch`).join('; ')})`);
 assert(same(slapScale(0.3), duffScale(0.09)) && slapScale(0.6).gain > slapScale(0.3).gain && slapScale(0.15).rate > slapScale(0.3).rate,
   'slapScale: same curve as duff (bigger sticker = louder and lower)');
+// Size → pitch over the whole size range, 10 cm – 4 m (Jens, 10 Nov 2026): the old 10 cm and 1.5 m pitches are the new ends.
+{
+  const sides = [0.1, 0.15, 0.3, 0.5, 1, 1.5, 2, 3, 4];
+  const rs = sides.map(sizeRate);
+  assert(SIZE_PITCH.minM === 0.1 && SIZE_PITCH.maxM === 4 && rs.every((r, i) => i === 0 || r < rs[i - 1]),
+    `sizeRate: pitch keeps falling all the way from 10 cm to 4 m (${sides.map((s, i) => `${s} m → ×${rs[i]}`).join('; ')})`);
+  assert(sizeRate(0.1) === 1.485 && sizeRate(4) === 0.56 && sizeRate(0.05) === 1.485 && sizeRate(9) === 0.56 && sizeRate(2) < sizeRate(1.5) && sizeRate(1.5) > 0.7,
+    'sizeRate: 10 cm = ×1.485 (the old 10 cm pitch), 4 m = ×0.56 (the old 1.5 m floor), clamped outside; above 1.5 m still lower');
+  assert(duffScale(0.4 * 4, 4).rate === sizeRate(4) && duffScale(16).rate === sizeRate(4) && slapScale(3).rate === sizeRate(3),
+    'duff / slap: pitch from the longest side (or √area), the same sizeRate');
+}
 assert(retune(DEFAULT_PATCHES.duff, 0.5).layers[1].freq === DEFAULT_PATCHES.duff.layers[1].freq * 0.5, 'retune lowers the duff pitch for big papers');
 
 // ---------- Free acoustics from the room's materials ----------

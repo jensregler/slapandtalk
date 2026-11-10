@@ -71,17 +71,19 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
       k.fullUi().close();
       out.upload = k.limitsFor({ ...prev, library: false, nature: true, name: 'nature-x.png' }); // an upload is never nature
       out.peel = [k.dropsPeel({ ...lib, nature: true, library: true }), k.dropsPeel(lib), k.dropsPeel({ ...prev, library: false, nature: true, name: 'nature-x.png' })];
+      out.bigPeel = [k.dropsPeel(lib, 0.3), k.dropsPeel(lib, 1), k.dropsPeel(lib, 1.01), k.dropsPeel(lib, 4)]; // no paper over 1 m (Jens, 10 Nov 2026)
       return out;
     });
     if (OPEN) {
       check('open access: a nature sticker is held (no full version panel)', natFree.sel === 'feedfacecafe0001' && !natFree.paywall, natFree);
-      check('…its rule is 10 cm – 8 m (the room height); an upload named nature… gets the normal (full) limits (10 cm – 1.5 m)', natFree.natLim.minCm === 10 && natFree.natLim.maxCm === 800 && natFree.upload.maxCm === 150 && natFree.upload.minCm === 10, natFree);
+      check('…its rule is 10 cm, no upper cap; an upload named nature… gets the normal (full) limits (10 cm – 4 m, Jens 10 Nov 2026)', natFree.natLim.minCm === 10 && natFree.natLim.maxCm === Infinity && natFree.upload.maxCm === 400 && natFree.upload.minCm === 10, natFree);
       await p.evaluate((id) => window.klibb.selectDesign(window.klibb.designs().find((d) => d.id === id)), natFree.prev); // back to the upload
     } else {
     check('free version: a nature sticker cannot be held (the full version panel opens instead)', natFree.sel === natFree.prev && natFree.paywall, natFree);
-    check('…its rule is 10 cm – 8 m; an upload named nature… keeps the normal free limits (15–100 cm)', natFree.natLim.minCm === 10 && natFree.natLim.maxCm === 800 && natFree.upload.maxCm === 100 && natFree.upload.minCm === 15, natFree);
+    check('…its rule is 10 cm, no upper cap; an upload named nature… keeps the normal free limits (15 cm – 4 m)', natFree.natLim.minCm === 10 && natFree.natLim.maxCm === Infinity && natFree.upload.maxCm === 400 && natFree.upload.minCm === 15, natFree);
     }
     check('nature stickers drop no backing paper (client: no peel animation); others and uploads do', JSON.stringify(natFree.peel) === '[false,true,true]', natFree.peel);
+    check('stickers over 1 m drop no backing paper (no falling peel); 1 m and below do', JSON.stringify(natFree.bigPeel) === '[true,true,false,false]', natFree.bigPeel);
     await p.mouse.click(700, 330); await p.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
     for (let i = 0; i < 20; i++) await p.mouse.wheel(0, 200);
     await p.waitForTimeout(200);
@@ -102,12 +104,12 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
       await k.selectDesign({ ...lib, id: 'feedfacecafe0001', nature: true, library: true, width: 100, height: 100 });
       const out = { lim: k.limitsFor(), sliderMax: document.getElementById('size').max, sliderMin: document.getElementById('size').min, act: k.activeWheel() };
       k.setSize(350); out.s350 = r(k.state.size); k.setSize(900); out.s900 = r(k.state.size); k.setSize(3); out.s3 = r(k.state.size);
-      k.setSize(380); await k.selectDesign(lib); out.back = r(k.state.size); out.backLim = k.limitsFor();
+      k.setSize(900); await k.selectDesign(lib); out.back = r(k.state.size); out.backLim = k.limitsFor();
       out.real = realNat && k.limitsFor(realNat);
       return out;
     });
-    check('nature sticker (full version): 10 cm – 8 m (room height), slider 10–800; 900 → 800, 3 → 10 (also a real imported one)', nat.lim.minCm === 10 && nat.lim.maxCm === 800 && nat.sliderMax === '800' && nat.sliderMin === '10' && nat.s350 === 350 && nat.s900 === 800 && nat.s3 === 10 && nat.real && nat.real.maxCm >= 800 && nat.real.minCm === 10, nat);
-    check('…back on a normal sticker the normal full limits again (380 cm → 1.5 m, the full max)', nat.back === 150 && nat.backLim.maxCm === 150, nat);
+    check('nature sticker (full version): 10 cm, no upper cap (slider end 100 m); 900 → 900, 3 → 10 (also a real imported one)', nat.lim.minCm === 10 && nat.lim.maxCm === Infinity && nat.sliderMax === '10000' && nat.sliderMin === '10' && nat.s350 === 350 && nat.s900 === 900 && nat.s3 === 10 && nat.real && nat.real.maxCm === Infinity && nat.real.minCm === 10, nat);
+    check('…back on a normal sticker the normal full limits again (900 cm → 4 m, the full max; Jens 10 Nov 2026)', nat.back === 400 && nat.backLim.maxCm === 400, nat);
     await fctx.close();
     check('no page errors', !errors.length, errors);
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }

@@ -10,9 +10,11 @@ export const NATURE = {
   maxHeightCm: Math.round(ROOM.height * 100), // tallest a nature sticker may be (cm) = the room's height (800)
   minCm: 10,        // smallest (cm, longest side) – also in the free version
 };
-// Every other sticker (cm, longest side). Jens Nov 2026: no upper cap (maxCm = Infinity); keep mins.
-// full = the full version (bigStickers); free = the free version's min gate.
-export const STICKER_LIMITS = Object.freeze({ full: Object.freeze({ minCm: 10, maxCm: Infinity }), free: Object.freeze({ minCm: 15, maxCm: Infinity }) });
+// Every other sticker (cm, longest side). Jens, 10 Nov 2026 (t785u): 10 cm – 4 m (was: no upper cap,
+// and 1.5 m before that). free = the free version's min gate (15 cm, unchanged), same 4 m max.
+// The slap / peel pitch spans the same 10 cm – 4 m (shared/synth.mjs SIZE_PITCH).
+export const STICKER_MAX_CM = 400;
+export const STICKER_LIMITS = Object.freeze({ full: Object.freeze({ minCm: 10, maxCm: STICKER_MAX_CM }), free: Object.freeze({ minCm: 15, maxCm: STICKER_MAX_CM }) });
 const RE = /^nature/i;
 const base = (s) => String(s ?? '').split(/[\\/]/).pop();
 // Does this file name count as a nature sticker?

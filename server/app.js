@@ -24,7 +24,8 @@ const radioMod = import('../shared/radio.mjs');
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
 // Sticker size (shared/nature.mjs STICKER_LIMITS; Jens, 2 Nov 2026, t475u): the full version (bigStickers)
-// Size: no upper cap (Jens Nov 2026). Free min FREE_MIN_STICKER_M; full/nature min from STICKER_LIMITS / NATURE. Outside
+// Size: 10 cm – 4 m (Jens, 10 Nov 2026, t785u; STICKER_LIMITS.*.maxCm). Free min FREE_MIN_STICKER_M; full/nature
+// min from STICKER_LIMITS / NATURE; nature stickers keep no upper cap. Outside
 // them a new sticker is clamped, not refused; stickers already up stay as they are. A technical guard
 // too: the size must be a finite number ≥ 2 cm (checked on slap).
 // The starting size from a file-name letter prefix ("B_cat.png" = 17.5 cm): shared/sizeprefix.mjs.
@@ -757,7 +758,7 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   }
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Invalid position' });
   if (!isNum(b.size) || !Number.isFinite(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
-  // Jens Nov 2026: no upper size cap (client or server). Keep mins only; reject NaN/Infinity above.
+  // Jens, 10 Nov 2026 (t785u): normal stickers 10 cm – 4 m (STICKER_LIMITS.*.maxCm), clamped; nature: min only.
   // Free without bigStickers: floor FREE_MIN_STICKER_M. Nature / full: NATURE.minCm / STICKER_LIMITS.full.minCm.
   const N = await natureMod, libEntry = libraryById.get(image.id), nature = isNatureImage(N, image);
   // Nature stickers are the full version's (natureStickers; the Nature wheel): refused otherwise.
@@ -767,9 +768,11 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
     b.size = Math.max(lim.minCm / 100, b.size);
   } else if (!(await entOf(req)).bigStickers) {
     if (b.size < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) b.size = FREE_MIN_STICKER_M;
+    b.size = Math.min(b.size, N.STICKER_LIMITS.free.maxCm / 100);
   } else {
     const L = N.STICKER_LIMITS.full;
     if (b.size < L.minCm / 100 - FREE_SIZE_SLACK) b.size = L.minCm / 100;
+    b.size = Math.min(b.size, L.maxCm / 100);
   }
   // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).
   const P = await peelsMod;
@@ -813,8 +816,9 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
   const by = playerId(b.by);
   // Peels på: baksidespappret faller från den som slappade (fallet räknas ut av klienterna från seed).
   let peel = null;
-  // Nature stickers drop no backing paper at all (Jens, 28 Oct 2026: they get too large).
-  if (!nature && (peelSt.on || (await store.peelState(room)).on)) {
+  // Nature stickers drop no backing paper at all (Jens, 28 Oct 2026: they get too large); nor does a
+  // sticker over 1 m (PEEL.maxPaperSide, Jens 10 Nov 2026: huge falling peels look silly).
+  if (!nature && P.dropsPaper(stamp.size) && (peelSt.on || (await store.peelState(room)).on)) {
     const box = CITY.roomBox(room);
     const from = cleanFrom(b.peelFrom, box) || fallbackFrom(b.position, b.normal, box);
     const seed = nonce && /^[A-Za-z0-9_-]{1,40}$/.test(nonce) ? nonce : saved.id;
@@ -885,9 +889,11 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
       endSize = Math.max(lim.minCm / 100, endSize);
     } else if (!(await entOf(req)).bigStickers) {
       if (endSize < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) endSize = FREE_MIN_STICKER_M;
+      endSize = Math.min(endSize, N.STICKER_LIMITS.free.maxCm / 100);
     } else {
       const L = N.STICKER_LIMITS.full;
       if (endSize < L.minCm / 100 - FREE_SIZE_SLACK) endSize = L.minCm / 100;
+      endSize = Math.min(endSize, L.maxCm / 100);
     }
   }
   const [endW, endH] = P.stampDims(image, endSize);
@@ -925,12 +931,12 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
     const i = byOrder.get(s.id), stamp = publicStamp(s);
     const n = nonce ? `${nonce}x${i}` : undefined;
     let peel = null;
-    if (on && papers < A.PEELS_PER_ARRAY) {
+    const it = itemByI.get(i);
+    const pw = it ? it.w : w, ph = it ? it.h : h;
+    if (on && papers < A.PEELS_PER_ARRAY && P.dropsPaper(Math.max(pw, ph))) { // no paper over 1 m (PEEL.maxPaperSide)
       papers++;
       const seed = n || s.id;
       const { side, ...plan } = P.peelPlan(seed, from, s.position, box, anchor.normal);
-      const it = itemByI.get(i);
-      const pw = it ? it.w : w, ph = it ? it.h : h;
       peel = await store.addPeel(room, { id: s.id, imageId: image.id, w: Math.round(pw * 1e4) / 1e4, h: Math.round(ph * 1e4) / 1e4, seed, ...plan }, P.PEEL.maxPerRoom);
     }
     rows.push({ i, stamp, ...(peel ? { peel } : {}) });
