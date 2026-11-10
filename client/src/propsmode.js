@@ -6,7 +6,7 @@
 //     STICKERS on any prop's mesh too (prop-<id>-m<k>, world-space: they stay put if the prop moves).
 //   - SITTING: the drawing tool opened near a free chair = I sit down on it and draw (the server keeps
 //     one person per chair, everyone sees me sitting with a "drawing" mark); closing it = I stand up.
-//   - the PROPS WHEEL (the build phase only – shared/city.mjs CITY_BUILD_PHASE – for admin / the full
+//   - ASSETS (was the PROPS WHEEL; the wheels are gone since Jens t793u – pick in Esc → ASSETS; the build phase only – shared/city.mjs CITY_BUILD_PHASE – for admin / the full
 //     version where shared/props.mjs canEditProps allows; not part of the final game): the third wheel,
 //     next to the sticker and Nature wheels (V: Slap → Nature → Props). Pick a prop on the wheel, aim
 //     (a ghost of it stands where you look; same Aim tool as stickers/nature: O / #aim-toggle, no
@@ -14,11 +14,13 @@
 //     panel to turn, scale (0.25–4×), move, copy or delete it – the cuboid has width / height / depth
 //     (0.1 m up to 32 m wide/deep, 24 m high) and a colour. Q/E turn, the mouse wheel scales, Delete
 //     removes the selected one, Esc lets go. Every change is saved at once (PUT/DELETE …/props/:id).
+//   - ROWS (Jens t797u): hold the button after placing one and look away – see-through copies of the
+//     held asset stand in a line toward where you look (footprint to footprint); let go = all placed.
+//     Esc / right-click / leaving the game = no copies (the first stays). Shift + wheel turns, wheel scales.
 import * as THREE from 'three';
 import { makeProp, preloadProps, highlightOf, collisionBoxes } from './props3d.js';
 import { createPropCollider, cuboidBoxes } from '../../shared/propcollide.mjs';
 import { facesFromSurfaces } from './fold.js';
-import { createWheel } from './wheel.js';
 import { bindHoldRepeat } from './holdrepeat.js';
 import { PROP_KINDS, KIND_IDS, cleanProp, newPropId, seatOf, nearestSeat, PROP_SCALE, BOX_LIMITS, BOX_COLOURS, MAX_PROPS } from '../../shared/props.mjs';
 
@@ -159,26 +161,33 @@ export function initProps(o) {
   let ghost = null, ghostKey = '', ghostAt = null, sel = null, moving = null, thumbs = null;
   const $ = (id) => document.getElementById(id);
   const ui = buildUi();
-  const wheel = createWheel(ui.row, { pick: (d) => { pickKind(d.id); }, onActivity: () => o.wheelUp?.() });
   const kindsInOrder = () => {
     const first = o.outside ? ['city', 'both', 'room'] : ['room', 'both', 'city'];
     return first.flatMap((w) => KIND_IDS.filter((k) => PROP_KINDS[k].where === w));
   };
   function wheelList() { return kindsInOrder().map((k) => ({ id: k, url: (thumbs && thumbs.get(k)) || labelThumb(PROP_KINDS[k].label) })); }
+  // (no strip any more: Esc → ASSETS shows them all, the design HUD shows the held one)
   function renderWheel() {
-    wheel.setList(wheelList()); wheel.setSelected(kind);
     const i = kindsInOrder().indexOf(kind);
     ui.num.textContent = `🪑 ${i >= 0 ? `${i + 1}/` : ''}${KIND_IDS.length} · ${kind ? PROP_KINDS[kind].label : ''}`;
+    o.onHeldChange?.();
+  }
+  // Esc → ASSETS: every asset, its picture and name
+  function catalog() { return { items: kindsInOrder().map((k) => ({ id: k, url: (thumbs && thumbs.get(k)) || labelThumb(PROP_KINDS[k].label), name: PROP_KINDS[k].label })), selected: kind }; }
+  function current() {
+    if (!active || !kind) return null;
+    const l = kindsInOrder();
+    return { id: kind, name: PROP_KINDS[kind].label, url: (thumbs && thumbs.get(kind)) || labelThumb(PROP_KINDS[kind].label), i: l.indexOf(kind), n: l.length };
   }
   const open = () => !!o.canEdit();
   function setActive(on) {
     on = !!on && open();
     if (on === active) return active;
-    active = on; document.body.classList.toggle('props-mode', on); ui.strip.hidden = !on;
+    active = on; document.body.classList.toggle('props-mode', on); ui.strip.hidden = true; // no strip: Esc → ASSETS
     if (on) {
       if (!kind) kind = kindsInOrder()[0];
       renderWheel(); makeThumbs();
-    } else { deselect(); clearGhost(); moving = null; }
+    } else { deselect(); clearGhost(); moving = null; rowCancel(); }
     o.onModeChange?.(on);
     return active;
   }
@@ -229,6 +238,7 @@ export function initProps(o) {
   const aimOn = () => !o.aimOff?.();
   function tick(dt, ndc = CENTER) {
     lod(dt); keepSeat();
+    if (row) { if (ghost) ghost.visible = false; rowTick(); return; }
     if (!active || sel || !aimOn()) { if (ghost) ghost.visible = false; return; }
     ensureGhost();
     const pt = aimAt(ndc);
@@ -267,7 +277,7 @@ export function initProps(o) {
   }
   // a click / tap in Props mode: a prop under it = select it; else place the held one.
   // Aim off (O): do not place; selecting a placed prop is still allowed.
-  function click(ndc = CENTER) {
+  function click(ndc = CENTER, opts = {}) {
     if (!active) return false;
     if (!aimOn()) {
       if (moving) return true;
@@ -281,8 +291,79 @@ export function initProps(o) {
     const it = pickProp(ndc);
     if (it) { select(it.p.id); return true; }
     if (o.isTouch) { ghostAt = aimAt(ndc); }
-    placeHeld();
+    const from = ghostAt ? ghostAt.clone() : null;
+    const placing = placeHeld();
+    if (opts.row && from && !o.isTouch) rowStart(from, placing);
     return true;
+  }
+
+  // ---------- rows of assets (hold + look away; Jens t797u) ----------
+  const ROW_MAX = 24, ROW_GAP = 0.05;
+  let row = null; // { from: Vector3, rec: the held record, step, dir, to, n, ghosts: [], tpl, key }
+  function footprint(rec, dx, dz) { // the asset's length along (dx, dz), metres
+    const yaw = rec.yaw || 0, c = Math.cos(yaw), s2 = Math.sin(yaw);
+    const lx = dx * c - dz * s2, lz = dx * s2 + dz * c; // the direction in the asset's own frame
+    const size = row && row.size ? row.size : { x: 1, z: 1 };
+    const k = PROP_KINDS[rec.kind].box ? 1 : rec.s || 1;
+    return (Math.abs(lx) * size.x + Math.abs(lz) * size.z) * k;
+  }
+  function rowStart(from, placing) {
+    if (row) rowCancel();
+    const rec = { ...heldRecord() }; if (!rec.kind) return;
+    row = { from, rec, ghosts: [], tpl: null, size: null, to: null, n: 0, plan: [], placing };
+    const mine = row;
+    makeProp(cleanProp({ ...rec, x: 0, z: 0, yaw: 0 }, bounds) || rec).then((obj) => {
+      if (row !== mine) return;
+      obj.traverse((m) => { if (m.isMesh) { m.raycast = () => {}; if (!m.userData.ink) { const see = (x) => { const c = x.clone(); c.transparent = true; c.opacity = 0.45; c.depthWrite = false; return c; }; m.material = Array.isArray(m.material) ? m.material.map(see) : see(m.material); } } });
+      obj.scale.setScalar(1); obj.updateMatrixWorld(true);
+      const b = new THREE.Box3().setFromObject(obj), sz = b.getSize(new THREE.Vector3());
+      // the kind's own scale (s) is applied per copy; a cuboid is already its real size
+      mine.size = { x: Math.max(0.1, sz.x), z: Math.max(0.1, sz.z) };
+      mine.tpl = obj;
+    }).catch(() => {});
+  }
+  function rowTick() {
+    const r = row;
+    if (!active || sel) { rowCancel(); return; }
+    r.rec = { ...r.rec, s: held.s, yaw: held.yaw, sx: held.sx, sy: held.sy, sz: held.sz }; // the wheel / Q/E while dragging change them all
+    const pt = aimAt(CENTER); if (pt) r.to = pt;
+    r.plan = [];
+    if (r.to && r.tpl) {
+      const dx = r.to.x - r.from.x, dz = r.to.z - r.from.z, dist = Math.hypot(dx, dz);
+      if (dist > 0.01) {
+        const ux = dx / dist, uz = dz / dist;
+        const step = footprint(r.rec, ux, uz) + ROW_GAP;
+        const room0 = MAX_PROPS - items.size - 1;
+        const n = Math.max(0, Math.min(ROW_MAX, room0, Math.floor(dist / step + 0.35)));
+        for (let i = 1; i <= n; i++) r.plan.push({ x: r.from.x + ux * step * i, y: r.from.y, z: r.from.z + uz * step * i });
+      }
+    }
+    // the ghosts: one see-through copy per planned spot
+    while (r.ghosts.length < r.plan.length && r.tpl) { const g = r.tpl.clone(); g.renderOrder = 50; group.add(g); r.ghosts.push(g); }
+    r.ghosts.forEach((g, i) => {
+      const at = r.plan[i];
+      g.visible = !!at;
+      if (at) { g.position.set(at.x, Math.max(0, at.y), at.z); g.rotation.set(0, r.rec.yaw || 0, 0); g.scale.setScalar(PROP_KINDS[r.rec.kind].box ? 1 : r.rec.s || 1); }
+    });
+    r.n = r.plan.length;
+  }
+  function dropGhosts(r) { for (const g of r.ghosts) group.remove(g); r.ghosts.length = 0; }
+  function rowCancel() { if (!row) return false; dropGhosts(row); row = null; return true; }
+  async function rowCommit() {
+    const r = row; if (!r) return 0;
+    row = null; dropGhosts(r);
+    const spots = r.plan.slice(); if (!spots.length) return 0;
+    try { await r.placing; } catch { /* the first one's own problem */ }
+    const made = [];
+    for (const at of spots) {
+      if (items.size >= MAX_PROPS) { o.toast?.(`At most ${MAX_PROPS} props here.`, 2200); break; }
+      const p = cleanProp({ ...r.rec, id: newPropId(), x: at.x, y: Math.max(0, at.y), z: at.z }, bounds);
+      if (!p) continue;
+      upsert(p); made.push(p);
+    }
+    // saved one by one (the server's limit is per minute; a row is at most ROW_MAX)
+    for (const p of made) { try { await save(p); } catch (e) { o.toast?.(e.message, 2600); break; } }
+    return made.length;
   }
 
   // ---------- the selected prop's panel ----------
@@ -416,7 +497,7 @@ export function initProps(o) {
         g2.putImageData(img, 0, 0); out.set(k, cv.toDataURL('image/png'));
         sc.remove(obj);
       }
-      rt.dispose(); thumbs = out; if (active) renderWheel();
+      rt.dispose(); thumbs = out; if (active) renderWheel(); o.onThumbs?.();
       return out;
     })();
     return thumbing;
@@ -437,10 +518,11 @@ export function initProps(o) {
       return false;
     },
     seatPose, sitToDraw, standUp, seated: () => (mySeat ? { id: mySeat.id, ...mySeat.seat } : null), onSit,
-    open, active: () => active, setActive, toggle: () => setActive(!active), tick, click, turn, scaleBy, step, pickKind,
+    open, active: () => active, setActive, toggle: () => setActive(!active), tick, click, turn, scaleBy, step, pickKind, catalog, current,
+    rowing: () => !!row, rowCancel, rowCommit, row: () => (row ? { n: row.n, ghosts: row.ghosts.filter((g) => g.visible).length, from: row.from.toArray(), to: row.to ? row.to.toArray() : null, ready: !!row.tpl } : null),
     select, deselect, selected, removeSelected, moveSelected, copySelected, change, held: () => ({ kind, ...held, moving: moving ? { ...moving } : null }),
     ghost: () => (ghost && ghost.visible ? ghost.position.toArray() : null),
     thumbs: () => makeThumbs(),
-    info: () => ({ active, kind, n: items.size, sel: sel ? sel.id : null, panel: !ui.panel.hidden, strip: !ui.strip.hidden, ghost: !!(ghost && ghost.visible), seated: mySeat ? mySeat.id : null, faces: o.faces ? o.faces.length : 0 }),
+    info: () => ({ active, kind, n: items.size, sel: sel ? sel.id : null, panel: !ui.panel.hidden, strip: !ui.strip.hidden, row: !!row, ghost: !!(ghost && ghost.visible), seated: mySeat ? mySeat.id : null, faces: o.faces ? o.faces.length : 0 }),
   };
 }

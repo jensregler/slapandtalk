@@ -28,13 +28,13 @@ const ARGS = ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-g
     const newCtx = async () => { const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } }); await ctx.addInitScript(([p, l]) => { localStorage.setItem('klibb.pac', p); localStorage.setItem('klibb.avatar', l); localStorage.setItem('klibb.devUnlock', '1'); }, [JSON.stringify(pac), look]); return ctx; };
     const open = async (ctx, room) => { const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push(room + ': ' + e.message)); await P.goto(`${S.base}/?room=${room}`); await P.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.state.selected, null, { timeout: 60000 }); await sleep(1500); return P; };
     const pose = (Q, x, y, z, yaw, pitch) => Q.evaluate(([x, y, z, yaw, pitch]) => { const k = window.klibb; k.controls.ground = null; k.controls.collide = null; k.camera.position.set(x, y, z); k.controls.yaw = yaw; k.controls.pitch = pitch; k.controls.apply(); }, [x, y, z, yaw, pitch]);
-    const natState = (P) => P.evaluate(() => ({ open: window.klibb.natureOpen(), strip: window.klibb.natureStrip(), two: document.body.classList.contains('two-wheels'), build: document.body.classList.contains('city-build'), city: window.klibb.city().wheel, act: window.klibb.activeWheel() }));
+    const natState = (P) => P.evaluate(() => ({ open: window.klibb.natureOpen(), strip: { shown: !!document.querySelector('#esc-menu [data-esc="catnature"]') && window.klibb.natureDesigns().length > 0, locked: !window.klibb.natureOpen(), n: window.klibb.natureDesigns().length }, two: true, // the wheels are gone (t793u): Esc → NATURE build: document.body.classList.contains('city-build'), city: window.klibb.city().wheel, act: window.klibb.activeWheel() }));
 
     // ---- the build city's outside
     const ctx = await newCtx();
     let P = await open(ctx, 'stad-byggen');
     let n = await natState(P);
-    check('build city outside: the Nature wheel is shown and open (two wheels), sticker wheel is the full deck', n.open && n.strip.shown && !n.strip.locked && n.strip.n > 0 && n.two && n.build && n.city.length > 20, n);
+    check('build city outside: Nature is there and open (Esc → NATURE), the sticker list is the full deck', n.open && n.strip.shown && !n.strip.locked && n.strip.n > 0 && n.two && n.build && n.city.length > 20, n);
     await P.evaluate(() => window.klibb.setView('first', { quiet: true }));
     // the desktop starts in Look mode: V = back to Slap mode, V again = Nature mode
     for (let i = 0; i < 2 && (await P.evaluate(() => window.klibb.activeWheel())) !== 'nature'; i++) { await P.keyboard.press('v'); await sleep(500); }

@@ -25,7 +25,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
   const ready = (p, full) => p.waitForFunction((f) => window.klibb && window.klibb.ready && window.klibb.state.selected && window.klibb.natureOpen() === f, full, { timeout: 30000 });
   const info = (p) => p.evaluate(() => { const k = window.klibb; return { mode: k.state.mode, nature: k.natureMode(), act: k.activeWheel(), sel: k.state.selected && k.state.selected.id, selNat: !!(k.state.selected && k.state.selected.nature),
     hud: document.getElementById('mode-hud').textContent, body: document.body.classList.contains('nature-mode'), amb: { playing: false, gone: typeof k.ambience === 'undefined' && !document.querySelector('audio') }, paywall: k.fullUi().isOpen(), ctx: k.sound.ctx && k.sound.ctx.state,
-    btn: { slap: document.getElementById('mode-stickers').getAttribute('aria-pressed'), nature: document.getElementById('mode-nature').getAttribute('aria-pressed'), packs: document.getElementById('mode-packs').getAttribute('aria-pressed'), look: document.getElementById('mode-btn').getAttribute('aria-pressed'), natHidden: document.getElementById('mode-nature').hidden, natLocked: document.getElementById('mode-nature').classList.contains('locked') } }; });
+    // the wheel switch is gone (Jens t793u): STICKERS / NATURE live in the Esc menu now; these mirror the mode
+    btn: { slap: String(k.state.mode === 'slap' && !k.natureMode() && !k.propsMode()), nature: String(k.natureMode()), packs: 'false', look: document.getElementById('mode-btn').getAttribute('aria-pressed'), natHidden: !document.querySelector('#esc-menu [data-esc="catnature"]'), natLocked: !k.natureOpen() } }; });
   const key = async (p, k, ms = 400) => { await p.keyboard.press(k); await sleep(ms); };
   try {
     const OPEN = await openAccess(S.base);
@@ -45,9 +46,9 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       const fmsg = await F.evaluate(() => ({ toast: document.getElementById('toast').textContent, shown: document.getElementById('toast').classList.contains('show'), panel: document.getElementById('full-panel').innerText }));
       check('free: V also says why (toast "Nature mode is part of the full version") and the panel lists 🌿 Nature mode', fmsg.shown && /Nature mode is part of the full version/.test(fmsg.toast) && /Nature mode/.test(fmsg.panel), fmsg);
       await F.evaluate(() => window.klibb.fullUi().close());
-      await F.click('#mode-nature'); await sleep(300);
+      await F.evaluate(() => window.klibb.escMenu().openCatalog('nature')); await sleep(300);
       const f2 = await info(F);
-      check('free: the panel\'s 🌿 Nature mode button also opens the panel', f2.paywall && !f2.nature && !f2.amb.playing, f2);
+      check('free: Esc → NATURE also opens the panel (no grid)', f2.paywall && !f2.nature && !f2.amb.playing, f2);
       await F.evaluate(() => window.klibb.fullUi().close());
       await key(F, 'KeyG');
       const f3 = await info(F);
@@ -93,24 +94,25 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await key(U, 'KeyM', 600);
     const u7 = await info(U);
     check('full: M (sounds off) and M again: still Nature mode, and still no nature sound', u6.nature && !u6.amb.playing && u7.nature && u7.amb.gone, { u6: u6.amb, u7: u7.amb });
-    // the wheels switch the mode too
-    await U.evaluate(() => { const b = [...document.querySelectorAll('#strip-row .strip-th')].find((x) => x.style.display !== 'none' && Math.abs(+x.dataset.d) < 0.01); b.click(); }); await sleep(800);
+    // the Esc catalogs switch the mode too (the wheels are gone)
+    const pickTile = async (P, kind, i) => { await P.evaluate((kd) => { window.klibb.controls.unlock?.(); window.klibb.escMenu().openCatalog(kd); }, kind); await sleep(400); await P.click(`#esc-menu .esc-tile:nth-child(${i + 1})`); await sleep(600); };
+    await pickTile(U, 'stickers', 0);
     const u8 = await info(U);
-    check('full: picking from the sticker wheel = Slap mode', !u8.nature && !u8.selNat && !u8.amb.playing && u8.hud === 'STICKERS · V', u8);
-    await U.evaluate(() => { const b = [...document.querySelectorAll('#nature-row .strip-th')].find((x) => x.style.display !== 'none' && Math.abs(+x.dataset.d - 1) < 0.01); b.click(); }); await sleep(800);
+    check('full: picking in Esc → STICKERS = Slap mode', !u8.nature && !u8.selNat && !u8.amb.playing && u8.hud === 'STICKERS · V', u8);
+    await pickTile(U, 'nature', 1);
     const u9 = await info(U);
-    check('full: picking from the Nature wheel = Nature mode (no ambience)', u9.nature && u9.selNat && u9.amb.gone, u9);
-    await U.click('#mode-stickers'); await sleep(500);
+    check('full: picking in Esc → NATURE = Nature mode (no ambience)', u9.nature && u9.selNat && u9.amb.gone, u9);
+    await key(U, 'KeyV', 500);
     const u10 = await info(U);
-    await U.click('#mode-nature'); await sleep(500);
+    await key(U, 'KeyV', 500);
     const u11 = await info(U);
-    check('full: the panel buttons STICKERS / NATURE switch too', !u10.nature && !u10.amb.playing && u10.btn.slap === 'true' && u11.nature && u11.amb.gone && u11.btn.nature === 'true', { u10: u10.btn, u11: u11.btn });
+    check('full: V switches STICKERS / NATURE too', !u10.nature && !u10.amb.playing && u10.btn.slap === 'true' && u11.nature && u11.amb.gone && u11.btn.nature === 'true', { u10: u10.btn, u11: u11.btn });
     await U.screenshot({ path: path.join(SHOTS, 'desktop-full-panel-nature.png') });
     await key(U, 'KeyG', 500);
     const u12 = await info(U);
     check('full: Look mode still reachable via G (no Look button; PACKS replaced it)', u12.mode === 'view' && !u12.amb.playing && u12.btn.look === 'true' && u12.hud === 'Look mode · G', u12);
     await key(U, 'KeyG', 400);
-    await U.click('#mode-stickers'); await sleep(400);
+    await pickTile(U, 'stickers', 0);
     await U.screenshot({ path: path.join(SHOTS, 'desktop-full-slap-mode.png') });
     await uctx.close();
 
@@ -122,14 +124,12 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       await M.goto(S.base + '/?last=1'); await ready(M, full);
       const m1 = await info(M);
       check(`phone (${full ? 'full' : 'free'}): starts in Slap mode, no nature sound`, m1.mode === 'slap' && !m1.nature && !m1.amb.playing, m1);
-      await M.evaluate(() => { document.body.classList.add('wheel-up'); window.klibb.wheelApi.render(); window.klibb.natureWheelApi.render(); });
-      await sleep(500);
       if (full) {
-        await M.evaluate(() => { const b = [...document.querySelectorAll('#nature-row .strip-th')].find((x) => x.style.display !== 'none' && Math.abs(+x.dataset.d) < 0.01); b.click(); });
-        await sleep(900);
+        await M.tap('#design-btn'); await sleep(400); await M.tap('#sm-esc'); await sleep(600); // the stack → Menu
+        await M.tap('#esc-menu [data-esc="catnature"]'); await sleep(600);
+        await M.tap('#esc-menu .esc-tile:nth-child(1)'); await sleep(900);
         const m2 = await info(M);
-        check('phone (full): tapping the Nature wheel = Nature mode, no nature sound', m2.nature && m2.selNat && m2.amb.gone, m2);
-        await M.evaluate(() => document.body.classList.add('wheel-up'));
+        check('phone (full): Menu → NATURE → a tile = Nature mode, no nature sound', m2.nature && m2.selNat && m2.amb.gone, m2);
       } else {
         const m2 = await info(M);
         check('phone (free): no Nature mode, no nature sound', !m2.nature && !m2.amb.playing, m2);

@@ -3,7 +3,7 @@
 // (port 8857, normal app). Covers: a plain click (no drag) = one; array start throws; the drag update
 // throws; the release throws; …/stamps/array failing (500) and missing (404: arrays off from then on)
 // = the first sticker stays, one; no Pointer Lock API at all = a click slaps one where it lands;
-// a click on the desktop sticker strip never slaps or starts a row.
+// a click on an Esc STICKERS tile (was the sticker strip) never slaps or starts a row.
 const sharp = require('sharp');
 const fs = require('fs');
 const os = require('os');
@@ -113,11 +113,12 @@ const GL = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swifts
     await nl.p.waitForFunction(() => window.klibb.pendingSlaps() === 0, null, { timeout: 15000 }); await nl.p.waitForTimeout(200);
     s2 = await onServer(R2);
     check('no Pointer Lock: press, move, release = one more (no row)', s2.length === 2 && !s2.some((s) => s.group), s2.length);
-    // the desktop sticker strip: a click there is a pick, never a slap or a row
-    const th = await nl.p.$('#strip-row .strip-th');
+    // the Esc STICKERS grid (the wheels are gone, t793u): a click on a tile is a pick, never a slap or a row
+    await nl.p.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().openCatalog('stickers'); }); await nl.p.waitForTimeout(400);
+    const th = await nl.p.$('#esc-menu .esc-tile');
     if (th) { await th.click(); await nl.p.waitForTimeout(300); }
     s2 = await onServer(R2);
-    check('a click on the desktop sticker strip: no slap, no row', !!th && s2.length === 2 && !(await nl.p.evaluate(() => window.klibb.arrayState().dragging)), { th: !!th, n: s2.length });
+    check('a click on an Esc STICKERS tile: no slap, no row', !!th && s2.length === 2 && !(await nl.p.evaluate(() => window.klibb.arrayState().dragging)), { th: !!th, n: s2.length });
     check('no page errors (no Pointer Lock)', !nl.errors.length, nl.errors);
     await nl.ctx.close();
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }

@@ -57,13 +57,6 @@
     <details id="lib-box" class="no-demo"><summary><span data-t="libTitle">All stickers</span> <span id="lib-count"></span></summary><div id="libtray" aria-label="All stickers"></div></details>
     <details id="nature-box" class="no-demo"><summary><span data-t="natureListTitle">🌿 Nature</span> <span id="nature-count"></span><span class="lock-note" data-t="natureLockNote"> · 🔒 Full version</span></summary><div id="naturetray" aria-label="Nature"></div></details>
 
-    <!-- Wheel buttons (replace Slap/Nature/Props/Look). Look mode stays on G / phone 👁. -->
-    <div id="mode-switch" class="seg wheel-switch" role="group" data-t-aria="modeSwitch">
-      <button id="mode-stickers" type="button" data-wheel="stickers" data-t="wheelStickers" aria-pressed="true">STICKERS</button>
-      <button id="mode-nature" type="button" class="no-demo" data-wheel="nature" data-t="wheelNature" aria-pressed="false" hidden>NATURE</button>
-      <button id="mode-assets" type="button" class="no-demo" data-wheel="assets" data-t="wheelAssets" aria-pressed="false" hidden title="Props / assets">ASSETS</button>
-      <button id="mode-packs" type="button" data-wheel="packs" data-t="wheelPacks" aria-pressed="false">PACKS</button>
-    </div>
 
     <button id="enter" type="button" class="primary desktop-only" data-t="enter">Enter the room</button>
     <p class="hint desktop-only" data-t="quickHelp"></p>
@@ -192,11 +185,6 @@
   <div id="design-hud" class="desktop-only" hidden>
     <img id="design-hud-img" alt="" /><span><b id="design-hud-num">1/1</b><br /><span data-t="designHud">R/F: next/prev design</span></span>
   </div>
-  <!-- Desktop: the sticker strip along the bottom edge – the stickers R/F cycle through; click = pick. -->
-  <div id="nature-strip" hidden role="listbox" data-t-aria="natureAria" data-t-title="natureTitle"><span id="nature-num"></span><div id="nature-row"></div></div>
-  <div id="design-strip" hidden role="listbox" data-t-aria="stripAria" data-t-title="stripTitle"><span id="strip-num"></span><div id="strip-row"></div></div>
-  <div id="packs-strip" hidden role="listbox" data-t-aria="packsAria" data-t-title="packsTitle"><span id="packs-num"></span><div id="packs-row"></div></div>
-  <div id="wheel-label" aria-live="polite" hidden></div>
   <div id="mode-hud" aria-live="polite"></div>
   <!-- Aim on/off (Jens, 9 Nov 2026): user-only visibility for held sticker + crosshair; O key too. -->
   <button id="aim-toggle" type="button" aria-pressed="true" title="Aim on — tap to hide aim" aria-label="Aim on">◎<span id="aim-toggle-lab" class="aim-lab">Aim on</span></button>
@@ -353,11 +341,25 @@
     <button type="button" class="esc-btn" data-esc="city"><span class="esc-ico">🏙</span><span class="esc-lab" data-t="escCity">CITY</span></button>
     <button type="button" class="esc-btn" data-esc="exit"><span class="esc-ico">🚪</span><span class="esc-lab" data-t="escExit">EXIT</span></button>
     <button type="button" class="esc-btn" data-esc="create"><span class="esc-ico">✏️</span><span class="esc-lab" data-t="escCreate">CREATE</span></button>
+    <!-- The catalogs (Jens t792u, 10 Nov 2026): under the six – every sticker / nature sticker / asset in a big grid (the wheels are gone). -->
+    <button type="button" class="esc-btn esc-cat-btn" data-esc="catstickers"><span class="esc-ico">🎨</span><span class="esc-lab" data-t="escCatStickers">STICKERS</span></button>
+    <button type="button" class="esc-btn esc-cat-btn" data-esc="catnature"><span class="esc-ico">🌿</span><span class="esc-lab" data-t="escCatNature">NATURE</span></button>
+    <button type="button" class="esc-btn esc-cat-btn" data-esc="catassets"><span class="esc-ico">🪑</span><span class="esc-lab" data-t="escCatAssets">ASSETS</span></button>
+    <button type="button" class="esc-btn esc-help-btn" data-esc="help"><span class="esc-ico">❓</span><span class="esc-lab" data-t="escHelp">HELP</span></button>
     <button type="button" class="esc-btn" data-esc="stickers" data-esc-group="create" hidden><span class="esc-ico">🎨</span><span class="esc-lab" data-t="escStickers">STICKERS</span></button>
     <button type="button" class="esc-btn" data-esc="stickerpack" data-esc-group="create" hidden><span class="esc-ico">📦</span><span class="esc-lab" data-t="escStickerPack">STICKER PACK</span></button>
+    <button type="button" class="esc-btn" data-esc="mypacks" data-esc-group="create" hidden><span class="esc-ico">🎒</span><span class="esc-lab" data-t="escMyPacks">MY PACKS</span></button>
     <button type="button" class="esc-btn" data-esc="createcity" data-esc-group="city" hidden><span class="esc-ico">＋</span><span class="esc-lab" data-t="escCreateCity">Create new city</span></button>
     <button type="button" class="esc-btn" data-esc="joincity" data-esc-group="city" hidden><span class="esc-ico">📋</span><span class="esc-lab" data-t="escJoinCity">Join existing</span></button>
     <div id="esc-city-list" class="esc-city-list" hidden></div>
+    <div id="esc-catalog" class="esc-catalog" hidden>
+      <div class="esc-cat-head"><b class="esc-cat-title"></b><span class="esc-cat-count"></span><button type="button" class="esc-cat-back" data-t="escBack">✕ BACK</button></div>
+      <div class="esc-cat-grid" role="list"></div>
+    </div>
+    <div id="esc-help" class="esc-help" hidden>
+      <div class="esc-cat-head"><b class="esc-cat-title" data-t="escHelpTitle">HELP</b><span class="esc-cat-count"></span><button type="button" class="esc-cat-back" data-t="escBack">✕ BACK</button></div>
+      <div class="esc-help-body"></div>
+    </div>
   </nav>
   <!-- The room info panel (the 'room' menu sticker; Jens, 31 Oct 2026): big and plain. -->
   <aside id="room-panel" hidden aria-label="Room">

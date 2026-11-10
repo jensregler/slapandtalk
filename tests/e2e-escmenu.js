@@ -41,17 +41,17 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); });
     await sleep(400);
     const open1 = await P.evaluate(() => window.klibb.escMenu().info());
-    check('Esc menu opens with SOUND / AVATAR / ROOM / CITY / EXIT / CREATE', open1.open && open1.buttons.join() === 'sound,avatar,room,city,exit,create', open1);
-    check('ESC has no STICKERS/NATURE/ASSETS/PACKS (those replace side-panel modes)', !open1.buttons.some((b) => ['stickers','nature','assets','packs'].includes(b)), open1);
-    const modes = await P.evaluate(() => [...document.querySelectorAll('#mode-switch button')].map((b) => b.id + ':' + b.textContent.trim()));
-    check('side panel wheel buttons are STICKERS / NATURE / ASSETS / PACKS', modes.join('|').includes('mode-stickers:STICKERS') && modes.join('|').includes('mode-packs:PACKS'), modes);
+    // the six first, then the catalogs (STICKERS / NATURE; ASSETS only for the build phase's builders) and HELP (Jens t792u/t797u)
+    check('Esc menu opens with SOUND / AVATAR / ROOM / CITY / EXIT / CREATE, then STICKERS / NATURE / HELP', open1.open && open1.buttons.slice(0, 6).join() === 'sound,avatar,room,city,exit,create'
+      && open1.buttons.slice(6).join() === 'catstickers,catnature,help', open1);
+    const modes = await P.evaluate(() => document.querySelectorAll('#mode-switch button').length);
+    check('no wheel mode switch in the side panel any more (t793u)', modes === 0, modes);
     await P.screenshot({ path: path.join(SHOTS, '01-esc-menu.png') });
-    await P.screenshot({ path: path.join(SHOTS, '01b-mode-switch.png') });
 
     // CREATE submenu
     await P.click('#esc-menu [data-esc="create"]'); await sleep(350);
     const createSub = await P.evaluate(() => window.klibb.escMenu().info());
-    check('CREATE opens STICKERS / STICKER PACK submenu', createSub.submenu && createSub.view === 'create' && createSub.buttons.join() === 'stickers,stickerpack', createSub);
+    check('CREATE opens STICKERS / STICKER PACK / MY PACKS submenu', createSub.submenu && createSub.view === 'create' && createSub.buttons.join() === 'stickers,stickerpack,mypacks', createSub);
     await P.screenshot({ path: path.join(SHOTS, '02-create-submenu.png') });
 
     // Esc closes submenu first (via escTopPanel)

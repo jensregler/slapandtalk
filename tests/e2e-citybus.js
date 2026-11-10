@@ -114,7 +114,7 @@ const check = (name, ok, extra) => {
     await P.screenshot({ path: path.join(SHOTS, '06-bots-walking.png') });
     await P.screenshot({ path: path.join(SHOTS, 'v2-06-bots-walking.png') });
 
-    await P.evaluate(() => { document.getElementById('mode-packs')?.click(); });
+    await P.evaluate(() => { window.klibb.controls.unlock?.(); window.klibb.escMenu().open(); document.querySelector('#esc-menu [data-esc="create"]').click(); document.querySelector('#esc-menu [data-esc="mypacks"]').click(); }); // MY PACKS (the packs wheel is gone)
     await sleep(600);
     await P.screenshot({ path: path.join(SHOTS, '07-packs-wheel.png') });
 

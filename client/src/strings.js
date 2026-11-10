@@ -82,7 +82,7 @@ export const EN = {
   oneUploadReplaced: 'Your new sticker replaced the old one – the free version keeps one of your own (the full version keeps them all).',
   pickFirst: 'Upload or pick a sticker first.',
   slapFailed: 'Could not slap right now, try again.',
-  designHud: 'R/F: next/prev design',
+  designHud: 'R/F: next / previous · Esc: all',
   designBtn: 'Next design',
   size: 'Size', rotation: 'Rotation', jitter: 'A little random tilt (like for real)',
   artist: 'Your artist name (optional)', artistPlaceholder: 'e.g. Ulla K',
@@ -108,7 +108,7 @@ export const EN = {
   packsEmpty: 'No packs yet – make one with CREATE → STICKER PACK',
   packsFullAsk: 'You can only carry 3 packs. Choose one to replace.',
   packsReplaceAsk: 'Replace this?', packsReplaceYes: 'yes', packsReplaceNo: 'no',
-  packsAdded: 'Pack saved on your PACKS wheel.',
+  packsAdded: 'Pack saved – Esc → CREATE → MY PACKS.',
   // m = 'slap' | 'nature' | 'look'. V = Slap ⇄ Nature, G = Look mode (the demo, no nature: V = Look mode).
   modeHud: (m, touch, demo) => ({ slap: 'STICKERS', nature: 'NATURE', look: 'Look mode', props: 'ASSETS', packs: 'PACKS' }[m] || 'STICKERS') + (touch ? '' : m === 'look' && !demo ? ' · G' : m === 'look' ? '' : ' · V'),
   modeBtnToSlap: 'Back to slap mode', modeBtnToLook: 'Look mode: hide the pointer and just look',
@@ -157,14 +157,14 @@ export const EN = {
   // ---------- Desktop / touch help ----------
   enter: 'Enter the room',
   resumeHint: 'Click to enter',
-  quickHelp: 'Click to enter · WASD walk (Shift run · Ctrl sneak) · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C camera (1st / 3rd / front) · O aim on/off · X dance · T chat',
-  helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, hold the button after a slap and turn = drag out a row of the sticker (scroll while holding = the row grows/shrinks toward its end; Esc or right-click = no copies), scroll wheel = size, Q/E = rotate, '
-    + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker (back through your last 100 in the room), V = Slap mode / 🌿 Nature mode (nature stickers), G = look mode on/off '
-    + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), O = aim tool on/off (crosshair + held sticker or prop; stickers, nature and assets wheels), X = 💃 dance (your character does the runway dance on a loop until you press X again – it counts as walking, so your steps and walk sequencers keep going; switches to 3rd person while it plays), P = 📷 photo of what you see, Esc = big menu (Sound / Avatar / Room / City / Exit / Name; Esc again = back into the room). '
+  quickHelp: 'Click to enter · WASD walk (Shift run · Ctrl sneak) · click = slap · R/F next/prev · Z peel · V nature mode · G look mode · C camera (1st / 3rd / front) · O aim on/off · X dance · T chat · Esc menu + HELP',
+  helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, Shift = run, Ctrl = sneak, mouse = look, click = slap, hold the click after a slap and look away = drag out a row (stickers, nature and assets; scroll while holding = the row grows/shrinks toward its end; Esc or right-click = no copies), scroll wheel = size, Shift + scroll wheel = turn, Q/E = turn, '
+    + 'R/F = next/previous in the list you hold from, Z (or Ctrl+Z) = peel your last sticker (back through your last 100 in the room), V = Slap mode / 🌿 Nature mode (nature stickers), G = look mode on/off '
+    + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), O = aim tool on/off (crosshair + held sticker, nature sticker or asset), X = 💃 dance (your character does the runway dance on a loop until you press X again – it counts as walking, so your steps and walk sequencers keep going; switches to 3rd person while it plays), P = 📷 photo of what you see, Esc = big menu (Sound / Avatar / Room / City / Exit / Create, then STICKERS / NATURE / ASSETS to pick from all of them, and HELP with every key; Esc again = back into the room). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room with a short code, 🔗 Share link sends it to friends, 🏙 Visit the City opens the shared room (the plain address takes you to your most recent room). '
     + '<b>Together:</b> everyone in the same room sees each other and each other’s stickers right away. T or Enter = chat (Enter sends, Esc closes). '
     + '<b>Recording:</b> the room’s creator can record and place cameras. ● REC shows for everyone while recording.',
-  helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look. The sticker stack bottom right: tap it for the menu (📒 Stickers, 🧍 Character, 🏠 Room, ↩ Undo, 👤 3rd person, 📷 Photo, 💃 Dance, 💬 Talk, 🎙 Mic), swipe it up/down for the next/previous sticker, or sideways to turn the sticker wheel. '
+  helpTouchHtml: '<b>Phone:</b> joystick bottom left = walk, drag = look. The sticker stack bottom right: tap it for the menu (📒 Stickers, 🧍 Character, 🏠 Room, ↩ Undo, 👤 3rd person, 📷 Photo, 💃 Dance, 💬 Talk, 🎙 Mic), swipe it up/down for the next/previous sticker. Menu → STICKERS / NATURE / ASSETS shows all of them in a big grid, HELP lists everything. '
     + 'The sticker in your hand sits in its holder in the middle: tap it to slap it there, drag it out and let go where it should go, or put a finger on a wall: it follows your finger and slaps where you let go; two fingers pinch it bigger/smaller and twist it round – keep holding it on the wall with one finger and add a second to drag, scale and turn it at the same time; 📒 🧍 🏠 stay at the bottom. Left untouched for 2 s it fades away and one finger just looks around – tap the screen to get it back (that tap does not slap). '
     + '<b>Rooms:</b> ＋ New quick room gives you your own room, 🔗 Share link sends it to friends. '
     + '<b>Together:</b> everyone in the same room sees each other right away. 💬 = chat. '
@@ -172,7 +172,7 @@ export const EN = {
   panelToggle: '☰ Stickers',
   stripAria: 'Your stickers', stripTitle: 'Your sticker wheel – click one to pick it (R/F: next/previous; scroll or drag to turn it – it goes round)',
   // ---------- Touch: the sticker stack menu (stackmenu.js) ----------
-  stackBtnAria: 'Your stickers: tap for the menu, swipe up/down for the next/previous sticker, swipe sideways to turn the sticker wheel',
+  stackBtnAria: 'Your stickers: tap for the menu, swipe up/down for the next/previous sticker',
   smAria: 'Menu', smBook: 'Stickers', smAvatar: 'Character', smRoom: 'Room', smUndo: 'Undo', smView: '3rd person', smViewFirst: '1st person', smViewFront: 'Front 🤳',
   smPhoto: 'Photo', smDance: 'Dance', smTalk: 'Talk', smMic: 'Mic', smTalkAria: 'Talk and microphone',
   smBookTitle: 'Your stickers', smBookHint: 'Tap one to hold it, then tap a wall to slap it.',
@@ -182,6 +182,13 @@ export const EN = {
   escCity: 'CITY', escExit: 'EXIT', escCreate: 'CREATE',
   escStickers: 'STICKERS', escStickerPack: 'STICKER PACK',
   escCreateCity: 'Create new city', escJoinCity: 'Join existing',
+  // The catalogs + Help under the six (Jens t792u/t797u, 10 Nov 2026)
+  escCatStickers: 'STICKERS', escCatNature: 'NATURE', escCatAssets: 'ASSETS', escHelp: 'HELP', escHelpTitle: 'HELP – ALL KEYS',
+  escMyPacks: 'MY PACKS', escBack: '✕ BACK', escHolding: '✓ IN HAND', escCatEmpty: 'Nothing here yet',
+  escStickersEmpty: 'No stickers yet – upload one in the left panel.', escPacksEmpty: 'No packs yet – CREATE → STICKER PACK makes one.',
+  escPackPicked: (name) => `📦 ${name} – this is the pack you carry now`,
+  escHelpDesktopHtml: '<dl class="esc-keys">' + '<dt>W A S D</dt><dd>Walk</dd>' + '<dt>Shift + W A S D</dt><dd>Run (run tempo and pitch: Sound settings → Steps)</dd>' + '<dt>Ctrl + W A S D</dt><dd>Sneak (crouch tempo and pitch)</dd>' + '<dt>Mouse</dt><dd>Look around</dd>' + '<dt>Click</dt><dd>Slap the sticker you hold (or place the nature sticker / asset)</dd>' + '<dt>Hold click + look away</dt><dd>Drag out a row of stickers, nature or assets – let go to place it</dd>' + '<dt>Scroll wheel while dragging a row</dt><dd>The row grows / shrinks toward its end</dd>' + '<dt>Esc / right-click while dragging</dt><dd>Cancel the row (the first one stays)</dd>' + '<dt>Scroll wheel</dt><dd>Size of what you hold</dd>' + '<dt>Shift + scroll wheel</dt><dd>Turn what you hold</dd>' + '<dt>Q / E</dt><dd>Turn what you hold</dd>' + '<dt>R / F</dt><dd>Next / previous in the list you hold from</dd>' + '<dt>V</dt><dd>Stickers ⇄ 🌿 Nature (⇄ Assets for builders in the build phase)</dd>' + '<dt>G</dt><dd>Look mode on / off</dd>' + '<dt>O</dt><dd>Aim on / off (crosshair + what you hold)</dd>' + '<dt>Z (or Ctrl + Z)</dt><dd>Peel your last sticker or row (back through your last 100)</dd>' + '<dt>C</dt><dd>Camera: 1st person / 3rd person / front</dd>' + '<dt>X</dt><dd>💃 Dance on / off (loops until X again)</dd>' + '<dt>Shift / Ctrl while dancing</dt><dd>Dance on the run / crouch tempo</dd>' + '<dt>P</dt><dd>📷 Photo of what you see</dd>' + '<dt>M</dt><dd>Sound on / off</dd>' + '<dt>T or Enter</dt><dd>Chat (Enter sends, Esc closes)</dd>' + '<dt>B</dt><dd>Talk (microphone) on / off</dd>' + '<dt>L</dt><dd>Open the shown artist’s link</dd>' + '<dt>[ / ]</dt><dd>Groove: your footstep bar faster / slower (Shift = bigger jumps; full version)</dd>' + '<dt>Delete</dt><dd>Remove the selected asset</dd>' + '<dt>Esc</dt><dd>This menu – Esc again = back into the room</dd>' + '</dl>',
+  escHelpTouchHtml: '<dl class="esc-keys">' + '<dt>Joystick (bottom left)</dt><dd>Walk</dd>' + '<dt>Drag</dt><dd>Look around</dd>' + '<dt>Tap / finger on a wall</dt><dd>Slap the sticker you hold there</dd>' + '<dt>Two fingers</dt><dd>Pinch = size, twist = turn</dd>' + '<dt>Sticker stack (bottom right)</dt><dd>Tap = menu, swipe up / down = next / previous</dd>' + '<dt>Menu</dt><dd>This menu: STICKERS, NATURE, ASSETS to pick from all of them</dd>' + '<dt>📒 Stickers</dt><dd>Your stickers and the whole library</dd>' + '<dt>↩</dt><dd>Peel your last sticker</dd>' + '<dt>👁</dt><dd>Look mode</dd>' + '<dt>💬 / 🎙</dt><dd>Chat / talk</dd>' + '</dl>',
   escCityNone: 'No cities right now', escCityLoading: 'Looking for cities…', escCityFailed: 'Could not fetch the cities.',
   escCityFacts: (stickers, visitors, age) => `${stickers} sticker${stickers === 1 ? '' : 's'} · ${visitors} visitor${visitors === 1 ? '' : 's'} · ${age}`,
   escCityAge: (iso) => cityAgeText(iso),
@@ -272,7 +279,7 @@ export const EN = {
   ntSave: 'done', ntExit: 'exit', ntUndo: '↶ undo',
   ntReplace: 'you can only carry 228 stickers. Choose one sticker to replace.',
   ntReplaceAsk: 'Replace this?', ntReplaceYes: 'yes', ntReplaceNo: 'no',
-  ntSaved: 'Your name tag is in the wheel – slap it!',
+  ntSaved: 'Your name tag is in your stickers – slap it!',
   soundLocked: 'Sound settings are part of the full version.',
   exitToMenu: '🚪 Exit to menu', choiceBack: '↩ Back',
   doorEnterCity: '🏙 Enter the city', doorBackToRoom: '↩ Back to the room', cityComingSoon: 'The city is coming soon!',
@@ -313,7 +320,7 @@ export const EN = {
   hallShop: (n) => `Packs from everyone (${n})`, hallNone: 'No packs from other people yet – come back later!',
   hallTake: '🤝 Take this pack', hallTaken: '✓ You carry it', hallFull: (max) => `You carry ${max} packs – that's all`, hallReplaceToTake: 'Replace a pack to take this', hallFirst: 'Hand in yours first',
   hallBy: (name, insta) => (name ? `by ${name}` : insta ? '' : 'by somebody'), hallUntil: (d) => `until ${d}`, hallTakenCount: (n) => (n === 1 ? 'taken once' : `taken ${n} times`),
-  hallBack: '↩ Back to the City', hallMaking: 'Handing in…', hallTookToast: (n) => `${n} – its 3 stickers are on your wheel now`,
+  hallBack: '↩ Back to the City', hallMaking: 'Handing in…', hallTookToast: (n) => `${n} – its 3 stickers are in your stickers now`,
   hallLoadFailed: 'The Town Hall did not answer – try again', hallMore: 'more ›', hallDetailBack: '↩ All packs',
   hallAbout: 'About the pack', hallNoAbout: '(no description)',
   // hand in: a few words
@@ -446,7 +453,7 @@ export const EN = {
   fullActive: 'The full version is on in this browser. Thank you for supporting Slap and Talk.',
   fullThanksIntro: 'Your key is in the receipt e-mail from Lemon Squeezy. Paste it below to unlock the full version in this browser.',
   fullThanksDone: 'The full version is on in this browser. Your key is also in the receipt e-mail, for your other devices.',
-  fullFeaturesHtml: '<li><b>Fabrics</b> – your own images as patterns on your avatar</li><li><b>Sound design</b> – a synth and effects for your own slap, peel and step sounds</li><li><b>Big stickers</b> – any size: scale freely up and down while you play, no upper or lower limit</li><li><b>All your own stickers</b> – upload as many as you like (free: one at a time)</li><li><b>🌿 Nature mode</b> – the Nature wheel (80 nature stickers, any size) on V</li><li><b>Clean videos</b> – finished videos without the channel logo and link ticker</li><li>…and more as it comes</li>',
+  fullFeaturesHtml: '<li><b>Fabrics</b> – your own images as patterns on your avatar</li><li><b>Sound design</b> – a synth and effects for your own slap, peel and step sounds</li><li><b>Big stickers</b> – any size: scale freely up and down while you play, no upper or lower limit</li><li><b>All your own stickers</b> – upload as many as you like (free: one at a time)</li><li><b>🌿 Nature mode</b> – Esc → NATURE (all the nature stickers, any size), or V</li><li><b>Clean videos</b> – finished videos without the channel logo and link ticker</li><li>…and more as it comes</li>',
   fullPrice: 'Pay what you want, from $1. One payment, no subscription.',
   fullBuy: 'Get the full version', fullBuyNote: 'Opens Lemon Squeezy (card, PayPal, Apple Pay, Google Pay).',
   fullHaveKey: 'I have a key', fullKeyPlaceholder: 'Paste your key', fullKeyOk: 'Unlock',

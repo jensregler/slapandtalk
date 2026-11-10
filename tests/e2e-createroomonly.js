@@ -1,5 +1,5 @@
 // CREATE + full sticker wheel available in the city (same as the room).
-// Also: packs wheel still shows all carried packs (≤3) after opening PACKS mode.
+// Also: CREATE → MY PACKS still shows all carried packs (≤3) (the packs wheel is gone, t793u).
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
@@ -56,19 +56,13 @@ const pac = (n) => ({
 
       // Packs wheel: 3 of 3 visible
       await P.evaluate(() => window.klibb.escMenu().close());
-      await P.click('#mode-packs');
-      await sleep(700);
-      const w = await P.evaluate(() => {
-        const btns = [...document.querySelectorAll('#packs-row .strip-th')];
-        return {
-          stored: JSON.parse(localStorage.getItem('klibb.packs') || '[]').length,
-          num: document.getElementById('packs-num').textContent,
-          visible: btns.filter((b) => b.style.display !== 'none' && Number(b.style.opacity) > 0.05).length,
-          ops: btns.map((b) => Number(b.style.opacity)),
-          stripW: document.getElementById('packs-strip').clientWidth,
-        };
-      });
-      check('room PACKS wheel: 3 stored, counter ≤3, all 3 visible', w.stored === 3 && /3\/3/.test(w.num) && w.visible === 3, w);
+      // the PACKS wheel is gone (t793u): CREATE → MY PACKS shows the carried packs as big tiles
+      await P.evaluate(() => { window.klibb.escMenu().open(); });
+      await P.click('#esc-menu [data-esc="create"]'); await sleep(300);
+      await P.click('#esc-menu [data-esc="mypacks"]'); await sleep(500);
+      const w = await P.evaluate(() => ({ stored: JSON.parse(localStorage.getItem('klibb.packs') || '[]').length, cat: window.klibb.escMenu().info().catalog,
+        visible: [...document.querySelectorAll('#esc-menu .esc-tile')].filter((b) => b.getClientRects().length > 0).length }));
+      check('room CREATE → MY PACKS: 3 stored, all 3 shown', w.stored === 3 && w.cat && w.cat.n === 3 && w.visible === 3, w);
       await P.screenshot({ path: path.join(SHOTS, 'room-packs-wheel-3.png') });
       await ctx.close();
     }
@@ -121,30 +115,24 @@ const pac = (n) => ({
       check('city sticker wheel is the full deck (not reduced carried packs)', wheel.n > 20 && wheel.sameAsDeck && !wheel.hasCityPack && wheel.n === wheel.deckN, wheel);
 
       // Nature open when entitled (devUnlock / OPEN_ACCESS)
-      const nat = await P.evaluate(() => ({ open: window.klibb.natureOpen(), n: window.klibb.natureDesigns().length, strip: window.klibb.natureStrip() }));
-      check('city Nature wheel open like the room (miljöklibbor available)', nat.open && nat.n > 0 && nat.strip.shown, nat);
+      const nat = await P.evaluate(() => ({ open: window.klibb.natureOpen(), n: window.klibb.natureDesigns().length }));
+      check('city Nature open like the room (miljöklibbor available)', nat.open && nat.n > 0, nat);
 
-      // Light the sticker wheel and screenshot full strip
-      await P.evaluate(() => { window.klibb.wheelUp(); window.klibb.setMode?.('slap', { quiet: true }); });
-      await sleep(400);
-      const strip = await P.evaluate(() => window.klibb.strip());
-      check('city sticker strip lit with full library count', strip.lit && strip.n > 20, strip);
+      // Esc → STICKERS: the full library as a grid (the sticker wheel is gone, t793u)
+      await P.evaluate(() => { window.klibb.controls.unlock?.(); window.klibb.escMenu().openCatalog('stickers'); });
+      await sleep(500);
+      const strip = await P.evaluate(() => ({ cat: window.klibb.escMenu().info().catalog, deck: window.klibb.stickerDesigns().length }));
+      check('city Esc → STICKERS shows the full deck', strip.cat && strip.cat.n > 20 && strip.cat.n === strip.deck, { n: strip.cat && strip.cat.n, deck: strip.deck });
       await P.screenshot({ path: path.join(SHOTS, 'city-full-wheel.png') });
       await P.screenshot({ path: '/workspace/city-full-wheel.png' });
 
-      // Packs wheel still shows the 3 carried packs
-      await P.click('#mode-packs');
-      await sleep(700);
-      const w = await P.evaluate(() => {
-        const btns = [...document.querySelectorAll('#packs-row .strip-th')];
-        return {
-          stored: JSON.parse(localStorage.getItem('klibb.packs') || '[]').length,
-          num: document.getElementById('packs-num').textContent,
-          visible: btns.filter((b) => b.style.display !== 'none' && Number(b.style.opacity) > 0.05).length,
-          ops: btns.map((b) => Number(b.style.opacity)),
-        };
-      });
-      check('city PACKS wheel: still ≤3 packs, all visible', w.stored === 3 && w.stored <= 3 && /3\/3/.test(w.num) && w.visible === 3, w);
+      // CREATE → MY PACKS still shows the 3 carried packs
+      await P.evaluate(() => window.klibb.escMenu().close());
+      await P.evaluate(() => { window.klibb.escMenu().open(); });
+      await P.click('#esc-menu [data-esc="create"]'); await sleep(300);
+      await P.click('#esc-menu [data-esc="mypacks"]'); await sleep(500);
+      const w = await P.evaluate(() => ({ stored: JSON.parse(localStorage.getItem('klibb.packs') || '[]').length, cat: window.klibb.escMenu().info().catalog }));
+      check('city CREATE → MY PACKS: still ≤3 packs, all shown', w.stored === 3 && w.cat && w.cat.n === 3, w);
       await P.screenshot({ path: path.join(SHOTS, 'city-packs-wheel-3.png') });
       await ctx.close();
     }

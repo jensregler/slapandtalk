@@ -81,14 +81,15 @@ const ALL = ['fabrics', 'soundDesign', 'bigStickers', 'cleanVideo', 'multiCam', 
     const M = await mctx.newPage(); M.on('pageerror', (e) => errors.push(e.message));
     await M.goto(S.base + '/?last=1');
     await M.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.state.selected && window.klibb.natureOpen(), null, { timeout: 30000 });
-    await M.evaluate(() => { document.body.classList.add('wheel-up'); window.klibb.wheelApi.render(); window.klibb.natureWheelApi.render(); }); await sleep(600);
-    const m0 = await M.evaluate(() => window.klibb.natureStrip());
+    // Menu → NATURE (the Nature wheel is gone, t793u): the grid opens, no full version panel
+    await M.evaluate(() => window.klibb.escMenu().openCatalog('nature')); await sleep(600);
+    const m0 = await M.evaluate(() => window.klibb.escMenu().info().catalog);
     const pm0 = await noPaywall(M);
-    check('phone: the Nature wheel is open (not locked, "🌿 …"), nothing about the full version', m0.shown && !m0.locked && /🌿/.test(m0.num) && clean(pm0), { m0, pm0 });
-    await M.evaluate(() => { const b = [...document.querySelectorAll('#nature-row .strip-th')].find((x) => x.style.display !== 'none' && Math.abs(+x.dataset.d) < 0.01); b.click(); }); await sleep(900);
+    check('phone: Menu → NATURE opens (not locked), nothing about the full version', m0 && m0.kind === 'nature' && m0.n > 0 && clean(pm0), { m0: m0 && m0.n, pm0 });
+    await M.tap('#esc-menu .esc-tile:nth-child(1)'); await sleep(900);
     const m1 = await M.evaluate(() => { const k = window.klibb; return { nature: k.natureMode(), selNat: !!(k.state.selected && k.state.selected.nature) }; });
     const pm1 = await noPaywall(M);
-    check('phone: tapping the Nature wheel = Nature mode with a nature sticker, no panel', m1.nature && m1.selNat && clean(pm1), { m1, pm1 });
+    check('phone: tapping a NATURE tile = Nature mode with a nature sticker, no panel', m1.nature && m1.selNat && clean(pm1), { m1, pm1 });
     await M.screenshot({ path: path.join(SHOTS, 'phone-nature-open.png') });
     await mctx.close();
     check('no page errors', errors.length === 0, errors);

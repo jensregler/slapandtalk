@@ -1,8 +1,7 @@
-// E2E (short): the desktop sticker strip along the bottom edge (main.js renderStrip). Own servers
-// (port 8887 normal app, 8889 demo; STRIP_E2E_PORT; never 8787). The strip holds the stickers R/F
-// cycle through, the current one highlighted; a click picks one and never slaps or locks the pointer;
-// R/F move the highlight and keep it in view (the demo's 130-sticker library scrolls); it stays clear
-// of the crosshair; phones do not have it. Screenshot: STRIP_SHOT (default /workspace/mobile-ui-shots/desktop-strip.png).
+// E2E (short): no sticker wheel any more (Jens t793u, 10 Nov 2026) – the small design HUD bottom
+// centre (main.js renderStrip) shows the held sticker + n/N; R/F step it; a pick from the panel list
+// holds it without slapping; the demo's library goes round. Own servers (port 8887 normal app, 8889
+// demo; STRIP_E2E_PORT; never 8787). Phones: the sticker stack, no HUD. Screenshot: STRIP_SHOT (default /workspace/mobile-ui-shots/desktop-strip.png).
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -21,7 +20,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'klibb-strip-e2e-'));
   const errors = [];
-  console.log(`Desktop sticker strip (${S.base}, demo ${D.base})`);
+  console.log(`Design HUD, no wheel (${S.base}, demo ${D.base})`);
   try {
     const colors = ['#e0352b', '#2b6be0', '#2be06b', '#e0d02b', '#b02be0'];
     const files = [];
@@ -32,46 +31,39 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push(e.message));
     await P.goto(`${S.base}/?room=${made.room.id}`);
     await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
-    check('no stickers yet: no strip', !(await P.evaluate(() => window.klibb.strip().shown)));
+    check('no stickers yet: no design HUD', !(await P.evaluate(() => window.klibb.designHud().shown)));
     for (const [i, f] of files.entries()) { await P.setInputFiles('#file', f); await P.waitForFunction((n) => window.klibb.designs().length === n, i + 1, { timeout: 20000 }); }
     await P.waitForTimeout(300);
-    const st = () => P.evaluate(() => ({ ...window.klibb.strip(), selected: window.klibb.state.selected.id, ids: window.klibb.designs().map((d) => d.id), count: window.klibb.stamps.count, locked: window.klibb.controls.locked }));
+    const st = () => P.evaluate(() => ({ ...window.klibb.designHud(), wheels: window.klibb.wheelsShown(), selected: window.klibb.state.selected.id, url: window.klibb.state.selected.url, ids: window.klibb.designs().map((d) => d.id), count: window.klibb.stamps.count, locked: window.klibb.controls.locked, rect: document.getElementById('design-hud').getBoundingClientRect().toJSON() }));
     const s0 = await st();
-    check(`the strip runs along the bottom with all ${s0.ids.length} stickers, the current one highlighted (${s0.num})`,
-      s0.shown && s0.n === 5 && s0.sel === s0.selected && s0.rect.bottom >= 799 && s0.rect.height <= 290, s0); // the sticker wheel (e2e-wheel; 2× centre) is taller than the old 46 px strip
-    check('it stays clear of the crosshair (lower part of the screen) and the old design box is gone', s0.rect.top > 800 / 2 + 100 && await P.isHidden('#design-hud'), s0.rect);
+    // The wheels are gone (Jens t793u, 10 Nov 2026): the small design HUD bottom centre shows the held one + n/N.
+    check(`no sticker wheel; the design HUD shows the held sticker (${s0.num})`, s0.shown && s0.wheels.length === 0 && s0.img === s0.url && /^\d+\/5$/.test(s0.num), s0);
+    check('the HUD stays clear of the crosshair (bottom of the screen)', s0.rect.top > 800 / 2 + 150, s0.rect);
     const target = s0.ids[2];
-    { // the wheel: the stickers overlap (the one nearer the middle on top) – click the target where it shows: its outer side
-      const L = P.locator(`#strip-row .strip-th[data-id="${target}"]`), bb = await L.boundingBox(), d = await L.evaluate((b) => Number(b.dataset.d));
-      await L.click({ position: { x: bb.width * (d < 0 ? 0.2 : 0.8), y: bb.height * 0.5 } }); }
-    await P.waitForTimeout(700);
+    await P.click(`#tray [data-id="${target}"] .pick, #tray .thumb[data-id="${target}"]`).catch(() => P.evaluate((id) => window.klibb.selectDesign(window.klibb.designs().find((d) => d.id === id)), target));
+    await P.waitForTimeout(500);
     const s1 = await st();
-    check('clicking a thumbnail picks that sticker (highlight follows, 3/5) – no slap, no pointer lock', s1.selected === target && s1.sel === target && s1.num === '3/5' && s1.count === s0.count && !s1.locked, s1);
-    await P.keyboard.press('r'); await P.waitForTimeout(200);
+    check('picking from the panel list holds that sticker (HUD follows) – no slap', s1.selected === target && s1.img === s1.url && s1.count === s0.count, s1);
+    await P.mouse.move(640, 300); await P.keyboard.press('r'); await P.waitForTimeout(200);
     const s2 = await st();
     await P.keyboard.press('f'); await P.keyboard.press('f'); await P.waitForTimeout(200);
     const s3 = await st();
-    check('R / F move the highlight with the selection', s2.selected === s0.ids[3] && s2.sel === s2.selected && s3.selected === s0.ids[1] && s3.sel === s3.selected, { s2: s2.sel, s3: s3.sel });
+    const i1 = s1.ids.indexOf(target);
+    check('R / F step the held sticker; the HUD follows', s2.selected === s1.ids[(i1 + 1) % 5] && s2.img === s2.url && s3.selected === s1.ids[(i1 + 4) % 5] && s3.img === s3.url, { s2: s2.num, s3: s3.num });
     await ctx.close();
 
-    // the demo: the library (130), scrolling and auto-scroll
+    // the demo: the library, R/F go round it
     const dctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const M = await enter(dctx, D.base + '/', 'Jens'); M.on('pageerror', (e) => errors.push(e.message));
     await M.waitForURL(/\?room=/, { timeout: 20000 }); await M.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
-    await M.waitForFunction(() => window.klibb.strip().n > 20, null, { timeout: 20000 });
+    await M.waitForFunction(() => window.klibb.designs().length > 20 && window.klibb.state.selected, null, { timeout: 20000 });
     await M.evaluate(() => document.activeElement && document.activeElement.blur());
-    const lib = await M.evaluate(() => ({ ...window.klibb.strip(), n2: window.klibb.designs().length }));
-    await M.keyboard.press('f'); await M.waitForTimeout(250); // from the first, F goes round to the last
-    await M.waitForFunction(() => { const w = window.klibb.wheel(); return Math.abs(w.pos - w.target) < 0.002; }, null, { timeout: 8000 }).catch(() => {}); // settled (the check below wants |d| < 0.01: waiting for < 0.01 raced it)
-    const fin = await M.evaluate(() => { const s = window.klibb.strip(), w = window.klibb.wheel(), mid = w.items.find((x) => Math.abs(x.d) < 0.01);
-      return { ...s, inView: !!mid && mid.id === s.sel, sel2: window.klibb.state.selected.id }; });
-    check(`demo: the strip is the library (${lib.n} = R/F's ${lib.n2}); F to the last one turns the wheel to it (in the middle)`, lib.n === lib.n2 && fin.inView && fin.sel === fin.sel2, { lib: lib.n, fin });
-    await M.keyboard.press('f'); await M.keyboard.press('f'); await M.waitForTimeout(250);
+    const first = await M.evaluate(() => ({ sel: window.klibb.state.selected.id, ids: window.klibb.designs().map((d) => d.id) }));
+    await M.keyboard.press('f'); await M.waitForTimeout(250);
+    const fin = await M.evaluate(() => ({ sel: window.klibb.state.selected.id, hud: window.klibb.designHud(), wheels: window.klibb.wheelsShown() }));
+    const fi = first.ids.indexOf(first.sel);
+    check(`demo: F goes round the library (${first.ids.length}); HUD shows it, no wheel`, fin.sel === first.ids[(fi - 1 + first.ids.length) % first.ids.length] && fin.hud.shown && fin.wheels.length === 0, { fin, fi });
     await M.mouse.move(640, 300); await M.waitForTimeout(300); await M.screenshot({ path: SHOT });
-    const fin2 = await M.evaluate(() => window.klibb.strip().scroll);
-    await M.hover('#strip-row'); await M.mouse.wheel(0, -600); await M.waitForTimeout(250);
-    const wheel = await M.evaluate(() => window.klibb.strip().scroll);
-    check('the mouse wheel over the strip turns it', wheel < fin2, { before: fin2, after: wheel });
     await dctx.close();
 
     // phones: no strip
@@ -79,7 +71,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const T = await pctx.newPage(); T.on('pageerror', (e) => errors.push(e.message));
     await T.goto(`${S.base}/?room=${made.room.id}`); await T.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 30000 });
     await T.setInputFiles('#file', files[0]); await T.waitForFunction(() => window.klibb.designs().length === 1, null, { timeout: 20000 });
-    check('phone: no strip (the sticker stack instead; the wheel only comes up while you swipe it – e2e-wheel)', await T.isHidden('#design-strip') && await T.isVisible('#design-btn'));
+    check('phone: no strip, no design HUD (the sticker stack instead)', (await T.evaluate(() => window.klibb.wheelsShown().length)) === 0 && await T.isHidden('#design-hud') && await T.isVisible('#design-btn'));
     await pctx.close();
     check('no page errors', errors.length === 0, errors);
   } catch (e) { failed++; console.log('  ✗ crashed: ' + (e.stack || e)); }

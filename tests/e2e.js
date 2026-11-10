@@ -193,8 +193,9 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // ---------- R växlar mellan mina designs ----------
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
     const designState = () => page.evaluate(() => ({ sel: window.klibb.state.selected && window.klibb.state.selected.id,
-      hud: window.klibb.strip().sel || '', num: window.klibb.strip().num, // the sticker strip along the bottom (was the small design box)
-      hudVisible: window.klibb.strip().shown, n: window.klibb.designs().length }));
+      // the small design HUD bottom centre (the sticker wheel is gone, Jens t793u): the held one's picture + n/N
+      hud: window.klibb.state.selected && window.klibb.designHud().img === window.klibb.state.selected.url ? window.klibb.state.selected.id : '', num: window.klibb.designHud().num.replace(/^\D+/, ''),
+      hudVisible: window.klibb.designHud().shown, n: window.klibb.designs().length }));
     const d0 = await designState();
     assert(d0.n === 3 && d0.hudVisible, `designrutan syns (${d0.num})`);
     const seen = [d0.sel];
@@ -213,8 +214,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const lastNum = (await designState()).num;
     assert(back[0] === seen[2] && back[1] === seen[1] && back[2] === seen[0] && lastNum === `${1 + (await page.evaluate((id) => window.klibb.designs().findIndex((x) => x.id === id), seen[0]))}/3`,
       'F går baklänges genom samma 3 designs (runt från den första till den sista) och rutan följer med');
-    const hudHint = await page.evaluate(() => document.getElementById('design-strip').title);
-    assert(/R\/F/.test(hudHint), `klibbremsan visar båda tangenterna ("${hudHint}")`);
+    const hudHint = await page.evaluate(() => document.getElementById('design-hud').textContent);
+    assert(/R\/F/.test(hudHint), `designrutan visar båda tangenterna ("${hudHint}")`);
     await page.unroute('**/api/library', noLib);
     const previewOk = await page.evaluate(() => {
       const map = window.klibb.preview.mat.map; return !!map && map.image.src.includes(window.klibb.state.selected.id);
@@ -668,15 +669,15 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     // ---------- Enkel första vy: bara det viktigaste syns, resten under ⚙ More ----------
     await d.reload(); await waitReady(d);
     const vis = (ids) => d.evaluate((ids) => ids.map((id) => { const el = document.getElementById(id); const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; }), ids);
-    const ESSENTIAL = ['file', 'tray', 'mode-stickers', 'mode-packs', 'mode-btn', 'more-btn', 'room-menu-btn', 'enter', 'sound-btn'];
+    const ESSENTIAL = ['file', 'tray', 'mode-btn', 'more-btn', 'room-menu-btn', 'enter', 'sound-btn'];
     const ADVANCED = ['size', 'rot', 'artist', 'history', 'people', 'my-avatar', 'room-style', 'sound-on', 'new-room', 'share-room'];
     await d.waitForTimeout(800); await d.screenshot({ path: path.join(SHOTS, '35-start-dator.png') });
     const ess = await vis(ESSENTIAL.filter((x) => x !== 'file').concat(['more-btn'])), adv = await vis(ADVANCED);
     const fileLabel = await d.isVisible('label.upload span');
     assert(ess.every(Boolean) && fileLabel && adv.every((v) => !v), `första vyn: uppladdning, designer, Slap/Look, chatt och rumsmeny syns, inget annat (${ADVANCED.filter((_, i) => adv[i]).join(',') || 'ok'})`);
     const texts = await d.evaluate(() => [document.title, document.documentElement.lang, document.querySelector('label.upload span').textContent, document.getElementById('more-btn').textContent,
-      document.getElementById('mode-stickers').textContent, document.getElementById('mode-packs').textContent, document.getElementById('room-menu-btn').textContent]);
-    assert(texts.join('|') === 'Slap and Talk|en|⬆ Upload sticker|⚙ More|STICKERS|PACKS|Room ▾', `sidan är på engelska (${texts.join(' | ')})`);
+      document.getElementById('room-menu-btn').textContent]);
+    assert(texts.join('|') === 'Slap and Talk|en|⬆ Upload sticker|⚙ More|Room ▾', `sidan är på engelska (${texts.join(' | ')})`);
     const swedish = await d.evaluate(() => { const t = document.body.innerText + ' ' + [...document.querySelectorAll('[title],[placeholder],[aria-label]')].map((e) => [e.title, e.placeholder, e.getAttribute('aria-label')].join(' ')).join(' ');
       return t.match(/[åäöÅÄÖ]|\b(klibba|klibbor|Stämpla|Peela|Snabbrum|Staden|Tittläge|Klibbläge|Skicka|Avbryt|Spara|Gäst|Kamera)\b/g) || []; });
     assert(swedish.length === 0, `ingen svensk text kvar i rummet (${swedish.slice(0, 5).join(', ')})`);
@@ -689,8 +690,7 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     await d.screenshot({ path: path.join(SHOTS, '36-mer-panel-dator.png') });
     await d.keyboard.press('KeyG');
     const ml = await d.evaluate(() => [window.klibb.state.mode, document.getElementById('mode-btn').getAttribute('aria-pressed')]);
-    await d.keyboard.press('KeyG');
-    await d.click('#mode-stickers');
+    await d.keyboard.press('KeyG'); // (the STICKERS wheel button is gone with the wheels: G again = slap mode)
     assert(ml[0] === 'view' && ml[1] === 'true' && (await d.evaluate(() => window.klibb.state.mode)) === 'slap', 'Slap mode / Look mode-knapparna byter läge');
     await d.mouse.click(900, 400); await d.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 3000 });
     assert(!(await d.evaluate(() => window.klibb.moreOpen())), '⚙ More stängs när man går in i rummet');

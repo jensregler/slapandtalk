@@ -102,7 +102,8 @@ const ARGS = ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-g
     // ---------- the Props wheel in my own room: a cuboid
     await A.evaluate(() => window.klibb.setProps(true)); await sleep(1200);
     const inf = await A.evaluate(() => window.klibb.props.info());
-    check('the Props wheel opens (own room, build phase, full version)', inf.active && inf.strip, inf);
+    // the Props strip is gone with the wheels (t793u): Props on, no strip; Esc → ASSETS is where you pick (e2e-esccatalog)
+    check('Props mode opens (own room, build phase, full version), no wheel strip', inf.active && !inf.strip, inf);
     await A.evaluate(() => window.klibb.props.pickKind('box'));
     await pose(A, 3.5, 1.7, 5.5, 0, -0.5); await sleep(700);
     await A.evaluate(() => window.klibb.props.click()); await sleep(900);

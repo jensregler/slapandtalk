@@ -83,10 +83,10 @@ body.touch #panel { width: min(300px, calc(100% - 24px)); max-height: 62%; }
 body.locked #panel { display: none; }
 
 /* Vald design: ruta längst ner i mitten (dator) och rund knapp nere till höger (mobil). */
-#design-hud { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 4; display: flex; gap: 10px;
-  align-items: center; padding: 6px 12px 6px 6px; border-radius: 12px; background: rgba(20,20,20,.8); border: 1px solid #444;
-  font-size: 13px; line-height: 1.3; color: #ddd; pointer-events: none; }
-#design-hud img { width: 48px; height: 48px; object-fit: contain; border-radius: 8px;
+#design-hud { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 4; display: flex; gap: 12px;
+  align-items: center; padding: 6px 14px 6px 6px; border-radius: 14px; background: rgba(18,18,18,.82); border: 2px solid #ffd400;
+  font-size: 15px; font-weight: 700; line-height: 1.3; color: #eee; pointer-events: none; }
+#design-hud img { width: 58px; height: 58px; object-fit: contain; border-radius: 8px;
   background: #333 repeating-conic-gradient(#3a3a3a 0 25%, #2c2c2c 0 50%) 50%/10px 10px; }
 #design-hud b { color: #ffd400; }
 #design-btn { position: fixed; right: 20px; bottom: calc(28px + env(safe-area-inset-bottom)); width: 76px; height: 76px; padding: 6px;
@@ -651,68 +651,7 @@ body.touch.editing:not(.stack-open) #sm-avatar[hidden], body.demo.touch.editing 
 body.touch.editing #chat-btn, body.touch.editing #mic-touch { display: none !important; }
 body.touch.editing.book-open #stack-menu, body.touch.editing.more-open #stack-menu { display: none !important; }
 
-/* ---------- The sticker wheel (wheel.js, shared/wheel.mjs): desktop along the bottom edge ---------- */
-#design-strip, #nature-strip, #packs-strip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 4; --wheel-item: 100px;
-  width: min(820px, max(300px, calc(100vw - 680px))); height: calc(var(--wheel-item) * 2.3 + 46px); pointer-events: none; }
-#design-strip[hidden], #nature-strip[hidden], #packs-strip[hidden] { display: none !important; }
-#strip-num, #nature-num { position: absolute; left: 50%; bottom: calc(var(--wheel-item) * 2.3 + 28px); transform: translateX(-50%); z-index: 2000; pointer-events: none;
-  font: 700 11px/1 system-ui, sans-serif; color: #ffd400; font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 8px; background: rgba(0,0,0,.45); }
-#strip-num:empty, #nature-num:empty { display: none; }
-#strip-row, #nature-row, #packs-row { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--wheel-item) * 2.3 + 26px); pointer-events: auto; touch-action: none;
-  user-select: none; -webkit-user-select: none; cursor: grab; }
-#strip-row:active, #nature-row:active, #packs-row:active { cursor: grabbing; }
-/* each sticker: translate only + the drop shadow (light from above: straight below, a little down,
-   tight) – so the shadow stays below however the sticker inside turns; .wh-turn turns + scales it;
-   the img carries the saturation */
-.strip-th { position: absolute; left: 50%; bottom: 22px; width: var(--wheel-item); height: calc(var(--wheel-item) * 1.15); margin-left: calc(var(--wheel-item) / -2);
-  padding: 0; border: 0; background: none; cursor: pointer; will-change: transform;
-  filter: drop-shadow(0 3px 2px rgba(0,0,0,.38)) drop-shadow(0 1px 1px rgba(0,0,0,.22)); }
-.strip-th .wh-turn { display: block; width: 100%; height: 100%; transform-origin: 50% 90%; }
-.strip-th img { width: 100%; height: 100%; object-fit: contain; object-position: 50% 100%; display: block; pointer-events: none; }
-.strip-th.sel::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: -7px; height: 3px; border-radius: 2px; background: #ffd400; }
-body.view-mode .strip-th.sel::after { background: none; border-top: 2px dashed #ffd400; }
-body:not(.touch) #mode-hud { bottom: calc(100px * 2.3 + 52px); } /* the small mode label sits just above the wheel */
-/* Desktop: wheel stays dark until R/F (or a drag/scroll on it) lights it; ~1 s idle fades it out. */
-body:not(.touch) #design-strip,
-body:not(.touch) #nature-strip,
-body:not(.touch) #packs-strip {
-  opacity: 0; transition: opacity .28s ease;
-}
-body:not(.touch):not(.wheel-lit) #strip-row,
-body:not(.touch):not(.wheel-lit) #nature-row,
-body:not(.touch):not(.wheel-lit) #packs-row { pointer-events: none !important; }
-body:not(.touch).wheel-lit #design-strip:not([hidden]),
-body:not(.touch).wheel-lit #nature-strip:not([hidden]),
-body:not(.touch).wheel-lit #packs-strip:not([hidden]) { opacity: 1; }
-body:not(.touch):not(.wheel-lit) #mode-hud { bottom: 28px; transition: bottom .28s ease; }
-#wheel-label { position: fixed; left: 50%; bottom: calc(100px * 2.3 + 56px); transform: translateX(-50%); z-index: 5;
-  pointer-events: none; font: 700 12px/1.2 system-ui, sans-serif; color: #ffd400; letter-spacing: .04em;
-  padding: 4px 10px; border-radius: 10px; background: rgba(0,0,0,.5); white-space: nowrap;
-  opacity: 0; transition: opacity .28s ease; }
-body.wheel-lit #wheel-label:not([hidden]) { opacity: 1; }
-body.touch #wheel-label { bottom: calc(150px + env(safe-area-inset-bottom) + 56px); }
-body.camview #wheel-label, body.replay #wheel-label { display: none !important; }
-
-body.camview #design-strip, body.camview #nature-strip, body.camview #packs-strip, body.replay #design-strip, body.replay #nature-strip, body.replay #packs-strip { display: none !important; }
-/* touch: the same wheel in a band above the joystick and the stack, up while you turn it (body.wheel-up) */
-body.touch #design-strip, body.touch #nature-strip, body.touch #packs-strip { left: calc(6px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); width: auto; transform: none; z-index: 6;
-  bottom: calc(150px + env(safe-area-inset-bottom)); --wheel-item: 52px; height: calc(var(--wheel-item) * 2.3 + 16px); border-radius: 16px; overflow: hidden;
-  background: radial-gradient(closest-side, rgba(0,0,0,.30), rgba(0,0,0,.12)); }
-body.touch .strip-th { bottom: 10px; }
-body.touch #strip-num, body.touch #nature-num { display: none; } /* the stack shows the sticker; the holder sits just above */
-body.touch:not(.wheel-up) #design-strip, body.touch:not(.wheel-up) #nature-strip, body.touch:not(.wheel-up) #packs-strip, body.touch.stack-open #design-strip, body.touch.stack-open #nature-strip, body.touch.stack-open #packs-strip, body.touch.book-open #design-strip, body.touch.book-open #nature-strip, body.touch.book-open #packs-strip, body.touch.more-open #design-strip, body.touch.more-open #nature-strip, body.touch.more-open #packs-strip { display: none !important; }
-/* Two wheels (Jens, 28 Oct 2026): the Nature wheel on the LEFT, the sticker wheel moves to the RIGHT.
-   The active one (the held sticker is from it) has a yellow line under its middle sticker, as before. */
-body.two-wheels:not(.touch) #design-strip, body.two-wheels:not(.touch) #nature-strip { transform: none; width: min(600px, max(260px, calc((100vw - 290px) / 2))); }
-body.two-wheels:not(.touch) #design-strip { left: auto; right: 10px; }
-body.two-wheels:not(.touch) #nature-strip { left: 262px; }
-#nature-num { color: #9fe28a; }
-#nature-strip.locked #nature-row { pointer-events: none; filter: grayscale(1); opacity: .5; }
-#nature-strip.locked { pointer-events: auto; cursor: pointer; }
-#nature-strip.locked #nature-num { color: #ddd; }
-body.touch.two-wheels #nature-strip { right: calc(50% + 3px); }
-body.touch.two-wheels #design-strip { left: calc(50% + 3px); }
-body.touch.two-wheels #nature-strip.locked #nature-num { display: block; left: 50%; bottom: auto; top: 6px; }
+/* The wheels (sticker / Nature / Packs / Props strips) are gone (Jens t793u, 10 Nov 2026): Esc → STICKERS / NATURE / ASSETS. */
 /* the lists: 🌿 Nature locked = greyed, a tap opens the full version panel */
 #nature-box { margin-top: 6px; } #nature-box > summary { cursor: pointer; font-size: 12px; color: #9fe28a; padding: 2px 0; }
 #nature-box:not(.locked) .lock-note { display: none; }
@@ -723,11 +662,6 @@ body.touch.two-wheels #nature-strip.locked #nature-num { display: block; left: 5
 #nature-box.locked #naturetray img { filter: grayscale(1); opacity: .5; }
 #book-tray #naturetray { gap: 10px; max-height: none; overflow: visible; } #book-tray #naturetray .pick { width: 64px; height: 64px; }
 
-/* Slap mode | 🌿 Nature mode | Look mode (V = Slap ⇄ Nature, G = Look). Nature locked (free) = greyed, a click opens the full version panel. */
-#mode-switch button { white-space: nowrap; font-size: 13px; padding: 8px 2px; min-width: 0; }
-#mode-nature.locked { opacity: .55; filter: grayscale(1); }
-#mode-nature.locked::after { content: ' 🔒'; }
-#mode-nature[aria-pressed="true"] { background: #7ccf6a; color: #0d1a0a; }
 body.nature-mode #mode-hud { color: #bff0a8; }
 /* A preset room, free version: the room's character – the look rows are shown but not editable. */
 #avatar-panel.room-character .sp-row, #avatar-panel.room-character .check { opacity: .55; }
@@ -982,7 +916,7 @@ body.front-view:not(.camview) #mode-btn { opacity: .35; pointer-events: none; }
 /* ---------- The City (t476u, 2 Nov 2026) ---------- */
 /* In the city (and its houses) you only have what you brought: no uploads, no lists, no Nature wheel –
    except in the build phase (body.city-build, CITY_BUILD_PHASE in shared/city.mjs; until release, Jens t492u). */
-body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-city:not(.city-build) #nature-box, body.in-city:not(.city-build) #nature-strip, body.in-city #upload-btn, body.in-city .upload-btn { display: none !important; }
+body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-city:not(.city-build) #nature-box, body.in-city #upload-btn, body.in-city .upload-btn { display: none !important; }
 /* The Town Hall's pack shop (t479u) and the city picker: big and clear (Jens has poor eyesight) – big
    text, big pictures, buttons ≥ 56 px; one column on a phone. Both sheets share the .th-* look. */
 #townhall, #citypick { position: fixed; inset: 0; z-index: 60; background: rgba(10, 30, 16, .6); display: flex; align-items: center; justify-content: center; padding: 2vmin; font-family: system-ui, sans-serif; }
@@ -1091,9 +1025,6 @@ body.in-city label.upload, body.in-city #tray, body.in-city #lib-box, body.in-ci
 /* ---------- 3D props: the Props wheel (build phase; propsmode.js, Jens t491u/t509u) ----------
    Props mode: the two sticker wheels step aside and the Props wheel takes the bottom middle. The
    selected prop's panel: big and clear (Jens has poor eyesight) – big text, buttons ≥ 56 px. */
-body.props-mode #design-strip, body.props-mode #nature-strip, body.props-mode #packs-strip { display: none !important; }
-body.packs-mode #design-strip, body.packs-mode #nature-strip { display: none !important; }
-body.packs-mode:not(.touch) #packs-strip { width: min(820px, calc(100vw - 40px)); }
 body.packs-mode:not(.touch) #mode-hud { bottom: calc(100px * 2.3 + 52px); }
 #mode-packs[aria-pressed="true"] { background: #ffb347; color: #15130f; }
 #mode-assets[aria-pressed="true"] { background: #ffd400; color: #15130f; }
@@ -1131,10 +1062,6 @@ body.camview #props-strip, body.replay #props-strip { display: none !important; 
 #props-panel .pp-note { margin: 8px 0 0; font-size: 15px; opacity: .7; }
 body.touch #props-panel { right: 8px; left: 8px; width: auto; top: 8px; transform: none; max-height: 52vh; font-size: 17px; padding: 10px 12px; }
 /* four mode buttons (Slap · Nature · Props · Look): two rows of two, full-size words */
-#mode-switch:has(#mode-assets:not([hidden])) { flex-wrap: wrap; }
-#mode-switch:has(#mode-assets:not([hidden])) button { flex: 1 1 45%; }
-#mode-switch:has(#mode-assets:not([hidden])) button:nth-child(3) { border-left: 0; }
-#mode-switch:has(#mode-assets:not([hidden])) button:nth-child(n+3) { border-top: 1px solid #555; }
 
 /* ---------- Sound settings: bigger and clearer (Jens, 5 Nov 2026: poor eyesight) ---------- */
 #sound-panel { width: 560px; font-size: 16px; }
@@ -1331,7 +1258,6 @@ body.touch #esc-menu .esc-lab { font-size: 18px; }
 #packs-replace .pk-btns { display: flex; gap: 10px; justify-content: flex-end; }
 #packs-replace .pk-yes, #packs-replace .pk-no, #packs-replace .pk-back { padding: 8px 14px; border-radius: 8px; border: 1px solid #666; background: #2a2620; color: inherit; cursor: pointer; }
 #packs-replace .pk-yes { background: #ffb347; color: #15130f; border-color: #ffb347; font-weight: 700; }
-#packs-strip #packs-num { position: absolute; left: 10px; bottom: 8px; font-size: 13px; opacity: .85; pointer-events: none; }
 
 /* Town Hall: discard one pack before taking another (lift + Replace this?) */
 #town-hall .th-replace, .th-replace { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; }
@@ -1387,3 +1313,61 @@ body.patch-stamp.avatar-view canvas { cursor: crosshair; }
   width: 36px; height: 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,.25);
   background: rgba(0,0,0,.35); color: #fff; cursor: pointer; font-size: 16px;
 }
+
+/* ---------- Esc: STICKERS / NATURE / ASSETS / HELP under the six (Jens t792u/t797u, 10 Nov 2026) ---------- */
+#esc-menu.spawn .esc-btn:nth-child(7) { animation-delay: .30s; }
+#esc-menu.spawn .esc-btn:nth-child(8) { animation-delay: .34s; }
+#esc-menu.spawn .esc-btn:nth-child(9) { animation-delay: .38s; }
+#esc-menu.spawn .esc-btn:nth-child(10) { animation-delay: .42s; }
+/* HELP starts its own row under the catalogs (centred), even when ASSETS is hidden */
+body:not(.touch) #esc-menu:not(.esc-submenu) .esc-help-btn { grid-column: 2; }
+@media (max-height: 760px) {
+  #esc-menu .esc-btn { min-height: 98px; padding: 12px 12px; gap: 6px; }
+  #esc-menu .esc-ico { font-size: 36px; }
+}
+body.touch #esc-menu:not(.esc-catalog-view) { max-height: calc(100vh - 130px - env(safe-area-inset-bottom)); overflow-y: auto; pointer-events: auto; }
+body.touch #esc-menu .esc-btn { min-height: 88px; }
+#esc-menu .esc-catalog[hidden], #esc-menu .esc-help[hidden] { display: none !important; }
+/* the grid view: one big dark panel, the tiles = the six buttons' chrome (yellow border, dark, rounded) */
+#esc-menu.esc-catalog-view { display: flex; flex-direction: column; align-items: stretch; pointer-events: auto;
+  width: min(1160px, calc(100vw - 24px)); max-width: none; height: min(88vh, 900px); padding: 0; }
+body.touch #esc-menu.esc-catalog-view { top: calc(8px + env(safe-area-inset-top)); bottom: calc(8px + env(safe-area-inset-bottom)); transform: translateX(-50%); height: auto; }
+#esc-menu .esc-catalog, #esc-menu .esc-help { display: flex; flex-direction: column; min-height: 0; flex: 1; gap: 14px; }
+#esc-menu .esc-cat-head { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: 22px; border: 3px solid #ffd400;
+  background: rgba(18,18,18,.94); color: #fff; box-shadow: 0 10px 28px rgba(0,0,0,.45); }
+#esc-menu .esc-cat-title { font-size: clamp(28px, 4vw, 40px); font-weight: 900; letter-spacing: .04em; }
+#esc-menu .esc-cat-count { font-size: clamp(20px, 3vw, 26px); font-weight: 800; color: #ffd400; }
+#esc-menu .esc-cat-count:empty { display: none; }
+#esc-menu .esc-cat-back { margin-left: auto; font: inherit; font-size: clamp(20px, 3vw, 26px); font-weight: 900; letter-spacing: .04em; min-height: 60px; padding: 8px 22px;
+  border-radius: 18px; border: 3px solid #ffd400; background: #ffd400; color: #111; cursor: pointer; }
+#esc-menu .esc-cat-back:hover, #esc-menu .esc-cat-back:focus-visible { background: #fff; border-color: #fff; outline: none; }
+#esc-menu .esc-cat-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); grid-auto-rows: min-content; gap: 18px; padding: 6px 8px 18px; animation: esc-cat-in .25s ease-out; }
+body.touch #esc-menu .esc-cat-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
+@keyframes esc-cat-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+#esc-menu .esc-tile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  min-height: 196px; padding: 14px 12px 12px; border-radius: 22px; border: 3px solid #ffd400; background: rgba(18,18,18,.92); color: #fff;
+  font: inherit; font-weight: 800; font-size: 20px; letter-spacing: .03em; box-shadow: 0 10px 28px rgba(0,0,0,.45); cursor: pointer; touch-action: manipulation; }
+body.touch #esc-menu .esc-tile { min-height: 156px; }
+#esc-menu .esc-tile-pic { display: flex; align-items: center; justify-content: center; width: 100%; height: 132px; }
+body.touch #esc-menu .esc-tile-pic { height: 100px; }
+#esc-menu .esc-tile-pic img { max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; filter: drop-shadow(0 3px 4px rgba(0,0,0,.45)); }
+#esc-menu .esc-tile-name { font-size: 20px; line-height: 1.15; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#esc-menu .esc-tile-name:empty { display: none; }
+#esc-menu .esc-tile:hover, #esc-menu .esc-tile:focus-visible { background: #ffd400; color: #111; outline: none; }
+#esc-menu .esc-tile.sel { border-width: 6px; border-color: #fff; background: rgba(60,52,0,.95); }
+#esc-menu .esc-tile-tag { position: absolute; top: -12px; right: -8px; padding: 4px 10px; border-radius: 12px; background: #fff; color: #111; font-size: 16px; font-weight: 900; }
+#esc-menu .esc-cat-empty { grid-column: 1 / -1; font-size: clamp(24px, 4vw, 34px); font-weight: 800; text-align: center; padding: 40px 16px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+/* HELP: the keys, big and plain */
+#esc-menu .esc-help-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px 22px; border-radius: 22px; border: 3px solid #ffd400;
+  background: rgba(18,18,18,.94); color: #fff; box-shadow: 0 10px 28px rgba(0,0,0,.45); }
+#esc-menu .esc-keys { display: grid; grid-template-columns: minmax(200px, max-content) 1fr; gap: 10px 26px; margin: 0; font-size: clamp(20px, 2.4vw, 26px); line-height: 1.3; }
+#esc-menu .esc-keys dt { font-weight: 900; color: #ffd400; white-space: nowrap; }
+#esc-menu .esc-keys dd { margin: 0; font-weight: 600; }
+body.touch #esc-menu .esc-keys { grid-template-columns: 1fr; gap: 2px; font-size: 20px; }
+body.touch #esc-menu .esc-keys dd { margin-bottom: 10px; }
+/* phone: all ten fit without scrolling; the Aim pill never covers the menu */
+body.esc-menu-open #aim-toggle { display: none !important; }
+body.touch #esc-menu:not(.esc-catalog-view) .esc-btn { min-height: 78px; padding: 8px 10px; gap: 4px; }
+body.touch #esc-menu:not(.esc-catalog-view) .esc-ico { font-size: 30px; }
+body.touch #esc-menu .esc-cat-back { white-space: nowrap; padding: 6px 14px; min-height: 54px; }

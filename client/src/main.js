@@ -9,7 +9,6 @@ import { initFargUI, initFabricPicker } from './fargui.js';
 import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
 import { SurfaceTexLayer } from './surfacetex.js';
-import { createWheel } from './wheel.js';
 import { api } from './api.js';
 import { foldStamp } from './fold.js';
 import { readHistory, addHistory, removeHistory, roomHistory, trimHistory, deviceId, HISTORY_KEY, PER_ROOM } from './history.js';
@@ -644,138 +643,66 @@ function renderDesignHud() {
     const d = list.length > k ? list[(i + k + list.length) % list.length] : null;
     $(id).hidden = !d; if (d) $(id).src = d.url;
   }
-  renderStrip(list, sel, i);
-  const hud = $('design-hud'), btn = $('design-btn');
-  hud.hidden = true; // desktop: replaced by the sticker strip along the bottom (renderStrip)
+  const btn = $('design-btn');
   btn.hidden = !sel && !isTouch; // touch: the stack is always there (empty: tap it → 📒 Stickers → ⬆ Upload)
   btn.classList.toggle('empty', !sel);
-  if (!sel) { $('design-btn-img').removeAttribute('src'); $('design-btn-num').textContent = ''; return; }
-  $('design-hud-img').src = sel.url;
+  if (!sel) { $('design-btn-img').removeAttribute('src'); $('design-btn-num').textContent = ''; renderStrip(); return; }
   $('design-btn-img').src = sel.url;
-  $('design-hud-num').textContent = `${i + 1}/${list.length}`;
   $('design-btn-num').textContent = list.length > 1 ? `${i + 1}/${list.length}` : '';
+  renderStrip();
 }
 
-// The sticker wheel (client/src/wheel.js, shared/wheel.mjs; Jens 28 Oct 2026): the same stickers
-// R/F cycle through (my palette, or the library in the demo) on a round reel that never ends, the
-// held one in the middle (full colour, upright, on top), the others fading to grey, turning and
-// tucking in behind outwards. Desktop: along the bottom edge – R/F, the mouse wheel / trackpad, drag
-// or click turn it (only while the mouse is free: pointer lock sends clicks to the canvas; a click
-// here never slaps or locks the pointer). Touch: a band above the joystick and the stack, up while
-// you swipe it (the stack sideways, or the band itself) and a moment after (stackmenu.js).
-// Desktop + touch: R/F (or a drag/scroll on the strip) lights the sticker wheel. While you keep
-// turning it the strip stays up; after WHEEL_UP_MS idle it fades out (CSS opacity). A click-pick
-// fades it at once and leaves the held sticker sharp for slapping (Jens, Nov 2026 wheel-fade).
-const WHEEL_UP_MS = 1000;
-let wheelUpTimer = 0;
-let cityPackSlot = 0; // which carried pack's stickers the city sticker wheel shows (0-based)
-function wheelIsLit() { return document.body.classList.contains('wheel-lit') || document.body.classList.contains('wheel-up'); }
-function wheelDown({ fromSelect = false } = {}) {
-  clearTimeout(wheelUpTimer); wheelUpTimer = 0;
-  document.body.classList.remove('wheel-up', 'wheel-lit');
-  const lab = $('wheel-label'); if (lab) lab.hidden = true;
-  // Idle fade (not an explicit pick): hide the held ghost too – no miljöklibbor while walking.
-  if (!fromSelect && deskHeld && (deskHeld.state === 'holding' || deskHeld.state === 'timed')) {
-    const t = performance.now();
-    deskHeld.placed(t - deskHeld.visibleMs - deskHeld.fadeMs); // opacity 0 immediately
-    if (state.mode === 'slap' && !propsMode()) setMode('view', { quiet: true });
-  }
-  const ae = document.activeElement;
-  if (ae && ae.closest && ae.closest('#design-strip, #nature-strip, #packs-strip, #wheel-label')) {
-    try { ae.blur(); } catch { /* fine */ }
-  }
-}
-function wheelUp() {
-  stackMenu?.held.keepAlive(performance.now()); // turning the wheel = working with the held sticker (no fade)
-  document.body.classList.add('wheel-up', 'wheel-lit');
-  updateWheelLabel();
-  clearTimeout(wheelUpTimer);
-  wheelUpTimer = setTimeout(function down() {
-    if (wheel.info().dragging || natureWheel.info().dragging || packsWheel.info().dragging) { wheelUpTimer = setTimeout(down, 400); return; }
-    wheelDown({ fromSelect: false });
-  }, WHEEL_UP_MS);
-}
+// No wheels (Jens t792u/t793u, 10 Nov 2026: "vi skippar hjulen helt och hållet"): the sticker,
+// Nature, Packs and Props wheels along the bottom are gone. You pick from the big Esc catalogs
+// (STICKERS / NATURE / ASSETS, escmenu.js), the left panel's lists, or R/F (next / previous in the
+// list the held one is from); the small design HUD bottom centre shows what you hold. CREATE → MY
+// PACKS picks the pack you carry. wheelUp / wheelDown stay as tiny helpers for old call sites (no UI).
+let cityPackSlot = 0; // which carried pack's stickers the city deck shows (0-based)
+function wheelIsLit() { return false; }
+function wheelDown() { /* no wheel to fade any more */ }
+function wheelUp() { stackMenu?.held.keepAlive(performance.now()); } // working with the held sticker (no fade)
+// Picking an item (an Esc catalog tile, a list): hold it sharp, back to slapping.
 function onWheelPick(img, after) {
   select(img);
   after?.(img);
-  // Explicit selection: strip fades now; held sticker stays sharp for aiming/slapping (unless aim off).
   if (deskHeld && img && !aimOff) deskHeld.choose(performance.now());
   if (img && state.mode === 'view' && !selfieOn() && !camView) setMode('slap', { quiet: true });
-  wheelDown({ fromSelect: true });
   if (isTouch) stackMenu?.chosen();
 }
-const wheel = createWheel($('strip-row'), {
-  pick: (img) => onWheelPick(img),
-  onActivity: wheelUp,
-});
-// The Nature wheel (left of the sticker wheel): the same reel, the library's nature stickers only.
-const natureWheel = createWheel($('nature-row'), {
-  pick: (img) => onWheelPick(img),
-  onActivity: wheelUp,
-});
-const packsWheel = createWheel($('packs-row'), {
-  pick: (img) => {
-    onWheelPick(img, (picked) => {
-      if (picked?.packId) {
-        try {
-          const all = readPacks();
-          const p = all.find((x) => x.id === picked.packId);
-          if (p) localStorage.setItem('klibb.pac', JSON.stringify(p));
-        } catch { /* fine */ }
-        cityWheelChanged();
-      }
-    });
-  },
-  onActivity: wheelUp,
-});
-// The wheel R/F and the stack's sideways swipe turn: the active one.
-const activeWheelApi = {
-  cur: () => (packsMode() ? packsWheel : activeWheel() === 'nature' ? natureWheel : wheel),
-  beginDrag: (x) => activeWheelApi.cur().beginDrag(x), dragTo: (x) => activeWheelApi.cur().dragTo(x),
-  endDrag: () => activeWheelApi.cur().endDrag(), info: () => activeWheelApi.cur().info(), render: () => activeWheelApi.cur().render(),
-};
 function packDesigns() {
   return readPacks().map((p) => ({
     id: 'pack:' + p.id, url: p.img || '/start/pac.webp', width: 563, height: 802,
     name: p.name || S.cityMyPack, cityPack: true, packId: p.id,
   }));
 }
-function renderStrip() {
-  const sel = state.selected, list = stickerDesigns(), nat = natureDesigns(), packs = packDesigns();
-  const onNat = activeWheel() === 'nature' && !packsMode() && !propsMode();
-  const onPacks = packsMode();
-  const i = sel && !onNat && !onPacks ? list.findIndex((d) => d.id === sel.id) : -1;
-  $('design-strip').hidden = !list.length || onPacks || propsMode();
-  wheel.setList(list);
-  wheel.setSelected(sel && !onNat && !onPacks ? sel.id : null);
-  $('strip-num').textContent = list.length && i >= 0 ? `${i + 1}/${list.length}` : '';
-  const open = natureOpen(), j = onNat ? nat.findIndex((d) => d.id === sel.id) : -1;
-  $('nature-strip').hidden = !nat.length || onPacks || propsMode();
-  $('nature-strip').classList.toggle('locked', !open);
-  $('nature-strip').title = open ? S.natureAria : S.natureTitle;
-  natureWheel.setList(nat);
-  natureWheel.setSelected(onNat ? sel.id : null);
-  $('nature-num').textContent = !nat.length ? '' : !open ? S.natureLocked : `🌿 ${j >= 0 ? `${j + 1}/` : ''}${nat.length}`;
-  const pk = $('packs-strip');
-  if (pk) {
-    pk.hidden = !onPacks;
-    const k = onPacks && sel ? packs.findIndex((d) => d.id === sel.id) : -1;
-    packsWheel.setList(packs);
-    packsWheel.setSelected(onPacks && sel ? sel.id : null);
-    if (onPacks) packsWheel.render(); // remeasure now that #packs-strip is visible
-    $('packs-num').textContent = packs.length ? `📦 ${k >= 0 ? `${k + 1}/` : ''}${packs.length}/${PACKS_MAX}` : (S.packsEmpty || '');
-    pk.classList.toggle('active', onPacks);
-  }
-  document.body.classList.toggle('two-wheels', !!nat.length && !onPacks);
-  $('design-strip').classList.toggle('active', !onNat && !onPacks);
-  $('nature-strip').classList.toggle('active', onNat);
-  syncNatureMode();
+// CREATE → MY PACKS: the pack I carry (klibb.pac) = the one picked; the city deck follows it.
+function pickPack(packId) {
+  const all = readPacks(), p = all.find((x) => x.id === packId);
+  if (!p) return false;
+  try { localStorage.setItem('klibb.pac', JSON.stringify(p)); } catch { /* full */ }
+  cityWheelChanged();
+  toast(S.escPackPicked ? S.escPackPicked(p.name || S.cityMyPack) : `📦 ${p.name || 'Pack'} – carried`, 1800);
+  return true;
 }
-$('design-strip').addEventListener('mousedown', (e) => { e.stopPropagation(); });
-$('nature-strip').addEventListener('mousedown', (e) => { e.stopPropagation(); });
-$('packs-strip')?.addEventListener('mousedown', (e) => { e.stopPropagation(); });
-// Locked (free version): greyed, nothing turns; a click/tap opens the full version panel.
-$('nature-strip').addEventListener('click', (e) => { if (natureOpen()) return; e.preventDefault(); e.stopPropagation(); fullUi?.open(); }, true);
+function currentPackId() { try { return JSON.parse(localStorage.getItem('klibb.pac') || 'null')?.id || null; } catch { return null; } }
+// Was the wheels' render: now the small design HUD (what I hold, n/N, R/F) + the mode label.
+function renderStrip() {
+  const hud = $('design-hud');
+  if (hud && !isTouch) {
+    const sel = state.selected, list = wheelDesigns();
+    const i = sel ? list.findIndex((d) => d.id === sel.id) : -1;
+    if (propsMode()) {
+      const c = propsUi.current();
+      hud.hidden = !c;
+      if (c) { $('design-hud-img').src = c.url || ''; $('design-hud-num').textContent = `🪑 ${c.name} · ${c.i + 1}/${c.n}`; }
+    } else {
+      hud.hidden = !sel;
+      if (sel) { $('design-hud-img').src = sel.url; $('design-hud-num').textContent = `${activeWheel() === 'nature' ? '🌿 ' : ''}${i >= 0 ? `${i + 1}/${list.length}` : ''}`; }
+    }
+  }
+  syncNatureMode();
+  escMenu?.refreshCatalog?.();
+}
 
 // Designs som säkert inte finns på servern och inte gick att återställa tas bort ur listan.
 function dropDesigns(ids) {
@@ -1466,12 +1393,6 @@ function syncNatureMode() {
   const m = state.mode === 'view' ? 'look' : packsMode() ? 'packs' : propsMode() ? 'props' : on ? 'nature' : 'slap';
   document.body.classList.toggle('nature-mode', on);
   $('mode-hud').textContent = S.modeHud(m, isTouch, DEMO);
-  // Wheel buttons (replaced Slap/Nature/Props/Look). Look mode: G / phone 👁 only.
-  const sb = $('mode-stickers'); if (sb) sb.setAttribute('aria-pressed', String(m === 'slap'));
-  const nb = $('mode-nature');
-  if (nb) { nb.setAttribute('aria-pressed', String(m === 'nature')); nb.classList.toggle('locked', !natureOpen()); nb.hidden = DEMO || !natureDesigns().length; }
-  const ab = $('mode-assets'); if (ab) { ab.setAttribute('aria-pressed', String(m === 'props')); ab.hidden = !(propsUi && propsUi.open()); }
-  const pb = $('mode-packs'); if (pb) pb.setAttribute('aria-pressed', String(m === 'packs'));
 }
 function setNatureMode(on, { quiet = false } = {}) {
   // free: the upgrade panel instead – plus a toast that SAYS why, so V never looks dead (Jens, 28 Oct 2026:
@@ -1508,60 +1429,55 @@ function setProps(on) {
   if (state.mode === 'view') setMode('slap', { quiet: true });
   if (on) setPacksMode(false, { quiet: true });
   propsUi.setActive(on); syncNatureMode();
-  if (on) toast(isTouch ? '🪑 Props: pick one on the wheel, tap the floor to place it, tap a prop to change it.' : '🪑 Props: pick one on the wheel (R/F), click to place it, click a prop to change it. Q/E turn · wheel = size · V = slap mode.', 3200);
+  if (on) toast(isTouch ? '🪑 Assets: tap the floor to place it, tap a prop to change it. Menu → ASSETS for another.' : '🪑 Assets: click to place it, hold + look away = a row, click a prop to change it. Wheel = size · Shift+wheel / Q/E = turn · R/F = next · V = slap mode.', 3200);
   return propsMode();
 }
-function setPacksMode(on, { quiet = false } = {}) {
-  on = !!on;
-  if (on) {
-    if (propsMode()) propsUi.setActive(false);
-    if (state.mode === 'view') setMode('slap', { quiet: true });
-    if (natureMode()) setNatureMode(false, { quiet: true });
+// Packs mode (the PACKS wheel) is gone with the wheels: CREATE → MY PACKS picks the pack instead.
+function setPacksMode() { document.body.classList.remove('packs-mode'); return false; }
+// The Esc catalogs (escmenu.js; Jens t792u): every item of a list as big tiles. kind: stickers | nature | assets | packs.
+function catalogFor(kind) {
+  const sel = state.selected;
+  if (kind === 'assets') {
+    const c = propsUi ? propsUi.catalog() : { items: [], selected: null };
+    return { title: S.escCatAssets || 'ASSETS', items: c.items, selected: propsMode() ? c.selected : null };
   }
-  document.body.classList.toggle('packs-mode', on);
+  if (kind === 'packs') {
+    return { title: S.escMyPacks || 'MY PACKS', items: packDesigns().map((d) => ({ id: d.packId, url: d.url, name: d.name || '' })), selected: currentPackId(), empty: S.escPacksEmpty };
+  }
+  const list = kind === 'nature' ? natureDesigns() : stickerDesigns();
+  const holding = !propsMode() && sel ? sel.id : null;
+  return {
+    title: kind === 'nature' ? (S.escCatNature || 'NATURE') : (S.escCatStickers || 'STICKERS'),
+    items: list.map((d) => ({ id: d.id, url: d.url, name: d.title || d.name || '' })),
+    selected: holding, empty: kind === 'nature' ? '' : S.escStickersEmpty,
+  };
+}
+// Nature is the full version's (the same lock as V); Assets only for the build phase's builders.
+function catalogAllowed(kind) {
+  if (kind === 'nature' && !natureOpen()) { escMenu?.close(); fullUi?.open(); toast(S.natureModeLocked, 2600); return false; }
+  if (kind === 'assets') { if (!(propsUi && propsUi.open())) { toast(S.propsLocked || 'Assets: the build phase’s builders only.', 2400); return false; } propsUi.thumbs()?.then?.(() => escMenu?.refreshCatalog?.()); }
+  return true;
+}
+function pickFromCatalog(kind, id) {
+  if (kind === 'packs') return pickPack(id);
+  if (kind === 'assets') {
+    if (!(propsUi && propsUi.open())) return false;
+    if (!propsMode()) setProps(true);
+    propsUi.pickKind(id); renderStrip();
+    return true;
+  }
+  const list = kind === 'nature' ? natureDesigns() : stickerDesigns();
+  const img = list.find((d) => d.id === id);
+  if (!img) return false;
+  if (kind === 'nature' && !natureOpen()) { fullUi?.open(); return false; }
+  if (propsMode()) propsUi.setActive(false);
+  document.body.classList.remove('packs-mode');
+  if (state.mode !== 'slap' && !selfieOn() && !camView) setMode('slap', { quiet: true });
+  onWheelPick(img);
   syncNatureMode();
-  renderStrip();
-  if (!quiet && on) toast(S.packsTitle || 'Packs you carry (up to 3)', 1800);
-  return packsMode();
-}
-function updateWheelLabel() {
-  const lab = $('wheel-label'); if (!lab) return;
-  if (packsMode()) {
-    const packs = readPacks();
-    lab.textContent = packs.length ? `📦 PACKS · ←/→ ${packs.length}/${PACKS_MAX}` : (S.packsEmpty || 'PACKS');
-    lab.hidden = false; return;
-  }
-  if (activeWheel() === 'nature') {
-    lab.textContent = '🌿 NATURE · ←/→';
-    lab.hidden = false; return;
-  }
-  lab.textContent = FILM_STUDIO ? '🎬 STICKERS · ←/→ · J = jam' : 'STICKERS · ←/→';
-  lab.hidden = false;
-}
-/** While the wheel is lit: ←/→ cycles stickers / nature / packs (same in city and room). */
-function switchWheelSide(dir) {
-  wheelUp();
-  // City matches the room: ←/→ cycles stickers / nature / packs (no reduced pack-slot wheels).
-  const kinds = ['stickers'];
-  if (natureOpen() && natureDesigns().length) kinds.push('nature');
-  kinds.push('packs');
-  const cur = packsMode() ? 'packs' : activeWheel() === 'nature' ? 'nature' : 'stickers';
-  let i = kinds.indexOf(cur); if (i < 0) i = 0;
-  const next = kinds[(i + dir + kinds.length) % kinds.length];
-  if (next === 'packs') setPacksMode(true, { quiet: true });
-  else if (next === 'nature') { setPacksMode(false, { quiet: true }); setNatureMode(true, { quiet: true }); }
-  else { setPacksMode(false, { quiet: true }); if (natureMode()) setNatureMode(false, { quiet: true }); else { if (state.mode !== 'slap') setMode('slap', { quiet: true }); syncNatureMode(); renderStrip(); } }
-  updateWheelLabel();
-  return next;
+  return true;
 }
 
-function setStickersWheel() {
-  if (propsMode()) propsUi.setActive(false);
-  setPacksMode(false, { quiet: true });
-  if (state.mode !== 'slap') setMode('slap', { quiet: true });
-  if (natureMode()) setNatureMode(false, { quiet: true });
-  toast(S.modeToastSlap(isTouch), 1600);
-}
 // var: setMode längre ner använder den innan raden här har körts.
 var stackMenu = null; // eslint-disable-line no-var -- touch only: the sticker stack menu + the held sticker's timer (stackmenu.js)
 var camShow = localStorage.getItem('klibb.camShow') !== '0'; // eslint-disable-line no-var
@@ -1570,10 +1486,6 @@ var camShow = localStorage.getItem('klibb.camShow') !== '0'; // eslint-disable-l
 // wakes the sticker, a tap on a sticker shows its credit), so a phone starts as before.
 if (!isTouch) setMode('view', { quiet: true });
 $('mode-btn').onclick = (e) => { e.preventDefault(); toggleMode(); }; // Look mode (touch 👁); desktop Look = G
-$('mode-stickers').onclick = () => setStickersWheel();
-$('mode-nature').onclick = () => { setPacksMode(false, { quiet: true }); if (propsMode()) propsUi.setActive(false); setNatureMode(true); };
-$('mode-assets').onclick = () => { setPacksMode(false, { quiet: true }); setProps(!propsMode()); };
-$('mode-packs').onclick = () => setPacksMode(!packsMode());
 
 // ---------- Peel (ångra) och historik ----------
 // Peel tar bort en av MINA stämplar: servern kräver den hemliga nyckeln som bara den här
@@ -1970,6 +1882,7 @@ function isEscTextField(e) {
 function onEscape(e) {
   if (e.key !== 'Escape' || e.defaultPrevented) return;
   if (arrayDrag) { e.preventDefault(); cancelArray(); return; } // Esc while dragging: no copies (the first sticker stays)
+  if (propsUi?.rowing()) { e.preventDefault(); propsUi.rowCancel(); return; } // the same for a row of assets
   if (endDlg.open || linkDlg.open) return;          // <dialog> closes itself on Esc
   if (together.chatOpen()) return;                   // the chat input closes itself (together.js)
   if (isEscTextField(e)) { e.target.blur(); return; } // first Esc just leaves the text field
@@ -1994,7 +1907,7 @@ function onEscape(e) {
 }
 addEventListener('keydown', onEscape);
 controls.onLockChange = (locked) => {
-  if (!locked) cancelArray(); // Esc leaves pointer lock first: that cancels a sticker array too
+  if (!locked) { cancelArray(); propsUi?.rowCancel(); } // Esc leaves pointer lock first: that cancels a sticker / asset row too
   // Esc (the player left the game) turns auto-slap off; our own unlocks (menus, chat) and a hidden tab only pause it.
   const realEsc = !locked && performance.now() - softUnlockAt > 400 && document.visibilityState === 'visible' && document.hasFocus();
   if (realEsc && autoSlap && autoSlap.on) autoSlap.setOn(false);
@@ -2037,6 +1950,7 @@ controls.onLockChange = (locked) => {
   canvas.addEventListener('pointerup', avUp); canvas.addEventListener('pointercancel', avUp);
 }
 
+var wheelTurnAcc = 0; // eslint-disable-line no-var -- Shift + wheel: the scroll not yet turned into a 15° step
 var viewDrag = null; // eslint-disable-line no-var -- desktop View mode, mouse free: a press that may become a look-around drag
 if (!isTouch) {
   canvas.addEventListener('mousedown', (e) => {
@@ -2058,7 +1972,7 @@ if (!isTouch) {
     else if (placingCam) placeCamAt(CENTER); // ＋ Add cameraman: this click sets where it starts
     else if (menuClick(CENTER)) { /* a menu sticker: its menu opened (menustickers.js) */ }
     else if (state.mode === 'view') viewClick(); // View mode: a sticker = who made it? (never slaps); a free surface = Slap mode
-    else if (propsMode()) propsUi.click(CENTER); // Props mode: place the held prop / select one
+    else if (propsMode()) { mouseHeld = true; propsUi.click(CENTER, { row: true }); } // Props mode: place the held prop (hold + look away = a row) / select one
     else if (deskPress()) { /* faded: this press only brings the held sticker back – no slap (point 10) */ }
     else {
       // Hold the button and look/drag away: the sticker repeats toward the crosshair (sticker arrays).
@@ -2084,25 +1998,46 @@ if (!isTouch) {
     }
     if (e.button !== 0) return; mouseHeld = false;
     if (arrayDrag) { try { commitArray(); } catch (err) { arrayFailed('release', err); } }
+    if (propsUi?.rowing()) propsUi.rowCommit();
   });
   // Right-click while dragging: cancel the copies (the first sticker stays).
-  canvas.addEventListener('mousedown', (e) => { if (e.button === 2 && arrayDrag) { e.preventDefault(); cancelArray(); } });
-  canvas.addEventListener('contextmenu', (e) => { if (arrayDrag || controls.locked) e.preventDefault(); });
+  canvas.addEventListener('mousedown', (e) => { if (e.button === 2 && arrayDrag) { e.preventDefault(); cancelArray(); } if (e.button === 2 && propsUi?.rowing()) { e.preventDefault(); propsUi.rowCancel(); } });
+  canvas.addEventListener('contextmenu', (e) => { if (arrayDrag || propsUi?.rowing() || controls.locked) e.preventDefault(); });
   // any input = working with the held sticker (deskHeld): its 2 s start again while it is up (not once faded)
   addEventListener('mousemove', (e) => { if (e.movementX || e.movementY) deskActive(); }, true);
   addEventListener('keydown', () => deskActive(), true);
   addEventListener('wheel', () => deskActive(), { capture: true, passive: true });
   // Array drag: wheel scales the LAST sticker (fan). preventDefault so the page / camera don't scroll.
+  // Mouse wheel (Jens t797u): wheel = size, Shift + wheel = turn – the held sticker / nature sticker /
+  // asset (and a row's last one while dragging). Q/E still turn. A scrolling menu (the Esc catalogs,
+  // Help, a panel) keeps the wheel for scrolling: nothing here then. Run mode (Shift + WASD) is unchanged.
   addEventListener('wheel', (e) => {
-    if (!arrayDrag) return;
+    if (escMenu?.isOpen()) return; // the Esc menu / its grids scroll
+    if (arrayDrag || propsUi?.rowing()) {
+      e.preventDefault();
+      if (e.shiftKey) return; // a row keeps the anchor's turn
+      if (arrayDrag) { try { scaleArrayEnd(e.deltaY || e.deltaX, e.deltaMode); updateArray(); } catch (err) { arrayFailed('wheel', err); } return; }
+      propsUi.scaleBy((e.deltaY || e.deltaX) > 0 ? 1 / 1.08 : 1.08); renderStrip(); return;
+    }
+    const inGame = controls.locked || (propsMode() && propsUi.selected());
+    if (!inGame) return;
+    if (!(propsMode() || state.mode === 'slap')) return;
     e.preventDefault();
-    try { scaleArrayEnd(e.deltaY, e.deltaMode); updateArray(); } catch (err) { arrayFailed('wheel', err); }
+    const d = (e.deltaY || e.deltaX) * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1); // Shift turns deltaY into deltaX on some systems
+    if (!d) return;
+    if (e.shiftKey) {
+      // one notch (~100) = one 15° step, like Q/E; trackpads add up
+      wheelTurnAcc += d;
+      const steps = Math.trunc(wheelTurnAcc / 100) || (Math.abs(d) >= 50 ? Math.sign(d) : 0);
+      if (!steps) return;
+      wheelTurnAcc = Math.abs(wheelTurnAcc) >= 100 ? wheelTurnAcc - steps * 100 : 0;
+      if (propsMode()) propsUi.turn(-steps); // E (−1) = clockwise, like a sticker's +15°
+      else setRot(state.rotation + 15 * steps);
+      return;
+    }
+    if (propsMode()) { propsUi.scaleBy(d > 0 ? 1 / 1.08 : 1.08); return; }
+    setSize(state.size * 100 * (d > 0 ? 0.9 : 1.1));
   }, { passive: false });
-  addEventListener('wheel', (e) => {
-    if (arrayDrag) return; // handled above
-    if (propsMode()) { if (controls.locked || propsUi.selected()) propsUi.scaleBy(e.deltaY > 0 ? 1 / 1.08 : 1.08); return; }
-    if (controls.locked && state.mode === 'slap') setSize(state.size * 100 * (e.deltaY > 0 ? 0.9 : 1.1));
-  }, { passive: true });
   addEventListener('keydown', (e) => {
     if (isTyping(e)) return; // inte medan man skriver
     if (endDlg.open || linkDlg.open) return; // rutan "End of slap history" eller länkfrågan är öppen
@@ -2126,28 +2061,17 @@ if (!isTouch) {
     if (propsMode()) { // the Props wheel: Q/E turn, R/F the next/previous prop, Delete removes the selected one, Esc lets go
       if (e.code === 'KeyQ') propsUi.turn(1);
       if (e.code === 'KeyE') propsUi.turn(-1);
-      if (e.code === 'KeyR') propsUi.step(1); // hold = keep spinning the Props wheel
-      if (e.code === 'KeyF') propsUi.step(-1);
+      if (e.code === 'KeyR') { propsUi.step(1); renderStrip(); } // the next / previous asset
+      if (e.code === 'KeyF') { propsUi.step(-1); renderStrip(); }
       if ((e.code === 'Delete' || e.code === 'Backspace') && propsUi.selected()) propsUi.removeSelected();
       if (e.code === 'Escape' && propsUi.selected()) propsUi.deselect();
       return;
     }
     if (state.mode === 'slap' && e.code === 'KeyQ') setRot(state.rotation - 15);
     if (state.mode === 'slap' && e.code === 'KeyE') setRot(state.rotation + 15);
-    // ←/→ while the sticker wheel is lit: switch pack / wheel without leaving the view
-    if (wheelIsLit() && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
-      e.preventDefault();
-      switchWheelSide(e.code === 'ArrowRight' ? 1 : -1);
-      return;
-    }
-    if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) { // first press lights the wheel AND steps
-      wheelUp();
-      nextDesign();
-    }
-    if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey) {
-      wheelUp();
-      prevDesign();
-    }
+    // R / F: the next / previous in the list the held one is from (stickers or nature; no wheel)
+    if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) { wheelUp(); nextDesign(); }
+    if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey) { wheelUp(); prevDesign(); }
   });
 } else {
   // Touch (Jens, 28 Oct 2026): with a sticker in hand (sharp), ONE finger on the room AIMS it: the
@@ -2324,7 +2248,7 @@ if (!isTouch) {
     pinching: () => !!touchPinch,
     S, locale: LOCALE, state, nextDesign, prevDesign, setSize, setRot, minSizeCm: () => minSizeCm(), maxSizeCm: () => maxSizeCm(),
     peelLast: () => peelLast(), toggleView: () => toggleView(), startDance: () => toggleDance(), snapPhoto: () => snapPhoto(), openMore: () => openMore(), closeMore: () => closeMore(),
-    chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(), wheel: activeWheelApi, wheelUp, natureOpen: () => natureOpen(),
+    chatOpen: () => together.chatOpen(), longPressed: () => longPressed, renderStack: () => renderDesignHud(), wheel: null, wheelUp, natureOpen: () => natureOpen(),
     release: (x, y) => { if (!camView && !placingCam) heldTap(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), x, y); },
   });
 }
@@ -2674,7 +2598,8 @@ var propsUi = initProps({ // eslint-disable-line no-var
   setSelfSeat: (seat) => together.setSelfSeat(seat),
   onModeChange: () => { preview.hide(); renderStrip(); },
   onPropBuilt: (id) => stamps.propBuilt(id),
-  wheelUp: () => wheelUp(),
+  onHeldChange: () => { if (propsUi) renderStrip(); }, // the design HUD shows the held asset
+  onThumbs: () => { if (propsUi) renderStrip(); },
 });
 together.players.seatOf = (chair) => propsUi.seatPose(chair);
 // props block walking (shared/propcollide.mjs) and carry stickers (stamps.js projects them onto a prop's meshes)
@@ -3065,6 +2990,13 @@ escMenu = initEscMenu({
   onClose: () => resumeGame(),
   // Touch Menu / open(): close the top panel first; only show buttons when nothing is open.
   closeTop: () => { const c = escTopPanel(); if (c) { c(); return true; } return false; },
+  // STICKERS / NATURE / ASSETS (+ CREATE → MY PACKS): the big grids (Jens t792u); HELP: every key (t797u).
+  catalog: (kind) => catalogFor(kind),
+  canCatalog: (kind) => catalogAllowed(kind),
+  showCatalog: (kind) => (kind === 'assets' ? !!(propsUi && propsUi.open()) : kind === 'nature' ? !DEMO : true),
+  onCatalogPick: (kind, id) => pickFromCatalog(kind, id),
+  helpHtml: () => (isTouch ? S.escHelpTouchHtml : S.escHelpDesktopHtml),
+  labels: { holding: S.escHolding, catEmpty: S.escCatEmpty },
 });
 escMenu.setJoinLabels({ loading: S.escCityLoading, none: S.escCityNone, failed: S.escCityFailed });
 
@@ -3927,7 +3859,7 @@ window.klibb = {
   highlightPreview: (size) => highlightLog ? highlightPreview({ events: highlightLog.events(), roomId: ROOM, style: state.style, stickers: stickersForReel(), city: !!CITY_OUTSIDE, size }) : null,
   offerHighlight: () => leaveWithHighlight(() => {}), highlightCrew: () => highlightCrew,
   filmPreview: async (size) => filmPreview({ ...(await filmOpts()), size }), // tests/stills: a frame of the film at any time
-  props: propsUi, propsMode, setProps,
+  props: propsUi, propsMode, setProps, setRot,
   demo: DEMO, config, voice: () => voice.info(), voiceObj: () => voice, toggleMic: () => voice.toggle(), library: () => state.library.slice(),
   studio: () => FILM_STUDIO, setStudio, studioJam: () => (studioJam ? studioJam.state() : null),
   demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
@@ -4018,10 +3950,11 @@ window.klibb = {
   surfTex: () => surfTex,
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
   held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3), aimOff }, aimOff: () => aimOff, setAimOff, syncAimToggleBtn, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
-  strip: () => ({ shown: wheelIsLit() && !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && Number(getComputedStyle($('design-strip')).opacity) > 0.05, lit: wheelIsLit(), n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON(), packSlot: FILM_STUDIO ? studioSlot : cityPackSlot, label: $('wheel-label')?.textContent || '' }),
+  // The wheels are gone (t793u): any wheel UI still on screen (should be none).
+  wheelsShown: () => ['design-strip', 'nature-strip', 'packs-strip', 'wheel-label', 'mode-switch', 'props-strip'].filter((id) => { const el = $(id); return !!el && !el.hidden && el.getClientRects().length > 0 && getComputedStyle(el).display !== 'none'; }),
+  designHud: () => ({ shown: !$('design-hud').hidden && $('design-hud').getClientRects().length > 0, num: $('design-hud-num').textContent, img: $('design-hud-img').getAttribute('src') || '' }),
   wheelUp, wheelDown, wheelIsLit,
-  wheel: () => wheel.info(), wheelApi: wheel, natureWheel: () => natureWheel.info(), natureWheelApi: natureWheel, activeWheel, stickerDesigns, natureDesigns, natureOpen,
-  natureStrip: () => ({ shown: !$('nature-strip').hidden && $('nature-strip').getClientRects().length > 0, locked: $('nature-strip').classList.contains('locked'), n: $('nature-row').children.length, sel: $('nature-row').querySelector('.sel')?.dataset.id ?? null, num: $('nature-num').textContent, rect: $('nature-strip').getBoundingClientRect().toJSON() }),
+  activeWheel, stickerDesigns, natureDesigns, natureOpen, packDesigns, pickPack, pickFromCatalog: (kind, id) => pickFromCatalog(kind, id), catalogFor: (kind) => catalogFor(kind),
   // the held sticker's drop shadow, and where it and the sticker are on screen (px), for the tests
   heldShadow: () => {
     const st = preview.shadowState(), cam = camView ? viewCam : view !== 'first' ? tpCam : camera;
