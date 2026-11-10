@@ -3452,6 +3452,10 @@ function walkSounds() {
   const running = !camView && !together.dancing() && !!controls.running;
   if (running) { const rc = loadRunMode(), rr = runRate(rc); groove.setRun({ rate: rr.rate, tune: pitchRatio(rc.pitch) }); } else groove.setRun(null);
   groove.update(walkers);
+  // The walk sound's sequencer layers (radio.js walkLoop, Jens t783u): only while I walk, and on
+  // the run tempo/pitch while I run – the same walking test and run state as my footsteps.
+  const me = groove.track.get('me');
+  radio.setWalk({ until: me && !camView ? me.walkUntil : 0, run: groove.run });
 }
 
 // ---------- Demo: the hour, invites, the closing card (demo.js) ----------

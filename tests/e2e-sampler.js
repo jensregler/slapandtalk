@@ -189,7 +189,8 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await A.evaluate(() => window.klibb.radio().set({ voices: { on: true } })); await sleep(2800);
     const loops = await A.evaluate(() => { const r = window.klibb.radio(); return r.voiceLog.slice(-40); });
     const keys = new Set(loops.map((e) => e.key));
-    check('Master on: the step sequencer layer and the four voices run on the master clock', keys.has('step' + 2) && ['v0', 'v1', 'v2', 'v3'].every((k) => keys.has(k)), [...keys]);
+    // (t783u: a sequencer layer on the walk/Steps sound only runs while I walk – tests/e2e-walkseq.js)
+    check('Master on: the four voices run on the master clock; the Steps sequencer layer waits while I stand still', !keys.has('step' + 2) && ['v0', 'v1', 'v2', 'v3'].every((k) => keys.has(k)), [...keys]);
     // ---------- Master: volume + city sound; blend/knob forced; walk tempo on Steps ----------
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
     const forced = await A.evaluate(() => { window.klibb.radio().set({ knob: 0, on: false }); return window.klibb.radio().state; });

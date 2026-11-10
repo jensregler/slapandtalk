@@ -5,6 +5,7 @@
 import { cleanRadio, cleanPreset, FOUR_VOICES, RADIO, bpmToKnob, knobToBpm } from '../../shared/radio.mjs';
 import { roomTempo, loopSteps, barMsAt, barsAtTime, MASTER } from '../../shared/clock.mjs';
 import { SOUNDS, retune } from '../../shared/synth.mjs';
+import { planWalkSeq, newWalkSeq } from '../../shared/walkseq.mjs';
 import { Ambient } from './ambient.js';
 
 const OWNER_KEY = 'klibb.soundOwner';
@@ -32,6 +33,13 @@ export class Radio {
     this.sound = sound; this.clock = clock; this.onChange = onChange; this.room = room; this.roomTempo = roomTempo(room);
     this.state = cleanRadio(null); this.amb = null; this.next = 0; this.voiceLog = [];
     sound.setRadio(this.state);
+    // Walk-sound sequencer (shared/walkseq.mjs, Jens t783u): only while I walk, run mode applies.
+    this.walk = { until: 0, run: null }; this.walkSeq = new Map(); // key -> newWalkSeq()
+  }
+  // main.js walkSounds, every frame: until = wall ms I count as walking until (the footstep groove's
+  // own walk detection, 0 = standing); run = { rate, tune } while Shift-running (groove.run) or null.
+  setWalk({ until = 0, run = null } = {}) {
+    this.walk = { until: Number.isFinite(until) && until > 0 ? until : 0, run: run && run.rate > 0 ? { rate: +run.rate, tune: run.tune > 0 ? +run.tune : 1 } : null };
   }
   set(patch, { save = true } = {}) {
     const s = this.state;
@@ -57,7 +65,7 @@ export class Radio {
   // second with a per-sample step gate in the worklet (synth.js play({ gate })), so they become a tone.
   tick() {
     const on = this.state.on && !this.sound.muted && this.sound.engine;
-    if (!on) { this.next = 0; this.toneUntil = new Map(); return; }
+    if (!on) { this.next = 0; this.toneUntil = new Map(); for (const w of this.walkSeq.values()) w.next = 0; return; }
     const ctx = this.sound.ctx, now = this.clock(), ahead = now + 150, from = Math.max(this.next || now, now - 20);
     const tempo = this.tempo(), barS = barMsAt(tempo.bpm) / 1000;
     const at = (t) => ctx.currentTime + Math.max(0, (t - now) / 1000);
@@ -68,12 +76,14 @@ export class Radio {
       tone: (time, len, gate) => { const pf = this.sound.patchFor(v.sound, this.sound.mine).patch; this.sound.playPatch(sustain(retune(pf, v.ratio), len), { time, gate, length: len, gain: this.state.voices.vol * v.gain * 0.5 }); } }));
     for (const kind of SOUNDS) { // sequencer layers of my sounds
       const pf = this.sound.patchFor(kind, this.sound.mine).patch;
-      (pf?.layers || []).forEach((l, i) => { if (!l.seq) return; loops.push({ key: `${kind}${i}`, steps: l.seq.len, bars: l.seq.bars, pattern: l.seq.steps.map((x) => (x.on ? x.vol / 100 : 0)),
-        play: (time, n) => { const st = l.seq.steps[n]; if (st?.on) this.sound.playPatch(pf, { time, layer: i, gain: st.vol / 100 }); },
+      (pf?.layers || []).forEach((l, i) => { if (!l.seq) return; loops.push({ walk: kind === 'step', pf, layer: i, key: `${kind}${i}`, steps: l.seq.len, bars: l.seq.bars, pattern: l.seq.steps.map((x) => (x.on ? x.vol / 100 : 0)),
+        seq: l.seq, play: (time, n) => { const st = l.seq.steps[n]; if (st?.on) this.sound.playPatch(pf, { time, layer: i, gain: st.vol / 100 }); },
         tone: (time, len, gate) => this.sound.playPatch(sustain(pf, len), { time, layer: i, gate, length: len }) }); });
     }
     let fired = 0;
+    const walk = this.walk, seen = new Set();
     for (const lp of loops) {
+      if (lp.walk) { fired += this.walkLoop(lp, { now, ahead, tempo, barS, at, walk }); seen.add(lp.key); continue; }
       const rate = lp.steps / (lp.bars * barS); // steps per second
       if (rate <= RADIO.fastSteps) {
         for (const e of loopSteps(from, ahead, { steps: lp.steps, bars: lp.bars, tempo, max: 64 })) { lp.play(at(e.t), e.i); fired++; this.voiceLog.push({ t: Math.round(e.t), key: lp.key, i: e.i }); }
@@ -84,9 +94,36 @@ export class Radio {
         this.toneUntil.set(lp.key, t + len * 1000); this.voiceLog.push({ t: Math.round(t), key: lp.key, tone: true });
       }
     }
+    for (const k of this.walkSeq.keys()) if (!seen.has(k)) this.walkSeq.delete(k); // the layer is gone
     if (this.voiceLog.length > 64) this.voiceLog.splice(0, this.voiceLog.length - 64);
     this.next = ahead;
     return fired;
+  }
+  // A sequencer layer on the walk (Steps) sound: only while I walk (pause in place when I stop,
+  // go on from the next step when I walk again), at run.rate × and run.tune while running.
+  walkLoop(lp, { now, ahead, tempo, barS, at, walk }) {
+    let st = this.walkSeq.get(lp.key); if (!st) { st = newWalkSeq(); this.walkSeq.set(lp.key, st); }
+    const run = walk.run, rate = run ? run.rate : 1, tune = run ? run.tune : 1;
+    const pf = tune !== 1 ? retune(lp.pf, tune) : lp.pf;
+    if (!(Math.min(ahead, walk.until) > now)) { this.toneUntil.delete(lp.key); return 0; } // standing: silent, position kept
+    if (lp.steps * rate / (lp.bars * barS) <= RADIO.fastSteps) {
+      this.toneUntil.delete(lp.key);
+      const evs = planWalkSeq(st, { now, ahead, walk, steps: lp.steps, bars: lp.bars, tempo });
+      for (const e of evs) {
+        const s = lp.seq.steps[e.i]; if (s?.on) this.sound.playPatch(pf, { time: at(e.t), layer: lp.layer, gain: s.vol / 100 });
+        this.voiceLog.push({ t: Math.round(e.t), key: lp.key, i: e.i, walk: true, ...(run ? { run: +rate.toFixed(4), tune: +tune.toFixed(4) } : {}) });
+      }
+      return evs.length;
+    }
+    // tone mode (faster than RADIO.fastSteps): short gated chunks while I walk, so it stops soon after I do
+    const end = Math.min(ahead, walk.until), last = this.toneUntil.get(lp.key) || 0;
+    if (last >= end) return 0;
+    const t = Math.max(last, now), len = 0.25;
+    const loopsAt = barsAtTime(t, tempo) * rate / lp.bars;
+    this.sound.playPatch(sustain(pf, len), { time: at(t), layer: lp.layer, gate: { pattern: lp.pattern, rate: rate / (lp.bars * barS), phase: loopsAt - Math.floor(loopsAt), decay: 4 }, length: len });
+    this.toneUntil.set(lp.key, t + len * 1000); st.next = t + len * 1000;
+    this.voiceLog.push({ t: Math.round(t), key: lp.key, tone: true, walk: true, ...(run ? { run: +rate.toFixed(4), tune: +tune.toFixed(4) } : {}) });
+    return 0;
   }
 }
 // A copy of a patch that holds for `len` s (tone mode): short attack, full sustain, quick release.
