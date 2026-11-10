@@ -180,11 +180,12 @@ const preview = new StampPreview(scene, stamps.faces);
 // (the City is no box: its size test is off – the sliders do nothing there)
 const roomSizer = room.city ? { RANGE: ROOM_RANGE, get: () => ({ width: 96, height: 24, depth: 96 }), set() {}, reset() {}, sync() {}, isDefault: () => true }
   : createRoomSizer({ room, scene, stamps, camera, restyle: () => showStyle(shownStyle) });
-// The held sticker / aim brush (Jens, 9 Nov 2026): NEVER auto-fades. Same timer on desktop + touch
-// (shared/heldtimer.mjs). Stays sharp after choose / place until the user turns Aim off (O key or
+// The aim tool (Jens, 9–10 Nov 2026): NEVER auto-fades. Same timer on desktop + touch
+// (shared/heldtimer.mjs). Available in the sticker, Nature and assets/props wheels. Stays sharp
+// after choose / place / switching among those wheels until the user turns Aim off (O key or
 // the on-screen Aim toggle). Wheel R/F idle fade (WHEEL_UP_MS) is separate and untouched.
 const deskHeld = isTouch ? null : createHeldTimer();
-// O toggles the sticker aim tool (held preview + crosshair). Off = no aim brush; persist klibb.aimOff.
+// O toggles the aim tool (crosshair + held sticker / prop ghost). Off = no aim brush; persist klibb.aimOff.
 const AIM_OFF_KEY = 'klibb.aimOff';
 let aimOff = false;
 try { aimOff = localStorage.getItem(AIM_OFF_KEY) === '1'; } catch { /* private */ }
@@ -2073,7 +2074,7 @@ if (!isTouch) {
     if (e.code === 'KeyC' && !e.repeat) toggleView();
     if (e.code === 'KeyX' && !e.repeat) startDance(); // runway dance (shared/dance.mjs)
     if (e.code === 'KeyL' && !e.repeat && credit.shown?.link) openLink(credit.shown.link);
-    if (e.code === 'KeyO' && !e.repeat) setAimOff(!aimOff); // sticker aim tool on/off (sikte / held brush)
+    if (e.code === 'KeyO' && !e.repeat) setAimOff(!aimOff); // aim tool on/off (sikte; stickers, nature, assets)
     if (propsMode()) { // the Props wheel: Q/E turn, R/F the next/previous prop, Delete removes the selected one, Esc lets go
       if (e.code === 'KeyQ') propsUi.turn(1);
       if (e.code === 'KeyE') propsUi.turn(-1);
@@ -2586,6 +2587,7 @@ const together = initTogether({
 var propsUi = initProps({ // eslint-disable-line no-var
   scene, renderer, camera, controls, room, faces: stamps.faces, roomId: ROOM, outside: CITY_OUTSIDE, isTouch, toast,
   aim: (ndc) => aimRay(ndc),
+  aimOff: () => aimOff,
   canEdit: () => !DEMO && canEditProps({ buildPhase: CITY_BUILD_PHASE, admin: !!state.adminToken, full: !!entitlements.full.natureStickers, cityRoom: IN_CITY, buildCity: isBuildCity(ROOM), owner: !!roomKeys()[ROOM] }),
   headers: () => ({ ...unlockHeaders(), ...(roomKeys()[ROOM] ? { 'x-room-key': roomKeys()[ROOM] } : {}), ...(state.adminToken ? { 'x-admin-token': state.adminToken } : {}) }),
   netId: () => together.net.id, sendSit: (chair, draw) => together.net.sendSit(chair, draw), takenSeats: () => together.players.takenSeats(),

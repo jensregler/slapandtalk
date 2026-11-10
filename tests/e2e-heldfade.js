@@ -1,4 +1,6 @@
-// E2E: held sticker / aim NEVER auto-fades (Jens, 9 Nov 2026). Visibility only via O / #aim-toggle.
+// E2E: held sticker / aim NEVER auto-fades (Jens, 9–10 Nov 2026). Visibility only via O / #aim-toggle.
+// Aim tool works in the sticker, Nature and assets/props wheels; survives wheel switches and
+// placements until O (or the HUD button) turns it off. No timeout.
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
@@ -11,7 +13,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
 
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
-  const S = await startServer(PORT, { DEMO_PROFILE: '0', ADMIN_TOKEN: 'heldfade-e2e-admin' });
+  const S = await startServer(PORT, { DEMO_PROFILE: '0', OPEN_ACCESS: '1', ADMIN_TOKEN: 'heldfade-e2e-admin' });
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const errors = [];
   const room = async () => (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
@@ -124,11 +126,184 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       await ctx.close();
     }
 
+    {
+      const tag = 'wheels';
+      const SHOTS_W = '/workspace/aim-wheels-shots';
+      fs.mkdirSync(SHOTS_W, { recursive: true });
+      const made = await room();
+      const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+      await ctx.addInitScript(([r, k]) => {
+        localStorage.setItem('klibb.roomKeys', JSON.stringify({ [r]: k }));
+        localStorage.setItem('klibb.devUnlock', '1');
+        localStorage.setItem('klibb.aimOff', '0');
+      }, [made.room.id, made.roomKey]);
+      const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push('wheels: ' + e.message));
+      await P.goto(`${S.base}/?room=${made.room.id}`);
+      await P.waitForFunction(() => window.klibb && window.klibb.ready && window.klibb.state.selected, null, { timeout: 30000 });
+      await P.waitForFunction(() => window.klibb.propsReady && window.klibb.natureOpen() && window.klibb.natureDesigns().length > 0, null, { timeout: 30000 });
+      await P.evaluate(() => { const k = window.klibb; k.moveTo(0, 1); k.look(0, 0); });
+      await P.mouse.click(960, 300); await P.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
+      await P.evaluate(() => {
+        const k = window.klibb;
+        k.setMode('slap', { quiet: true });
+        k.setPacksMode?.(false, { quiet: true });
+        if (k.propsMode()) k.setProps(false);
+        if (k.natureMode()) k.setNatureMode(false, { quiet: true });
+        k.setAimOff(false, { quiet: true });
+      });
+      await sleep(250);
+
+      const snap = () => P.evaluate(() => {
+        const k = window.klibb;
+        const ch = document.getElementById('crosshair');
+        const cs = ch ? getComputedStyle(ch) : null;
+        const dh = k.deskHeld && k.deskHeld();
+        const info = k.props && k.props.info ? k.props.info() : null;
+        return {
+          aimOff: k.aimOff(),
+          bodyOff: document.body.classList.contains('aim-off'),
+          btn: document.getElementById('aim-toggle')?.getAttribute('aria-pressed'),
+          lab: document.getElementById('aim-toggle')?.textContent,
+          crosshair: !!(ch && !ch.hidden && cs && cs.visibility !== 'hidden' && cs.display !== 'none'),
+          preview: !!(dh && dh.previewVisible),
+          opacity: dh ? dh.opacity : null,
+          canSlap: dh ? dh.canSlap : null,
+          nature: k.natureMode(),
+          props: k.propsMode(),
+          wheel: k.propsMode() ? 'assets' : k.activeWheel(),
+          ghost: !!(info && info.ghost),
+          nProps: info ? info.n : 0,
+        };
+      });
+      const lightWheel = async () => { await P.evaluate(() => window.klibb.wheelUp()); await sleep(80); };
+
+      let s = await snap();
+      check(`${tag}: start on sticker wheel, Aim on`, s.wheel === 'stickers' && !s.aimOff && s.crosshair && s.preview && s.opacity === 1 && s.canSlap && s.btn === 'true', s);
+
+      await P.evaluate(() => { window.klibb.moveTo(0, 2); window.klibb.look(0, 0); });
+      await sleep(200);
+      await lightWheel();
+      await P.screenshot({ path: path.join(SHOTS_W, 'stickers-aim-on.png') });
+      await P.screenshot({ path: '/workspace/aim-stickers.png' });
+      await P.evaluate(() => { window.klibb.moveTo(0, 1); window.klibb.look(0, 0); });
+
+      const natOk = await P.evaluate(() => window.klibb.setNatureMode(true, { quiet: true }));
+      await sleep(400);
+      s = await snap();
+      check(`${tag}: Nature wheel opens`, natOk === true && s.nature && s.wheel === 'nature', { natOk, ...s });
+      check(`${tag}: Nature — Aim still on (preview + crosshair)`, !s.aimOff && s.crosshair && s.preview && s.opacity === 1 && s.canSlap, s);
+
+      await P.evaluate(() => { window.klibb.moveTo(0, 2); window.klibb.look(0, 0); });
+      await P.evaluate(() => window.klibb.stampAt(0, 0));
+      await sleep(400);
+      s = await snap();
+      check(`${tag}: Nature — after place still sharp`, !s.aimOff && s.preview && s.opacity === 1 && s.canSlap, s);
+
+      await sleep(4500);
+      s = await snap();
+      check(`${tag}: Nature — ~4.5 s untouched: STILL sharp`, !s.aimOff && s.preview && s.opacity === 1 && s.canSlap && s.crosshair, s);
+
+      await P.evaluate(() => { window.klibb.moveTo(0, 2); window.klibb.look(0, 0); });
+      await sleep(200);
+      await lightWheel();
+      await P.screenshot({ path: path.join(SHOTS_W, 'nature-aim-on.png') });
+      await P.screenshot({ path: '/workspace/aim-nature.png' });
+
+      // Assets / props: look at the floor so the held-prop ghost can land.
+      await P.evaluate(() => {
+        const k = window.klibb;
+        k.moveTo(3.2, 4.5);
+        k.look(0, -0.55);
+        k.setProps(true);
+        k.props.pickKind('box');
+      });
+      await sleep(800);
+      const propsOpen = await P.evaluate(() => {
+        const k = window.klibb;
+        const info = k.props.info();
+        if (!info.kind) k.props.pickKind('box');
+        return k.propsMode() && info.strip;
+      });
+      check(`${tag}: assets/props wheel opens`, !!propsOpen, { propsOpen });
+      await sleep(800);
+      s = await snap();
+      check(`${tag}: assets — Aim still on after switching from Nature`, !s.aimOff && s.props && s.wheel === 'assets' && s.crosshair && s.btn === 'true', s);
+      check(`${tag}: assets — sticker preview hidden, prop ghost visible`, !s.preview && s.ghost, s);
+
+      const nBefore = s.nProps;
+      await P.evaluate(() => window.klibb.props.click());
+      await sleep(900);
+      s = await snap();
+      check(`${tag}: assets — after place, Aim still on and ghost back`, !s.aimOff && s.ghost && s.crosshair && s.nProps >= nBefore + 1, s);
+
+      await sleep(4500);
+      s = await snap();
+      check(`${tag}: assets — ~4.5 s untouched: ghost STILL visible`, !s.aimOff && s.ghost && s.crosshair, s);
+
+      await lightWheel();
+      await P.screenshot({ path: path.join(SHOTS_W, 'assets-aim-on.png') });
+      await P.screenshot({ path: '/workspace/aim-assets.png' });
+
+      // Switch back among wheels with Aim still on, then off with O, and confirm it stays off.
+      await P.evaluate(() => {
+        const k = window.klibb;
+        k.setProps(false);
+        k.setNatureMode(false, { quiet: true });
+        k.moveTo(0, 1);
+        k.look(0, 0);
+      });
+      await sleep(400);
+      s = await snap();
+      check(`${tag}: back on stickers — Aim still on`, !s.aimOff && s.wheel === 'stickers' && s.preview && s.crosshair, s);
+
+      await P.evaluate(() => window.klibb.setNatureMode(true, { quiet: true }));
+      await sleep(300);
+      s = await snap();
+      check(`${tag}: Nature again — Aim still on`, !s.aimOff && s.nature && s.preview && s.crosshair, s);
+
+      await P.keyboard.press('o'); await sleep(250);
+      s = await snap();
+      check(`${tag}: O on Nature → Aim off (preview + crosshair hidden)`, s.aimOff && s.bodyOff && !s.preview && !s.crosshair && s.opacity === 0 && s.btn === 'false', s);
+
+      await P.evaluate(() => { const k = window.klibb; k.setProps(true); k.moveTo(3.2, 4.5); k.look(0, -0.55); });
+      await sleep(500);
+      s = await snap();
+      check(`${tag}: assets after O-off — Aim still off, no ghost`, s.aimOff && s.props && !s.ghost && !s.crosshair, s);
+      const nOff = s.nProps;
+      await P.evaluate(() => window.klibb.props.click());
+      await sleep(600);
+      s = await snap();
+      check(`${tag}: assets Aim off — click does not place`, s.nProps === nOff, s);
+
+      // Re-lock and face a wall: selecting a placed prop (allowed while Aim is off) unlocks the pointer.
+      await P.evaluate(() => {
+        const k = window.klibb;
+        k.props.deselect?.();
+        k.setProps(false);
+        k.setNatureMode(false, { quiet: true });
+        k.setMode('slap', { quiet: true });
+        k.moveTo(0, 1);
+        k.look(0, 0);
+        k.controls.lock?.();
+      });
+      await sleep(300);
+      s = await snap();
+      check(`${tag}: stickers after O-off — Aim still off`, s.aimOff && s.wheel === 'stickers' && !s.preview && !s.crosshair && s.opacity === 0, s);
+
+      await P.keyboard.press('o'); await sleep(300);
+      s = await snap();
+      check(`${tag}: O → Aim on again on stickers`, !s.aimOff && s.preview && s.crosshair && s.opacity === 1 && /Aim on/i.test(s.lab || ''), s);
+
+      check(`${tag}: wrote wheel screenshots`, fs.existsSync(path.join(SHOTS_W, 'stickers-aim-on.png')) && fs.existsSync(path.join(SHOTS_W, 'nature-aim-on.png')) && fs.existsSync(path.join(SHOTS_W, 'assets-aim-on.png')));
+
+      await ctx.close();
+    }
+
     if (errors.length) console.log('page errors:', errors.slice(0, 5));
   } finally {
     await browser.close().catch(() => {});
     try { S.child.kill(); } catch {}
   }
-  console.log(`\nheldfade (no-fade + aim toggle): ${passed} passed, ${failed} failed`);
+  console.log(`\nheldfade (no-fade + aim in all wheels): ${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -9,7 +9,8 @@
 //   - the PROPS WHEEL (the build phase only – shared/city.mjs CITY_BUILD_PHASE – for admin / the full
 //     version where shared/props.mjs canEditProps allows; not part of the final game): the third wheel,
 //     next to the sticker and Nature wheels (V: Slap → Nature → Props). Pick a prop on the wheel, aim
-//     (a ghost of it stands where you look), click = place it. Click a placed prop = select it: a big
+//     (a ghost of it stands where you look; same Aim tool as stickers/nature: O / #aim-toggle, no
+//     timeout). Click = place it. Click a placed prop = select it: a big
 //     panel to turn, scale (0.25–4×), move, copy or delete it – the cuboid has width / height / depth
 //     (0.1 m up to 32 m wide/deep, 24 m high) and a colour. Q/E turn, the mouse wheel scales, Delete
 //     removes the selected one, Esc lets go. Every change is saved at once (PUT/DELETE …/props/:id).
@@ -26,7 +27,7 @@ const INK_FAR = { room: 40, city: 45 }, HIDE_FAR = 150;
 const r3 = (n) => Math.round(n * 1000) / 1000;
 
 // o: { scene, renderer, camera, controls, room (surfaces, bounds), faces (stamps.faces: mutated in place),
-//      roomId, outside, aim(ndc) → raycaster, toast, isTouch,
+//      roomId, outside, aim(ndc) → raycaster, aimOff() → bool, toast, isTouch,
 //      canEdit() → bool, headers() → {} (x-room-key / x-admin-token / unlock), netId() → my id,
 //      sendSit(chair, draw), takenSeats() → Set, setSelfSeat(seat|null), onModeChange(on), wheelUp() }
 export function initProps(o) {
@@ -224,9 +225,11 @@ export function initProps(o) {
     return m ? items.get(m.userData.propId) || null : null;
   }
   const CENTER = new THREE.Vector2(0, 0);
+  // Aim tool (O / #aim-toggle): same on/off as stickers and nature; no auto-fade.
+  const aimOn = () => !o.aimOff?.();
   function tick(dt, ndc = CENTER) {
     lod(dt); keepSeat();
-    if (!active || sel) { if (ghost) ghost.visible = false; return; }
+    if (!active || sel || !aimOn()) { if (ghost) ghost.visible = false; return; }
     ensureGhost();
     const pt = aimAt(ndc);
     ghostAt = pt;
@@ -262,9 +265,17 @@ export function initProps(o) {
     try { await save(p); } catch (e) { o.toast?.(e.message, 2600); }
     return p;
   }
-  // a click / tap in Props mode: a prop under it = select it; else place the held one
+  // a click / tap in Props mode: a prop under it = select it; else place the held one.
+  // Aim off (O): do not place; selecting a placed prop is still allowed.
   function click(ndc = CENTER) {
     if (!active) return false;
+    if (!aimOn()) {
+      if (moving) return true;
+      if (sel) { const it = pickProp(ndc); if (it && it.p.id !== sel.id) select(it.p.id); else deselect(); return true; }
+      const it = pickProp(ndc);
+      if (it) { select(it.p.id); return true; }
+      return true;
+    }
     if (moving) { placeHeld(); return true; }
     if (sel) { const it = pickProp(ndc); if (it && it.p.id !== sel.id) select(it.p.id); else deselect(); return true; }
     const it = pickProp(ndc);
