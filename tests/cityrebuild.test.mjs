@@ -29,16 +29,17 @@ await ok('FX rooms: reverb inside 4, delay inside 5, noise inside 7 – the room
   const at = (p, dx = 0, dz = 0) => F.cityFxAt(p.x + dx, p.z + dz);
   const [r4, r5, r7] = C.FX_ROOMS;
   const v4 = at(r4), v5 = at(r5), v7 = at(r7);
-  assert.equal(v4.zones.fxReverb, 1); assert.ok(v4.verbWet >= 0.79 && v4.verbSize > 0.95 && v4.noiseWet === 0);
+  // reverb room (Jens 10 Nov 2026, shared/reverbroom.mjs): three reverb points + sines, the street's reverb out (tests/reverbroom.test.mjs)
+  assert.equal(v4.zones.fxReverb, 1); assert.ok(v4.rvWet >= 0.49 && v4.verbWet === 0 && v4.noiseWet === 0 && v4.roomWet === 0 && v4.rvFb2 === 1, JSON.stringify(v4));
   // delay room (Jens's sketch t790u, shared/delayroom.mjs): three delays, the street's delay A/B out (tests/delayroom.test.mjs)
   assert.equal(v5.zones.fxDelay, 1); assert.ok(v5.roomWet >= 0.49 && v5.delayWet === 0 && v5.delay2Wet === 0 && v5.roomFb2 === 1, JSON.stringify(v5));
   assert.equal(v7.zones.fxNoise, 1); assert.ok(v7.noiseWet >= 0.84 && v7.noiseBed >= 0.49 && v7.verbWet < 0.2);
   // ducked: the old Flanger W / Chorus E side fields peak on plots 4/5 – inside the rooms they are ≤ 15 %
   assert.ok(v4.zones.flanger <= 0.151 && v5.zones.chorus <= 0.151, JSON.stringify([v4.zones, v5.zones]));
 });
-await ok('… the reverb / noise spill out through the open side / doorway, much less through a wall; the delay room spills nothing', () => {
+await ok('… the noise room spills out through its doorway, much less through a wall; the delay and reverb rooms spill nothing', () => {
   const [r4, r5, r7] = C.FX_ROOMS;
-  const pairs = [[r4, -1, 0], [r7, 0, 1]]; // [room, open direction x, z]
+  const pairs = [[r7, 0, 1]]; // [room, open direction x, z]
   for (const [p, ox, oz] of pairs) {
     const o = F.fxRoomField(p.x + ox * 9.5, p.z + oz * 9.5, p), w = F.fxRoomField(p.x - ox * 9.5, p.z - oz * 9.5, p);
     const wFar = F.fxRoomField(p.x - ox * 11, p.z - oz * 11, p), oFar = F.fxRoomField(p.x + ox * 11, p.z + oz * 11, p);
@@ -46,6 +47,8 @@ await ok('… the reverb / noise spill out through the open side / doorway, much
   }
   // …but the delay room does NOT spill (Jens's sketch: NO DELAY OUTSIDE THE ROOM): 0 just outside the opening and behind its walls
   for (const [dx, dz] of [[8.05, 0], [9.5, 0], [11, 0], [-9.5, 0], [0, 9.5], [0, -9.5]]) assert.equal(F.fxRoomField(r5.x + dx, r5.z + dz, r5), 0, `room 5 at ${dx},${dz}`);
+  // …nor the reverb room (opens west: −x): 0 just outside the opening and behind its walls
+  for (const [dx, dz] of [[-8.05, 0], [-9.5, 0], [-11, 0], [9.5, 0], [0, 9.5], [0, -9.5]]) assert.equal(F.fxRoomField(r4.x + dx, r4.z + dz, r4), 0, `room 4 at ${dx},${dz}`);
   // the Town Hall, the spawn and the plaza hear none of it
   for (const [x, z] of [[0, 9], [C.CITY_SPAWN.x, C.CITY_SPAWN.z], [0, -22]]) { const v = F.cityFxAt(x, z); assert.ok(!v.zones.fxReverb && !v.zones.fxDelay && !v.zones.fxNoise && v.noiseWet === 0, `${x},${z}`); }
 });
