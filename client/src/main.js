@@ -58,6 +58,7 @@ import { SlapFx } from './slapfx.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
 import { CITY_FX, cityFxAt, placeNeutral, placeHouse, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
+import { delayRoomTimes } from '../../shared/delayroom.mjs';
 import { CITY, CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, PACK_DESIGN_ID, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
@@ -1053,6 +1054,8 @@ async function slapAt(ndc, info, onStart, auto = null) {
   if (!auto || auto.first !== false) { const [dw, dh] = stampDims(design, 1); filmLog?.add('stick', { url: String(design.url || '').length < 200_000 ? design.url || '' : '', aspect: dh > 0 ? +(dw / dh).toFixed(3) : 1 }); } // the session film
 
   { const [aw, ah] = stampDims(design, slapSize); sound.play('slap', null, { area: aw * ah, size: slapSize, ...(auto ? { volume: auto.volume } : {}) }); } // bigger sticker = bigger slap (same curve as duff)
+  // The delay room: a slap sets its three delay times from MY distance to each delay (not the sticker's).
+  if (CITY_OUTSIDE && delayRoom.slap(camera.position.x, camera.position.z)) placeAt = 0;
   const nonce = Math.random().toString(36).slice(2, 12);
   myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
   const body = { nonce, owner: deviceId(), ...(together.net.id ? { by: together.net.id } : {}), // by: så de andra ser min gubbe slappa
@@ -2716,10 +2719,14 @@ const radio = new Radio({ sound, room: ROOM, clock: () => (groove ? groove.now()
 // stand – only outside in the city, and only for me (per listener). Houses / other rooms: neutral
 // (their own room reverb stays). Every PLACE_EVERY_MS, plain params, slewed (PLACE_SLEW).
 let placeCfg = CITY_FX, placeAt = 0, placeNow = null;
+// The delay room (plot 5, Jens's sketch t790u; shared/delayroom.mjs): its three delay times are held here –
+// set from where I stand when I walk in (every entry) and when I slap in the room, kept while I walk.
+const delayRoom = delayRoomTimes();
 function placeTick() {
   const eng = sound.engine; if (!eng) return;
   const now = performance.now(); if (now - placeAt < PLACE_EVERY_MS) return; placeAt = now;
   const v = CITY_OUTSIDE ? cityFxAt(camera.position.x, camera.position.z, placeCfg) : IN_HOUSE ? placeHouse() : placeNeutral();
+  if (CITY_OUTSIDE) { const t = delayRoom.update(camera.position.x, camera.position.z); v.roomTime1 = t[0]; v.roomTime2 = t[1]; v.roomTime3 = t[2]; }
   // City sound dry/wet only outside; in a room keep dry=1 so the slider does not mute the room.
   const city = CITY_OUTSIDE ? (radio.state?.city ?? 0) : 0;
   if (eng.setPlace(v, { slew: PLACE_SLEW, neutral: !CITY_OUTSIDE, city })) placeNow = v;
@@ -3864,7 +3871,7 @@ window.klibb = {
   demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
     closedText: $('demo-closed-text').textContent, invite: inviteState, inviteNote: $('invite-note').hidden ? '' : $('invite-note').textContent, left: demoTimer && demoTimer.left ? demoTimer.left() : null }),
   inviteFriend, mySlot: () => together.mySlot(), talking: () => together.talking(),
-  soundUi: () => soundUi, place: () => ({ now: placeNow, bus: !!sound.engine?.place, worklet: !!sound.engine?.place?.node, sets: sound.engine?.place?.sets || 0, cfg: placeCfg }), setCityFx: (cfg) => { placeCfg = cfg ? (cleanCityFx(cfg) || CITY_FX) : CITY_FX; placeAt = 0; return placeCfg; }, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
+  soundUi: () => soundUi, delayRoom: () => ({ ...delayRoom.state, times: delayRoom.times, live: sound.engine?.place?.room ? sound.engine.place.room.map((r) => ({ time: r.d.delayTime.value, fb: r.fb.gain.value, send: r.send.gain.value, ret: r.ret.gain.value })) : null }), place: () => ({ now: placeNow, bus: !!sound.engine?.place, worklet: !!sound.engine?.place?.node, sets: sound.engine?.place?.sets || 0, cfg: placeCfg }), setCityFx: (cfg) => { placeCfg = cfg ? (cleanCityFx(cfg) || CITY_FX) : CITY_FX; placeAt = 0; return placeCfg; }, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
   groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
   setGrooveScale, grooveObj: () => groove,
   autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundMine: () => sound.mine, prepareSoundForPlace, resetPersonalSound, voiceOf: (id) => together.voiceOf(id),

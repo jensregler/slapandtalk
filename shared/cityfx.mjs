@@ -20,10 +20,12 @@
 //     slides with position along the outer walls. Glitch maxima are hotter than Delay NW / Flanger W.
 // Inside houses / other rooms: PLACE_NEUTRAL (the room's own reverb does the rest); kept city houses: PLACE_HOUSE.
 // Rebuild (10 Nov 2026): open FX rooms on plots 4 (reverb), 5 (delay), 7 (noise) – fxRoomField below.
+// Delay room redesign (Jens's sketch, t790u): three delays, spatial feedback, times on slap – shared/delayroom.mjs.
 // Coordinates: metres on the city map – 96 × 96 m (x, z −48…48), 3 × 3 plots of 32 m, Town Hall
 // at (0, 0), door facing south (+z), spawn at (0, 17). North = −z.
 import { CITY, FX_ROOMS, HOUSE, WALL_T, FX_OPENING } from './city.mjs';
 import { MASTER } from './clock.mjs';
+import { DELAY_ROOM, delayRoomGate, delayFeedbackAt, delayTimesAt } from './delayroom.mjs';
 
 // Every place parameter: [min, max, log?]. Plain numbers – fed to existing audio params.
 export const PLACE = Object.freeze({
@@ -58,6 +60,13 @@ export const PLACE = Object.freeze({
   // quiet steady hiss bed (client/src/synth.js place bus).
   noiseWet:  [0, 1],
   noiseBed:  [0, 1],
+  // Delay room (plot 5, Jens's sketch t790u – shared/delayroom.mjs): three delays on the back wall.
+  // roomWet = each delay's send (0 outside the room), roomFb1–3 = their feedback (0 … 1 = 0 … 100 %,
+  // follows where I stand), roomTime1–3 = their times (10 ms … 1 s; the client holds them from the last
+  // slap / my entry – here: the times for where I stand). Linear, like the mapping (not log).
+  roomWet:   [0, 1],
+  roomFb1:   [0, 1], roomFb2: [0, 1], roomFb3: [0, 1],
+  roomTime1: [DELAY_ROOM.minTime, DELAY_ROOM.maxTime], roomTime2: [DELAY_ROOM.minTime, DELAY_ROOM.maxTime], roomTime3: [DELAY_ROOM.minTime, DELAY_ROOM.maxTime],
   bird:      [0, 2],
   wind:      [0, 2],
 });
@@ -66,7 +75,8 @@ export const PLACE_NEUTRAL = Object.freeze({
   delay2Time: 0.5, delay2Fb: 0, delay2Wet: 0,
   modMix: 0, modBase: 15, modDepth: 3, modRate: 0.5, modFb: 0,
   cutoff: 20000, decim: 1, bits: 16, decimMix: 0, stutter: 0, stutterLen: 1 / 6, chop: 0,
-  freqHz: 0, freqMix: 0, distWet: 0, distAmount: 0.2, noiseWet: 0, noiseBed: 0, bird: 1, wind: 1,
+  freqHz: 0, freqMix: 0, distWet: 0, distAmount: 0.2, noiseWet: 0, noiseBed: 0,
+  roomWet: 0, roomFb1: 0, roomFb2: 0, roomFb3: 0, roomTime1: 0.5, roomTime2: 0.5, roomTime3: 0.5, bird: 1, wind: 1,
 });
 // Inside a kept house (1, 3, 6, 8 – the "breathing holes", pt781u): no place effect and the outdoor
 // bird/wind bed turned well down, so it is clearly calmer than the street.
@@ -116,6 +126,8 @@ function openness(p, x, z, f = FX_ROOM) {
   return smooth((z - (p.z + hd - WALL_T)) / f.blend) * (1 - smooth((Math.abs(x - p.x) - half) / f.blend)); // the south doorway
 }
 export function fxRoomField(x, z, p, f = FX_ROOM) {
+  // The delay room (Jens's sketch: NO DELAY OUTSIDE THE ROOM): no spill through the opening or the walls.
+  if (p.fx === 'delay') return delayRoomGate(x, z);
   const inner = HOUSE.width / 2 - WALL_T;
   const dx = Math.max(0, Math.abs(x - p.x) - inner), dz = Math.max(0, Math.abs(z - p.z) - inner), d = Math.hypot(dx, dz);
   if (d <= 0) return 1;
@@ -364,10 +376,13 @@ function paramsFromFields(A, x, z) {
     v.verbWet = Math.max(v.verbWet, 0.8 * rR);
     v.verbSize = mixLin(v.verbSize, 1, rR);
   }
-  if (rD > 0) { // tempo-synced echoes: ⅛ (⅓ s) + dotted ⅛ at 90 BPM, plenty of repeats
-    v.delayWet = Math.max(v.delayWet, 0.75 * rD); v.delay2Wet = Math.max(v.delay2Wet, 0.5 * rD);
-    v.delayTime = mixLin(v.delayTime, BEAT / 2, rD); v.delay2Time = mixLin(v.delay2Time, BEAT * 3 / 4, rD);
-    v.delayFb = Math.max(v.delayFb, 0.55 * rD); v.delay2Fb = Math.max(v.delay2Fb, 0.45 * rD);
+  { // the delay room: three delays on the back wall (shared/delayroom.mjs) – feedback follows me, times by distance
+    // (no BPM). Wet and feedback are 0 outside the room; the times are always "for where I stand" (continuous) –
+    // the client swaps in the held times (set on entry / slap).
+    const fb = delayFeedbackAt(x, z), tm = delayTimesAt(x, z);
+    v.roomWet = DELAY_ROOM.wet * rD;
+    v.roomFb1 = fb[0]; v.roomFb2 = fb[1]; v.roomFb3 = fb[2];
+    v.roomTime1 = tm[0]; v.roomTime2 = tm[1]; v.roomTime3 = tm[2];
   }
   if (rN > 0) { // noise: my sound turned to hiss + a hiss bed, a little grit and a dull top
     v.noiseWet = Math.max(v.noiseWet, 0.85 * rN); v.noiseBed = Math.max(v.noiseBed, 0.5 * rN);
@@ -398,6 +413,9 @@ function paramsFromFields(A, x, z) {
     v.verbWet = Math.max(v.verbWet, 0.08 * street);
     if (street > 0.5) v.cutoff = Math.min(v.cutoff, 16000);
   }
+
+  // Inside the delay room only its three delays echo: the street's delay A/B (slapback, ducked fields) fade out.
+  if (rD > 0) { const k = 1 - rD; v.delayWet *= k; v.delay2Wet *= k; v.delayFb *= k; v.delay2Fb *= k; }
 
   for (const k of KEYS) v[k] = clamp(v[k], PLACE[k][0], PLACE[k][1]);
   return v;
@@ -493,3 +511,4 @@ export function cleanCityFx(cfg) {
 }
 
 export { BEAT, smooth, clamp };
+export { DELAY_ROOM } from './delayroom.mjs';

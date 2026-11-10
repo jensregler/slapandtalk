@@ -11,6 +11,7 @@
 import { cleanPatch, cleanFx, delaySeconds, patchLength, samplerRate, FX_DEFAULTS, SYNTH } from '../../shared/synth.mjs';
 import { evalMods, compileMods, MOD } from '../../shared/lfo.mjs';
 import { ensureDecimator, makeDecimator, makeMods, makePlace } from './decimator.js';
+import { DELAY_ROOM } from '../../shared/delayroom.mjs';
 import { getMic, micStream } from './mic.js';
 import { peelCurve } from '../../shared/peelstep.mjs';
 
@@ -71,6 +72,7 @@ export class SynthEngine {
   //   out → low-pass → place worklet (flanger/chorus, decimate+bits, stutter/chop) → mix
   //   mix → ears (dry) · mix → delay A/B → ears · mix → small/big reverb → ears
   //   mix → distSend → WaveShaper (intersection Dist peaks) → soft level → ears
+  //   mix (+ voices, voiceIn) → delay room 1/2/3 (send → delay ⟲ fb → ret) → ears (plot 5 only: shared/delayroom.mjs)
   //   ears → [listener FX] → master → guard → speakers
   // After that only plain AudioParams move (setTargetAtTime, PLACE_SLEW): no graph rebuilds.
   // Place follows MY position (per listener); nothing is sent to anyone.
@@ -100,11 +102,24 @@ export class SynthEngine {
     const noiseSend = ctx.createGain(); noiseSend.gain.value = 0; nmod.connect(noiseSend); intoEars(noiseSend);
     const noiseBed = ctx.createGain(); noiseBed.gain.value = 0; nsrc.connect(noiseBed); intoEars(noiseBed);
     try { nsrc.start(); } catch { /* ok */ }
+    // Delay room (plot 5, Jens's sketch t790u): THREE delay lines (left / centre / right on the back wall).
+    // send (wet × City sound × the room gate) → delay ⟲ feedback → ret (the room gate) → ears. ret closes
+    // outside the room, so echoes still ringing never follow me out (NO DELAY OUTSIDE THE ROOM).
+    // voiceIn: voices (my monitor, the others' – plugEars) go through the same three delays.
+    const voiceIn = ctx.createGain(); voiceIn.gain.value = 1;
+    const roomTap = () => {
+      const d = ctx.createDelay(DELAY_ROOM.maxTime + 0.2), fb = ctx.createGain(), send = ctx.createGain(), ret = ctx.createGain();
+      fb.gain.value = 0; send.gain.value = 0; ret.gain.value = 0; d.delayTime.value = 0.5;
+      mix.connect(send); voiceIn.connect(send); send.connect(d); d.connect(fb); fb.connect(d); d.connect(ret); intoEars(ret);
+      return { d, fb, send, ret };
+    };
+    const room = [roomTap(), roomTap(), roomTap()];
+    for (const n of this.plugged || []) { try { n.connect(voiceIn); } catch { /* ok */ } }
     try { this.out.disconnect(); } catch { /* ok */ } // was out → ears
     T.connect(this.out, lp);
     if (node) { lp.connect(node); node.connect(mix); } else lp.connect(mix);
     mix.connect(dryGain); intoEars(dryGain);
-    this.place = { lp, node, mix, dryGain, city: 0, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), dist, distSend, distGain, distAmt: 0.2, noiseSend, noiseBed, last: null, sets: 0 };
+    this.place = { lp, node, mix, dryGain, city: 0, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), dist, distSend, distGain, distAmt: 0.2, noiseSend, noiseBed, voiceIn, room, last: null, sets: 0 };
     return this.place;
   }
   // v: the values from cityFxAt (or PLACE_NEUTRAL). Neutral before the bus exists = nothing to do.
@@ -135,6 +150,14 @@ export class SynthEngine {
     }
     // Noise room: hiss that follows my sound (×3: pink noise sits low) + a quiet bed (kept well under the guard).
     to(P.noiseSend.gain, (v.noiseWet || 0) * 3 * c); to(P.noiseBed.gain, (v.noiseBed || 0) * 0.08 * c);
+    // Delay room: send = roomWet (0 outside the room) × City sound, ret = the room's presence (0 outside), feedback
+    // 0…100 % → loop gain 0…loopMax, times (held by the client since my entry / last slap).
+    const open = Math.min(1, Math.max(0, (v.roomWet || 0) / DELAY_ROOM.wet));
+    P.room.forEach((r, i) => {
+      to(r.send.gain, (v.roomWet || 0) * c); to(r.ret.gain, open);
+      to(r.fb.gain, Math.min(1, Math.max(0, v['roomFb' + (i + 1)] || 0)) * DELAY_ROOM.loopMax);
+      const tm = v['roomTime' + (i + 1)]; if (Number.isFinite(tm)) to(r.d.delayTime, Math.min(DELAY_ROOM.maxTime, Math.max(DELAY_ROOM.minTime, tm)));
+    });
     P.last = v; P.sets++;
     return true;
   }
@@ -190,14 +213,19 @@ export class SynthEngine {
     return this.listenerFx;
   }
   // Connect a raw Web Audio node (voice monitor, remote peer) into my ears so it gets listener FX + place.
+  // Voices also feed the delay room's three delays (place.voiceIn; silent outside the room).
   plugEars(node) {
     if (!node) return;
     try { this.Tone.connect(node, this.ears); } catch {
       try { node.connect(this.ears.input || this.ears); } catch { /* ok */ }
     }
+    (this.plugged ||= new Set()).add(node);
+    if (this.place?.voiceIn) { try { node.connect(this.place.voiceIn); } catch { /* ok */ } }
   }
   unplugEars(node) {
     if (!node) return;
+    this.plugged?.delete(node);
+    if (this.place?.voiceIn) { try { node.disconnect(this.place.voiceIn); } catch { /* ok */ } }
     try { this.Tone.disconnect(node, this.ears); } catch {
       try { node.disconnect(this.ears.input || this.ears); } catch { /* ok */ }
     }

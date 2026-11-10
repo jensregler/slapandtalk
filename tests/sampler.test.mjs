@@ -10,6 +10,7 @@ import { decimate } from '../client/src/decimator.js';
 import { knobToMorph, RADIO_DEFAULTS } from '../shared/radio.mjs';
 import { CITY_FX, PLACE, PLACE_NEUTRAL, cityFxAt, zoneWeight, cleanCityFx, fieldAmounts, cornerField, sideField, peakField, delayParamsAt, glitchDelayParamsAt, PEAKS, FIELD, BEAT } from '../shared/cityfx.mjs';
 import fs from 'fs';
+import { insideHouse } from '../shared/city.mjs';
 
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ✓ ' + name); };
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
@@ -344,6 +345,9 @@ ok('city place effect v2: continuous fields, Freq shift replaces Clean, peaks st
     let prev = null, prevXZ = null;
     for (let i = 0; i <= 960; i++) {
       const t = i / 960, x = line[0][0] + (line[1][0] - line[0][0]) * t, zz = line[0][1] + (line[1][1] - line[0][1]) * t;
+      // Nobody walks through a wall: a step across a building / an open room's wall (the delay room's
+      // "no delay outside the room" edge, Jens t790u) starts the walk again on the other side.
+      if (insideHouse(x, zz)) { prev = null; prevXZ = null; continue; }
       const v = at(x, zz);
       if (prev) {
         for (const k of Object.keys(PLACE)) {
