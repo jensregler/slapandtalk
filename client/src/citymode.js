@@ -66,7 +66,8 @@ const api = {
 };
 export const cityApi = {
   info: (id) => fetch(`/api/cities/${id}`, { cache: 'no-store' }).then(answer),
-  startHouse: (id, by) => fetch(`/api/cities/${id}/houses`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ by }) }).then(answer),
+  // n: the kept house to start (rebuild: 1, 3, 6, 8 – any of them, not in order); none = the next one
+  startHouse: (id, by, n) => fetch(`/api/cities/${id}/houses`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ by, ...(n ? { n } : {}) }) }).then(answer),
 };
 const myLook = () => { const l = read(LOOK_KEY, {}) || {}; return { name: String(l.name || '').slice(0, 24), insta: String(l.look?.insta || '') }; };
 const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }); } catch { return iso; } };
@@ -375,6 +376,8 @@ let cp = null;
 export function openCityPick(opts) { if (!cp) cp = buildPick(); cp.open(opts); return cp; }
 export const cityPickOpen = () => !!cp && !cp.box.hidden;
 export const cityPickState = () => (cp ? cp.state() : { open: false });
+// Room left in a city's outside (server/cities.js `space`; older servers: max − outside).
+const cityRoom = (c) => (Number.isFinite(c.space) ? c.space : Math.max(0, (c.max || 4) - (c.outside || 0)));
 function buildPick() {
   const box = el('div', { id: 'citypick' }); box.hidden = true;
   box.innerHTML = `
@@ -412,12 +415,15 @@ function buildPick() {
     try { st.cities = (await api.cities()).cities || []; } catch { st.cities = null; }
     list.textContent = '';
     if (!st.cities) { list.append(el('li', { className: 'cp-empty', textContent: S.cpFailed })); return; }
-    if (!st.cities.length) { list.append(el('li', { className: 'cp-empty', textContent: S.cpNone })); return; }
+    // The subway (rebuild, 10 Nov 2026): only living cities with room outside, never the one I am in.
+    if (st.opts?.subway) st.cities = st.cities.filter((c) => c.id !== st.opts.here && cityRoom(c) > 0);
+    if (!st.cities.length) { list.append(el('li', { className: 'cp-empty', textContent: st.opts?.subway ? S.subwayNone : S.cpNone })); return; }
     for (const c of st.cities) {
-      const facts = (c.stickers != null || c.visitors != null)
+      const facts = st.opts?.subway ? S.subwayFacts(c.people, cityRoom(c))
+        : (c.stickers != null || c.visitors != null)
         ? S.escCityFacts(c.stickers || 0, c.visitors || 0, (S.escCityAge || ((iso) => iso))(c.createdAt))
         : S.cpFacts(c.people, c.houses.length);
-      const b = el('button', { type: 'button', className: 'cp-city' }, [el('b', { textContent: c.name }), el('span', { textContent: facts }), el('em', { textContent: S.cpJoin })]);
+      const b = el('button', { type: 'button', className: 'cp-city' }, [el('b', { textContent: c.name }), el('span', { textContent: facts }), el('em', { textContent: st.opts?.subway ? S.subwayGo : S.cpJoin })]);
       b.dataset.id = c.id; b.onclick = () => st.opts?.go?.(c.id);
       list.append(el('li', {}, b));
     }
@@ -425,13 +431,14 @@ function buildPick() {
   return {
     box,
     open(opts) {
-      st.opts = opts; $('cp-title').textContent = S.cpTitle; $('cp-new-t').textContent = S.cpNew; $('cp-new-n').textContent = S.cpNewNote;
+      st.opts = opts; $('cp-title').textContent = opts?.subway ? S.subwayTitle : S.cpTitle; $('cp-new-t').textContent = S.cpNew; $('cp-new-n').textContent = S.cpNewNote;
+      $('cp-new').hidden = !!opts?.subway; box.classList.toggle('cp-subway', !!opts?.subway);
       $('cp-name-t').textContent = S.cpNameTitle; $('cp-name').placeholder = S.cpNamePlaceholder; $('cp-name').value = ''; $('cp-back').textContent = S.cpBack; $('cp-go').textContent = S.cpGo; $('cp-go').disabled = false;
       // Esc CITY → Create new city opens straight on the name step.
       const start = opts?.start === 'name' ? 'name' : 'list';
       box.hidden = false; step(start); if (start === 'list') load(); else { st.cities = null; }
     },
-    state: () => ({ open: !box.hidden, step: st.step, cities: st.cities ? st.cities.map((c) => ({ id: c.id, name: c.name, people: c.people })) : null }),
+    state: () => ({ open: !box.hidden, step: st.step, subway: !!st.opts?.subway, cities: st.cities ? st.cities.map((c) => ({ id: c.id, name: c.name, people: c.people, space: cityRoom(c) })) : null }),
   };
 }
 export { PAC_LABEL };

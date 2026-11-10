@@ -1,6 +1,6 @@
 // The cities (t476u + t479u, 2 Nov 2026): screenshots to CITY_SHOTS (/workspace/city2-shots) + checks.
 // A room → the door → 3 slaps in a pack → "to city →" → the city picker → start a city and NAME it →
-// the city (houses start in order: door colours, "not yet", start house 1) → the Town Hall's pack shop
+// the city (rebuild 10 Nov 2026: black doors on houses 1/3/6/8 + the subway, go into house 1) → the Town Hall's pack shop
 // (hand in with a description, take 2 = 3 packs, the big detail view) → Exit (no "back to my room") →
 // the start card's Join list with the city's name → Exit to menu drops a free player's taken packs →
 // a paying player (dev unlock) hands in for good and puts a taken pack in the deck (replace picker) →
@@ -101,18 +101,17 @@ const EXIT = 'a03b0ba5768979e6';
     check('a city needs a name; started → you walk into it (stad-<code>), its name in the HUD', /name/i.test(need) && c.outside && c.id === CID && c.info && c.info.name === 'Slapville' && (await P.textContent('#room-hud')) === 'Slapville', { need, c: { id: c.id, info: c.info } });
     // Full sticker wheel in the city (same deck as the room); exit is Esc EXIT.
     check('city uses the full sticker deck (not reduced carried packs)', c.wheel.length > 20 && picked.every((id) => c.wheel.includes(id)) && !c.wheel.includes(EXIT) && !c.wheel.includes('city-pack'), c.wheel.slice(0, 12));
-    check('houses start in order: no house yet – door 1 is the next one (yellow), the rest not yet (grey)', JSON.stringify(c.doorStates.filter((d) => d[0] !== 'hall')) === JSON.stringify([[1, 'next'], [2, 'later'], [3, 'later'], [4, 'later'], [5, 'later'], [6, 'later'], [7, 'later'], [8, 'later']]), c.doorStates);
+    check('rebuild: black doors on the kept houses 1/3/6/8 + the subway (no house started yet), no doors on 4/5/7', JSON.stringify(c.doorStates.filter((d) => d[0] !== 'hall')) === JSON.stringify([[1, 'open'], ['subway', null], [3, 'open'], [6, 'open'], [8, 'open']]), c.doorStates);
     const pose = (Q, x, y, z, yaw, pitch) => Q.evaluate(([x, y, z, yaw, pitch]) => { const k = window.klibb; k.controls.ground = null; k.controls.collide = null; k.camera.position.set(x, y, z); k.controls.yaw = yaw; k.controls.pitch = pitch; k.controls.apply(); }, [x, y, z, yaw, pitch]);
     await P.evaluate(() => window.klibb.setView('first', { quiet: true }));
     await pose(P, -6, 15, 50, -0.12, -0.32); await sleep(900);
     await shot(P, '03-new-city-overview-doors.png');
-    // a later house's door: not yet (houses start in order) – and a way to the next one
-    await P.evaluate(() => window.klibb.cityDoor(3)); await sleep(400);
-    const notYet = await ids(P, '#menu-choice-list > *');
-    const notYetText = await P.textContent('#menu-choice-list [data-id="not-yet"]').catch(() => '');
-    check('house 3\'s door: "not started yet – house 1 is next" (+ walk there)', JSON.stringify(notYet) === JSON.stringify(['not-yet', 'to-next', 'back']) && /house 1 is next/.test(notYetText), { notYet, notYetText });
-    await pose(P, -33, 2.1, -18, 0.25, 0.05); await sleep(500);
-    await shot(P, '04-house-not-started-yet.png');
+    // rebuild: any kept house can be gone into (not in order) – house 3's door says go in, with its head count
+    await P.evaluate(() => window.klibb.cityDoor(3)); await sleep(600);
+    const door3 = await ids(P, '#menu-choice-list > *');
+    check('house 3\'s door: "Go into house 3" (0 of 4 inside) – kept houses are not started in order any more', JSON.stringify(door3) === JSON.stringify(['enter-house', 'back']) && /0 of 4/.test(await P.textContent('#menu-choice-list')), door3);
+    await pose(P, 31, 2.1, -18, -0.25, 0.05); await sleep(500);
+    await shot(P, '04-house-3-door.png');
     await P.click('#menu-choice-list [data-id="back"]');
 
     // ---- the Town Hall = the pack shop
@@ -163,15 +162,15 @@ const EXIT = 'a03b0ba5768979e6';
     check('Esc EXIT in the city: Exit to menu / Back – no way back into the room I left', JSON.stringify(ex) === JSON.stringify(['exit-menu', 'back']), ex);
     await P.click('#menu-choice-list [data-id="back"]');
 
-    // ---- house 1: start it (the next one), go in
-    await P.evaluate(() => window.klibb.cityDoor(1)); await sleep(300);
+    // ---- house 1: go in (started on the way in)
+    await P.evaluate(() => window.klibb.cityDoor(1)); await sleep(600);
     const st1 = await ids(P, '#menu-choice-list button');
-    check('house 1\'s door: "Start house 1 – a new empty room"', st1[0] === 'start-house', st1);
-    await Promise.all([P.waitForURL(new RegExp(`room=${CID}-1$`), { timeout: 20000 }), P.click('#menu-choice-list [data-id="start-house"]')]);
+    check('house 1\'s door: "Go into house 1"', st1[0] === 'enter-house', st1);
+    await Promise.all([P.waitForURL(new RegExp(`room=${CID}-1$`), { timeout: 20000 }), P.click('#menu-choice-list [data-id="enter-house"]')]);
     await ready(P); await sleep(2500);
     c = await P.evaluate(() => window.klibb.city());
     const h1 = (await (await fetch(`${S.base}/api/rooms/${CID}-1`)).json()).room;
-    check('house 1 is a new empty room (type stad, no preset), full sticker deck, HUD "Slapville · house 1"', h1.type === 'stad' && !h1.preset && c.inCity && !c.outside && c.house === 1 && c.wheel.length > 20 && (await P.textContent('#room-hud')) === 'Slapville · house 1', { h1: h1.type, c: { house: c.house, w: c.wheel.length } });
+    check('house 1 is a new room (type stad; no "village in forrest" preset on this test server), full sticker deck, HUD "Slapville · house 1"', h1.type === 'stad' && !h1.preset && c.inCity && !c.outside && c.house === 1 && c.wheel.length > 20 && (await P.textContent('#room-hud')) === 'Slapville · house 1', { h1: h1.type, c: { house: c.house, w: c.wheel.length } });
     await P.evaluate(() => window.klibb.menuAction('exit')); await sleep(300);
     const ex2 = await ids(P, '#menu-choice-list button');
     check('…its exit menu: Back to the City, Exit to menu (no "back to my room")', JSON.stringify(ex2) === JSON.stringify(['to-city', 'exit-menu', 'back']), ex2);
@@ -193,7 +192,7 @@ const EXIT = 'a03b0ba5768979e6';
     await ready(P); await sleep(2000);
     c = await P.evaluate(() => window.klibb.city());
     const pos = await P.evaluate(() => window.klibb.camera.position.toArray());
-    check('back outside in front of house 1; door 1 started (black), door 2 next', Math.abs(pos[2] - (-32 + 8 + 2.4)) < 0.6 && Math.abs(pos[0] + 32) < 1.2 && c.doorStates.find((d) => d[0] === 1)[1] === 'started' && c.doorStates.find((d) => d[0] === 2)[1] === 'next', { pos, d: c.doorStates });
+    check('back outside in front of house 1; door 1 started (black), door 3 still black (not started)', Math.abs(pos[2] - (-32 + 8 + 2.4)) < 0.6 && Math.abs(pos[0] + 32) < 1.2 && c.doorStates.find((d) => d[0] === 1)[1] === 'started' && c.doorStates.find((d) => d[0] === 3)[1] === 'open', { pos, d: c.doorStates });
     const picker2 = await (await fetch(`${S.base}/api/cities`)).json();
     check('the city picker lists Slapville with its people and houses', picker2.cities.some((x) => x.id === CID && x.name === 'Slapville' && x.houses.length === 1 && x.people >= 1), picker2);
 

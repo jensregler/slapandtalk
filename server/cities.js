@@ -16,14 +16,15 @@ const FIRST_NAME = 'The City';
 // occupancy(id) → number of people in room id now (realtime); maxPlayers per room.
 // presets: server/citypresets.js – a new city copies the default city preset (its outside now, house n when
 // house n is started; t493u). The build city (CITY.BUILD_CITY) is always there and is not on the Join list.
-function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () => Date.now(), log = console, presets = null } = {}) {
+// housePresets: server/housepresets.js – the room preset of kept house n (rebuild, 10 Nov 2026: 1, 3, 6, 8).
+function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () => Date.now(), log = console, presets = null, housePresets = null } = {}) {
   const fromPreset = async (layer) => (presets ? presets.layerFor(layer) : null);
   const presetExtra = (l) => (l ? { stamps: l.stamps, cityPreset: l.preset, ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: l.style } : {}), ...(Array.isArray(l.props) ? { props: l.props } : {}) } : {});
   const always = (city) => city === CITY.CITY_ROOM || city === CITY.BUILD_CITY || BUS.isTestBusCity(city);
   const peopleIn = (city) => [city, ...CITY.houseIds(city)].reduce((n, id) => n + (occupancy(id) || 0), 0);
   async function started(city) {
-    const out = [];
-    for (let n = 1; n <= CITY.HOUSES; n++) { const r = await store.peek(CITY.houseId(city, n)).catch(() => null); if (r) out.push(n); }
+    const out = []; // (rebuild: only the kept houses count – an old house 2/4/5/7 room is no longer a house)
+    for (const n of CITY.KEPT_HOUSES) { const r = await store.peek(CITY.houseId(city, n)).catch(() => null); if (r) out.push(n); }
     return out;
   }
   // Stickers + unique visitors across the city's outside and its houses (room.visitors already
@@ -46,12 +47,13 @@ function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () =
     if (!room && !always(city)) return null;
     const houses = await started(city);
     const people = {};
-    for (const n of houses) people[n] = occupancy(CITY.houseId(city, n)) || 0;
+    for (const n of CITY.KEPT_HOUSES) people[n] = occupancy(CITY.houseId(city, n)) || 0; // every kept house (0 = nobody / not started)
     const stats = await cityStats(city, houses);
     return {
       id: city, name: city === CITY.CITY_ROOM ? FIRST_NAME : (room && room.name) || (city === CITY.BUILD_CITY ? CITY.BUILD_CITY_NAME : 'A city'), first: city === CITY.CITY_ROOM, ...(city === CITY.BUILD_CITY ? { build: true } : {}),
       createdAt: (room && room.createdAt) || null, startedBy: (room && room.startedBy) || null,
       houses, next: CITY.nextHouse(houses), people: peopleIn(city), outside: occupancy(city) || 0, inHouses: people, max: maxPlayers,
+      houseMax: Math.min(CITY.HOUSE_MAX, maxPlayers), space: Math.max(0, maxPlayers - (occupancy(city) || 0)), // the subway lists cities with space > 0
       stickers: stats.stickers, visitors: stats.visitors,
       ...(room && room.hallTint ? { hallTint: room.hallTint } : {}),
       ...(room && room.testBus ? { testBus: true } : {}),
@@ -82,17 +84,26 @@ function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () =
     }
     throw err(500, 'Could not find a free city code');
   }
-  // Start the next house (the lowest free number). Answers { n, id, city } – or 409 when all 8 are there.
-  async function startHouse(city, { by = null } = {}) {
+  // Start a kept house (rebuild, 10 Nov 2026: 1, 3, 6, 8 – walking in through its black door starts it; any
+  // order). n: that house; none = the lowest kept one not started yet. Answers { n, id, city }; an
+  // already started house answers the same (two at once: same house). 409 when there is none left to start.
+  async function startHouse(city, { by = null, n = null } = {}) {
     const i = await info(city);
     if (!i) throw err(404, 'That city is gone');
-    if (!i.next) throw err(409, 'All 8 houses are started');
-    const id = CITY.houseId(city, i.next);
-    // a new city's house: a copy of the default city preset's house n (the build city's own houses start empty)
-    const l = city === CITY.BUILD_CITY ? null : await fromPreset(String(i.next));
-    try { await store.createRoom({ id, type: 'stad', extra: { house: i.next, city, ...(by ? { startedBy: by } : {}), ...presetExtra(l) } }); }
+    const want = n == null || n === '' ? i.next : Number(n);
+    if (!want) throw err(409, 'All the houses are started');
+    if (!CITY.isKeptHouse(want)) throw err(400, 'That house is not a room any more');
+    const id = CITY.houseId(city, want);
+    if (i.houses.includes(want)) return { n: want, id, city: i };
+    // a new city's house: a copy of the default city preset's house n (the build city's own houses start
+    // empty) + the house's room preset (its look and baked walls; shared/city.mjs HOUSE_PRESETS)
+    const l = city === CITY.BUILD_CITY ? null : await fromPreset(String(want));
+    const room = housePresets ? await housePresets.extraFor(want) : null;
+    const extra = { house: want, city, ...(by ? { startedBy: by } : {}), ...presetExtra(l), ...(room ? { preset: room.preset } : {}),
+      ...(room && room.style ? { style: room.style } : {}), ...(room && room.props && !(l && Array.isArray(l.props)) ? { props: room.props } : {}) };
+    try { await store.createRoom({ id, type: 'stad', extra }); }
     catch (e) { if (e.code !== 'EXISTS') throw e; } // two at once: the other one made it – same house
-    return { n: i.next, id, city: await info(city) };
+    return { n: want, id, city: await info(city) };
   }
     // The build city's outside as a room (with its name), made once (startup).
   async function ensureBuildCity() {

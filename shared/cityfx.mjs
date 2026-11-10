@@ -18,10 +18,11 @@
 //   - Glitch SW also drives delay + flanger (on top of crush+stutter+chop): wet/fb/mod scale with
 //     corner depth (0 at the field edge → max / 100 % feedback at the tip). Delay TIME additionally
 //     slides with position along the outer walls. Glitch maxima are hotter than Delay NW / Flanger W.
-// Inside houses / other rooms: PLACE_NEUTRAL (the room's own reverb does the rest).
+// Inside houses / other rooms: PLACE_NEUTRAL (the room's own reverb does the rest); kept city houses: PLACE_HOUSE.
+// Rebuild (10 Nov 2026): open FX rooms on plots 4 (reverb), 5 (delay), 7 (noise) – fxRoomField below.
 // Coordinates: metres on the city map – 96 × 96 m (x, z −48…48), 3 × 3 plots of 32 m, Town Hall
 // at (0, 0), door facing south (+z), spawn at (0, 17). North = −z.
-import { CITY } from './city.mjs';
+import { CITY, FX_ROOMS, HOUSE, WALL_T, FX_OPENING } from './city.mjs';
 import { MASTER } from './clock.mjs';
 
 // Every place parameter: [min, max, log?]. Plain numbers – fed to existing audio params.
@@ -53,6 +54,10 @@ export const PLACE = Object.freeze({
   // Intersection Distortion (Peaks that list 'dist') – place-bus WaveShaper, not listener FX.
   distWet:   [0, 0.85],
   distAmount:[0, 1],
+  // Noise room (plot 7, rebuild 10 Nov 2026): my sound × noise (a hiss that follows what I play) and a
+  // quiet steady hiss bed (client/src/synth.js place bus).
+  noiseWet:  [0, 1],
+  noiseBed:  [0, 1],
   bird:      [0, 2],
   wind:      [0, 2],
 });
@@ -61,8 +66,12 @@ export const PLACE_NEUTRAL = Object.freeze({
   delay2Time: 0.5, delay2Fb: 0, delay2Wet: 0,
   modMix: 0, modBase: 15, modDepth: 3, modRate: 0.5, modFb: 0,
   cutoff: 20000, decim: 1, bits: 16, decimMix: 0, stutter: 0, stutterLen: 1 / 6, chop: 0,
-  freqHz: 0, freqMix: 0, distWet: 0, distAmount: 0.2, bird: 1, wind: 1,
+  freqHz: 0, freqMix: 0, distWet: 0, distAmount: 0.2, noiseWet: 0, noiseBed: 0, bird: 1, wind: 1,
 });
+// Inside a kept house (1, 3, 6, 8 – the "breathing holes", pt781u): no place effect and the outdoor
+// bird/wind bed turned well down, so it is clearly calmer than the street.
+export const PLACE_HOUSE = Object.freeze({ ...PLACE_NEUTRAL, bird: 0.45, wind: 0.3 });
+export const placeHouse = () => ({ ...PLACE_HOUSE, zones: {} });
 const BEAT = 60 / MASTER.bpm; // ⅔ s at 90 BPM
 export const PLACE_SLEW = 0.25;
 export const PLACE_EVERY_MS = 100;
@@ -90,7 +99,33 @@ export const FIELD_IDS = Object.freeze({
   glitch: 'glitch', freq: 'freq',
   peakA: 'peakA', peakB: 'peakB', peakC: 'peakC', peakD: 'peakD',
   park: 'park', edge: 'edge',
+  fxReverb: 'fxReverb', fxDelay: 'fxDelay', fxNoise: 'fxNoise',
 });
+
+// ---------- Open FX rooms (rebuild, Jens 10 Nov 2026: plot 4 reverb, 5 delay, 7 noise) ----------
+// 1 inside the walls, a fade out through the open side / doorway (FX_ROOM.openFade m) and a shorter
+// bleed through the walls (FX_ROOM.wallFade m; long enough that walking past never jumps). Inside a room its effect takes over: every other
+// field is ducked by FX_ROOM.duck × the room's amount. Tunables here – "du kan förbereda det".
+export const FX_ROOM = Object.freeze({ openFade: 5, wallFade: 3, duck: 0.85, blend: 1.5 });
+// How open the side of room p facing (x, z) is: 0 (a wall) … 1 (the open side / the doorway), smooth – so
+// walking round a corner never makes the fade length (and so the sound) jump.
+function openness(p, x, z, f = FX_ROOM) {
+  const hw = HOUSE.width / 2, hd = HOUSE.depth / 2, half = FX_OPENING / 2;
+  if (p.n === 4) return smooth(((p.x - hw + WALL_T) - x) / f.blend);   // open to the west
+  if (p.n === 5) return smooth((x - (p.x + hw - WALL_T)) / f.blend);   // open to the east
+  return smooth((z - (p.z + hd - WALL_T)) / f.blend) * (1 - smooth((Math.abs(x - p.x) - half) / f.blend)); // the south doorway
+}
+export function fxRoomField(x, z, p, f = FX_ROOM) {
+  const inner = HOUSE.width / 2 - WALL_T;
+  const dx = Math.max(0, Math.abs(x - p.x) - inner), dz = Math.max(0, Math.abs(z - p.z) - inner), d = Math.hypot(dx, dz);
+  if (d <= 0) return 1;
+  return radialFalloff(d, 0, f.wallFade + (f.openFade - f.wallFade) * openness(p, x, z, f));
+}
+export function fxRoomAmounts(x, z) {
+  const out = { reverb: 0, delay: 0, noise: 0 };
+  for (const p of FX_ROOMS) out[p.fx] = Math.max(out[p.fx], fxRoomField(x, z, p));
+  return out;
+}
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
@@ -169,16 +204,18 @@ function edgeWeight(x, z, box = CITY) {
 
 // Amounts for every named field at (x, z). Pure geometry – no audio params yet.
 export function fieldAmounts(x, z, f = FIELD) {
-  const delay = cornerField(x, z, -1, -1, f);
-  const reverb = cornerField(x, z,  1, -1, f);
-  const glitch = cornerField(x, z, -1,  1, f);
-  const freq = cornerField(x, z,  1,  1, f);
-  const flanger = sideField(x, z, -1, f);
-  const chorus = sideField(x, z,  1, f);
-  const peakA = peakField(x, z, -16, -16, f);
-  const peakB = peakField(x, z,  16, -16, f);
-  const peakC = peakField(x, z, -16,  16, f);
-  const peakD = peakField(x, z,  16,  16, f);
+  const room = fxRoomAmounts(x, z);
+  const duck = 1 - FX_ROOM.duck * Math.max(room.reverb, room.delay, room.noise);
+  const delay = cornerField(x, z, -1, -1, f) * duck;
+  const reverb = cornerField(x, z,  1, -1, f) * duck;
+  const glitch = cornerField(x, z, -1,  1, f) * duck;
+  const freq = cornerField(x, z,  1,  1, f) * duck;
+  const flanger = sideField(x, z, -1, f) * duck;
+  const chorus = sideField(x, z,  1, f) * duck;
+  const peakA = peakField(x, z, -16, -16, f) * duck;
+  const peakB = peakField(x, z,  16, -16, f) * duck;
+  const peakC = peakField(x, z, -16,  16, f) * duck;
+  const peakD = peakField(x, z,  16,  16, f) * duck;
   const park = parkWeight(x, z);
   const edge = edgeWeight(x, z);
   const peakAmts = { peakA, peakB, peakC, peakD };
@@ -186,6 +223,7 @@ export function fieldAmounts(x, z, f = FIELD) {
   return {
     delay, reverb, flanger, chorus, glitch, freq,
     peakA, peakB, peakC, peakD, park, edge,
+    fxReverb: room.reverb, fxDelay: room.delay, fxNoise: room.noise,
     delayAmt: delay + peakEffectAmt('delay', peakAmts),
     reverbAmt: reverb + peakEffectAmt('reverb', peakAmts),
     flangerAmt: flanger + peakEffectAmt('flanger', peakAmts),
@@ -320,6 +358,22 @@ function paramsFromFields(A, x, z) {
     v.stutterLen = mix('stutterLen', BEAT / 4, BEAT / 2, 1 - clamp(Math.max(gA, xStut), 0, 1));
   }
 
+  // --- Open FX rooms (plot 4 reverb, 5 delay, 7 noise) – Math.max so the room is the boss inside ---
+  const rR = A.fxReverb || 0, rD = A.fxDelay || 0, rN = A.fxNoise || 0;
+  if (rR > 0) { // a big hall: long, wet, dark-ish tail
+    v.verbWet = Math.max(v.verbWet, 0.8 * rR);
+    v.verbSize = mixLin(v.verbSize, 1, rR);
+  }
+  if (rD > 0) { // tempo-synced echoes: ⅛ (⅓ s) + dotted ⅛ at 90 BPM, plenty of repeats
+    v.delayWet = Math.max(v.delayWet, 0.75 * rD); v.delay2Wet = Math.max(v.delay2Wet, 0.5 * rD);
+    v.delayTime = mixLin(v.delayTime, BEAT / 2, rD); v.delay2Time = mixLin(v.delay2Time, BEAT * 3 / 4, rD);
+    v.delayFb = Math.max(v.delayFb, 0.55 * rD); v.delay2Fb = Math.max(v.delay2Fb, 0.45 * rD);
+  }
+  if (rN > 0) { // noise: my sound turned to hiss + a hiss bed, a little grit and a dull top
+    v.noiseWet = Math.max(v.noiseWet, 0.85 * rN); v.noiseBed = Math.max(v.noiseBed, 0.5 * rN);
+    v.decimMix = Math.max(v.decimMix, 0.35 * rN); v.bits = Math.min(v.bits, mixLin(16, 7, rN));
+  }
+
   // --- Park / edge overlays (additive, light) ---
   if (park > 0) {
     v.bird = mixLin(v.bird, 2, park);
@@ -336,7 +390,7 @@ function paramsFromFields(A, x, z) {
   }
 
   // Streets base: a tiny slapback wet when nothing else is cooking (time already blended above).
-  const activity = dA + rA + fA + cA + gA + qA + xDist + xCrush + xStut;
+  const activity = dA + rA + fA + cA + gA + qA + xDist + xCrush + xStut + rR + rD + rN;
   if (activity < 0.15) {
     const street = 1 - activity / 0.15;
     v.delayWet = Math.max(v.delayWet, 0.12 * street);
@@ -365,6 +419,9 @@ export const CITY_FX = Object.freeze({
     { id: 'peakD', name: 'Peak D (bitcrush+freq+reverb)', shape: 'field', fx: {} },
     { id: 'park', name: 'North park', shape: 'field', fx: {} },
     { id: 'edge', name: 'City edge', shape: 'field', fx: {} },
+    { id: 'fxReverb', name: 'Reverb room (4)', shape: 'field', fx: {} },
+    { id: 'fxDelay', name: 'Delay room (5)', shape: 'field', fx: {} },
+    { id: 'fxNoise', name: 'Noise room (7)', shape: 'field', fx: {} },
   ]),
 });
 
@@ -400,6 +457,7 @@ export function cityFxAt(x, z, cfg = CITY_FX) {
       peakA: +A.peakA.toFixed(3), peakB: +A.peakB.toFixed(3),
       peakC: +A.peakC.toFixed(3), peakD: +A.peakD.toFixed(3),
       park: +A.park.toFixed(3), edge: +A.edge.toFixed(3),
+      fxReverb: +A.fxReverb.toFixed(3), fxDelay: +A.fxDelay.toFixed(3), fxNoise: +A.fxNoise.toFixed(3),
     };
     return { ...v, zones };
   }

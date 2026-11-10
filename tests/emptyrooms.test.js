@@ -56,7 +56,7 @@ const GRACE = 300;
     const post = async (u, b) => (await fetch(base + u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) })).json();
     const city = (await post('/api/cities', { name: 'Slapville' })).city.id;
     const h1 = (await post(`/api/cities/${city}/houses`)).id, h2 = (await post(`/api/cities/${city}/houses`)).id;
-    assert(/^stad-[a-z0-9]{6}$/.test(city) && h1 === city + '-1' && h2 === city + '-2', 'a new city + two houses, started in order');
+    assert(/^stad-[a-z0-9]{6}$/.test(city) && h1 === city + '-1' && h2 === city + '-3', 'a new city + two houses, started in order (rebuild: the kept houses 1, 3 …)');
     const out = await join(city), in1 = await join(h1);
     await leave(out);
     assert(reaper.pending().includes(city), 'leaving the outside: the CITY gets a timer…');

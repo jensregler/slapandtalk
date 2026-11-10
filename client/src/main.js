@@ -57,8 +57,8 @@ import { initEscMenu } from './escmenu.js';
 import { SlapFx } from './slapfx.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
-import { CITY_FX, cityFxAt, placeNeutral, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
-import { CITY, CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity } from '../../shared/city.mjs';
+import { CITY_FX, cityFxAt, placeNeutral, placeHouse, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
+import { CITY, CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, PACK_DESIGN_ID, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
 import { initProps } from './propsmode.js';
@@ -99,6 +99,9 @@ const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
 // ordinary box rooms you walk into, started in order. In all of them ("in the city", IN_CITY) the wheel
 // holds only what you brought (citymode.js). THIS_CITY = the city's own id (its outside).
 const CITY_OUTSIDE = isCityOutside(ROOM), IN_CITY = isCityRoom(ROOM), THIS_CITY = cityOf(ROOM);
+// The rebuild (Jens, 10 Nov 2026): only houses 1, 3, 6, 8 are rooms now – an old link to house 2/4/5/7 lands outside.
+if (IN_CITY && houseNumber(ROOM) && !isKeptHouse(houseNumber(ROOM))) location.replace(`${location.origin}/?room=${THIS_CITY}`);
+const IN_HOUSE = IN_CITY && !CITY_OUTSIDE && isKeptHouse(houseNumber(ROOM)); // a kept house: a quiet room (PLACE_HOUSE)
 // FILMS_ENABLED (shared/features.mjs): closed room – code/media stay, no film or reel in the experience.
 const filmLog = (FILMS_ENABLED && !IN_CITY) ? new FilmLog(ROOM) : null; // the session film (filmThenCity)
 const highlightLog = FILMS_ENABLED ? new HighlightLog(ROOM) : null; // room AND city – automatic cameraman moments
@@ -133,7 +136,9 @@ camera.position.copy(room.spawn);
 // Lite slumpat var man dyker upp, så inte alla som kommer in står i varandra.
 camera.position.x += (Math.random() - 0.5) * 3; camera.position.z += (Math.random() - 0.5) * 1;
 // Back out of a house (?at=<city>-3): in front of its door, looking away from it.
-const cityAt = CITY_OUTSIDE && houseNumber(params.get('at') || '') && cityOf(params.get('at')) === THIS_CITY ? spawnOutside(params.get('at')) : null;
+// Up from the subway (?at=subway): on the plaza in front of the station.
+const cityAt = CITY_OUTSIDE && params.get('at') === 'subway' ? { ...SUBWAY_SPAWN }
+  : CITY_OUTSIDE && houseNumber(params.get('at') || '') && cityOf(params.get('at')) === THIS_CITY ? spawnOutside(params.get('at')) : null;
 if (cityAt) camera.position.set(cityAt.x + (Math.random() - 0.5) * 1.5, 1.6 + room.groundAt(cityAt.x, cityAt.z), cityAt.z);
 
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
@@ -2575,7 +2580,7 @@ const together = initTogether({
   onWelcome: (m) => { if (groove && Number.isFinite(m.now)) groove.setServerClock(m.now); setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }); if (DEMO) demoWelcome(m); if (voice) voice.reset(); },
   onSound: (s) => sound.setMine(s),
   pass: () => (DEMO ? demo.passFor(ROOM) : null),
-  onDenied: (m) => { if (DEMO && m.code === 'gone') demo.forgetRoom(ROOM); if (DEMO) demoClosed(demo.deniedText(m.code), m.code === 'gone' ? S.closedTitle : ' '); },
+  onDenied: (m) => { if (m.code === 'house-full' && IN_CITY) { houseFullBack(); return; } if (DEMO && m.code === 'gone') demo.forgetRoom(ROOM); if (DEMO) demoClosed(demo.deniedText(m.code), m.code === 'gone' ? S.closedTitle : ' '); },
   onInvite: (m) => onInviteMsg(m),
   onPeople: (ids) => { if (voice) voice.setPeople(ids); },
   onSignal: (from, data) => { if (voice) voice.onSignal(from, data); },
@@ -2696,7 +2701,7 @@ let placeCfg = CITY_FX, placeAt = 0, placeNow = null;
 function placeTick() {
   const eng = sound.engine; if (!eng) return;
   const now = performance.now(); if (now - placeAt < PLACE_EVERY_MS) return; placeAt = now;
-  const v = CITY_OUTSIDE ? cityFxAt(camera.position.x, camera.position.z, placeCfg) : placeNeutral();
+  const v = CITY_OUTSIDE ? cityFxAt(camera.position.x, camera.position.z, placeCfg) : IN_HOUSE ? placeHouse() : placeNeutral();
   // City sound dry/wet only outside; in a room keep dry=1 so the slider does not mute the room.
   const city = CITY_OUTSIDE ? (radio.state?.city ?? 0) : 0;
   if (eng.setPlace(v, { slew: PLACE_SLEW, neutral: !CITY_OUTSIDE, city })) placeNow = v;
@@ -2775,26 +2780,48 @@ function doorHit(ndc) {
   if (!hit || !hit.object.userData.door || hit.distance > 14) return null;
   return plotOfDoor(hit.object.userData.door);
 }
-const plotOfDoor = (d) => (d === 'hall' ? { n: 0, hall: true } : { ...plotOfHouse(Number(d)) });
+const plotOfDoor = (d) => (d === 'hall' ? { n: 0, hall: true } : d === 'subway' ? { n: 2, subway: true } : { ...plotOfHouse(Number(d)) });
 const goHouse = (n) => { goRoom(houseId(THIS_CITY, n)); };
-// A house's door: started → go in; the next one → start it (a new empty room); a later one → not yet.
+// The rebuild (Jens, 10 Nov 2026, pt781u): the subway's black door → the living cities with room; a kept
+// house's black door (1, 3, 6, 8) → go in (started on the way in if nobody has yet), at most HOUSE_MAX
+// people – number five is turned away and offered the other houses that have room.
+const houseMax = (i) => Math.min(HOUSE_MAX, i?.max || HOUSE_MAX);
+function otherHouses(i, n) {
+  return KEPT_HOUSES.filter((k) => k !== n && (i.inHouses?.[k] || 0) < houseMax(i))
+    .map((k) => ({ id: `try-${k}`, text: S.cityTryHouse(k, i.inHouses?.[k] || 0, houseMax(i)), go: () => walkToDoor(k) }));
+}
+function houseFullChoice(i, n) {
+  const others = otherHouses(i, n);
+  openChoice('city-door', [{ id: 'house-full', info: true, text: S.cityHouseFull(n, houseMax(i)) }, ...others,
+    ...(others.length ? [] : [{ id: 'none-free', info: true, text: S.cityNoHouseFree }]), { id: 'back', text: S.cityStay }]);
+}
+async function enterHouse(n) {
+  const i = cityInfo || await refreshCity();
+  if (i && !i.houses.includes(n)) {
+    toast(S.cityStarting, 4000);
+    try { await cityApi.startHouse(THIS_CITY, state.artist || '', n); } catch (e) { toast(e.message, 3000); refreshCity(); return; }
+  }
+  goHouse(n);
+}
+function openSubway() {
+  controls.unlock?.(); closeChoice();
+  openCityPick({ toast, subway: true, here: THIS_CITY, go: (id) => { goRoom(id, '&at=subway'); } });
+}
 async function openCityDoor(p) {
   if (p.hall) { openHall(); return; }
-  const n = p.n, i = cityInfo || await refreshCity();
-  if (!i) return;
-  if (i.houses.includes(n)) {
-    openChoice('city-door', [{ id: 'enter-house', text: S.cityEnterHouse(n), note: S.cityHouseHere(i.inHouses?.[n] || 0), go: () => goHouse(n) }, { id: 'back', text: S.cityStay }]);
-  } else if (n === i.next) {
-    openChoice('city-door', [{ id: 'start-house', text: S.cityStartHouse(n), go: async () => {
-      toast(S.cityStarting, 4000);
-      try { const r = await cityApi.startHouse(THIS_CITY, state.artist || ''); goHouse(r.n); } catch (e) { toast(e.message, 3000); refreshCity(); }
-    } }, { id: 'back', text: S.cityStay }]);
-  } else {
-    const out = [{ id: 'not-yet', info: true, text: S.cityNotYet(n, i.next) }];
-    if (i.next) out.push({ id: 'to-next', text: S.cityGoNext(i.next), go: () => walkToDoor(i.next) });
-    out.push({ id: 'back', text: S.cityStay });
-    openChoice('city-door', out);
-  }
+  if (p.subway) { openSubway(); return; }
+  const n = p.n, i = await refreshCity() || cityInfo; // fresh head counts: the door decides on them
+  if (!i || !isKeptHouse(n)) return;
+  const here = i.inHouses?.[n] || 0;
+  if (here >= houseMax(i)) { houseFullChoice(i, n); return; }
+  openChoice('city-door', [{ id: 'enter-house', text: S.cityEnterHouse(n), note: S.cityHouseQuiet(n, here, houseMax(i)), go: () => enterHouse(n) }, { id: 'back', text: S.cityStay }]);
+}
+// Turned away by the server (the house filled up on the way in): back out in front of its door, with the choice.
+function houseFullBack() { goRoom(THIS_CITY, `&at=${ROOM}&full=${houseNumber(ROOM)}`); }
+if (CITY_OUTSIDE && isKeptHouse(Number(params.get('full')))) {
+  const n = Number(params.get('full'));
+  toast(S.cityHouseFullToast(n, HOUSE_MAX), 4000);
+  refreshCity().then((i) => { if (i) houseFullChoice(i, n); });
 }
 function openHall() {
   controls.unlock?.(); closeChoice();

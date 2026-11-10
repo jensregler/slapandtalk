@@ -5,10 +5,11 @@
 //   - drawn like Jens's sketch: pale stone slabs and houses, thick black outlines, black arched doors,
 //     a green Town Hall of three blocks with black slit windows on its top block.
 import * as THREE from 'three';
-import { CITY, PLOTS, PLOT, PLOT_GAP, PLOT_SLAB, HOUSE, HALL_BLOCKS, CITY_SPAWN, groundAt, pushOut, doorAt } from '../../shared/city.mjs';
+import { CITY, PLOTS, PLOT, PLOT_GAP, PLOT_SLAB, HOUSE, HALL_BLOCKS, CITY_SPAWN, PLAZA, PLAZA_BENCHES, FX_OPENING, groundAt, pushOut, doorAt, isKeptHouse } from '../../shared/city.mjs';
 
 const STONE = 0xd2c9ba, SLAB = 0xc9bfae, HALL_GREEN = 0x9fd0a8, SKY = 0xbfe2f6, STREET = 0x8f8a82, INK = 0x15130f;
-const PATH = 0xb5ab9a; // the painted streets: a little darker than the plots, never a dark "ditch"
+const PATH = 0xb5ab9a;
+const PAVER = 0xc2b6a2, PAVER_DARK = 0xa99d88, SUBWAY_BLUE = 0x1f5fbf, FX_STONE = 0xd8c7b0; // the plaza, the subway sign, the open rooms (a touch warmer) // the painted streets: a little darker than the plots, never a dark "ditch"
 // Jens (t516u, 4 Nov 2026): no black edge lines on the houses. Flip to true to bring them back.
 const CITY_EDGE_LINES = false;
 const LINE = 0.14; // outline thickness (m): reads well from across the city and on a phone
@@ -40,6 +41,17 @@ function groundMaterial(W, D) {
     g.fillStyle = hex(SLAB); g.fillRect(x, y, s * k, s * k);
     g.strokeStyle = 'rgba(21,19,15,.55)'; g.lineWidth = 0.08 * k; g.strokeRect(x, y, s * k, s * k);
   }
+  // The plaza (rebuild, 10 Nov 2026): paving slabs from the subway station down to the Town Hall, over the
+  // street between them, with a ring of darker stones in the middle.
+  { const px = (PLAZA.x - PLAZA.w / 2 + W / 2) * k, py = (PLAZA.z - PLAZA.d / 2 + D / 2) * k;
+    g.fillStyle = hex(PAVER); g.fillRect(px, py, PLAZA.w * k, PLAZA.d * k);
+    g.strokeStyle = 'rgba(21,19,15,.18)'; g.lineWidth = 0.04 * k;
+    for (let xx = 0; xx <= PLAZA.w; xx += 1.5) { g.beginPath(); g.moveTo(px + xx * k, py); g.lineTo(px + xx * k, py + PLAZA.d * k); g.stroke(); }
+    for (let zz = 0; zz <= PLAZA.d; zz += 1.5) { g.beginPath(); g.moveTo(px, py + zz * k); g.lineTo(px + PLAZA.w * k, py + zz * k); g.stroke(); }
+    const cx = (PLAZA.x + W / 2) * k, cy = (PLAZA.z + D / 2) * k;
+    g.strokeStyle = hex(PAVER_DARK); g.lineWidth = 0.9 * k; g.beginPath(); g.arc(cx, cy, 5 * k, 0, Math.PI * 2); g.stroke();
+    g.lineWidth = 0.35 * k; g.beginPath(); g.arc(cx, cy, 2.2 * k, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = 'rgba(21,19,15,.45)'; g.lineWidth = 0.08 * k; g.strokeRect(px, py, PLAZA.w * k, PLAZA.d * k); }
   let r = 7 * 9301 + 49297; const rnd = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
   for (let n = 0; n < 60000; n++) { const v = rnd(); g.fillStyle = v < 0.5 ? `rgba(0,0,0,${0.03 + rnd() * 0.05})` : `rgba(255,255,255,${0.03 + rnd() * 0.06})`; g.fillRect(rnd() * c.width, rnd() * c.height, 1 + rnd() * 2, 1 + rnd() * 2); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
@@ -81,17 +93,81 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {
   add('vägg-öster', D, H, sky, [hw, H / 2, 0], [0, -Math.PI / 2, 0]);
 
   const doors = [];
-  const s = PLOT - PLOT_GAP;
-  for (const p of PLOTS) {
-    // The house (or the Town Hall): 4 walls + a roof, facing out.
-    const { x, z, w, d, h, y0 } = p.house, base = p.hall ? (hallColor != null ? hallColor : HALL_GREEN) : STONE, tag = p.hall ? 'hall' : `h${p.k}`;
-    const wm = () => material(base, w, h, 20 + p.k, p.hall ? 0.2 : 0.25);
+  const label = (text, w, h, { bg = null, fg = '#15130f', font = '900 104px Arial Black, Arial, sans-serif', cw = 256, ch = 128 } = {}) => {
+    const c = document.createElement('canvas'); c.width = cw; c.height = ch; const g = c.getContext('2d');
+    if (bg) { g.fillStyle = bg; g.fillRect(0, 0, cw, ch); }
+    g.fillStyle = fg; g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, cw / 2, ch / 2 + ch * 0.03);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: t, transparent: !bg }));
+  };
+  const arch = (p) => { // a black arch, just in front of the wall (not a sticker surface)
+    const { w: dw, h: dh } = p.door, r = dw / 2, shape = new THREE.Shape();
+    shape.moveTo(-r, 0); shape.lineTo(r, 0); shape.lineTo(r, dh - r); shape.absarc(0, dh - r, r, 0, Math.PI, false); shape.lineTo(-r, 0);
+    const door = new THREE.Mesh(new THREE.ShapeGeometry(shape, 24), p.hall ? ink : ink.clone());
+    const id = p.hall ? 'hall' : p.subway ? 'subway' : p.n;
+    door.position.set(p.door.x, p.door.y0, p.door.z + 0.03); door.name = `door-${id}`;
+    door.userData = { door: id, plot: p.k }; group.add(door); doors.push(door);
+    return door;
+  };
+  // A solid box's four outer walls + roof as slap surfaces (houses, the Town Hall, the subway station).
+  const solid = (tag, b, base, seed, perM = 0.25) => {
+    const { x, z, w, d, h, y0 } = b, wm = () => material(base, w, h, seed, perM);
     add(`${tag}-n`, w, h, wm(), [x, y0 + h / 2, z - d / 2], [0, Math.PI, 0]);
     add(`${tag}-s`, w, h, wm(), [x, y0 + h / 2, z + d / 2], [0, 0, 0]);
-    add(`${tag}-w`, d, h, wm(), [x - w / 2, y0 + h / 2, z], [0, -Math.PI / 2, 0]);
-    add(`${tag}-e`, d, h, wm(), [x + w / 2, y0 + h / 2, z], [0, Math.PI / 2, 0]);
-    add(`${tag}-roof`, w, d, material(base, w, d, 40 + p.k), [x, y0 + h, z], [-Math.PI / 2, 0, 0]);
+    add(`${tag}-w`, d, h, material(base, d, h, seed, perM), [x - w / 2, y0 + h / 2, z], [0, -Math.PI / 2, 0]);
+    add(`${tag}-e`, d, h, material(base, d, h, seed, perM), [x + w / 2, y0 + h / 2, z], [0, Math.PI / 2, 0]);
+    add(`${tag}-roof`, w, d, material(base, w, d, seed + 20), [x, y0 + h, z], [-Math.PI / 2, 0, 0]);
     outlineBox(x, y0, z, w, h, d);
+  };
+  for (const p of PLOTS) {
+    if (p.open) { // ---- an open FX room (plots 4, 5, 7): wall segments (both faces + their ends) and a roof, no door
+      const tag = `fx${p.n}`, wallMat = (w, h, k) => material(FX_STONE, w, h, 60 + p.n * 7 + k);
+      p.walls.forEach((b, k) => {
+        const { x, z, w, d, h, y0 } = b, cy = y0 + h / 2;
+        if (w >= d) { // runs east–west: a north face and a south face
+          add(`${tag}-w${k}-n`, w, h, wallMat(w, h, k), [x, cy, z - d / 2], [0, Math.PI, 0]);
+          add(`${tag}-w${k}-s`, w, h, wallMat(w, h, k), [x, cy, z + d / 2], [0, 0, 0]);
+          add(`${tag}-w${k}-e0`, d, h, wallMat(d, h, k), [x - w / 2, cy, z], [0, -Math.PI / 2, 0], false);
+          add(`${tag}-w${k}-e1`, d, h, wallMat(d, h, k), [x + w / 2, cy, z], [0, Math.PI / 2, 0], false);
+        } else { // runs north–south: a west face and an east face
+          add(`${tag}-w${k}-w`, d, h, wallMat(d, h, k), [x - w / 2, cy, z], [0, -Math.PI / 2, 0]);
+          add(`${tag}-w${k}-e`, d, h, wallMat(d, h, k), [x + w / 2, cy, z], [0, Math.PI / 2, 0]);
+          add(`${tag}-w${k}-e0`, w, h, wallMat(w, h, k), [x, cy, z - d / 2], [0, Math.PI, 0], false);
+          add(`${tag}-w${k}-e1`, w, h, wallMat(w, h, k), [x, cy, z + d / 2], [0, 0, 0], false);
+        }
+      });
+      const rf = p.roof; // the roof: a top you can slap from outside and a ceiling you can slap from inside
+      add(`${tag}-roof`, rf.w, rf.d, material(FX_STONE, rf.w, rf.d, 90 + p.n), [rf.x, rf.y0 + rf.h, rf.z], [-Math.PI / 2, 0, 0]);
+      add(`${tag}-ceiling`, rf.w, rf.d, material(FX_STONE, rf.w, rf.d, 95 + p.n), [rf.x, rf.y0, rf.z], [Math.PI / 2, 0, 0]);
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(rf.w, rf.h, rf.d), material(FX_STONE, rf.w, rf.d, 99 + p.n));
+      edge.position.set(rf.x, rf.y0 + rf.h / 2 + 0.01, rf.z); edge.scale.set(1.001, 0.98, 1.001); group.add(edge);
+      // a sign over the opening: the plot's number and what the room does
+      const word = { reverb: 'REVERB', delay: 'DELAY', noise: 'NOISE' }[p.fx];
+      const sign = label(`${p.n} · ${word}`, 4.2, 1.05, { font: '900 88px Arial Black, Arial, sans-serif', cw: 512, ch: 128 });
+      sign.name = `fx-sign-${p.n}`;
+      const hw = HOUSE.width / 2;
+      if (p.n === 4) { sign.position.set(p.x - hw - 0.05, HOUSE.height - 1.2, p.z); sign.rotation.y = -Math.PI / 2; }
+      else if (p.n === 5) { sign.position.set(p.x + hw + 0.05, HOUSE.height - 1.2, p.z); sign.rotation.y = Math.PI / 2; }
+      else sign.position.set(p.x, HOUSE.height - 1.2, p.z + HOUSE.depth / 2 + 0.05);
+      group.add(sign);
+      continue;
+    }
+    if (p.subway) { // ---- the subway station (plot 2): a low stone box, black door, a blue T sign on a pole
+      const b = p.house;
+      solid('subway', b, STONE, 70, 0.3);
+      arch(p);
+      const word = label('SUBWAY → cities', 6.4, 0.9, { bg: '#1f5fbf', fg: '#ffffff', font: '800 70px Arial, sans-serif', cw: 768, ch: 108 });
+      word.name = 'subway-sign'; word.position.set(b.x, b.y0 + b.h - 0.65, b.z + b.d / 2 + 0.04); group.add(word);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 4.6, 10), ink);
+      pole.position.set(b.x + 4.2, 2.3, b.z + b.d / 2 + 1.4); group.add(pole);
+      const t = label('T', 1.2, 1.2, { bg: '#1f5fbf', fg: '#ffffff', font: '900 104px Arial Black, Arial, sans-serif', cw: 128, ch: 128 });
+      t.name = 'subway-t'; t.position.set(b.x + 4.2, 4.4, b.z + b.d / 2 + 1.46); group.add(t);
+      const tb = t.clone(); tb.rotation.y = Math.PI; tb.position.z -= 0.04; group.add(tb);
+      continue;
+    }
+    // ---- a kept house (1, 3, 6, 8) or the Town Hall: 4 walls + a roof, facing out
+    const { x, z, w, d, h, y0 } = p.house, base = p.hall ? (hallColor != null ? hallColor : HALL_GREEN) : STONE, tag = p.hall ? 'hall' : `h${p.k}`;
+    solid(tag, p.house, base, 20 + p.k, p.hall ? 0.2 : 0.25);
     if (p.hall) { // the three blocks: a black seam (a slight lip) at every block line
       if (CITY_EDGE_LINES) for (let b = 1; b < HALL_BLOCKS; b++) {
         const yy = y0 + b * HOUSE.height;
@@ -110,18 +186,19 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {
         }
       }
     }
-    // The door: a black arch, just in front of the wall (not a sticker surface).
-    const { w: dw, h: dh } = p.door, r = dw / 2, shape = new THREE.Shape();
-    shape.moveTo(-r, 0); shape.lineTo(r, 0); shape.lineTo(r, dh - r); shape.absarc(0, dh - r, r, 0, Math.PI, false); shape.lineTo(-r, 0);
-    const door = new THREE.Mesh(new THREE.ShapeGeometry(shape, 24), p.hall ? ink : ink.clone());
-    door.position.set(p.door.x, p.door.y0, p.door.z + 0.03); door.name = `door-${p.n || 'hall'}`;
-    door.userData = { door: p.n || 'hall', plot: p.k }; group.add(door); doors.push(door);
-    if (!p.hall) { // the house's number over its door, big (which house is which – they start in order)
-      const c = document.createElement('canvas'); c.width = 256; c.height = 128; const g = c.getContext('2d');
-      g.fillStyle = '#15130f'; g.font = '900 104px Arial Black, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(p.n), 128, 68);
-      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-      const num = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.8), new THREE.MeshBasicMaterial({ map: t, transparent: true }));
+    arch(p);
+    if (!p.hall) { // the house's number over its door, big
+      const num = label(String(p.n), 1.6, 0.8);
       num.position.set(p.door.x, p.door.y0 + p.door.h + 0.75, p.door.z + 0.04); group.add(num);
+    }
+  }
+  // The plaza's benches (solid in shared/city.mjs PLAZA_BENCHES): a stone seat on two feet.
+  for (const b of PLAZA_BENCHES) {
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(b.w, 0.12, b.d), material(STONE, b.w, b.d, 81));
+    seat.position.set(b.x, b.h, b.z); seat.name = 'plaza-bench'; group.add(seat);
+    for (const off of [-b.d / 2 + 0.25, b.d / 2 - 0.25]) {
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(b.w * 0.8, b.h, 0.18), material(PAVER_DARK, 0.5, 0.5, 82));
+      foot.position.set(b.x, b.h / 2, b.z + off); group.add(foot);
     }
   }
 
@@ -177,10 +254,13 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {
 // Which houses are started (t479u: houses start in order): a started house's door is black (go in),
 // the next one to start is a warm yellow (start it), the ones after it are grey (not yet).
 const DOOR_COLOURS = { started: 0x15130f, next: 0xf2b632, later: 0x9a948a };
+// Rebuild (10 Nov 2026): every kept house's door is black (pt781u: "via dom svarta dörrarna") – walking in
+// starts the house if nobody has yet; the subway door is black too.
 export function markDoors(doors, { started = [], next = 0 } = {}) {
   const s = new Set(started);
   for (const d of doors) {
-    const n = d.userData.door; if (n === 'hall') continue;
+    const n = d.userData.door; if (n === 'hall' || n === 'subway') continue;
+    if (isKeptHouse(n)) { d.userData.state = s.has(n) ? 'started' : 'open'; d.material.color.setHex(DOOR_COLOURS.started); continue; }
     const state = s.has(n) ? 'started' : n === next ? 'next' : 'later';
     d.userData.state = state; d.material.color.setHex(DOOR_COLOURS[state]);
   }

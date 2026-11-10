@@ -18,8 +18,8 @@ ok('layout: 96 × 96 × 24, 3 × 3 plots of 32 m, houses 16 × 8 × 16, the Town
   assert.deepEqual(C.PLOT_ROOMS, ['stad-1', 'stad-2', 'stad-3', 'stad-4', 'stad-5', 'stad-6', 'stad-7', 'stad-8']);
   assert.ok(C.HALL.x === 0 && C.HALL.z === 0 && C.HALL.house.h === 24 && C.HALL.room === null);
   for (const p of C.PLOTS) {
-    assert.ok(Math.abs(p.x) + p.house.w / 2 <= 48 && Math.abs(p.z) + p.house.d / 2 <= 48);
-    if (!p.hall) assert.ok(p.house.w === 16 && p.house.h === 8 && p.house.d === 16);
+    assert.ok(Math.abs(p.house.x) + p.house.w / 2 <= 48 && Math.abs(p.house.z) + p.house.d / 2 <= 48);
+    if (!p.hall && !p.subway) assert.ok(p.house.w === 16 && p.house.h === 8 && p.house.d === 16);
   }
   assert.ok(C.isCityRoom('stad') && C.isCityRoom('stad-5') && !C.isCityRoom('stad-9') && !C.isCityRoom('abc'));
 });
@@ -30,6 +30,7 @@ ok('ids: many cities – stad-<code> outside, stad-<code>-<n> its houses; the fi
   assert.deepEqual(C.houseIds('stad-ab12cd').slice(0, 2), ['stad-ab12cd-1', 'stad-ab12cd-2']);
   for (let k = 0; k < 200; k++) { const id = C.newCityId(); assert.ok(C.CITY_CODE_RE.test(id) && C.isCityOutside(id) && !C.isFirstCity(id), id); }
   assert.equal(C.nextHouse([]), 1); assert.equal(C.nextHouse([1, 2, 4]), 3); assert.equal(C.nextHouse([1, 2, 3, 4, 5, 6, 7, 8]), 0);
+  assert.equal(C.nextHouse([1, 3]), 6); assert.equal(C.nextHouse([1, 3, 6, 8]), 0); // (rebuild: only 1, 3, 6, 8 are houses)
   assert.equal(C.plotOfRoom('stad-ab12cd-2').z, -32); assert.deepEqual({ ...C.roomBox('stad-ab12cd') }, { ...C.CITY }); assert.equal(C.roomBox('stad-ab12cd-2').width, 16);
 });
 ok('walking: the ground is ONE flat piece (no ditches, t481u), houses push you out, doors are in front of the south wall', () => {
@@ -37,12 +38,36 @@ ok('walking: the ground is ONE flat piece (no ditches, t481u), houses push you o
   for (const [x, z] of [[0, 20], [16, 20], [-40, -40], [32, 16.2], [47, 0]]) assert.equal(C.groundAt(x, z), 0, `${x},${z}`); // (x = 16: the street between two plots)
   assert.deepEqual(C.pushOut(0, 7.9), [0, 8.35]);
   assert.deepEqual(C.pushOut(-32 + 7.9, -32), [-32 + 8.35, -32]);
-  assert.equal(C.doorAt(0, 8.5).hall, true); assert.equal(C.doorAt(0, 8.5 - 32).room, 'stad-2'); assert.equal(C.doorAt(4, 8.5), null);
+  assert.equal(C.doorAt(0, 8.5).hall, true); assert.equal(C.doorAt(-32, 8.5 - 32).room, 'stad-1'); assert.equal(C.doorAt(4, 8.5), null);
+  assert.equal(C.doorAt(0, C.SUBWAY.z + C.SUBWAY.d / 2 + 0.5).subway, true); // the subway station's door (plot 2)
   assert.ok(!C.insideHouse(C.CITY_SPAWN.x, C.CITY_SPAWN.z));
   for (const id of C.PLOT_ROOMS) { const s = C.spawnOutside(id); assert.ok(!C.insideHouse(s.x, s.z), id); }
   assert.deepEqual({ ...C.roomBox('stad') }, { ...C.CITY }); assert.equal(C.roomBox('stad-1').width, 16);
 });
 
+ok('rebuild (Jens, 10 Nov 2026): kept houses 1/3/6/8 with presets, subway on plot 2, open FX rooms 4/5/7, a plaza', () => {
+  assert.deepEqual([...C.KEPT_HOUSES], [1, 3, 6, 8]); assert.equal(C.HOUSE_MAX, 4);
+  assert.deepEqual(C.PLOTS.map((p) => p.kind), ['house', 'subway', 'house', 'fx', 'hall', 'fx', 'house', 'fx', 'house']);
+  assert.deepEqual(Object.keys(C.HOUSE_PRESETS).map(Number), [1, 3, 6, 8]);
+  assert.deepEqual(C.FX_ROOMS.map((p) => [p.n, p.fx]), [[4, 'reverb'], [5, 'delay'], [7, 'noise']]);
+  for (const p of C.PLOTS) assert.equal(!!p.door, p.kind !== 'fx', `plot ${p.n}: door`);
+  // kept houses are rooms; the others are not
+  for (const n of [1, 3, 6, 8]) assert.equal(C.plotOfHouse(n).room, `stad-${n}`);
+  for (const n of [2, 4, 5, 7]) assert.equal(C.plotOfHouse(n).room, null);
+  // open rooms: you can walk in through the open side / the doorway, not through a wall
+  for (const p of C.FX_ROOMS) { assert.ok(!C.insideHouse(p.x, p.z), `inside room ${p.n} is free`); assert.equal(C.insideFxRoom(p.x, p.z).n, p.n); }
+  assert.ok(!C.insideHouse(-40.5, 0) && !C.insideHouse(-38, 0), 'room 4 is open to the west');
+  assert.ok(C.insideHouse(-24.2, 0) && C.insideHouse(-32, -7.8), 'room 4: east + north walls');
+  assert.ok(!C.insideHouse(40.5, 0) && C.insideHouse(24.2, 0), 'room 5 is open to the east, walled to the west');
+  assert.ok(!C.insideHouse(0, 39.8) && C.insideHouse(-5, 39.8) && C.insideHouse(5, 39.8), 'room 7: a doorway in the south wall');
+  // pushOut keeps you out of the wall on the side you came from
+  assert.ok(C.pushOut(-23.9, 0)[0] > -23.8 && C.pushOut(-24.6, 0)[0] < -24.4);
+  // the subway station + the plaza between it and the Town Hall
+  assert.ok(C.insideHouse(C.SUBWAY.x, C.SUBWAY.z).subway && !C.insideHouse(C.SUBWAY_SPAWN.x, C.SUBWAY_SPAWN.z));
+  assert.ok(C.PLAZA.z - C.PLAZA.d / 2 >= C.SUBWAY.z + C.SUBWAY.d / 2 - 0.01 && C.PLAZA.z + C.PLAZA.d / 2 <= C.HALL.z - C.HALL.house.d / 2 + 0.01);
+  for (let z = -35; z <= -9; z += 0.5) assert.ok(!C.insideHouse(0, z), `walk the plaza at z ${z}`);
+  assert.equal(C.spawnOutside('stad-ab12cd-4').z, C.CITY_SPAWN.z); // an old house-4 link: the city's spawn
+});
 ok('nature stickers: up to 24 m high in the city\'s outside, 8 m in a house or room, min 10 cm (t482u)', async () => {
   assert.equal(C.natureMaxHeightCmIn('stad'), 2400); assert.equal(C.natureMaxHeightCmIn('stad-ab12cd'), 2400); assert.equal(C.natureMaxHeightCmIn('stad-ab12cd-2'), 800); assert.equal(C.natureMaxHeightCmIn('stad-4'), 800); assert.equal(C.natureMaxHeightCmIn('abc123'), 800);
 });
@@ -162,20 +187,23 @@ try {
   ok('a house is NOT made by just looking at it (no preset seeding any more – t479u)', () => { assert.ok(!house0.preset); assert.deepEqual(first0.houses, []); assert.equal(first0.next, 1); assert.equal(first0.name, 'The City'); });
   const first = []; for (let k = 0; k < 3; k++) first.push(await J(await post('/api/cities/stad/houses')));
   const house = (await J(await fetch(`${S.base}/api/rooms/stad-3`))).room;
-  ok('houses start in order (the next free number): 1, 2, 3 – an empty room of type stad', () => {
-    assert.deepEqual(first.map((r) => r.n), [1, 2, 3]); assert.equal(house.type, 'stad'); assert.ok(!house.preset);
+  ok('houses start in order (the next free KEPT number – rebuild: 1, 3, 6) – a room of type stad (no matching room preset here)', () => {
+    assert.deepEqual(first.map((r) => r.n), [1, 3, 6]); assert.equal(house.type, 'stad'); assert.ok(!house.preset);
   });
   const noName = await post('/api/cities', { name: '   ' });
   const made = await J(await post('/api/cities', { name: '  Slap\u0000ville  ', by: 'Jens' }));
   const cid = made.city && made.city.id;
-  const h = []; for (let k = 0; k < 9; k++) h.push(await post(`/api/cities/${cid}/houses`, { by: 'Jens' }));
+  const h = []; for (let k = 0; k < 5; k++) h.push(await post(`/api/cities/${cid}/houses`, { by: 'Jens' }));
+  const removed = await post(`/api/cities/${cid}/houses`, { n: 4 }), again = await J(await post(`/api/cities/${cid}/houses`, { n: 3 }));
   const info = (await J(await fetch(`${S.base}/api/cities/${cid}`))).city;
   const list = (await J(await fetch(`${S.base}/api/cities`))).cities;
   const gone = await fetch(`${S.base}/api/cities/stad-zz99zz`);
-  ok('a city: started with a name (required, cleaned), 8 houses in order then 409, listed, a gone one is 404', () => {
+  ok('a city: started with a name (required, cleaned), the 4 kept houses then 409, a removed one 400, listed, a gone one is 404', () => {
     assert.equal(noName.status, 400); assert.ok(C.CITY_CODE_RE.test(cid)); assert.equal(made.city.name, 'Slapville'); assert.equal(made.city.startedBy, 'Jens');
-    assert.deepEqual(h.map((r) => r.status), [200, 200, 200, 200, 200, 200, 200, 200, 409]);
-    assert.deepEqual(info.houses, [1, 2, 3, 4, 5, 6, 7, 8]); assert.equal(info.next, 0);
+    assert.deepEqual(h.map((r) => r.status), [200, 200, 200, 200, 409]);
+    assert.equal(removed.status, 400); assert.equal(again.n, 3); // starting a started house = the same house
+    assert.deepEqual(info.houses, [1, 3, 6, 8]); assert.equal(info.next, 0);
+    assert.equal(info.houseMax, 4); assert.equal(typeof info.space, 'number'); assert.deepEqual(Object.keys(info.inHouses).map(Number), [1, 3, 6, 8]);
     assert.ok(list.some((c) => c.id === cid && c.name === 'Slapville')); assert.ok(!list.some((c) => c.id === 'stad'), 'the first City is not offered when empty');
     const row = list.find((c) => c.id === cid);
     assert.equal(typeof row.stickers, 'number'); assert.equal(typeof row.visitors, 'number');
@@ -215,15 +243,31 @@ try {
   // the Join list: people in a city room → the city's name with it
   const { default: WebSocket } = await import('ws');
   const join = async (id) => { const ws = new WebSocket(`${S.base.replace('http', 'ws')}/ws?room=${id}`); await new Promise((r) => ws.on('open', r)); ws.send(JSON.stringify({ t: 'hello', name: 'A' })); await new Promise((r) => setTimeout(r, 150)); return ws; };
-  const w1 = await join(cid), w2 = await join(`${cid}-4`);
+  const w1 = await join(cid), w2 = await join(`${cid}-6`);
   const open = (await J(await fetch(`${S.base}/api/rooms/open`))).rooms;
   const cities2 = (await J(await fetch(`${S.base}/api/cities`))).cities;
   w1.close(); w2.close();
-  ok('Join list: rooms in a city carry the city\'s name (outside: the city; a house: "House 4" in it)', () => {
-    const o = open.find((r) => r.id === cid), hh = open.find((r) => r.id === `${cid}-4`);
+  ok('Join list: rooms in a city carry the city\'s name (outside: the city; a house: "House 6" in it)', () => {
+    const o = open.find((r) => r.id === cid), hh = open.find((r) => r.id === `${cid}-6`);
     assert.deepEqual(o.city, { id: cid, name: 'Slapville', house: 0 }); assert.equal(o.name, 'Slapville');
-    assert.deepEqual(hh.city, { id: cid, name: 'Slapville', house: 4 }); assert.equal(hh.name, 'House 4');
+    assert.deepEqual(hh.city, { id: cid, name: 'Slapville', house: 6 }); assert.equal(hh.name, 'House 6');
     assert.equal(cities2.find((c) => c.id === cid).people, 2);
+  });
+  // Max 4 in a kept house (rebuild, pt781u): the fifth is turned away ('house-full', socket closed 4003), not left watching.
+  const inside = []; for (let k = 0; k < 4; k++) inside.push(await join(`${cid}-8`));
+  const fifth = new WebSocket(`${S.base.replace('http', 'ws')}/ws?room=${cid}-8`); const got = [];
+  fifth.on('message', (b) => got.push(JSON.parse(String(b))));
+  const closed = new Promise((r) => fifth.on('close', (code) => r(code)));
+  await new Promise((r) => fifth.on('open', r)); fifth.send(JSON.stringify({ t: 'hello', name: 'Five' }));
+  const code5 = await closed;
+  const busy = (await J(await fetch(`${S.base}/api/cities/${cid}`))).city;
+  inside[0].close(); await new Promise((r) => setTimeout(r, 200));
+  const sixth = await join(`${cid}-8`); const welcomed = await new Promise((r) => { sixth.once('message', (b) => r(JSON.parse(String(b)))); setTimeout(() => r(null), 800); });
+  for (const w of [...inside, sixth]) w.close();
+  ok('a kept house holds 4: number five is denied (house-full, 4003, not a watcher); a freed place lets the next one in', () => {
+    assert.equal(code5, 4003); assert.ok(got.some((m) => m.t === 'denied' && m.code === 'house-full' && m.house === 8 && m.max === 4), JSON.stringify(got));
+    assert.ok(!got.some((m) => m.t === 'welcome')); assert.equal(busy.inHouses[8], 4);
+    assert.ok(!welcomed || welcomed.t !== 'denied', JSON.stringify(welcomed));
   });
 } finally { S.child.kill(); }
 console.log(`city: ${n} checks ✓`);

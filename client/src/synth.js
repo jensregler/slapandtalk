@@ -90,11 +90,21 @@ export class SynthEngine {
     const distSend = ctx.createGain(); distSend.gain.value = 0;
     const distGain = ctx.createGain(); distGain.gain.value = 0.55; // makeup under soft-clip so peaks don't clip
     mix.connect(distSend); distSend.connect(dist); dist.connect(distGain); intoEars(distGain);
+    // Noise room (plot 7, rebuild 10 Nov 2026): ONE looping pink-noise buffer drives a gain's AudioParam, so
+    // mix × noise = my sound turned to hiss (silent when nothing plays); the same noise also feeds a quiet
+    // steady hiss bed. Both sends start at 0 – only the noise room opens them.
+    const nlen = Math.round(ctx.sampleRate * 2), nbuf = ctx.createBuffer(1, nlen, ctx.sampleRate), nd = nbuf.getChannelData(0);
+    { let b0 = 0, b1 = 0, b2 = 0; for (let i = 0; i < nlen; i++) { const w = Math.random() * 2 - 1; b0 = 0.99765 * b0 + w * 0.099046; b1 = 0.963 * b1 + w * 0.2965164; b2 = 0.57 * b2 + w * 1.0526913; nd[i] = (b0 + b1 + b2 + w * 0.1848) * 0.2; } }
+    const nsrc = ctx.createBufferSource(); nsrc.buffer = nbuf; nsrc.loop = true;
+    const nmod = ctx.createGain(); nmod.gain.value = 0; nsrc.connect(nmod.gain); mix.connect(nmod);
+    const noiseSend = ctx.createGain(); noiseSend.gain.value = 0; nmod.connect(noiseSend); intoEars(noiseSend);
+    const noiseBed = ctx.createGain(); noiseBed.gain.value = 0; nsrc.connect(noiseBed); intoEars(noiseBed);
+    try { nsrc.start(); } catch { /* ok */ }
     try { this.out.disconnect(); } catch { /* ok */ } // was out → ears
     T.connect(this.out, lp);
     if (node) { lp.connect(node); node.connect(mix); } else lp.connect(mix);
     mix.connect(dryGain); intoEars(dryGain);
-    this.place = { lp, node, mix, dryGain, city: 0, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), dist, distSend, distGain, distAmt: 0.2, last: null, sets: 0 };
+    this.place = { lp, node, mix, dryGain, city: 0, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), dist, distSend, distGain, distAmt: 0.2, noiseSend, noiseBed, last: null, sets: 0 };
     return this.place;
   }
   // v: the values from cityFxAt (or PLACE_NEUTRAL). Neutral before the bus exists = nothing to do.
@@ -123,6 +133,8 @@ export class SynthEngine {
       if (k === 'modMix' || k === 'decimMix' || k === 'freqMix' || k === 'stutter' || k === 'chop') x = (x || 0) * c;
       to(prm, x);
     }
+    // Noise room: hiss that follows my sound (×3: pink noise sits low) + a quiet bed (kept well under the guard).
+    to(P.noiseSend.gain, (v.noiseWet || 0) * 3 * c); to(P.noiseBed.gain, (v.noiseBed || 0) * 0.08 * c);
     P.last = v; P.sets++;
     return true;
   }

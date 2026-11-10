@@ -5,7 +5,9 @@
 //   - A 3 × 3 grid of 32 × 32 m plots, painted flush on ONE flat ground (t481u: no slabs, no ditches; a
 //     paler square a little smaller than the plot, narrow painted streets between) with a 16 × 16 × 8 m
 //     house on each – one room.
-//   - The 8 outer houses are real rooms (<city>-1 … <city>-8): a black arched door, walk in = that room.
+//   - The 8 outer houses were real rooms (<city>-1 … <city>-8). Since the rebuild (10 Nov 2026, below)
+//     only houses 1, 3, 6, 8 are rooms (black arched door, walk in = that room); plot 2 is the subway
+//     station, plots 4, 5, 7 are open FX rooms (walls + roof, no door).
 //   - The middle plot holds the Town Hall: three room blocks stacked (24 m high), green. Its door opens
 //     the hand-in / swap counter (packs, server/citypacks.js).
 // Coordinates: the city is centred on 0 (x east, z south, y up), like every room.
@@ -50,27 +52,84 @@ export function newCityId(rnd = Math.random) {
   const A = 'abcdefghijkmnpqrstuvwxyz23456789';
   for (;;) { let c = ''; for (let k = 0; k < 6; k++) c += A[Math.floor(rnd() * A.length)]; if (/[a-z]/.test(c)) return 'stad-' + c; }
 }
-// The next house to start: the lowest number not started yet (started = a list of numbers), or 0 = all 8 are there.
-export function nextHouse(started) { const s = new Set(started); for (let n = 1; n <= HOUSES; n++) if (!s.has(n)) return n; return 0; }
+// ---------- The rebuild (Jens, 10 Nov 2026, pt781u + his annotated top-down sketch) ----------
+//   - KEPT houses 1, 3, 6, 8: real rooms behind black doors, each with a room preset (HOUSE_PRESETS) –
+//     "breathing holes" when the city gets too loud; max HOUSE_MAX (4) people, number 5 is turned away.
+//   - Plot 2: the house is gone; a SUBWAY station (sketch: blue box, door on its south side) at the
+//     north edge of the plot. Its black door opens the list of living cities that have room.
+//   - A PLAZA (torg) between the subway station and the Town Hall.
+//   - Plots 4, 5, 7: the rooms are gone – OPEN rooms of walls + a roof (sketch: orange), no door, walk in:
+//     4 = reverb room (open to the west), 5 = delay room (open to the east), 7 = noise room (open
+//     doorway in the south wall). Their sound lives in shared/cityfx.mjs (FX_ROOMS).
+export const KEPT_HOUSES = Object.freeze([1, 3, 6, 8]);
+export const isKeptHouse = (n) => KEPT_HOUSES.includes(Number(n));
+export const HOUSE_MAX = 4; // people in one kept house (pt781u: number five is denied and asked to try another room)
+// The room presets in the kept houses (sketch notes). Resolved by id first, then by title (server/housepresets.js),
+// so a re-made preset with the same name still lands in the right house.
+export const HOUSE_PRESETS = Object.freeze({
+  1: Object.freeze({ id: '50288ba516', title: 'small village in forrest', match: 'village in forrest' }),
+  3: Object.freeze({ id: 'ef54aa361a', title: 'Reglersro', match: 'reglersro' }),
+  6: Object.freeze({ id: '62bda393d3', title: 'modern office', match: 'modern office' }),
+  8: Object.freeze({ id: 'af39b8617f', title: 'Cozy Village', match: 'cozy village' }),
+});
+export const FX_PLOTS = Object.freeze({ 4: 'reverb', 5: 'delay', 7: 'noise' });
+export const isFxPlot = (n) => Object.prototype.hasOwnProperty.call(FX_PLOTS, Number(n));
+export const SUBWAY_PLOT = 2;
+export const WALL_T = 0.4; // an open room's wall thickness (m)
+export const FX_OPENING = 4.4; // plot 7's doorway (sketch: a gap in the south wall, no door)
+// The next house to start: the lowest KEPT number not started yet (started = a list of numbers), or 0 = all are there.
+export function nextHouse(started) { const s = new Set(started); for (const n of KEPT_HOUSES) if (!s.has(n)) return n; return 0; }
 
-const PLOT_NS = [1, 2, 3, 4, null, 5, 6, 7, 8]; // house numbers, row by row (null = the Town Hall)
-// The 9 plots, row by row from the north-west: { i, j (−1/0/1), x, z (centre), n (house 1–8; 0 = Town Hall),
-// room (the FIRST city's house id, for old callers; null = Town Hall),
-// hall, house: { x, z, w, d, h, y0 } (the building's box), door: { x, y0, z, w, h, facing } }.
+const PLOT_NS = [1, 2, 3, 4, null, 5, 6, 7, 8]; // plot numbers, row by row (null = the Town Hall)
+const box = (x, z, w, d, h, y0 = PLOT_SLAB) => Object.freeze({ x, z, w, d, h, y0 });
+// An open room's wall segments (plot centre cx, cz; open: 'w' | 'e' | 's-door').
+function fxWalls(cx, cz, open) {
+  const hw = HOUSE.width / 2, hd = HOUSE.depth / 2, h = HOUSE.height, t = WALL_T, out = [];
+  const n = box(cx, cz - hd + t / 2, HOUSE.width, t, h), s = box(cx, cz + hd - t / 2, HOUSE.width, t, h);
+  const w = box(cx - hw + t / 2, cz, t, HOUSE.depth, h), e = box(cx + hw - t / 2, cz, t, HOUSE.depth, h);
+  if (open === 'w') out.push(n, s, e);
+  else if (open === 'e') out.push(n, s, w);
+  else { // a doorway in the middle of the south wall
+    const side = (HOUSE.width - FX_OPENING) / 2;
+    out.push(n, w, e, box(cx - hw + side / 2, cz + hd - t / 2, side, t, h), box(cx + hw - side / 2, cz + hd - t / 2, side, t, h));
+  }
+  return out;
+}
+// The subway station (sketch: a low wide box at the north edge of plot 2, door in the middle of its south side).
+export const SUBWAY = Object.freeze({ x: 0, z: -38.5, w: 16, d: 4.5, h: 4.8 });
+// The plaza: paved, from the subway station's door down to the Town Hall's north wall (the street between them included).
+export const PLAZA = Object.freeze({ x: 0, z: -22, w: 22, d: 27 }); // z −35.5 … −8.5
+// Benches on the plaza (solid, low): along its east and west edges, facing in.
+export const PLAZA_BENCHES = Object.freeze([[-8.5, -28], [-8.5, -16], [8.5, -28], [8.5, -16]].map(([x, z]) => box(x, z, 0.7, 2.4, 0.5, 0)));
+// The 9 plots, row by row from the north-west: { k, i, j (−1/0/1), x, z (centre), n (plot number 1–8; 0 = Town Hall),
+// kind: 'house' | 'hall' | 'subway' | 'fx', room (the FIRST city's house id for a kept house, else null),
+// hall, house: { x, z, w, d, h, y0 } (the building's box; an open room's outline), walls: [boxes you bump into],
+// door: { x, y0, z, w, h, facing } | null (open rooms have none), fx: 'reverb' | 'delay' | 'noise' | null, roof (open rooms) }.
 export const PLOTS = Object.freeze(PLOT_NS.map((hn, k) => {
-  const room = hn ? houseId(CITY_ROOM, hn) : null, n = hn || 0;
+  const n = hn || 0, hall = hn === null;
+  const kind = hall ? 'hall' : isKeptHouse(n) ? 'house' : n === SUBWAY_PLOT ? 'subway' : 'fx';
+  const room = kind === 'house' ? houseId(CITY_ROOM, n) : null;
   const i = (k % 3) - 1, j = Math.floor(k / 3) - 1, x = i * PLOT, z = j * PLOT;
-  const hall = room === null, h = HOUSE.height * (hall ? HALL_BLOCKS : 1);
-  // every door faces south (+z) like in the sketch; the arch stands on the slab
-  return Object.freeze({
-    k, i, j, x, z, n, room, hall,
-    house: Object.freeze({ x, z, w: HOUSE.width, d: HOUSE.depth, h, y0: PLOT_SLAB }),
-    door: Object.freeze({ x, y0: PLOT_SLAB, z: z + HOUSE.depth / 2, w: DOOR.width, h: DOOR.height, facing: [0, 0, 1] }),
-  });
+  let house, walls, door = null, roof = null;
+  if (kind === 'subway') {
+    house = box(SUBWAY.x, SUBWAY.z, SUBWAY.w, SUBWAY.d, SUBWAY.h); walls = [house];
+  } else {
+    house = box(x, z, HOUSE.width, HOUSE.depth, HOUSE.height * (hall ? HALL_BLOCKS : 1));
+    walls = kind === 'fx' ? fxWalls(x, z, n === 4 ? 'w' : n === 5 ? 'e' : 's-door') : [house];
+    if (kind === 'fx') roof = box(x, z, HOUSE.width, HOUSE.depth, 0.3, HOUSE.height);
+  }
+  // every door faces south (+z) like in the sketch; the arch stands on the ground
+  if (kind !== 'fx') door = Object.freeze({ x: house.x, y0: PLOT_SLAB, z: house.z + house.d / 2, w: DOOR.width, h: DOOR.height, facing: [0, 0, 1] });
+  return Object.freeze({ k, i, j, x, z, n, kind, room, hall, subway: kind === 'subway', open: kind === 'fx', fx: kind === 'fx' ? FX_PLOTS[n] : null,
+    house, walls: Object.freeze(walls), door, roof });
 }));
 export const HALL = PLOTS.find((p) => p.hall);
+export const SUBWAY_PLOT_INFO = PLOTS.find((p) => p.subway);
+export const FX_ROOMS = Object.freeze(PLOTS.filter((p) => p.open));
 export const plotOfHouse = (n) => (n ? PLOTS.find((p) => p.n === n) || null : null);
 export const plotOfRoom = (id) => plotOfHouse(houseNumber(id));
+// Everything solid in the city: [{ ...box, plot }] (buildings, open-room walls, plaza benches).
+export const SOLIDS = Object.freeze([...PLOTS.flatMap((p) => p.walls.map((b) => Object.freeze({ ...b, plot: p }))), ...PLAZA_BENCHES.map((b) => Object.freeze({ ...b, plot: null, bench: true }))]);
 
 // The slab under (x, z), or null on the street.
 export function slabAt(x, z) {
@@ -79,21 +138,28 @@ export function slabAt(x, z) {
 }
 export const groundAt = (x, z) => (slabAt(x, z) ? PLOT_SLAB : 0);
 
-// Walking: you can't walk into a house (a margin like the room's walls).
-export function insideHouse(x, z, margin = 0.35) {
-  return PLOTS.find((p) => Math.abs(x - p.house.x) < p.house.w / 2 + margin && Math.abs(z - p.house.z) < p.house.d / 2 + margin) || null;
+// Walking: you can't walk into a building or through a wall (a margin like the room's walls).
+// Returns the plot whose building / wall you are in (a bench: { bench: true }), else null.
+const solidAt = (x, z, margin) => SOLIDS.find((b) => Math.abs(x - b.x) < b.w / 2 + margin && Math.abs(z - b.z) < b.d / 2 + margin) || null;
+export function insideHouse(x, z, margin = 0.35) { const b = solidAt(x, z, margin); return b ? b.plot || { bench: true, house: b } : null; }
+// Is (x, z) inside an open room's walls (under its roof)? The plot, else null.
+export function insideFxRoom(x, z, inset = WALL_T) {
+  return FX_ROOMS.find((p) => Math.abs(x - p.x) < HOUSE.width / 2 - inset && Math.abs(z - p.z) < HOUSE.depth / 2 - inset) || null;
 }
-// Push (x, z) out of any house, to the nearest side. Returns [x, z].
+// Push (x, z) out of any building / wall, to the nearest side. Returns [x, z].
 export function pushOut(x, z, margin = 0.35) {
-  const p = insideHouse(x, z, margin);
-  if (!p) return [x, z];
-  const hw = p.house.w / 2 + margin, hd = p.house.d / 2 + margin, dx = x - p.house.x, dz = z - p.house.z;
-  const ox = hw - Math.abs(dx), oz = hd - Math.abs(dz);
-  return ox < oz ? [p.house.x + Math.sign(dx || 1) * hw, z] : [x, p.house.z + Math.sign(dz || 1) * hd];
+  for (let pass = 0; pass < 4; pass++) {
+    const b = solidAt(x, z, margin);
+    if (!b) break;
+    const hw = b.w / 2 + margin, hd = b.d / 2 + margin, dx = x - b.x, dz = z - b.z;
+    const ox = hw - Math.abs(dx), oz = hd - Math.abs(dz);
+    if (ox < oz) x = b.x + Math.sign(dx || 1) * hw; else z = b.z + Math.sign(dz || 1) * hd;
+  }
+  return [x, z];
 }
-// Standing at a door (in front of it, close): the plot, else null.
+// Standing at a door (in front of it, close): the plot, else null. Open rooms have no door.
 export function doorAt(x, z, reach = 1.4) {
-  return PLOTS.find((p) => Math.abs(x - p.door.x) < p.door.w / 2 + 0.3 && z >= p.door.z - 0.01 && z < p.door.z + reach) || null;
+  return PLOTS.find((p) => p.door && Math.abs(x - p.door.x) < p.door.w / 2 + 0.3 && z >= p.door.z - 0.01 && z < p.door.z + reach) || null;
 }
 
 // Where people may stand / hold cameras: the city box for the city, the room box elsewhere.
@@ -107,8 +173,10 @@ export const CITY_SPAWN = Object.freeze({ x: 0, z: 17, yaw: 0 });
 // Leaving a house (back to the city): just outside its door.
 export function spawnOutside(id) {
   const p = plotOfRoom(id);
-  return p ? { x: p.door.x, z: p.door.z + 2.4, yaw: Math.PI } : { ...CITY_SPAWN };
+  return p && p.door ? { x: p.door.x, z: p.door.z + 2.4, yaw: Math.PI } : { ...CITY_SPAWN };
 }
+// Coming up from the subway (?at=subway): on the plaza in front of the station, looking south at the Town Hall.
+export const SUBWAY_SPAWN = Object.freeze({ x: 0, z: SUBWAY.z + SUBWAY.d / 2 + 2.6, yaw: Math.PI });
 
 // ---------- The build phase (Jens, t492u + t493u, 3 Nov 2026) ----------
 // "aktivera nature mode i staden tills spelet släpps så jag kan dekorera staden ordentligt" – until

@@ -49,6 +49,7 @@ const DENIED = {
   used: 'This invite link has already been used.',
   full: 'This room is full.',
   gone: 'This room has closed.',
+  'house-full': 'This house is full – try another room.',
 };
 const listeners = new Set();
 // Anropas av app.js. roomId '*' = alla rum (t.ex. när admin tar bort en bild helt).
@@ -384,6 +385,15 @@ function attachRealtime(server, {
         c.guestNo = old.guestNo; old.replaced = true;
         leave(old); try { old.ws.close(4000, 'Replaced by a new connection'); } catch { /* redan stängd */ }
         r = room(c.room);
+      }
+      // A kept city house (rebuild, Jens 10 Nov 2026, pt781u): at most HOUSE_MAX people – number five is
+      // turned away (no watching), and the page sends them back out to pick another room.
+      const houseMax = CITY.isPlotRoom(c.room) ? Math.min(CITY.HOUSE_MAX, maxPlayers) : 0;
+      if (houseMax && r.players.size >= houseMax) {
+        c.joined = false;
+        send(c, { t: 'denied', code: 'house-full', house: CITY.houseNumber(c.room), max: houseMax, error: DENIED['house-full'] });
+        if (!r.players.size && !r.watchers.length) rooms.delete(c.room);
+        return c.ws.close(4003, 'House full');
       }
       setName(c, r, m.name);
       c.ent = entitle(fromHello(m));

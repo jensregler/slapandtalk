@@ -56,6 +56,7 @@ const { createMailer } = require('./mail');
 const { createPresets, PRESET_FACES } = require('./presets');
 const { createCityPacks } = require('./citypacks');
 const { createCities } = require('./cities');
+const { createHousePresets } = require('./housepresets');
 const { createCityBus, BUS: CITYBUS } = require('./citybus');
 const { createCityPresets } = require('./citypresets');
 const CITY = require('../shared/city.mjs');
@@ -66,6 +67,7 @@ function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null
 const ADMIN_TOKEN = adminToken;
 const app = express();
 const presets = createPresets(store.adapter, { log });
+const housePresets = createHousePresets(presets, { log }); // the kept city houses' room presets (rebuild, 10 Nov 2026)
 // City presets (t493u, server/citypresets.js): a new city copies the default one; while the build phase
 // is on, every change in the build city is saved into it (broadcast() below sees every change).
 const cityPresets = createCityPresets(store, { clock, log, ...(cityAutosaveMs !== undefined ? { autosaveMs: cityAutosaveMs } : {}) });
@@ -424,7 +426,7 @@ app.post('/api/admin/presets/:id/thumb', (req, res, next) => { if (!isAdmin(req)
 // ('stad', "The City") stays.
 const occupancy = (id) => { for (const a of activeRooms()) if (a.id === id) return a.count; return 0; };
 const maxPlayersNow = () => { const a = activeRooms()[0]; return a ? a.max : 4; };
-const cities = createCities(store, { occupancy, get maxPlayers() { return maxPlayersNow(); }, clock, log, presets: cityPresets });
+const cities = createCities(store, { occupancy, get maxPlayers() { return maxPlayersNow(); }, clock, log, presets: cityPresets, housePresets });
 // CITYBUS_TEST=1 forces test mode always (e2e). Production: leave unset; ?testbus=1 clients
 // register a short-lived session via /api/citybus/seed|ping so bots only run while Jens is testing.
 const cityBusEnvOn = () => process.env.CITYBUS_TEST === '1' || process.env.CITYBUS_TEST === 'true';
@@ -456,7 +458,8 @@ app.get('/api/cities/:id', rateLimit(240), wrap(async (req, res) => {
 app.post('/api/cities/:id/houses', rateLimit(20), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
   if (!CITY.isCityOutside(String(req.params.id))) return res.status(404).json({ error: 'That city is gone' });
-  try { res.json(await cities.startHouse(String(req.params.id), { by: who(req) })); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  const n = req.body && req.body.n != null ? Number(req.body.n) : null; // a kept house (1, 3, 6, 8); none = the next one
+  try { res.json(await cities.startHouse(String(req.params.id), { by: who(req), n })); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 }));
 // City-bus TEST (tint cities + bots). Env CITYBUS_TEST=1 OR a live ?testbus=1 session.
 app.post('/api/citybus/seed', rateLimit(10), wrap(async (req, res) => {
@@ -646,6 +649,12 @@ app.get('/api/rooms/:room', wrap(async (req, res) => {
   const id = roomParam(req, res); if (!id) return;
   let room;
   try { room = await store.roomOrEmpty(id); } catch (e) { room = emptyRoomOnStorageError(id, e); }
+  // A kept city house started before the rebuild (10 Nov 2026) has no room preset of its own: it shows its
+  // house's preset (shared/city.mjs HOUSE_PRESETS) – read-only here, nothing is written to the room.
+  if (CITY.isPlotRoom(id) && CITY.isKeptHouse(CITY.houseNumber(id)) && !(room.preset && room.preset.faces)) {
+    const extra = await housePresets.extraFor(CITY.houseNumber(id));
+    if (extra) room = { ...room, preset: extra.preset, ...(extra.style ? { style: extra.style } : {}) }; // the preset's look wins, as in a newly started house
+  }
   res.json({ room: roomPublic(room), ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });
 }));
 
