@@ -1,8 +1,8 @@
 // E2E (short): the size prefix in the web app. Own server (port 8840, normal app, DEV_UNLOCK).
 // Since 28 Oct 2026 (Jens): the size prefix no longer sets the size. The first sticker of a session
 // spawns 30 cm HIGH ("B_cat.png", square: 30 cm), later uploads and R/F keep the size you have, the
-// wheel scales freely and R/F keep that scaled size; the free version never goes below 15 cm; the
-// server still stores startCm (unused by the app). More: e2e-wheel (wide/tall spawns, wheel switching).
+// wheel scales freely and R/F keep that scaled size; no upper and no lower size limit for anyone (Jens,
+// 11 Nov 2026 – only the 0.01 cm epsilon); the server still stores startCm (unused by the app). More: e2e-wheel (wide/tall spawns, wheel switching).
 const sharp = require('sharp');
 const fs = require('fs');
 const os = require('os');
@@ -58,12 +58,16 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     check('R/F: switching keeps the scaled size (no per-design reset)', [f1, f2, r1].every((x) => x.size === scaled.size) && new Set([f1.sel, f2.sel]).size === 2, { f1, f2, r1, scaled });
     let back = r1; for (let i = 0; i < 3 && back.sel !== wide.sel; i++) { await p.keyboard.press('KeyR'); await p.waitForTimeout(150); back = await size(); }
     check('…and back on the one that was scaled it is still the scaled size', back.sel === wide.sel && back.size === scaled.size, back);
-    const low = await p.evaluate(() => { const k = window.klibb; k.setSize(5); return { size: Math.round(k.state.size * 1000) / 10, min: document.getElementById('size').min, minCm: k.minSizeCm }; });
-    if (OPEN) check('open access: the size goes down to 10 cm (setSize, slider min; t475u)', low.size === 10 && low.min === '10' && low.minCm === 10, low);
-    else check('free version: the size never goes below 15 cm (setSize, slider min)', low.size === 15 && low.min === '15' && low.minCm === 15, low);
-    // Nature stickers (curated library, name starts with "nature"; shared/nature.mjs): 5 cm – 4 m high, no paper.
+    const low = await p.evaluate(() => { const k = window.klibb, cm = () => +(k.state.size * 100).toPrecision(6), o = {};
+      k.setSize(5); o.s5 = cm(); o.label5 = document.getElementById('size-val').textContent;
+      k.setSize(0.3); o.s03 = cm(); o.label03 = document.getElementById('size-val').textContent;
+      k.setSize(0.001); o.sEps = cm(); k.setSize(0); o.s0 = cm(); k.setSize(-4); o.sNeg = cm();
+      o.min = document.getElementById('size').min; o.minCm = k.minSizeCm; o.maxCm = k.maxSizeCm; return o; });
+    check(`${OPEN ? 'open access' : 'free version'}: no lower limit – 5 cm and 0.3 cm kept, below 0.01 cm / 0 / negative → the 0.01 cm epsilon (setSize, slider min; Jens 11 Nov 2026)`,
+      low.s5 === 5 && low.label5 === '5 cm' && low.s03 === 0.3 && low.label03 === '0.3 cm' && low.sEps === 0.01 && low.s0 === 0.01 && low.sNeg === 0.01 && low.min === '0.01' && low.minCm === 0.01 && low.maxCm === Infinity, low);
+    // Nature stickers (curated library, name starts with "nature"; shared/nature.mjs): no size limit, no paper.
     // Since 28 Oct 2026 they are the full version (Nature wheel): the free version cannot hold one (checked
-    // here), the 5 cm – 4 m limits are checked in the full version below.
+    // here), their limits are checked in the full version below.
     const natFree = await p.evaluate(async () => {
       const k = window.klibb, lib = k.library().find((d) => !d.nature), prev = k.state.selected;
       await k.selectDesign({ ...lib, id: 'feedfacecafe0001', nature: true, library: true, width: 100, height: 100 });
@@ -76,23 +80,36 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     });
     if (OPEN) {
       check('open access: a nature sticker is held (no full version panel)', natFree.sel === 'feedfacecafe0001' && !natFree.paywall, natFree);
-      check('…its rule is 10 cm, no upper cap; an upload named nature… gets the normal (full) limits (10 cm – 4 m, Jens 10 Nov 2026)', natFree.natLim.minCm === 10 && natFree.natLim.maxCm === Infinity && natFree.upload.maxCm === 400 && natFree.upload.minCm === 10, natFree);
+      check('…its rule is no limit (0.01 cm epsilon, no cap); an upload named nature… gets the normal limits (the same, Jens 11 Nov 2026)', natFree.natLim.minCm === 0.01 && natFree.natLim.maxCm === Infinity && natFree.upload.maxCm === Infinity && natFree.upload.minCm === 0.01, natFree);
       await p.evaluate((id) => window.klibb.selectDesign(window.klibb.designs().find((d) => d.id === id)), natFree.prev); // back to the upload
     } else {
     check('free version: a nature sticker cannot be held (the full version panel opens instead)', natFree.sel === natFree.prev && natFree.paywall, natFree);
-    check('…its rule is 10 cm, no upper cap; an upload named nature… keeps the normal free limits (15 cm – 4 m)', natFree.natLim.minCm === 10 && natFree.natLim.maxCm === Infinity && natFree.upload.maxCm === 400 && natFree.upload.minCm === 15, natFree);
+    check('…its rule is no limit (0.01 cm epsilon, no cap); an upload named nature… keeps the normal free limits (the same)', natFree.natLim.minCm === 0.01 && natFree.natLim.maxCm === Infinity && natFree.upload.maxCm === Infinity && natFree.upload.minCm === 0.01, natFree);
     }
     check('nature stickers drop no backing paper (client: no peel animation); others and uploads do', JSON.stringify(natFree.peel) === '[false,true,true]', natFree.peel);
     check('stickers over 1 m drop no backing paper (no falling peel); 1 m and below do', JSON.stringify(natFree.bigPeel) === '[true,true,false,false]', natFree.bigPeel);
     await p.mouse.click(700, 330); await p.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
+    // Free scaling while playing (Jens, 11 Nov 2026): the mouse wheel (×0.9 per notch down, ×1.1 up) has no floor and no cap.
+    const raw = () => p.evaluate(() => ({ cm: +(window.klibb.state.size * 100).toPrecision(6), label: document.getElementById('size-val').textContent, locked: window.klibb.controls.locked }));
+    await p.evaluate(() => window.klibb.setSize(30));
     for (let i = 0; i < 20; i++) await p.mouse.wheel(0, 200);
     await p.waitForTimeout(200);
-    const wheelLow = await size();
-    check(OPEN ? 'open access: the wheel goes down to 10 cm' : 'free version: the wheel stops at 15 cm', wheelLow.size === (OPEN ? 10 : 15), wheelLow);
+    const wheelLow = await raw();
+    check('playing: 20 wheel notches down from 30 cm go below the old 10 / 15 cm floors (no lower limit)', wheelLow.locked && wheelLow.cm < 10 && wheelLow.cm > 1, wheelLow);
+    for (let i = 0; i < 40; i++) await p.mouse.wheel(0, 200);
+    await p.waitForTimeout(200);
+    const wheelTiny = await raw();
+    check('…40 more go below 1 cm, still > 0 and shown in the size label', wheelTiny.cm < 1 && wheelTiny.cm >= 0.01 && wheelTiny.label === `${wheelTiny.cm} cm`, wheelTiny);
+    const tinyStamp = await p.evaluate(() => window.klibb.stampAt(0, 0.5).then((s) => s && s.size));
+    check('…and a slap at that size is stored at that size (server: no 15 cm floor)', tinyStamp != null && Math.abs(tinyStamp * 100 - wheelTiny.cm) < 1e-6, { tinyStamp, wheelTiny });
+    for (let i = 0; i < 100; i++) await p.mouse.wheel(0, -200);
+    await p.waitForTimeout(200);
+    const wheelUp = await raw();
+    check('…the wheel scales it back up, past the old 4 m cap (no upper limit)', wheelUp.cm > 400, wheelUp);
     const server = await (await fetch(`${S.base}/api/stickers?ids=${b.sel}`)).json();
     check('the server still stores startCm 17.5 on the B_ image (kept, unused by the app)', server.images[b.sel] && server.images[b.sel].startCm === 17.5, server.images[b.sel]);
     await ctx.close();
-    // Full version: the nature sticker's own limits, 5 cm – 4 m high (no 15 cm floor, no free 100 cm cap)
+    // Full version: the nature sticker's limits – none (0.01 cm epsilon), no cap
     const fctx = await browser.newContext({ viewport: { width: 1000, height: 650 } });
     await fctx.addInitScript(() => localStorage.setItem('klibb.devUnlock', '1'));
     const fp = await fctx.newPage(); fp.on('pageerror', (e) => errors.push(e.message));
@@ -108,8 +125,8 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
       out.real = realNat && k.limitsFor(realNat);
       return out;
     });
-    check('nature sticker (full version): 10 cm, no upper cap (slider end 100 m); 900 → 900, 3 → 10 (also a real imported one)', nat.lim.minCm === 10 && nat.lim.maxCm === Infinity && nat.sliderMax === '10000' && nat.sliderMin === '10' && nat.s350 === 350 && nat.s900 === 900 && nat.s3 === 10 && nat.real && nat.real.maxCm === Infinity && nat.real.minCm === 10, nat);
-    check('…back on a normal sticker the normal full limits again (900 cm → 4 m, the full max; Jens 10 Nov 2026)', nat.back === 400 && nat.backLim.maxCm === 400, nat);
+    check('nature sticker (full version): no limit (slider 0.01 cm – 100 m, setSize past it); 900 → 900, 3 → 3 (also a real imported one)', nat.lim.minCm === 0.01 && nat.lim.maxCm === Infinity && nat.sliderMax === '10000' && nat.sliderMin === '0.01' && nat.s350 === 350 && nat.s900 === 900 && nat.s3 === 3 && nat.real && nat.real.maxCm === Infinity && nat.real.minCm === 0.01, nat);
+    check('…back on a normal sticker: 900 cm stays 900 cm (no upper or lower limit for normal stickers either; Jens 11 Nov 2026)', nat.back === 900 && nat.backLim.maxCm === Infinity && nat.backLim.minCm === 0.01, nat);
     await fctx.close();
     check('no page errors', !errors.length, errors);
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }

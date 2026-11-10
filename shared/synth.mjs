@@ -257,18 +257,19 @@ export function colourPatch(patch, slot, sound = '') {
 }
 
 // ---------- Size → loudness / pitch (duff + slap + peel) ----------
-// Pitch (Jens, 10 Nov 2026, t785u): follows the sticker's size (longest side, m) over the whole size
-// range, 10 cm – 4 m (shared/nature.mjs STICKER_LIMITS). It used to be (0.3 / side)^0.36 on a square's
-// side, floored at 0.55 – so it stopped getting lower at ~1.5 m (the old max size). Now the same
-// span – the old 10 cm pitch (×1.485) down to the old 1.5 m pitch (×0.56) – is stretched log-linearly
-// over 10 cm → 4 m: rate = hi · (lo / hi)^(ln(side / 0.1) / ln(40)), clamped at the two ends.
-// Bigger = lower; smaller = higher. Used by the slap, the peel (pulling a sticker off) and the
-// backing paper's landing (duff).
-export const SIZE_PITCH = Object.freeze({ minM: 0.10, maxM: 4.0, hi: 1.485, lo: 0.56 });
+// Pitch follows the sticker's size (longest side, m). The curve (Jens, 10 Nov 2026, t785u): the old
+// 10 cm pitch (×1.485) down to the old 1.5 m pitch (×0.56), stretched log-linearly over 10 cm → 4 m:
+// rate = hi · (lo / hi)^(ln(side / refM) / ln(maxM / refM)). Bigger = lower; smaller = higher.
+// Jens, 10 Nov 2026 (t788u): "vi stannar ljudet vid 4m … pitch mellan 0,15 och 4 m" – the size fed in
+// is clamped to 15 cm – 4 m (the graphic itself has no min or max since 11 Nov 2026): a sticker over 4 m
+// still plays, at the 4 m pitch (×0.56); one under 15 cm plays at the 15 cm pitch (×1.334, the curve is
+// not re-stretched) – never 0 Hz, never ∞.
+// Used by the slap, the peel (pulling a sticker off) and the backing paper's landing (duff).
+export const SIZE_PITCH = Object.freeze({ minM: 0.15, maxM: 4.0, refM: 0.10, hi: 1.485, lo: 0.56 });
 export function sizeRate(side) {
-  const { minM, maxM, hi, lo } = SIZE_PITCH;
+  const { minM, maxM, refM, hi, lo } = SIZE_PITCH;
   const s = Math.max(minM, Math.min(maxM, isNum(side) && side > 0 ? side : 0.3));
-  const t = Math.log(s / minM) / Math.log(maxM / minM);
+  const t = Math.log(s / refM) / Math.log(maxM / refM);
   return +(hi * Math.pow(lo / hi, t)).toFixed(3);
 }
 // Loudness: area in m² (w × h of the peel / sticker). Reference: a 30 × 30 cm sticker (0.09 m²) → gain 1.

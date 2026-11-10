@@ -16,8 +16,9 @@
 //                     with LS (store + product must match) and caches the verdict.
 //   DEV_UNLOCK=1      dev/test servers only: a browser with localStorage "klibb.devUnlock" = "1"
 //                     gets everything. Ignored unless the server sets this.
-// bigStickers: stickers larger than FREE_MAX_STICKER_M (up to 4 m, STICKER_LIMITS.full.maxCm) and smaller than
-// FREE_MIN_STICKER_M (down to 10 cm; shared/nature.mjs STICKER_LIMITS). Free = 15 cm – 1 m.
+// bigStickers: historically stickers larger than FREE_MAX_STICKER_M / smaller than FREE_MIN_STICKER_M.
+// Jens, 11 Nov 2026 (voice): every version, any size – no upper cap, no lower limit beyond the technical
+// epsilon 0.01 cm (shared/nature.mjs STICKER_EPSILON_CM / STICKER_LIMITS).
 // cleanVideo: finished videos (and photos) without the 'slap and talk' channel bug and the link ticker.
 // multiCam: more than one auto cameraman (up to 6), each started with a click in the room, with an
 // optional path choice. Free = one automatic cameraman, no settings.
@@ -37,7 +38,7 @@ const FREE_MAX_STICKER_M = 1;
 // MAX_PLAYERS_PER_ROOM can only lower it.
 const FREE_MAX_PLAYERS = 4;
 const maxPlayersFor = (env = process.env) => { const n = Math.floor(Number(env.MAX_PLAYERS_PER_ROOM)); return n > 0 ? Math.min(n, FREE_MAX_PLAYERS) : FREE_MAX_PLAYERS; };
-const FREE_MIN_STICKER_M = 0.15; // free version: at least 15 cm (= the A_ size); the full version 10 cm
+const FREE_MIN_STICKER_M = 0.0001; // = shared/nature.mjs STICKER_EPSILON_M (0.1 mm): technical epsilon only, no gameplay floor (Jens 11 Nov 2026; was 15 cm)
 const KEY_RE = /^[A-Za-z0-9_.~-]{12,128}$/;
 // OPEN ACCESS (shared/openaccess.mjs): while on, EVERYONE gets every feature below, keys or not,
 // even in the demo profile. Env OPEN_ACCESS=0 turns it off on this server (unset = the constant).

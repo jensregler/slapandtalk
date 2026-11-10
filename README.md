@@ -29,9 +29,10 @@ du går in i rummet.
 
 **På datorn:** klicka på *⬆ Upload sticker*, välj en bild och klicka på *Enter the room*.
 Gå med **W A S D**, titta med musen och **klicka** för att stämpla (*slap*). Scrollhjulet ändrar storlek
-(från 15 cm upp till 1 m i grundversionen; i fullversionen, `bigStickers`, från 5 cm och ingen övre gräns, inte ens
-rummet – reglaget går till 4 m, hjulet längre. Storleken gäller klibbans längsta sida. Klibbor som redan sitter
-uppe får behålla sin storlek). Den första klibban du håller **börjar 30 cm hög** (oavsett format; en bred blir
+fritt upp och ner medan du spelar – ingen övre och ingen undre gräns (Jens, 11 nov 2026; bara en teknisk epsilon
+på 0,01 cm så att ytan aldrig blir 0). På mobilen nyper du med två fingrar. Reglaget i Esc → Size går 0,01 cm – 100 m,
+hjulet och nypet längre. Storleken gäller klibbans längsta sida. Ljudets pitch följer storleken men stannar vid
+15 cm och 4 m; klibbor över 1 m tappar inget baksidespapper. Klibbor som redan sitter uppe får behålla sin storlek). Den första klibban du håller **börjar 30 cm hög** (oavsett format; en bred blir
 bredare än 30 cm), sedan behåller den storleken du har när du byter klibba (R/F, hjulet, paletten, en ny uppladdning)),
 **Q/E** vrider klibban, **R** byter till nästa design, **F** till förra, **V** växlar mellan Slap mode och 🌿 Nature mode, **G** slår på/av Look mode, **M**
 stänger av/slår på ljudet och **Esc** tar dig tillbaka till menyn.
@@ -924,9 +925,11 @@ alltså `A_` = 15 cm, `B_` = 17,5 cm, `C_` = 20 cm … `Z_` = 77,5 cm. Utan pref
   `shared/sizeprefix.mjs` (samma i webbappen, servern och `tools/import-library.mjs`).
 - **Längsta sidan, för alla format:** en liggande bild med `D_` får 22,5 cm på reglaget, precis som en
   kvadratisk (för kvadratiska och stående bilder är det också höjden).
-- **Gränser:** gratisversionen 15 cm – 1 m (både i webbappen – reglaget, hjulet, startstorleken – och på
-  servern vid slap, där för små/stora gratisklibbor klämms till 15 cm / 1 m). Fullversionen (`bigStickers`):
-  5 cm och uppåt, ingen övre gräns. Klibbor som redan sitter uppe behåller sin storlek.
+- **Gränser (Jens, 11 nov 2026):** inga – alla versioner, alla klibbor (även nature) skalas fritt upp och ner
+  (`shared/nature.mjs` `STICKER_LIMITS` / `NATURE.minCm` = `STICKER_EPSILON_CM` = 0,01 cm, `maxCm` = Infinity).
+  Servern vägrar bara NaN / ∞ / 0 / negativt och klämmer en positiv storlek under 0,1 mm upp till 0,1 mm.
+  Pitch: 15 cm – 4 m (`shared/synth.mjs` `SIZE_PITCH`). Klibbor som redan sitter uppe behåller sin storlek.
+  (Raderna nedan om äldre gränser är historik.)
 - **Nature-klibbor (28 okt 2026, `shared/nature.mjs`; fullversionen, se Två hjul):** biblioteksklibbor vars namn börjar på `nature` (alla
   skiftlägen; importen ger varje fil i en mapp som heter `nature` det prefixet och `nature: true`) får för alla,
   även gratis: **minst `NATURE.minCm` = 5 cm, högst `NATURE.maxHeightCm` = 400 cm HÖG** (längsta sidan alltså
@@ -1102,8 +1105,8 @@ Every room (and the City) is the box in `shared/room.json`: 16 m wide, 16 m deep
   whole floor and ceiling, the full width of every wall, walls 6.4 m high from the floor (the top 1.6 m shows
   the room's own wall). Never stretched one way, never tiled. Presets made from now on are baked in the new
   box (2560 × 1280 walls) and cover every surface 1:1.
-- **Sizes:** stickers 10 cm – 1.5 m in the full version (free 15 cm – 1 m); nature stickers 10 cm up to the
-  room's height (8 m) high. Stickers already up keep their size.
+- **Sizes:** no upper or lower limit for any sticker (Jens, 11 Nov 2026; only a 0.01 cm technical epsilon);
+  the slap / peel pitch stays within the 15 cm – 4 m range. Stickers already up keep their size.
 
 ## The City (t476u, 2 Nov 2026)
 

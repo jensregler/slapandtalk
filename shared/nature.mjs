@@ -8,13 +8,34 @@ import ROOM from './room.json' with { type: 'json' };
 export const NATURE = {
   prefix: 'nature',
   maxHeightCm: Math.round(ROOM.height * 100), // tallest a nature sticker may be (cm) = the room's height (800)
-  minCm: 10,        // smallest (cm, longest side) – also in the free version
+  minCm: 0.01,      // = STICKER_EPSILON_CM: no gameplay floor (Jens, 11 Nov 2026; was 15 cm t788u, 10 cm before)
 };
-// Every other sticker (cm, longest side). Jens, 10 Nov 2026 (t785u): 10 cm – 4 m (was: no upper cap,
-// and 1.5 m before that). free = the free version's min gate (15 cm, unchanged), same 4 m max.
-// The slap / peel pitch spans the same 10 cm – 4 m (shared/synth.mjs SIZE_PITCH).
-export const STICKER_MAX_CM = 400;
-export const STICKER_LIMITS = Object.freeze({ full: Object.freeze({ minCm: 10, maxCm: STICKER_MAX_CM }), free: Object.freeze({ minCm: 15, maxCm: STICKER_MAX_CM }) });
+// Every sticker (cm, longest side). Jens, 11 Nov 2026 (voice): scale stickers freely up and down while
+// playing – NO upper and NO lower limit on the graphic (t788u's 15 cm floor and t785u's 10 cm – 4 m are
+// gone). The only floor is a technical epsilon, STICKER_EPSILON_CM = 0.01 cm (0.1 mm), so a sticker's
+// mesh never reaches zero / negative scale (degenerate geometry, inverted faces, divide-by-zero in the
+// array spacing) and stays well above the float32 / 1 µm position rounding (shared/array.mjs r6) even
+// in the 96 m city. At 0.1 mm a sticker is far below one pixel – visually it is "no limit".
+// Only the SOUND is bounded: slap / peel / landing pitch is clamped to 15 cm – 4 m (shared/synth.mjs
+// SIZE_PITCH); a smaller sticker sounds like a 15 cm one, a bigger one like a 4 m one.
+export const STICKER_EPSILON_CM = 0.01;
+export const STICKER_EPSILON_M = STICKER_EPSILON_CM / 100;
+export const STICKER_MIN_CM = STICKER_EPSILON_CM;
+// The held size's rounding (cm): 0.5 cm steps from 10 cm up (as before – the letter sizes are 2.5 cm
+// apart), 3 significant digits below 10 cm so free scaling (wheel ×0.9 / ×1.1, pinch) never sticks or
+// rounds to 0; never below the epsilon. Non-finite in → returned unchanged (callers guard).
+export function roundSizeCm(cm) {
+  const n = Number(cm);
+  if (!Number.isFinite(n)) return n;
+  const r = n >= 10 ? Math.round(n * 2) / 2 : Number(n.toPrecision(3));
+  return Math.max(STICKER_EPSILON_CM, r);
+}
+// The size label shown in the game (English UI): "30 cm", "2.5 cm", "0.35 cm", "1,200 cm".
+export function sizeLabel(cm, locale = 'en') {
+  const r = roundSizeCm(cm);
+  return `${Number.isFinite(r) ? r.toLocaleString(locale, { maximumFractionDigits: 4 }) : '–'} cm`;
+}
+export const STICKER_LIMITS = Object.freeze({ full: Object.freeze({ minCm: STICKER_MIN_CM, maxCm: Infinity }), free: Object.freeze({ minCm: STICKER_MIN_CM, maxCm: Infinity }) });
 const RE = /^nature/i;
 const base = (s) => String(s ?? '').split(/[\\/]/).pop();
 // Does this file name count as a nature sticker?

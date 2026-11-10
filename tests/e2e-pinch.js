@@ -1,8 +1,8 @@
 // E2E: pinch to scale, twist to rotate on a phone (Jens, 29 Oct 2026; replaces the two edge sliders).
 // iPhone-sized touch emulation, REAL two-finger touch events (CDP Input.dispatchTouchEvent). With a
 // sticker in hand (held in the middle), two fingers: the distance ratio scales it, the change of the
-// fingers' angle turns it, live, with the usual limits (free 15–100 cm, full 5 cm – no max, nature
-// 5–400 cm); the size is kept when switching sticker; no stamp, no camera turn. HOLD, DRAG AND SCALE AT
+// fingers' angle turns it, live, with NO size limit (Jens, 11 Nov 2026: free scaling up and down for
+// every sticker, only the 0.01 cm epsilon); the size is kept when switching sticker; no stamp, no camera turn. HOLD, DRAG AND SCALE AT
 // ONCE (Jens, 11 Nov 2026; replaces "a second finger during aiming cancels the aim"): a finger already
 // holding the sticker on a wall + a second finger = it keeps following (the fingers' midpoint) while the
 // pinch scales it, and letting go of the holding finger stamps ONE sticker there at the new size. The sliders are gone on the phone (desktop keeps its size/rotation inputs).
@@ -66,9 +66,9 @@ const W = 390, H = 844, CX = W / 2, CY = H / 2;
     const f3 = await F.pinch(80, 30);
     check(`free: pinch in → smaller (60 → ${f3.cm} cm, ×0.375 = 22.5)`, f3.cm === 22.5, f3);
     const f4 = await F.pinch(80, 10);
-    check(OPEN ? `open access: pinch in hard → the full 5 cm floor (${f4.cm})` : `free: pinch in hard → clamped at the free 15 cm floor (${f4.cm})`, f4.cm === (OPEN ? 5 : 15), f4);
+    check(`pinch in hard → ÷8 from 22.5 cm, under the old 10 / 15 cm floors (${f4.cm} cm; limits ${f4.lim.minCm} cm – ${f4.lim.maxCm})`, f4.cm > 2 && f4.cm < 4 && f4.lim.minCm === 0.01 && f4.lim.maxCm === Infinity, f4);
     const f5 = await F.pinch(15, 170);
-    check(OPEN ? `open access: pinch out hard → ×11 from 5 cm (${f5.cm} cm), no max (limits ${f5.lim.minCm} cm – ${f5.lim.maxCm})` : `free: pinch out hard → clamped at the free 100 cm cap (${f5.cm})`, OPEN ? f5.cm > 50 && f5.cm < 60 && f5.lim.maxCm === Infinity : f5.cm === 100, f5);
+    check(`pinch out hard → ×11 again (${f5.cm} cm), no max`, f5.cm > 25 && f5.cm < 40 && f5.lim.maxCm === Infinity, f5);
     await F.P.evaluate(() => window.klibb.setSize(30));
     const f6 = await F.pinch(70, 70, 0, 35);
     check(`free: twist 35° clockwise (same distance) → rotation +35° (${f6.rot}°), the size unchanged (${f6.cm}), the held sticker turned (${f6.heldRot})`, f6.rot === 35 && f6.cm === 30 && f6.heldRot === '35deg', f6);
@@ -123,16 +123,16 @@ const W = 390, H = 844, CX = W / 2, CY = H / 2;
     // ---- full ----
     const U = await phone(true);
     const u1 = await U.pinch(100, 10);
-    check(`full: pinch in → down to the full 5 cm floor (${u1.cm})`, u1.cm === 5, u1);
+    check(`full: pinch in ÷10 → 3 cm, no floor (${u1.cm})`, u1.cm > 2 && u1.cm < 4, u1);
     await U.P.evaluate(() => window.klibb.setSize(30));
     const u2 = await U.pinch(10, 180);
-    check(`full: pinch out ×18 → 540 cm (no max in the full version) (${u2.cm})`, u2.cm === 540, u2);
+    check(`full: pinch out ×18 → past the old 4 m cap (no max; the emulated fingers land at ~16×) (${u2.cm})`, u2.cm > 400 && u2.lim.maxCm === Infinity, u2);
     // nature (full version only)
     await U.P.evaluate(() => { const k = window.klibb; return k.selectDesign(k.natureDesigns()[0]).then(() => { k.setSize(30); k.stackMenu().chosen(); }); }); await sleep(400);
     const u3 = await U.pinch(10, 180);
-    check(`full, nature sticker: pinch out → clamped at the nature 400 cm (${u3.cm}; limits ${u3.lim.minCm}–${u3.lim.maxCm})`, u3.nat && u3.cm === 400 && u3.lim.maxCm === 400, u3);
+    check(`full, nature sticker: pinch out ×18 → past the old 400 cm nature cap, no cap (${u3.cm}; limits ${u3.lim.minCm}–${u3.lim.maxCm})`, u3.nat && u3.cm > 400 && u3.lim.maxCm === Infinity && u3.lim.minCm === 0.01, u3);
     const u4 = await U.pinch(180, 2);
-    check(`full, nature sticker: pinch in → clamped at the nature 5 cm (${u4.cm})`, u4.nat && u4.cm === 5, u4);
+    check(`full, nature sticker: pinch in ÷90 → a few cm, under the old 5 / 10 / 15 cm floors (${u4.cm})`, u4.nat && u4.cm > 0 && u4.cm < 10, u4);
     await U.P.evaluate(() => window.klibb.setSize(60)); await sleep(100);
     await U.pinch(60, 90, 0, 20, { keep: true });
     await U.P.screenshot({ path: path.join(SHOTS, 'full-nature-pinching.png') });

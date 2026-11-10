@@ -272,18 +272,18 @@ async function writeBehind() {
       const sizeRoom = (await (await fetch(`${base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json()).room.id;
       const slapSized = async (size, key) => (await (await fetch(`${base}/api/rooms/${sizeRoom}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(key ? { 'x-unlock': key } : {}) },
         body: JSON.stringify({ imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size, surface: 'vägg-norr' }) })).json()).stamp;
-      assert(big && big.size === 4, `full version: at most 4 m (Jens, 10 Nov 2026; 6 m → ${big && big.size} m)`);
+      assert(big && big.size === 6, `full version: no upper cap (Jens, 10 Nov 2026, t788u; 6 m → ${big && big.size} m)`);
       const sized = { free6: (await slapSized(6)).size, free3: (await slapSized(3, 'wrong-key-123456')).size, freeTol: (await slapSized(1.005)).size,
         free1: (await slapSized(1)).size, sound: (await slapSized(3, SOUND_KEY)).size, part: (await slapSized(3, PART_KEY)).size,
-        fullMin: (await slapSized(0.05, BIG_KEY)).size, fullOk: (await slapSized(0.1, BIG_KEY)).size, fullMax: (await slapSized(9, BIG_KEY)).size, freeMin: (await slapSized(0.05)).size };
-      assert(sized.free6 === 4 && sized.free3 === 3 && sized.freeTol === 1.005 && sized.free1 === 1 && sized.sound === 3 && sized.part === 3 && sized.fullMin === 0.1 && sized.fullOk === 0.1 && sized.fullMax === 4 && sized.freeMin === 0.15,
-        `sizes (Jens, 10 Nov 2026): max 4 m for everyone (6 m / 9 m → 4 m; 3 m stays 3 m); full min 10 cm, free min 15 cm (${JSON.stringify(sized)})`);
+        fullMin: (await slapSized(0.05, BIG_KEY)).size, fullOk: (await slapSized(0.15, BIG_KEY)).size, fullTol: (await slapSized(0.145, BIG_KEY)).size, fullMax: (await slapSized(9, BIG_KEY)).size, fullHuge: (await slapSized(40, BIG_KEY)).size, freeMin: (await slapSized(0.05)).size };
+      assert(sized.free6 === 6 && sized.free3 === 3 && sized.freeTol === 1.005 && sized.free1 === 1 && sized.sound === 3 && sized.part === 3 && sized.fullMin === 0.05 && sized.fullOk === 0.15 && sized.fullTol === 0.145 && sized.fullMax === 9 && sized.fullHuge === 40 && sized.freeMin === 0.05,
+        `sizes (Jens, 11 Nov 2026): any size for everyone – no upper cap (6 / 9 / 40 m kept), no lower limit (5 cm kept) (${JSON.stringify(sized)})`);
       const free = makeEntitlements({ FULL_ACCESS_KEYS: `${BIG_KEY},${PART_KEY}:fabrics+bigStickers` });
       assert(free({ key: BIG_KEY }).bigStickers && free({ key: PART_KEY }).bigStickers && free({ key: PART_KEY }).fabrics && !free({ key: PART_KEY }).soundDesign && !free({}).bigStickers && FEATURES.includes('bigStickers') && FREE_MAX_STICKER_M === 1,
         'bigStickers: en ensam nyckel låser upp allt (även bigStickers), delnycklar bara det uppräknade, gratis = max 1 m');
       await store.addStamp(r.room.id, { imageId: i1.id, position: [0, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 5, surface: 'vägg-norr' });
       const loaded = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
-      assert(loaded.stamps.length === 3 && loaded.stamps[1].size === 4 && loaded.stamps[2].size === 5, 'stickers already saved bigger than 4 m load at their own size (only new ones are clamped)');
+      assert(loaded.stamps.length === 3 && loaded.stamps[1].size === 6 && loaded.stamps[2].size === 5, 'big stickers (saved or new) load at their own size');
       room.stamps = loaded.stamps.slice(0, 1);
 
       // ---------- Rummets utseende ----------

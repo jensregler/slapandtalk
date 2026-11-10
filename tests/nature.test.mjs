@@ -17,14 +17,26 @@ const { createApp } = require('../server/app');
 const { loadLibrary, seedLibrary } = require('../server/library');
 const { makeEntitlements } = require('../server/entitlements');
 const { importFolder } = await import('../tools/import-library.mjs');
-const { NATURE, isNature, isNatureName, natureMaxSideCm, sizeLimitsCm } = await import('../shared/nature.mjs');
+const { NATURE, isNature, isNatureName, natureMaxSideCm, sizeLimitsCm, STICKER_LIMITS, STICKER_EPSILON_CM, STICKER_EPSILON_M, roundSizeCm, sizeLabel } = await import('../shared/nature.mjs');
 
 let n = 0;
 const ok = async (name, fn) => { try { await fn(); n++; console.log('✔ ' + name); } catch (e) { console.error('✗ ' + name + '\n  ' + e.message); process.exitCode = 1; } };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
 
-await ok('constants: 8 m high at most (the room height), 10 cm at least, prefix "nature"', () => {
-  assert.equal(NATURE.maxHeightCm, 800); assert.equal(NATURE.minCm, 10); assert.equal(NATURE.prefix, 'nature');
+await ok('constants: 8 m high hint (the room height), no gameplay floor – only the 0.01 cm epsilon (Jens 11 Nov 2026), prefix "nature"', () => {
+  assert.equal(NATURE.maxHeightCm, 800); assert.equal(NATURE.minCm, 0.01); assert.equal(NATURE.minCm, STICKER_EPSILON_CM); assert.equal(NATURE.prefix, 'nature');
+});
+await ok('free scaling: no upper or lower limit on the graphic (only the 0.01 cm epsilon); rounding never sticks or hits 0', () => {
+  assert.equal(STICKER_EPSILON_CM, 0.01); assert.equal(STICKER_EPSILON_M, 0.0001);
+  for (const L of [STICKER_LIMITS.full, STICKER_LIMITS.free]) { assert.equal(L.minCm, STICKER_EPSILON_CM); assert.equal(L.maxCm, Infinity); }
+  assert.ok(STICKER_EPSILON_CM < 10 && STICKER_EPSILON_CM < 15, 'no 10 / 15 cm floor');
+  assert.equal(roundSizeCm(30.3), 30.5); assert.equal(roundSizeCm(4.567), 4.57); assert.equal(roundSizeCm(0.1234), 0.123); assert.equal(roundSizeCm(0.001), 0.01); assert.equal(roundSizeCm(1e6), 1e6);
+  // the mouse wheel's ×0.9 / ×1.1 from 30 cm: 80 notches down reach well under 1 cm, 200 up go past 4 m and 100 m
+  let cm = 30; for (let i = 0; i < 80; i++) { const nx = roundSizeCm(cm * 0.9); assert.ok(nx < cm || nx === STICKER_EPSILON_CM, `stuck at ${cm}`); cm = nx; }
+  assert.equal(cm, STICKER_EPSILON_CM, `down: ${cm}`);
+  for (let i = 0; i < 200; i++) { const nx = roundSizeCm(cm * 1.1); assert.ok(nx > cm, `stuck going up at ${cm}`); cm = nx; }
+  assert.ok(cm > 10000, `up: ${cm}`);
+  assert.equal(sizeLabel(30), '30 cm'); assert.equal(sizeLabel(2.345), '2.35 cm'); assert.equal(sizeLabel(0.01), '0.01 cm'); assert.equal(sizeLabel(1200), '1,200 cm');
 });
 await ok('the name rule: starts with "nature", any case, the file name only', () => {
   for (const y of ['nature.png', 'Nature-tree.png', 'NATURE_x.jpg', 'dir/natureboy.png']) assert.ok(isNatureName(y), y);
@@ -35,7 +47,7 @@ await ok('the height cap as a longest-side cap: square/portrait 800 cm, a 4:1 st
   assert.equal(natureMaxSideCm({ width: 100, height: 100 }), 800); assert.equal(natureMaxSideCm({ width: 50, height: 100 }), 800);
   assert.equal(natureMaxSideCm({ width: 400, height: 100 }), 3200); assert.equal(natureMaxSideCm({}), 800);
   const normal = { minCm: 15, maxCm: 100 };
-  assert.deepEqual(sizeLimitsCm({ nature: true, width: 1, height: 1 }, normal), { minCm: 10, maxCm: Infinity });
+  assert.deepEqual(sizeLimitsCm({ nature: true, width: 1, height: 1 }, normal), { minCm: 0.01, maxCm: Infinity });
   assert.equal(sizeLimitsCm({ source: 'tree.png' }, normal), normal);
 });
 
@@ -86,21 +98,23 @@ try {
       const room = await (await fetch(`${base}/api/rooms/nature`)).json();
       assert.ok(!JSON.stringify(room).includes(tree), 'no nature stamp saved');
     });
-    await ok('full version, nature (portrait): 3 m and 8 m kept, 9 m → 8 m, 50 m → 8 m, 12 cm kept, 3 cm → 10 cm', async () => {
+    await ok('full version, nature (portrait): no upper and no lower limit (3 / 8 / 9 / 50 m, 20 / 12 / 3 / 0.5 cm kept; 0.001 cm → 0.01 cm epsilon)', async () => {
       assert.equal(await slap(tree, 3, KEY), 3); assert.equal(await slap(tree, 8, KEY), 8); assert.equal(await slap(tree, 9, KEY), 9); assert.equal(await slap(tree, 50, KEY), 50);
-      assert.equal(await slap(tree, 0.12, KEY), 0.12); assert.equal(await slap(tree, 0.03, KEY), 0.1);
+      assert.equal(await slap(tree, 0.2, KEY), 0.2); assert.equal(await slap(tree, 0.12, KEY), 0.12); assert.equal(await slap(tree, 0.03, KEY), 0.03); assert.equal(await slap(tree, 0.005, KEY), 0.005);
+      assert.equal(await slap(tree, 0.00001, KEY), 0.0001);
     });
     await ok('nature, wide 4:1: the cap is 8 m HIGH = 32 m longest side', async () => {
       assert.equal(await slap(wide, 24, KEY), 24); assert.ok(near(await slap(wide, 60, KEY), 60));
     });
-    await ok('a key with only natureStickers (no bigStickers): nature keeps min 10 cm, no upper cap', async () => { assert.equal(await slap(tree, 3, NKEY), 3); assert.equal(await slap(tree, 0.03, NKEY), 0.1); assert.equal(await slap(tree, 50, NKEY), 50); });
-    await ok('other stickers: free/full keep their mins, max 4 m (Jens, 10 Nov 2026); a user upload named "nature…" is NOT nature', async () => {
-      assert.equal(await slap(plain, 3), 3); assert.equal(await slap(plain, 0.06), 0.15); assert.equal(await slap(plain, 0.5), 0.5); assert.equal(await slap(plain, 9), 4);
-      assert.equal(await slap(plain, 9, KEY), 4); assert.equal(await slap(plain, 4, KEY), 4); assert.equal(await slap(plain, 0.06, KEY), 0.1); assert.equal(await slap(plain, 1.2, KEY), 1.2);
+    await ok('a key with only natureStickers (no bigStickers): nature has no upper or lower limit', async () => { assert.equal(await slap(tree, 3, NKEY), 3); assert.equal(await slap(tree, 0.03, NKEY), 0.03); assert.equal(await slap(tree, 50, NKEY), 50); });
+    await ok('other stickers: free/full: no upper or lower limit (Jens, 11 Nov 2026; epsilon 0.01 cm); a user upload named "nature…" is NOT nature', async () => {
+      assert.equal(await slap(plain, 3), 3); assert.equal(await slap(plain, 0.06), 0.06); assert.equal(await slap(plain, 0.5), 0.5); assert.equal(await slap(plain, 9), 9); assert.equal(await slap(plain, 0.002), 0.002);
+      assert.equal(await slap(plain, 9, KEY), 9); assert.equal(await slap(plain, 40, KEY), 40); assert.equal(await slap(plain, 4, KEY), 4); assert.equal(await slap(plain, 0.06, KEY), 0.06); assert.equal(await slap(plain, 1.2, KEY), 1.2);
       assert.equal(await slap(upload.id, 3), 3);
     });
-    await ok('sane guards: NaN / below 2 cm / strings refused, also for nature', async () => {
-      assert.equal(await slap(tree, 'big', KEY), 'HTTP 400'); assert.equal(await slap(tree, 0.01, KEY), 'HTTP 400'); assert.equal(await slap(tree, null, KEY), 'HTTP 400');
+    await ok('sane guards: NaN / 0 / negative / strings refused, also for nature (a tiny positive size is fine)', async () => {
+      assert.equal(await slap(tree, 'big', KEY), 'HTTP 400'); assert.equal(await slap(tree, 0, KEY), 'HTTP 400'); assert.equal(await slap(tree, -0.3, KEY), 'HTTP 400'); assert.equal(await slap(tree, null, KEY), 'HTTP 400');
+      assert.equal(await slap(tree, 0.01, KEY), 0.01);
     });
     await ok('peels on: a nature sticker drops NO backing paper (single slap and a row); a normal one still does', async () => {
       const post = (url, body, h = {}) => fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify(body) });

@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { startSizeCm } from '../../shared/sizeprefix.mjs';
-import { sizeLimitsCm, isNature, NATURE, STICKER_LIMITS } from '../../shared/nature.mjs';
+import { sizeLimitsCm, isNature, NATURE, STICKER_LIMITS, roundSizeCm, sizeLabel } from '../../shared/nature.mjs';
 import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styleName, applyStyle, swatchUrl, tickRoomFabric, roomFabricInfo, SURF_KINDS } from './roomstyle.js';
 import { initFargUI, initFabricPicker } from './fargui.js';
 import { FirstPersonControls, isTyping } from './controls.js';
@@ -163,7 +163,7 @@ const slapFx = new SlapFx(scene);
 // a fan of papers does not become a machine-gun of thuds.
 let lastDuffAt = 0;
 const DUFF_GAP_MS = 90;
-// Pitch follows the paper's longest side (= the sticker's size, 10 cm – 4 m; shared/synth.mjs sizeRate).
+// Pitch follows the paper's longest side (= the sticker's size; the pitch is clamped to 15 cm – 4 m, shared/synth.mjs sizeRate).
 function playDuff(w, h, at, by) {
   const now = performance.now();
   if (now - lastDuffAt < DUFF_GAP_MS) return;
@@ -836,8 +836,10 @@ async function validateDesigns() {
   await handleMissing(missing);
 }
 
-// Storleken = klibbans längsta sida (shared/nature.mjs STICKER_LIMITS): 10 cm – 4 m (Jens, 10 Nov 2026,
-// t785u). Nature stickers: no upper cap – the size slider needs a finite end → SLIDER_UI_CM (100 m).
+// Storleken = klibbans längsta sida (shared/nature.mjs STICKER_LIMITS): fritt upp och ner, inget tak och
+// inget golv (Jens, 11 Nov 2026, voice) – bara den tekniska epsilonen STICKER_EPSILON_CM = 0.01 cm så att
+// ytan aldrig blir 0 / negativ. Pitchen stannar vid 15 cm – 4 m (shared/synth.mjs). The size slider needs a
+// finite end → SLIDER_UI_CM (100 m); setSize / pinch / scroll go past it (and below 1 cm).
 const FREE_MAX_CM = STICKER_LIMITS.free.maxCm;
 const FREE_MIN_CM = STICKER_LIMITS.free.minCm;
 const FULL_MIN_CM = STICKER_LIMITS.full.minCm;
@@ -852,9 +854,9 @@ const maxSizeCm = (img) => limitsFor(img).maxCm;
 const dropsPeel = (img, size) => !(img && img.library === true && isNature(img)) && dropsPaper(size);
 const minSizeCm = (img) => limitsFor(img).minCm;
 const showSize = () => {
-  const cm = Math.round(state.size * 200) / 2;
-  $('size').value = String(Math.min(cm, Number($('size').max)));
-  $('size-val').textContent = `${cm.toLocaleString(LOCALE)} cm`;
+  const cm = roundSizeCm(state.size * 100);
+  $('size').value = String(Math.max(Number($('size').min), Math.min(cm, Number($('size').max))));
+  $('size-val').textContent = sizeLabel(cm, LOCALE);
 };
 function applySizeLimit() {
   const max = maxSizeCm();
@@ -885,7 +887,9 @@ $('artist-link').oninput = (e) => {
 let maxToastAt = 0;
 function setSize(cm) {
   if (!Number.isFinite(cm)) return; // sanity guard (NaN / Infinity), not a product size limit
-  const want = Math.round(cm * 2) / 2; // 0.5 cm steps (the letter sizes are 2.5 cm apart)
+  // 0.5 cm steps from 10 cm up (the letter sizes are 2.5 cm apart); below that 3 significant digits, so
+  // the wheel's ×0.9 / ×1.1 keeps going down (and back up) without sticking or rounding to 0.
+  const want = roundSizeCm(cm);
   const max = maxSizeCm();
   cm = Math.max(want, minSizeCm()); // no upper cap when maxCm is Infinity (Jens Nov 2026)
   if (Number.isFinite(max)) {
@@ -2151,7 +2155,7 @@ if (!isTouch) {
   // does not turn while aiming. TWO fingers while a sticker is in hand (Jens, 29 Oct 2026; replaces
   // the two edge sliders): pinch = scale it (the distance ratio × the size it had), twist = rotate it
   // (the change of the fingers' angle, clockwise = clockwise), live, through setSize/setRot – the same
-  // limits and state as everywhere (free 15–100 cm, full 10–150 cm, nature 10 cm – 8 m high).
+  // limits and state as everywhere (no upper or lower limit, 0.01 cm epsilon – Jens 11 Nov 2026).
   // HOLD, DRAG AND SCALE AT ONCE (Jens, 11 Nov 2026 – replaces "a second finger cancels the aim"): when the
   // first finger is already holding the sticker on a wall (it has dragged it AIM_MOVE_PX or more), a
   // second finger does NOT cancel it: the sticker keeps following (it moves with the two fingers'
@@ -2189,7 +2193,7 @@ if (!isTouch) {
   let pinchAfterT = 0;
   const pinchHud = () => {
     const hud = $('pinch-hud'), r = $('held').getBoundingClientRect();
-    hud.textContent = `${(Math.round(state.size * 200) / 2).toLocaleString(LOCALE)} cm · ${state.rotation}°`;
+    hud.textContent = `${sizeLabel(state.size * 100, LOCALE)} · ${state.rotation}°`;
     if (r.height) hud.style.top = `${Math.max(8, r.top - 40)}px`;
   };
   const endPinch = () => {

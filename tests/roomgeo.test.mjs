@@ -15,9 +15,9 @@ const require = createRequire(import.meta.url);
 let n = 0; const ok = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); };
 
 await ok('the room is 16 × 8 × 16 m', () => { assert.deepEqual([ROOM.width, ROOM.height, ROOM.depth], [16, 8, 16]); assert.equal(CURRENT_KEY, '16x8x16'); });
-await ok('sizes: stickers 10 cm – 4 m (free 15 cm – 4 m; Jens, 10 Nov 2026); nature 10 cm, room height hint 8 m', () => {
-  assert.deepEqual({ ...STICKER_LIMITS.full }, { minCm: 10, maxCm: 400 }); assert.deepEqual({ ...STICKER_LIMITS.free }, { minCm: 15, maxCm: 400 });
-  assert.equal(NATURE.minCm, 10); assert.equal(NATURE.maxHeightCm, 800);
+await ok('sizes: every sticker any size – no upper cap, no lower limit beyond the 0.01 cm epsilon (Jens, 11 Nov 2026); room height hint 8 m', () => {
+  assert.deepEqual({ ...STICKER_LIMITS.full }, { minCm: 0.01, maxCm: Infinity }); assert.deepEqual({ ...STICKER_LIMITS.free }, { minCm: 0.01, maxCm: Infinity });
+  assert.equal(NATURE.minCm, 0.01); assert.equal(NATURE.maxHeightCm, 800);
   assert.equal(natureMaxSideCm({ width: 500, height: 1000 }), 800); assert.equal(natureMaxSideCm({ width: 1000, height: 500 }), 1600);
 });
 const S = (surface, position, normal) => ({ id: surface, surface, position, normal, quaternion: [0, 0, 0, 1], size: 0.3 });

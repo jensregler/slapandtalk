@@ -137,7 +137,7 @@ export class Sounds {
   }
   // kind: 'slap' | 'peel' | 'step' | 'duff'. at = [x, y, z] for a sound out in the
   // room (spatial), or null for my own. opts: { sound: that player's look.sound (default: mine),
-  // area: m² (duff + slap: loudness), size: m longest side (slap, peel, duff: pitch over 10 cm – 4 m,
+  // area: m² (duff + slap: loudness), size: m longest side (slap, peel, duff: pitch over 15 cm – 4 m (clamped),
   // shared/synth.mjs sizeRate; slap without area → treated as square), volume }.
   // time: when (AudioContext seconds, the footstep groove schedules ahead); tune: extra pitch ratio.
   // onPeel + speed (m/s, footsteps only): the step lands on backing paper – the paper variant.

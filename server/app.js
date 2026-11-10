@@ -24,13 +24,13 @@ const radioMod = import('../shared/radio.mjs');
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PX = 1024;
 // Sticker size (shared/nature.mjs STICKER_LIMITS; Jens, 2 Nov 2026, t475u): the full version (bigStickers)
-// Size: 10 cm – 4 m (Jens, 10 Nov 2026, t785u; STICKER_LIMITS.*.maxCm). Free min FREE_MIN_STICKER_M; full/nature
-// min from STICKER_LIMITS / NATURE; nature stickers keep no upper cap. Outside
-// them a new sticker is clamped, not refused; stickers already up stay as they are. A technical guard
-// too: the size must be a finite number ≥ 2 cm (checked on slap).
+// Size: no upper and no lower limit (Jens, 11 Nov 2026, voice; the 15 cm – 4 m range is only for the
+// pitch, shared/synth.mjs). The only floor is the technical epsilon STICKER_EPSILON_CM = 0.01 cm (0.1 mm,
+// = FREE_MIN_STICKER_M / STICKER_LIMITS.*.minCm / NATURE.minCm): a positive size below it is clamped up,
+// not refused; stickers already up stay as they are. Sanity guard: the size must be a finite number > 0.
 // The starting size from a file-name letter prefix ("B_cat.png" = 17.5 cm): shared/sizeprefix.mjs.
 const sizeMod = import('../shared/sizeprefix.mjs');
-// Nature stickers (name starts with "nature"): 10 cm up to the room's height (8 m) HIGH in every version (shared/nature.mjs).
+// Nature stickers (name starts with "nature"): no upper or lower limit (epsilon only), in every version (shared/nature.mjs).
 const natureMod = import('../shared/nature.mjs');
 const { makeEntitlements, fromReq, FREE_MAX_STICKER_M, FREE_MIN_STICKER_M, KEY_RE } = require('./entitlements');
 const { verifySignature } = require('./licenses');
@@ -47,9 +47,6 @@ function payConfig(env = process.env) {
   const demo = env.DEMO_PROFILE === '1';
   return { checkoutUrl, show: !!checkoutUrl && (!demo || env.SHOW_BUY === '1'), webhookSecret: String(env.LS_WEBHOOK_SECRET || '') };
 }
-// Free version: new stickers are at most 1 m (+ a little rounding slack, then clamped to 1 m).
-// Bigger, up to the wall height, needs the full version (bigStickers). Old stickers stay as they are.
-const FREE_SIZE_SLACK = 0.01;
 
 const { mountVideos, videoSettings } = require('./videos');
 const { mountPhotos, photoSettings } = require('./photos');
@@ -757,9 +754,9 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
     return res.status(410).json({ error: 'That design is no longer on the server. Please upload it again.', gone: true });
   }
   if (!isVec(b.position, 3) || !isVec(b.normal, 3) || !isVec(b.quaternion, 4)) return res.status(400).json({ error: 'Invalid position' });
-  if (!isNum(b.size) || !Number.isFinite(b.size) || b.size < 0.02) return res.status(400).json({ error: 'Invalid size' });
-  // Jens, 10 Nov 2026 (t785u): normal stickers 10 cm – 4 m (STICKER_LIMITS.*.maxCm), clamped; nature: min only.
-  // Free without bigStickers: floor FREE_MIN_STICKER_M. Nature / full: NATURE.minCm / STICKER_LIMITS.full.minCm.
+  if (!isNum(b.size) || !Number.isFinite(b.size) || !(b.size > 0)) return res.status(400).json({ error: 'Invalid size' });
+  // Jens, 11 Nov 2026 (voice): every sticker any size – no upper cap, no lower limit beyond the 0.1 mm
+  // epsilon (FREE_MIN_STICKER_M / NATURE.minCm / STICKER_LIMITS.full.minCm, all STICKER_EPSILON_CM).
   const N = await natureMod, libEntry = libraryById.get(image.id), nature = isNatureImage(N, image);
   // Nature stickers are the full version's (natureStickers; the Nature wheel): refused otherwise.
   if (nature && !isAdmin(req) && !(await entOf(req)).natureStickers) return res.status(403).json({ error: 'Nature stickers are part of the full version.', full: true, feature: 'natureStickers' });
@@ -767,12 +764,9 @@ app.post('/api/rooms/:room/stamps', rateLimit(AUTO_SLAPS_PER_MIN), wrap(async (r
     const lim = N.sizeLimitsCm({ ...image, ...(libEntry || {}), nature: true }, null, { maxHeightCm: CITY.natureMaxHeightCmIn(room) });
     b.size = Math.max(lim.minCm / 100, b.size);
   } else if (!(await entOf(req)).bigStickers) {
-    if (b.size < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) b.size = FREE_MIN_STICKER_M;
-    b.size = Math.min(b.size, N.STICKER_LIMITS.free.maxCm / 100);
+    b.size = Math.max(FREE_MIN_STICKER_M, b.size);
   } else {
-    const L = N.STICKER_LIMITS.full;
-    if (b.size < L.minCm / 100 - FREE_SIZE_SLACK) b.size = L.minCm / 100;
-    b.size = Math.min(b.size, L.maxCm / 100);
+    b.size = Math.max(N.STICKER_LIMITS.full.minCm / 100, b.size);
   }
   // Peels: på golvet fastnar klibbor inte på baksidespapper (mer än PEEL.refuseOverlap = nej).
   const P = await peelsMod;
@@ -888,12 +882,9 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
       const lim = N.sizeLimitsCm({ ...image, nature: true }, null, { maxHeightCm: CITY.natureMaxHeightCmIn(room) });
       endSize = Math.max(lim.minCm / 100, endSize);
     } else if (!(await entOf(req)).bigStickers) {
-      if (endSize < FREE_MIN_STICKER_M - FREE_SIZE_SLACK) endSize = FREE_MIN_STICKER_M;
-      endSize = Math.min(endSize, N.STICKER_LIMITS.free.maxCm / 100);
+      endSize = Math.max(FREE_MIN_STICKER_M, endSize);
     } else {
-      const L = N.STICKER_LIMITS.full;
-      if (endSize < L.minCm / 100 - FREE_SIZE_SLACK) endSize = L.minCm / 100;
-      endSize = Math.min(endSize, L.maxCm / 100);
+      endSize = Math.max(N.STICKER_LIMITS.full.minCm / 100, endSize);
     }
   }
   const [endW, endH] = P.stampDims(image, endSize);

@@ -77,14 +77,23 @@ assert(ds.every((d, i) => i === 0 || (d.gain >= ds[i - 1].gain && d.rate <= ds[i
   `duff: volume rises and pitch falls with peel area (${ds.map((d, i) => `${areas[i]} m² → ×${d.gain} vol, ×${d.rate} pitch`).join('; ')})`);
 assert(same(slapScale(0.3), duffScale(0.09)) && slapScale(0.6).gain > slapScale(0.3).gain && slapScale(0.15).rate > slapScale(0.3).rate,
   'slapScale: same curve as duff (bigger sticker = louder and lower)');
-// Size → pitch over the whole size range, 10 cm – 4 m (Jens, 10 Nov 2026): the old 10 cm and 1.5 m pitches are the new ends.
+// Size → pitch (Jens, 10 Nov 2026): the t785u curve (old 10 cm pitch ×1.485 → old 1.5 m pitch ×0.56 over 10 cm – 4 m),
+// with the size clamped to 15 cm – 4 m (t788u: "pitch mellan 0,15 och 4 m"); bigger stickers sound like a 4 m one.
 {
-  const sides = [0.1, 0.15, 0.3, 0.5, 1, 1.5, 2, 3, 4];
+  const sides = [0.15, 0.3, 0.5, 1, 1.5, 2, 3, 4];
   const rs = sides.map(sizeRate);
-  assert(SIZE_PITCH.minM === 0.1 && SIZE_PITCH.maxM === 4 && rs.every((r, i) => i === 0 || r < rs[i - 1]),
-    `sizeRate: pitch keeps falling all the way from 10 cm to 4 m (${sides.map((s, i) => `${s} m → ×${rs[i]}`).join('; ')})`);
-  assert(sizeRate(0.1) === 1.485 && sizeRate(4) === 0.56 && sizeRate(0.05) === 1.485 && sizeRate(9) === 0.56 && sizeRate(2) < sizeRate(1.5) && sizeRate(1.5) > 0.7,
-    'sizeRate: 10 cm = ×1.485 (the old 10 cm pitch), 4 m = ×0.56 (the old 1.5 m floor), clamped outside; above 1.5 m still lower');
+  assert(SIZE_PITCH.minM === 0.15 && SIZE_PITCH.maxM === 4 && SIZE_PITCH.refM === 0.1 && rs.every((r, i) => i === 0 || r < rs[i - 1]),
+    `sizeRate: pitch keeps falling all the way from 15 cm to 4 m (${sides.map((s, i) => `${s} m → ×${rs[i]}`).join('; ')})`);
+  assert(sizeRate(0.15) === 1.334 && sizeRate(0.3) === 1.111 && sizeRate(4) === 0.56 && sizeRate(0.1) === 1.334 && sizeRate(0.05) === 1.334 && sizeRate(9) === 0.56 && sizeRate(100) === 0.56 && sizeRate(2) < sizeRate(1.5) && sizeRate(1.5) > 0.7,
+    'sizeRate: 15 cm = ×1.334 (unchanged), 4 m = ×0.56, clamped outside 15 cm – 4 m (a 9 m / 100 m sticker = the 4 m pitch)');
+  // Free scaling (Jens, 11 Nov 2026): the graphic has no limit, the pitch never leaves 15 cm – 4 m – never 0 Hz / ∞.
+  for (const side of [0.0001, 0.001, 0.01, 0.149, 4.01, 50, 1e4, 1e9]) {
+    const sl = slapScale(side), du = duffScale(side * side, side), pr = sizeRate(side);
+    assert(Number.isFinite(sl.rate) && Number.isFinite(sl.gain) && sl.gain > 0 && Number.isFinite(du.rate) && Number.isFinite(du.gain) && du.gain > 0,
+      `free scaling: slap / duff stay finite and audible at ${side} m (${JSON.stringify([sl, du])})`);
+    assert(pr === (side < 0.15 ? 1.334 : 0.56) && sl.rate === pr && du.rate === pr,
+      `free scaling: ${side} m plays at the ${side < 0.15 ? '15 cm' : '4 m'} pitch (slap, peel, duff: ${pr})`);
+  }
   assert(duffScale(0.4 * 4, 4).rate === sizeRate(4) && duffScale(16).rate === sizeRate(4) && slapScale(3).rate === sizeRate(3),
     'duff / slap: pitch from the longest side (or √area), the same sizeRate');
 }
