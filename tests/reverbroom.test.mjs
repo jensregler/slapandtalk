@@ -119,4 +119,84 @@ ok('LOOK-OUT FADE: back wall = 1, toward the side walls\' open ends = reduced, o
   assert.equal(reverbGazeYaw(x, z, yawTo(1, 0)), 1); assert.equal(reverbGazeYaw(x, z, yawTo(-1, 0)), 0);
   assert.equal(reverbGazeAt(-46, 0, 1, 0), 0, 'outside: 0 even when looking in');
 });
+
+// ---------- THE LISTENING PATH in the real SynthEngine graph (Jens 11 Nov 2026) ----------
+// A fake Web Audio / Tone context that records every connect(): the engine builds its real place bus and a listener-FX
+// chain with a 0.95-feedback FeedbackDelay, and we walk the ACTUAL edges (not the self-reported point.wires).
+{
+  let ids = 0; const edges = new Map(); // node → Set(dst)
+  const link = (a, b) => { (edges.get(a) || edges.set(a, new Set()).get(a)).add(b); };
+  const param = (owner, value = 0) => { const p = { kind: 'param', id: ++ids, value, target: value, owner, setTargetAtTime(x) { p.target = x; }, setValueAtTime(x) { p.value = p.target = x; }, connect() {} }; link(p, owner); return p; };
+  const node = (kind, extra = {}) => {
+    const n = { kind, id: ++ids, connect(d) { const dst = d && d.input && d.input !== d ? d.input : d; link(n, dst); return d; }, disconnect(d) { if (!d) edges.delete(n); else edges.get(n)?.delete(d.input && d.input !== d ? d.input : d); }, dispose() {}, start() {}, stop() {} };
+    n.input = n; n.output = n;
+    for (const k of ['gain', 'frequency', 'delayTime', 'Q', 'threshold', 'knee', 'ratio', 'attack', 'release', 'detune']) n[k] = param(n, k === 'gain' ? 1 : 0);
+    return Object.assign(n, extra);
+  };
+  const raw = { sampleRate: 48000, currentTime: 0, destination: node('destination'),
+    createGain: () => node('gain'), createDelay: () => node('delay'), createBiquadFilter: () => node('biquad'), createIIRFilter: () => node('iir'),
+    createConvolver: () => node('convolver', { buffer: null, normalize: true }), createOscillator: () => node('osc', { type: 'sine' }),
+    createBufferSource: () => node('bufsrc', { buffer: null, loop: false }), createWaveShaper: () => node('shaper', { curve: null }),
+    createDynamicsCompressor: () => node('limiter'),
+    createBuffer: (ch, len) => { const d = Array.from({ length: ch }, () => new Float32Array(len)); return { numberOfChannels: ch, length: len, getChannelData: (c) => d[c] }; } };
+  const tctx = { rawContext: raw };
+  const toneNode = (kind) => class { constructor() { const n = node(kind); n.wet = param(n, 1); if (kind === 'crossfade') { n.a = node('xf.a'); n.b = node('xf.b'); link(n.a, n); link(n.b, n); } return n; } };
+  const Tone = { getContext: () => tctx, getDestination: () => raw.destination, now: () => 0, connect: (a, b) => a.connect(b),
+    Gain: toneNode('tgain'), CrossFade: toneNode('crossfade'), Filter: toneNode('filter'), BitCrusher: toneNode('crush'), Distortion: toneNode('dist'),
+    FeedbackDelay: toneNode('FeedbackDelay'), PingPongDelay: toneNode('PingPongDelay'), Reverb: toneNode('reverb') };
+  const { SynthEngine } = await import('../client/src/synth.js');
+  const eng = new SynthEngine(Tone); eng.workletOk = false;
+  const P = eng.placeBus();
+  const fx = eng.setListenerFx({ delay: { wet: 0.6, feedback: 0.95, time: 0.3 }, reverb: { wet: 0 }, crush: { wet: 0 }, dist: { wet: 0 }, filter: { wet: 0 } });
+  const delayNode = fx && fx.nodes.find((x) => x.kind === 'FeedbackDelay');
+  const reach = (from) => { const seen = new Set([from]), q = [from]; while (q.length) { const a = q.shift(); for (const b of edges.get(a) || []) if (!seen.has(b)) { seen.add(b); q.push(b); } } return seen; };
+  const into = (dst) => [...edges].filter(([a, ds]) => ds.has(dst) && a.owner !== dst).map(([a]) => a); // signal inputs (not dst's own params)
+  ok('real graph: a listener-FX FeedbackDelay (feedback 0.95) sits on ears → master, as the test setup', () => {
+    assert.ok(delayNode && reach(eng.ears.input).has(delayNode) && reach(delayNode).has(eng.master.input));
+  });
+  ok('LISTENING PATH: the three sines (dry + wet) never enter ears, the listener-FX input or its FeedbackDelay; they reach master → limiter → speakers', () => {
+    for (const r of P.verbRoom) for (const src of [r.osc, r.lfo, r.am, r.lvl, r.toneWet, r.toneTail, r.toneRet]) {
+      const s = reach(src);
+      assert.ok(!s.has(eng.ears.input) && !s.has(fx.input) && !s.has(delayNode), 'tone reaches ears / listener FX');
+      assert.ok(s.has(eng.toneOut.input) && s.has(eng.master.input) && s.has(eng.guard.lim) && s.has(raw.destination), 'tone reaches master + guard');
+      assert.ok(![r.send, r.pre, r.fb, r.tail, r.ret, P.voiceIn, P.mix].some((x) => s.has(x)), 'tone in the FDN / tail / ret');
+    }
+    assert.ok(reach(eng.toneOut.input).has(eng.master.input) && !reach(eng.toneOut.input).has(eng.ears.input));
+  });
+  ok('LISTENING PATH: dry = am → lvl → toneOut; wet = am → toneWet → toneTail (own feedforward tail) → toneRet → toneOut → master', () => {
+    for (const r of P.verbRoom) {
+      assert.deepEqual([...edges.get(r.lvl)], [eng.toneOut.input]); assert.deepEqual([...edges.get(r.toneWet)], [r.toneTail]);
+      assert.deepEqual([...edges.get(r.toneTail)], [r.toneRet]); assert.deepEqual([...edges.get(r.toneRet)], [eng.toneOut.input]);
+      assert.ok(r.toneTail !== r.tail && r.toneTail.kind === 'convolver' && r.toneTail.buffer === r.tail.buffer, 'own tail, same room IR');
+      assert.deepEqual([...edges.get(eng.toneOut.input)], [eng.master.input]);
+    }
+  });
+  ok('no path back into the sines / LFO / am from anything (reverb, FDN, ears, listener FX, master)', () => {
+    for (const r of P.verbRoom) {
+      const tone = [r.osc, r.lfo, r.depth, r.am, r.am.gain, r.lvl, r.toneWet, r.toneTail, r.toneRet];
+      for (const from of [r.send, r.pre, r.fb, r.tail, r.ret, eng.ears.input, fx.input, delayNode, eng.toneOut.input, eng.master.input, P.mix, P.voiceIn])
+        assert.ok(tone.every((t) => !reach(from).has(t)), 'path back into the tone');
+      assert.deepEqual(into(r.osc), [], 'nothing feeds the sine'); assert.deepEqual(into(r.lfo), [], 'nothing feeds the LFO');
+    }
+  });
+  ok('the FDN still only takes mix + voiceIn, and still returns to the ears (→ listener FX) for voices / footsteps', () => {
+    for (const r of P.verbRoom) {
+      assert.deepEqual(new Set(into(r.send)), new Set([P.mix, P.voiceIn]));
+      assert.equal(into(r.tail).length, 1, 'the room tail only gets the FDN (a2), no tone'); assert.ok(reach(r.ret).has(eng.ears.input) && reach(r.ret).has(delayNode));
+      assert.ok(reach(P.voiceIn).has(r.send));
+    }
+  });
+  ok('gains: inside wet = rvTone × 0.35 × City, toneRet = presence; looking out mutes dry + wet; outside shuts both returns', () => {
+    const v = F.cityFxAt(-30, 0); eng.setPlace(v, { city: 1 });
+    for (const r of P.verbRoom) { assert.ok(near(r.toneWet.gain.target, v.rvTone * R.wet) && near(r.lvl.gain.target, v.rvTone) && near(r.toneRet.gain.target, 1) && v.rvTone > 0); }
+    eng.setPlace({ ...v, rvTone: 0 }, { city: 1 });
+    for (const r of P.verbRoom) assert.ok(r.lvl.gain.target === 0 && r.toneWet.gain.target === 0, 'look-out');
+    eng.setPlace(F.cityFxAt(-46, 0), { city: 1 });
+    for (const r of P.verbRoom) assert.ok(r.lvl.gain.target === 0 && r.toneWet.gain.target === 0 && r.toneRet.gain.target === 0 && r.ret.gain.target === 0, 'outside');
+  });
+  ok('with the listener FX off the sines still skip ears (ears → master directly; tones → toneOut → master)', () => {
+    eng.setListenerFx(null);
+    for (const r of P.verbRoom) { const s = reach(r.osc); assert.ok(!s.has(eng.ears.input) && s.has(eng.master.input)); }
+  });
+}
 console.log(`reverbroom: ${n} checks ✓`);
