@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const sharp = require('sharp');
 const { LocalAdapter } = require('../server/storage/local');
-const { createStore } = require('../server/store');
+const { createStore, PEEL_KEEP } = require('../server/store');
 const { createApp } = require('../server/app');
 const { onBroadcast } = require('../server/realtime');
 const { autoPruneOn } = require('../server/hidden');
@@ -86,7 +86,8 @@ async function boot(tmp, opts) {
         await T.slap(2, 1, 'devBBBBBBBB'); // hides `mine`, but devC's history still has it
         events.length = 0;
         const t0 = Date.now();
-        for (let i = 0; i < 20; i++) await T.slap(-4 + i * 0.4, 0.15, A, 0.4); // A's 20 newest: covered+partial leave A's history
+        // A's PEEL_KEEP + 10 newest (history 100 since 11 Nov 2026; was 20 for 10), on a grid below the others: covered+partial leave A's history
+        for (let i = 0; i < PEEL_KEEP + 10; i++) await T.slap(-4 + (i % 20) * 0.4, 0.15, A, 0.4 + Math.floor(i / 20) * 0.2);
         const slapMs = Date.now() - t0;
         await new Promise((r) => setTimeout(r, 80));
         await T.app.locals.hidden.settle();
@@ -99,7 +100,7 @@ async function boot(tmp, opts) {
         await T.store.flush();
         const saved = JSON.parse(fs.readFileSync(path.join(tmp, 'b', 'rooms', `${T.R}.json`), 'utf8'));
         assert(!saved.stamps.some((s) => s.id === covered.stamp.id) && saved.stamps.length === ids.length, 'the automatic removal is persisted');
-        console.log(`  (20 slaps with the cleanup on: ${slapMs} ms)`);
+        console.log(`  (${PEEL_KEEP + 10} slaps with the cleanup on: ${slapMs} ms)`);
       } finally { T.server.close(); T.app.locals.hidden.close(); }
     }
     {
@@ -107,7 +108,7 @@ async function boot(tmp, opts) {
       try {
         const covered = await T.slap(-3, 0.3);
         await T.slap(-2.95, 1, 'devBBBBBBBB');
-        for (let i = 0; i < 20; i++) await T.slap(-4 + i * 0.4, 0.15, 'devAAAAAAAA', 0.4);
+        for (let i = 0; i < PEEL_KEEP + 10; i++) await T.slap(-4 + (i % 20) * 0.4, 0.15, 'devAAAAAAAA', 0.4 + Math.floor(i / 20) * 0.2);
         await new Promise((r) => setTimeout(r, 80)); await T.app.locals.hidden.settle();
         assert((await T.list()).some((s) => s.id === covered.stamp.id), 'AUTO_PRUNE_HIDDEN=0 (autoPrune: false): nothing is removed automatically');
       } finally { T.server.close(); T.app.locals.hidden.close(); }
