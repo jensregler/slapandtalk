@@ -8,6 +8,7 @@ import { CATALOG, DEFAULT_STYLE, normalizeStyle, styleFromSeed, randomSeed, styl
 import { initFargUI, initFabricPicker } from './fargui.js';
 import { FirstPersonControls, isTyping } from './controls.js';
 import { StampLayer, StampPreview } from './stamps.js';
+import { SurfaceTexLayer } from './surfacetex.js';
 import { createWheel } from './wheel.js';
 import { api } from './api.js';
 import { foldStamp } from './fold.js';
@@ -154,6 +155,10 @@ controls.attachJoystick($('joystick'), $('stick'));
 const stamps = new StampLayer(scene, room.surfaces);
 // Mina peel-bara klibbor förblir egna meshar; äldre målas in i väggarna (se stamps.js).
 stamps.keepLive = () => roomHistory(ROOM).map((h) => h.stampId);
+// A city room's painted-in stickers (Jens pt850u–pt852u; surfacetex.js): tile pictures over the surfaces instead
+// of thousands of sticker records, and – after ~10 s of calm – this browser may be asked to photograph the
+// surfaces that changed into them.
+const surfTex = IN_CITY ? new SurfaceTexLayer(scene, stamps, { room: ROOM, by: () => { try { return together.net.id || null; } catch { return null; } }, onCount: () => updateCount() }) : null;
 // Peels: baksidespappret som faller till golvet vid varje slap (när rummet har det på), peels.js.
 const peelLayer = new PeelLayer(scene, { room: CITY_OUTSIDE ? CITY : null });
 const slapFx = new SlapFx(scene);
@@ -360,7 +365,7 @@ function toast(msg, ms = 2200) {
   const t = $('toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
-function updateCount() { $('stamp-count').textContent = stamps.count; $('stamp-word').textContent = S.stickersWord(stamps.count); }
+function updateCount() { const n = stamps.count + (surfTex ? surfTex.count : 0); $('stamp-count').textContent = n; $('stamp-word').textContent = S.stickersWord(n); } // + the ones painted into the city's textures
 
 // The palette. Each thumbnail: pick it (click), and on hover (desktop) or when it is selected /
 // long-pressed (touch) a star (favourite) top-left and a small red × top-right (remove it from
@@ -2541,8 +2546,9 @@ noteVisit(ROOM); // one of my rooms now (the City is not): the plain address bri
 // ---------- Ladda rummet ----------
 async function loadRoom() {
   try {
-    const { stamps: list, images, info, cameras, peels, props } = await api.loadRoom(ROOM);
+    const { stamps: list, images, info, cameras, peels, props, surfaceTex, surfaceTexOn, surfaceTexIdleMs } = await api.loadRoom(ROOM);
     await propsUi.setAll(props || []).catch((e) => console.warn('[props]', e)); // before the stickers: some sit on a cuboid's face
+    const texReady = surfTex ? surfTex.setManifest(surfaceTex, { on: surfaceTexOn, idleMs: surfaceTexIdleMs }).catch((e) => console.warn('[surfacetex]', e)) : null;
     window.klibb.propsReady = true;
     showRoomInfo(info); roomInfoKnown();
     applyGroove(info?.groove);
@@ -2554,6 +2560,7 @@ async function loadRoom() {
     pruneHistory(list.map((s) => s.id));
     // allSettled: en enda trasig stämpel ska inte hindra resten av rummet från att laddas.
     await Promise.allSettled(list.map((s) => stamps.add(s, images[s.imageId])));
+    await texReady;
     updateCount();
   } catch (err) { roomInfoKnown(); toast(S.roomLoadFailed(err.message)); }
 }
@@ -2563,6 +2570,11 @@ async function loadRoom() {
 function onRoomEvent(e) {
   if (!e || typeof e.type !== 'string') return;
   if (propsUi && propsUi.onEvent(e)) return; // prop:set / prop:remove
+  if (surfTex) {
+    if (e.type === 'surfacetex:update') { surfTex.applyUpdate(e).catch((err) => console.warn('[surfacetex]', err)); return; }
+    if (e.type === 'stamp:add' || e.type === 'stamp:remove' || e.type === 'room:clear-hidden') surfTex.noteChange();
+    if (e.type === 'room:reset') surfTex.clear();
+  }
   if (e.type === 'stamp:add' && e.stamp && e.image) {
     // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
     if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); if (e.peel) peelLayer.confirm('tmp-' + e.nonce, e.peel); return; } // min egen, redan synlig
@@ -2626,8 +2638,9 @@ function syncPeels(info, peels = [], images = {}) {
 }
 async function resyncRoom() {
   try {
-    const { stamps: list, images, info, cameras, peels, props } = await api.loadRoom(ROOM);
+    const { stamps: list, images, info, cameras, peels, props, surfaceTex, surfaceTexOn, surfaceTexIdleMs } = await api.loadRoom(ROOM);
     if (props) await propsUi.setAll(props).catch(() => {});
+    if (surfTex) await surfTex.setManifest(surfaceTex, { on: surfaceTexOn, idleMs: surfaceTexIdleMs }).catch(() => {}); // before the stickers: the painted-in ones are no longer in the list
     cams.set(cameras || []); renderCams();
     syncPeels(info, peels, images);
     applyGroove(info?.groove);
@@ -4038,6 +4051,7 @@ window.klibb = {
   escMenu: () => escMenu, slapFx: () => slapFx, wheelExclude: () => WHEEL_EXCLUDE, formerMenuIds: () => FORMER_MENU_IDS,
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   wheelUp, touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
+  surfTex: () => surfTex,
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
   held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3), aimOff }, aimOff: () => aimOff, setAimOff, syncAimToggleBtn, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   strip: () => ({ shown: wheelIsLit() && !$('design-strip').hidden && $('design-strip').getClientRects().length > 0 && Number(getComputedStyle($('design-strip')).opacity) > 0.05, lit: wheelIsLit(), n: $('strip-row').children.length, sel: $('strip-row').querySelector('.sel')?.dataset.id ?? null, num: $('strip-num').textContent, scroll: wheel.info().pos, rect: $('design-strip').getBoundingClientRect().toJSON(), packSlot: FILM_STUDIO ? studioSlot : cityPackSlot, label: $('wheel-label')?.textContent || '' }),

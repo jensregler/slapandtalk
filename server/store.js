@@ -514,9 +514,12 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   async function resetStamps(roomId) {
     return withLock(roomId, async () => {
       const room = await loadRoom(roomId);
-      if (!room || !room.stamps.length) return 0;
-      const n = room.stamps.length;
-      room.stamps = []; room.lastVisitAt = iso();
+      const painted = (room && room.surfaceTex && room.surfaceTex.count) || 0;
+      if (!room || (!room.stamps.length && !room.surfaceTex)) return 0;
+      const n = room.stamps.length + painted;
+      // The city's painted-in stickers (surface textures, server/surfacetex.js) go too: the tiles and the
+      // archive files stay in storage (content-addressed; a city preset may share them) until gc.
+      room.stamps = []; delete room.surfaceTex; room.lastVisitAt = iso();
       await saveRoom(room);
       return n;
     });

@@ -57,11 +57,13 @@ const { createCities } = require('./cities');
 const { createHousePresets } = require('./housepresets');
 const { createCityBus, BUS: CITYBUS } = require('./citybus');
 const { createCityPresets } = require('./citypresets');
+const { createSurfaceTex, surfaceTexSettings } = require('./surfacetex');
+const STX = require('../shared/surfacetex.mjs');
 const CITY = require('../shared/city.mjs');
 const PROPS = require('../shared/props.mjs'); // 3D props (t491u/t509u): tables, chairs, street furniture
 
 // demo: the demo profile (server/demo.js createDemo) or null. library: loadLibrary() list.
-function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), photos = photoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500, cityAutosaveMs = undefined } = {}) {
+function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), photos = photoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500, cityAutosaveMs = undefined, surfaceTex: surfaceTexOpts = surfaceTexSettings(process.env) } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 const presets = createPresets(store.adapter, { log });
@@ -71,7 +73,23 @@ const housePresets = createHousePresets(presets, { log }); // the kept city hous
 const cityPresets = createCityPresets(store, { clock, log, ...(cityAutosaveMs !== undefined ? { autosaveMs: cityAutosaveMs } : {}) });
 // Every room change goes out through broadcast (stamp:add / stamp:remove / room:reset / room:style …):
 // one in the build city also saves it into the default city preset a moment later.
-function broadcast(roomId, event) { broadcastRaw(roomId, event); if (CITY.isBuildCity(roomId)) cityPresets.autosave(roomId); }
+// A sticker change in a city room also restarts that room's calm timer for the surface-texture bake
+// (server/surfacetex.js: a bake job is only handed out after SURFACE_TEX idleMs without one).
+const STICKER_CHANGES = new Set(['stamp:add', 'stamp:remove', 'room:reset', 'room:clear-hidden']);
+function broadcast(roomId, event) {
+  broadcastRaw(roomId, event);
+  if (event && STICKER_CHANGES.has(event.type) && surfaceTex) surfaceTex.noteChange(roomId);
+  if (CITY.isBuildCity(roomId)) cityPresets.autosave(roomId);
+}
+// Persistent city surface textures (Jens pt850u–pt852u; server/surfacetex.js, shared/surfacetex.mjs).
+// var: broadcast() above may run before this line has (it never does before the routes exist, but be safe)
+var surfaceTex = createSurfaceTex(store, { // eslint-disable-line no-var
+  clock, log, settings: surfaceTexOpts,
+  imageAvailable: (id) => imageAvailable(id),
+  isPlayer: (roomId, by) => { const s = roomSeat(roomId, by); return !!(s && s.player); },
+  broadcast: (roomId, e) => broadcast(roomId, e),
+  listPresets: () => cityPresets.list(),
+});
 const cityPacks = createCityPacks(store.adapter, { imageInfo: (id) => imageAvailable(id), clock, log });
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
 // Full-version flags for a request; asks Lemon Squeezy first when the key is a paid key we haven't seen.
@@ -322,7 +340,8 @@ const cleanRoomName = (v) => Array.from(String(v ?? '').normalize('NFC').replace
 const DEVICE_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const whoOf = (dev) => (typeof dev === 'string' && DEVICE_RE.test(dev) ? hashToken('d:' + dev).slice(0, 24) : null);
 const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, createdAt: r.createdAt, lastVisitAt: r.lastVisitAt, style: styleOf(r), peels: CITY.isCityOutside(r.id) || !!r.peelsOn,
-  ...(r.name ? { name: r.name } : {}), visitors: Array.isArray(r.visitors) ? r.visitors.length : 0, stickers: Array.isArray(r.stamps) ? r.stamps.length : 0,
+  ...(r.name ? { name: r.name } : {}), visitors: Array.isArray(r.visitors) ? r.visitors.length : 0, stickers: (Array.isArray(r.stamps) ? r.stamps.length : 0) + ((r.surfaceTex && r.surfaceTex.count) || 0),
+  ...(r.surfaceTex && r.surfaceTex.count ? { painted: r.surfaceTex.count } : {}),
   ...(r.groove ? { groove: r.groove } : {}), ...(r.preset && r.preset.faces ? { preset: r.preset } : {}),
   quickTtlHours: r.type === 'quick' ? quickTtlHours : null, ...(r.demo && r.demo.expiresAt ? { expiresAt: r.demo.expiresAt } : {}) });
 
@@ -676,7 +695,9 @@ app.post('/api/rooms/:room/clear-mine', rateLimit(10), wrap(async (req, res) => 
   const gone = await store.clearMine(id, who);
   const by = playerId(req.body && req.body.by);
   for (const sid of gone) broadcast(id, { type: 'stamp:remove', id: sid, quiet: true, ...(by ? { by } : {}) }); // quiet: no peel sound per sticker
-  res.json({ ok: true, removed: gone.length, ids: gone });
+  // ones already painted into the city's surface textures: out of the archive's next repaint of their tiles
+  const painted = STX.surfaceTexRoom(id) ? await surfaceTex.removeArchived(id, (s) => s.madeBy === who || (!s.madeBy && s.peelOwner === who)) : [];
+  res.json({ ok: true, removed: gone.length + painted.length, ids: gone, ...(painted.length ? { painted: painted.length } : {}) });
 }));
 
 // ---------- Stämplar ----------
@@ -708,7 +729,63 @@ app.get('/api/rooms/:room/stamps', wrap(async (req, res) => {
     pIds.forEach((i, n) => ok.set(i, pMetas[n]));
     peels = room.peels.filter((p) => { const m = ok.get(p.imageId); if (m) images[p.imageId] = m; return !!m; });
   }
-  res.json({ room: id, info: roomPublic(room), stamps, peels, images, cameras: room.cameras || [], props: PROPS.propsOf(room, CITY.isCityOutside(id)), ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });
+  // A city room's painted-in stickers (surface textures): their tiles, not their records (shared/surfacetex.mjs).
+  const tex = STX.surfaceTexRoom(id) ? { surfaceTex: STX.publicManifest(room.surfaceTex), surfaceTexOn: surfaceTex.on(), surfaceTexIdleMs: surfaceTex.settings.idleMs } : {};
+  res.json({ room: id, info: roomPublic(room), stamps, peels, images, cameras: room.cameras || [], props: PROPS.propsOf(room, CITY.isCityOutside(id)), ...tex, ...(room.storageUnavailable ? { storageUnavailable: true } : {}) });
+}));
+
+// ---------- Surface textures (persistent city bake; server/surfacetex.js) ----------
+// POST /api/rooms/:room/surfacetex/claim { by }                 → { job } | { wait } | { busy, wait } | { idle } | { off }
+// PUT  /api/rooms/:room/surfacetex/jobs/:job/tile?key=…&by=…    body: the tile picture (image/png or image/webp)
+// POST /api/rooms/:room/surfacetex/jobs/:job/commit { by, painted, skipped }
+// GET  /api/rooms/:room/surfacetex/seg/:hash                    an archive segment (rebuild jobs)
+// GET  /api/surfacetex/<hash>[-d|-h].webp                       a tile picture (immutable)
+const stxFail = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'Something went wrong on the server.', ...(e.stale ? { stale: true } : {}) });
+app.post('/api/rooms/:room/surfacetex/claim', rateLimit(60), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  try { res.set('Cache-Control', 'no-store').json(await surfaceTex.claim(id, { by: playerId(req.body && req.body.by) || null, admin: isAdmin(req) })); }
+  catch (e) { if (!e.status) log.error?.('[surfacetex] claim', e); stxFail(res, e); }
+}));
+app.put('/api/rooms/:room/surfacetex/jobs/:job/tile', rateLimit(600), express.raw({ type: ['image/png', 'image/webp'], limit: STX.SURFACE_TEX.maxTileBytes }), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  if (!surfaceTex.isJob(req.params.job)) return res.status(400).json({ error: 'Bad job' });
+  try { res.json(await surfaceTex.putTile(id, req.params.job, String(req.query.key || ''), req.body, { by: playerId(String(req.query.by || '')) || null, admin: isAdmin(req) })); }
+  catch (e) { if (!e.status) log.error?.('[surfacetex] tile', e); stxFail(res, e); }
+}));
+app.post('/api/rooms/:room/surfacetex/jobs/:job/commit', rateLimit(60), express.json({ limit: '256kb' }), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  if (!surfaceTex.isJob(req.params.job)) return res.status(400).json({ error: 'Bad job' });
+  const b = req.body || {};
+  try { res.json(await surfaceTex.commit(id, req.params.job, { painted: b.painted, skipped: b.skipped, by: playerId(b.by) || null, admin: isAdmin(req) })); }
+  catch (e) { if (!e.status) log.error?.('[surfacetex] commit', e); stxFail(res, e); }
+}));
+app.get('/api/rooms/:room/surfacetex/seg/:hash', rateLimit(600), wrap(async (req, res) => {
+  const id = roomParam(req, res); if (!id) return;
+  try { res.set('Cache-Control', 'no-store').json(await surfaceTex.segment(id, String(req.params.hash))); } catch (e) { stxFail(res, e); }
+}));
+app.get('/api/surfacetex/:file', wrap(async (req, res) => {
+  const buf = await surfaceTex.tileFile(req.params.file);
+  if (!buf) return res.status(404).end();
+  res.set({ 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=31536000, immutable' }).send(buf);
+}));
+// Admin: how a room's bake stands / mark tiles for a repaint from the archive / everything kept (backup) / sweep.
+app.get('/api/admin/surfacetex/:room', wrap(async (req, res) => {
+  if (!adminOnly(req, res)) return; const id = roomParam(req, res); if (!id) return;
+  res.set('Cache-Control', 'no-store').json(await surfaceTex.status(id));
+}));
+app.post('/api/admin/surfacetex/:room/rebuild', express.json(), wrap(async (req, res) => {
+  if (!adminOnly(req, res)) return; const id = roomParam(req, res); if (!id) return;
+  res.json({ ok: true, stale: await surfaceTex.rebuild(id, Array.isArray(req.body?.keys) ? req.body.keys.map(String) : null) });
+}));
+app.get('/api/admin/surfacetex/:room/export', wrap(async (req, res) => {
+  if (!adminOnly(req, res)) return; const id = roomParam(req, res); if (!id) return;
+  const out = await surfaceTex.exportRoom(id);
+  if (!out) return res.status(404).json({ error: 'That room does not exist' });
+  res.set('Cache-Control', 'no-store').json(out);
+}));
+app.post('/api/admin/surfacetex-gc', express.json(), wrap(async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  res.json(await surfaceTex.gc({ dry: req.body?.dry !== false }));
 }));
 
 const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
@@ -1266,7 +1343,7 @@ app.post('/api/rooms/:room/recording/start', rateLimit(20), wrap(async (req, res
           if (images[p.imageId]) peels.push(p);
         }
         for (const k of Object.keys(images)) if (!images[k]) delete images[k];
-        return { style: styleOf(room), stamps, images, cameras: room.cameras || [], groove: room.groove || null, peelsOn: !!room.peelsOn, peels };
+        return { style: styleOf(room), stamps, images, cameras: room.cameras || [], groove: room.groove || null, peelsOn: !!room.peelsOn, peels, ...(room.surfaceTex ? { surfaceTex: STX.publicManifest(room.surfaceTex) } : {}) };
       },
     });
     res.json({ ok: true, already: r.already, recording: recorder.status(id) });
@@ -1387,8 +1464,9 @@ app.get('/api/admin/entitlements', wrap(async (req, res) => {
 app.delete('/api/rooms/:room/stamps/:id', wrap(async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Not allowed' });
   const room = roomParam(req, res); if (!room) return;
-  const ok = await store.deleteStamp(room, req.params.id);
+  let ok = await store.deleteStamp(room, req.params.id);
   if (ok) broadcast(room, { type: 'stamp:remove', id: req.params.id });
+  else if (STX.surfaceTexRoom(room)) ok = (await surfaceTex.removeArchived(room, (s) => s.id === req.params.id)).length > 0; // painted in: its tiles get repainted
   res.json({ ok });
 }));
 
@@ -1402,6 +1480,9 @@ app.delete('/api/stickers/:id', wrap(async (req, res) => {
   if (!/^[a-f0-9]{16}$/.test(id)) return res.status(400).json({ error: 'Invalid id' });
   const lost = req.query.simulateLoss === '1';
   const removed = await store.deleteStampsWithImage(id);
+  // Painted into a city's surface textures: those tiles are repainted from the archive without it (in the background).
+  (async () => { for (const r of await store.listRooms()) if (STX.surfaceTexRoom(r)) await surfaceTex.removeArchived(r, (s) => s.imageId === id).catch(() => []); })()
+    .catch((e) => log.error?.('[surfacetex] removing a design from the textures failed', e && e.message));
   await store.deleteImage(id);
   await store.deleteImageFile(id);
   if (!lost) await store.markRemoved(id);

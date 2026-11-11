@@ -4,7 +4,8 @@
 // sticker records (not baked images), so a new city gets real stickers in the same places.
 //
 //   "citypresets/<id>.json"  { id, name, default: true|false, source, createdAt, updatedAt,
-//                              layers: { outside: { stamps, geo, style?, props? }, '1': { … }, … '8': { … } } }
+//                              layers: { outside: { stamps, geo, style?, props?, surfaceTex? }, '1': { … }, … '8': { … } } }
+//   surfaceTex = the part's painted-in stickers (server/surfacetex.js): tile pictures + archive, shared files
 //   props = the part's 3D props (shared/props.mjs; missing = it had none of its own: the default set)
 //
 // One preset is the DEFAULT: every new city (server/cities.js) copies its outside when the city is
@@ -26,6 +27,10 @@ const cleanName = (v) => Array.from(String(v ?? '').normalize('NFC').replace(/[\
 // A sticker as it goes into a preset / into a new city: never a peel key, owner or maker.
 const cleanStamp = ({ peelHash, peelOwner, madeBy, group, ...s }) => s;
 const err = (status, message) => Object.assign(new Error(message), { status });
+// The part's painted-in stickers (surface textures, server/surfacetex.js): the manifest only – the tile pictures
+// and archive segments are content-addressed files the preset and every city made from it share. Tiles still
+// waiting for a repaint stay marked (the new city repaints them itself).
+const cleanTex = (t) => (t && typeof t === 'object' ? structuredClone({ v: 1, count: t.count || 0, rev: t.rev || 0, tiles: t.tiles || {}, segs: t.segs || [], stale: t.stale || [], removed: t.removed || [] }) : null);
 
 function createCityPresets(store, { clock = () => Date.now(), autosaveMs = AUTOSAVE_MS, log = console, timers = { setTimeout, clearTimeout } } = {}) {
   const adapter = store.adapter;
@@ -46,6 +51,7 @@ function createCityPresets(store, { clock = () => Date.now(), autosaveMs = AUTOS
   }
   const summary = (p) => ({ id: p.id, name: p.name, default: !!p.default, source: p.source || null, createdAt: p.createdAt, updatedAt: p.updatedAt,
     stickers: Object.fromEntries(Object.entries(p.layers || {}).map(([l, v]) => [l, (v.stamps || []).length])),
+    painted: Object.fromEntries(Object.entries(p.layers || {}).filter(([, v]) => v.surfaceTex && v.surfaceTex.count).map(([l, v]) => [l, v.surfaceTex.count])), // in the surface textures
     props: Object.fromEntries(Object.entries(p.layers || {}).filter(([, v]) => Array.isArray(v.props)).map(([l, v]) => [l, v.props.length])) }); // 3D props per part (own ones only)
   const list = async () => [...(await load()).values()].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
   const get = async (id) => (ID_RE.test(String(id)) ? (await load()).get(id) || null : null);
@@ -57,7 +63,7 @@ function createCityPresets(store, { clock = () => Date.now(), autosaveMs = AUTOS
     const id = layer === 'outside' ? city : CITY.houseId(city, Number(layer));
     const r = await store.peek(id); // a storage error throws: never save a half-read city over the preset
     if (!r) return null;
-    return { stamps: (r.stamps || []).map(cleanStamp), ...(r.geo ? { geo: r.geo } : {}), ...(r.style ? { style: r.style } : {}), ...(Array.isArray(r.props) ? { props: r.props } : {}) };
+    return { stamps: (r.stamps || []).map(cleanStamp), ...(r.geo ? { geo: r.geo } : {}), ...(r.style ? { style: r.style } : {}), ...(Array.isArray(r.props) ? { props: r.props } : {}), ...(r.surfaceTex ? { surfaceTex: cleanTex(r.surfaceTex) } : {}) };
   }
   // Everything placed in a city now: { outside: { stamps, geo, style? }, '1': … } (only the parts that exist).
   async function snapshot(city = CITY.BUILD_CITY, onlyLayers = null) {
@@ -144,7 +150,7 @@ function createCityPresets(store, { clock = () => Date.now(), autosaveMs = AUTOS
     try { d = await getDefault(); } catch (e) { log.error?.('[citypresets] could not read the presets', e && e.message); return null; }
     const l = d && d.layers && d.layers[layer];
     if (!l) return null;
-    return { preset: d.id, stamps: structuredClone((l.stamps || []).map(cleanStamp)), ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: structuredClone(l.style) } : {}), ...(Array.isArray(l.props) ? { props: structuredClone(l.props) } : {}) };
+    return { preset: d.id, stamps: structuredClone((l.stamps || []).map(cleanStamp)), ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: structuredClone(l.style) } : {}), ...(Array.isArray(l.props) ? { props: structuredClone(l.props) } : {}), ...(l.surfaceTex ? { surfaceTex: cleanTex(l.surfaceTex) } : {}) };
   }
   return {
     list, get, getDefault, summary, snapshot, snapshotLayer, save, saveDefault, autosave, flush, setDefault, rename, remove, layerFor,

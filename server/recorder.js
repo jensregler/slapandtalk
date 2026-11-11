@@ -156,6 +156,7 @@ function createRecorder(store, {
       geo: GEO.CURRENT_KEY, style: snap.style || null, stamps: snap.stamps || [], images: snap.images || {}, cameras: snap.cameras || [], players,
       groove: snap.groove || null, // the footstep groove (shared/groove.mjs); event room:groove when it changes
       peelsOn: !!snap.peelsOn, peels: snap.peels || [], // backing paper on the floor; events room:peels / peels:clear, new ones ride on stamp:add
+      ...(snap.surfaceTex ? { surfaceTex: snap.surfaceTex } : {}), // a city room's painted-in stickers (shared/surfacetex.mjs): the tiles at the start
       tracks: [], // ljudspår per person kommer i steg 2 (se docs/recording-format.md)
       limits: { maxMs, maxBytes },
     };

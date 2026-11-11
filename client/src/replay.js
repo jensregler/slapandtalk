@@ -10,6 +10,7 @@ import { CITY, isCityOutside, roomBox as spaceBox } from '../../shared/city.mjs'
 import { PresetLayer } from './preset.js';
 import { applyStyle, normalizeStyle, DEFAULT_STYLE, tickRoomFabric } from './roomstyle.js';
 import { StampLayer, StampPreview } from './stamps.js';
+import { SurfaceTexLayer } from './surfacetex.js';
 import { PeelLayer } from './peels.js';
 import { Avatar, loadAvatarModel } from './avatars.js';
 import { CameraLayer, poseCamera, renderFramed, aspectRatio } from './cameras.js';
@@ -57,6 +58,8 @@ camera.position.set(0, 2.4, 4.4);
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
 controls.pitch = -0.22; controls.apply();
 const stamps = new StampLayer(scene, room.surfaces);
+// A city room's painted-in stickers (surfacetex.js): the tiles as they were when the recording started (never baked here).
+const surfTex = new SurfaceTexLayer(scene, stamps, { room: ROOM });
 const cams = new CameraLayer(scene);
 // Peels (backing paper): in the same scene, so every view, the finished video and 📷 photos have them.
 // Its clock is the replay time, so a fall looks the same at every play, seek and scrub.
@@ -490,6 +493,7 @@ async function load() {
     if (!logRes.ok) throw new Error(logRes.status === 404 ? S.replayMissing : S.replayError(logRes.status));
     rp.meta = metaRes.ok ? await metaRes.json() : null;
     const rec = parseRecording(await logRes.text());
+    if (rec.header.surfaceTex) surfTex.setManifest(rec.header.surfaceTex, { on: false }).catch(() => {});
     rp.tl = buildTimeline(rec);
     rp.loading = new Set();
     // The auto-director's cut (the same as the shot list the server saved with the recording).

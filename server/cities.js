@@ -19,7 +19,9 @@ const FIRST_NAME = 'The City';
 // housePresets: server/housepresets.js – the room preset of kept house n (rebuild, 10 Nov 2026: 1, 3, 6, 8).
 function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () => Date.now(), log = console, presets = null, housePresets = null } = {}) {
   const fromPreset = async (layer) => (presets ? presets.layerFor(layer) : null);
-  const presetExtra = (l) => (l ? { stamps: l.stamps, cityPreset: l.preset, ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: l.style } : {}), ...(Array.isArray(l.props) ? { props: l.props } : {}) } : {});
+  // surfaceTex: the preset's painted-in stickers (its tiles + archive, shared files – server/surfacetex.js), so a
+  // new city starts with the pictures and only the still-live stickers as records (no thousands of meshes).
+  const presetExtra = (l) => (l ? { stamps: l.stamps, cityPreset: l.preset, ...(l.geo ? { geo: l.geo } : {}), ...(l.style ? { style: l.style } : {}), ...(Array.isArray(l.props) ? { props: l.props } : {}), ...(l.surfaceTex ? { surfaceTex: l.surfaceTex } : {}) } : {});
   const always = (city) => city === CITY.CITY_ROOM || city === CITY.BUILD_CITY || BUS.isTestBusCity(city);
   const peopleIn = (city) => [city, ...CITY.houseIds(city)].reduce((n, id) => n + (occupancy(id) || 0), 0);
   async function started(city) {
@@ -36,7 +38,7 @@ function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () =
     for (const id of ids) {
       const r = await store.peek(id).catch(() => null);
       if (!r) continue;
-      stickers += Array.isArray(r.stamps) ? r.stamps.length : 0;
+      stickers += (Array.isArray(r.stamps) ? r.stamps.length : 0) + ((r.surfaceTex && r.surfaceTex.count) || 0); // + painted into the surface textures
       for (const v of Array.isArray(r.visitors) ? r.visitors : []) if (v) seen.add(v);
     }
     return { stickers, visitors: seen.size };
