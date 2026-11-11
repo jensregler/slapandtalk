@@ -59,6 +59,7 @@ import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs
 import { buildCityRoom, markDoors } from './city.js';
 import { CITY_FX, cityFxAt, placeNeutral, placeHouse, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
 import { delayRoomTimes } from '../../shared/delayroom.mjs';
+import { slapHold } from '../../shared/dancehold.mjs';
 import { reverbGazeYaw, reverbPitchesAt, insideReverbRoom } from '../../shared/reverbroom.mjs';
 import { CITY, CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, PACK_DESIGN_ID, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
@@ -1054,7 +1055,10 @@ async function slapAt(ndc, info, onStart, auto = null) {
   const design = state.selected;
   if (!auto || auto.first !== false) { const [dw, dh] = stampDims(design, 1); filmLog?.add('stick', { url: String(design.url || '').length < 200_000 ? design.url || '' : '', aspect: dh > 0 ? +(dw / dh).toFixed(3) : 1 }); } // the session film
 
-  { const [aw, ah] = stampDims(design, slapSize); sound.play('slap', null, { area: aw * ah, size: slapSize, ...(auto ? { volume: auto.volume } : {}) }); } // bigger sticker = bigger slap (same curve as duff)
+  // Dance mode (Jens, 11 Nov 2026): while I dance, MY distance (head) to where the sticker lands sets this slap's
+  // envelope hold – 0 s within 1 m, 3 s across the city (96 m), linear (shared/dancehold.mjs). Not dancing: untouched.
+  const danceHold = slapHold({ dancing: together.dancing(), from: camera.position.toArray(), to: h.point.toArray() });
+  { const [aw, ah] = stampDims(design, slapSize); sound.play('slap', null, { area: aw * ah, size: slapSize, ...(auto ? { volume: auto.volume } : {}), ...(danceHold != null ? { hold: danceHold } : {}) }); } // bigger sticker = bigger slap (same curve as duff)
   // The delay room: a slap sets its three delay times from MY distance to each delay (not the sticker's).
   if (CITY_OUTSIDE && delayRoom.slap(camera.position.x, camera.position.z)) placeAt = 0;
   const nonce = Math.random().toString(36).slice(2, 12);

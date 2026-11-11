@@ -9,6 +9,7 @@
 // (my sounds, others' sounds, voice monitor, remote voices) – not per-source, not sent as audio.
 // Other people's sounds are spatial (HRTF panner, quieter with distance). The room's materials
 // add a subtle, automatic reverb (roomAcoustics). Mute is remembered ('klibb.muted').
+import { withHold } from '../../shared/dancehold.mjs';
 import { DEFAULT_PATCHES, variant, morphPatch, cleanPatch, cleanFx, duffScale, slapScale, sizeRate, retune, roomAcoustics, colourPatch } from '../../shared/synth.mjs';
 import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
 import { peelStepParams } from '../../shared/peelstep.mjs';
@@ -140,7 +141,9 @@ export class Sounds {
   // shared/synth.mjs sizeRate; slap without area → treated as square), volume }.
   // time: when (AudioContext seconds, the footstep groove schedules ahead); tune: extra pitch ratio.
   // onPeel + speed (m/s, footsteps only): the step lands on backing paper – the paper variant.
-  play(kind, at = null, { sound, area, size, volume = 1, time = null, tune = 1, onPeel = false, speed = 0, exact = false } = {}) {
+  // hold (s, slap): every layer's envelope hold for this one play (the dance-mode vector, shared/dancehold.mjs);
+  // null/absent = the patch's own hold.
+  play(kind, at = null, { sound, area, size, volume = 1, time = null, tune = 1, onPeel = false, speed = 0, exact = false, hold = null } = {}) {
     const remote = !!at;
     const who = sound === undefined ? this.mine : sound;
     const wobble = exact ? 1 : kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06; // tiny per-play life
@@ -155,9 +158,10 @@ export class Sounds {
     const distance = remote ? Math.hypot(at[0] - this.listener.p[0], at[1] - this.listener.p[1], at[2] - this.listener.p[2]) : 0;
     // Same curve as the panner (inverse distance), so the log shows what you hear.
     const heard = remote ? 1.6 / (1.6 + Math.max(0, distance - 1.6)) : 1;
-    const { patch, custom } = this.patchFor(kind, who);
+    const { patch: base, custom } = this.patchFor(kind, who);
+    const patch = hold != null ? withHold(base, hold) : base;
     const entry = { kind, remote, distance: +distance.toFixed(2), gain: +heard.toFixed(3), level: +gain.toFixed(3), rate: +rate.toFixed(3),
-      seed: who?.seed || null, colour: who && Number.isInteger(who.colour) ? who.colour : 0, custom, muted: this.muted, time: Date.now(),
+      seed: who?.seed || null, colour: who && Number.isInteger(who.colour) ? who.colour : 0, custom, muted: this.muted, time: Date.now(), ...(hold != null ? { hold: +(+hold).toFixed(3) } : {}),
       ...((kind === 'duff' || kind === 'slap') && area != null ? { area: +(+area || 0).toFixed(4) } : {}),
       ...((kind === 'slap' || kind === 'peel' || kind === 'duff') && size != null ? { size: +(+size || 0).toFixed(4) } : {}) };
     const paper = kind === 'step' && onPeel ? peelStepParams(speed) : null;
