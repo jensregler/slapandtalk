@@ -36,7 +36,7 @@ export const VOICE_FX = {
     dry: 'Dry', radio: '📻 Radio', echo: '🔁 Echo (tempo)', hall: '⛪ Hall', robot: '🤖 Robot / crush',
     chorus: '🌊 Chorus', pitch: '🎹 Pitch', harmony: '🎼 Harmony',
   },
-  // delay subdivisions in beats of the master clock (shared/clock.mjs, 90 BPM by default)
+  // delay subdivisions in beats of MY Tempo (shared/runmode.mjs walkBpm, 90 BPM by default; no shared clock)
   divs: ['1/4', '1/8', '1/8.'],
   divBeats: { '1/4': 1, '1/8': 0.5, '1/8.': 0.75 },
   divNames: { '1/4': '1/4 note', '1/8': '1/8 note', '1/8.': 'dotted 1/8' },
@@ -148,6 +148,7 @@ export function buildVoiceFx(ctx, src, dest, fx, tctx = null, bpm = MASTER.bpm) 
   const tap = mk(ctx.createGain()); tap.gain.value = 1;
   tap.connect(dest);
   const extra = [];
+  let echo = null; // the echo's delay (kind 'echo'): its time follows my Tempo (setBpm below)
   const pitchTo = (semitones, wet) => {
     const ps = makePitchShift(ctx, semitones);
     extra.push(ps.stop);
@@ -176,7 +177,7 @@ export function buildVoiceFx(ctx, src, dest, fx, tctx = null, bpm = MASTER.bpm) 
     const out = gain(kind === 'radio' ? 0.9 : 0.8); x.connect(out); out.connect(tap);
   } else if (kind === 'echo') {
     const dry = gain(1); src.connect(dry); dry.connect(tap);
-    const dl = mk(ctx.createDelay(2)); dl.delayTime.value = delaySec(f.div, bpm);
+    const dl = mk(ctx.createDelay(2)); dl.delayTime.value = delaySec(f.div, bpm); echo = dl;
     const fb = gain(0.2 + 0.35 * a), wet = gain(0.65 * a);
     src.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(tap);
   } else if (kind === 'hall') {
@@ -206,6 +207,8 @@ export function buildVoiceFx(ctx, src, dest, fx, tctx = null, bpm = MASTER.bpm) 
 
   return {
     nodes, tap,
+    // My Tempo changed (t846u): the synced echo follows it, without rebuilding the chain.
+    setBpm(b) { if (!echo) return false; const t = delaySec(f.div, b); try { echo.delayTime.setTargetAtTime(t, ctx.currentTime, 0.05); } catch { echo.delayTime.value = t; } return true; },
     stop() {
       for (const fn of extra) fn();
       for (const n of nodes) { try { n.disconnect(); } catch { /* ok */ } }
@@ -225,7 +228,7 @@ function rms(analyser, buf) { analyser.getFloatTimeDomainData(buf); let s = 0; f
 export class Voice {
   // net: { id, sendSignal(to, data) } · sound: Sounds (for the AudioContext) · positionOf(id) → {x, z} | null
   // listener() → {x, z} · onSpeaking(id, on, level) (id 'me' = me) · onState(state) · toast(msg)
-  // tempo() → bpm of the room's master clock (for tempo-synced echo)
+  // tempo() → MY Tempo in BPM (for the tempo-synced echo; setTempo when it changes)
   constructor({ net, sound = null, positionOf = () => null, listener = () => null, onSpeaking = () => {}, onState = () => {}, toast = () => {}, ice = VOICE.ice, tempo = () => MASTER.bpm }) {
     Object.assign(this, { net, sound, positionOf, listener, onSpeaking, onState, toast, ice, tempo });
     this.peers = new Map(); // id -> peer
@@ -321,6 +324,11 @@ export class Voice {
   }
   addTrack(p) { if (!p.sender && this.track) p.sender = p.pc.addTrack(this.sendTrack(), this.stream); }
   sendTrack() { return (this.fxChain && this.fxChain.track) || this.track; }
+  // My Tempo changed (main.js, t846u): the echo's synced time follows it (the others hear my voice with it).
+  setTempo(bpm) {
+    const b = Number(bpm); if (!(b > 0) || b === this.fxBpm) return false;
+    this.fxBpm = b; return !!(this.fxChain && this.fxChain.setBpm && this.fxChain.setBpm(b));
+  }
   // The voice effect (VOICE_FX above): (re)build or remove the chain, then swap the sent track.
   setFx(f) { this.fx = cleanVoiceFx({ ...(this.fx || {}), ...f }); this.applyFx(); this.applyMonitor(); return this.fx; }
   applyFx() {
@@ -330,7 +338,7 @@ export class Voice {
     if (ctx && ctx.createMediaStreamDestination) {
       try {
         const src = ctx.createMediaStreamSource(new MediaStream([this.track])), dest = ctx.createMediaStreamDestination();
-        const bpm = typeof this.tempo === 'function' ? this.tempo() : MASTER.bpm;
+        const bpm = typeof this.tempo === 'function' ? this.tempo() : MASTER.bpm; this.fxBpm = bpm;
         const chain = buildVoiceFx(ctx, src, dest, f, this.sound.Tone ? this.sound.Tone.getContext() : null, bpm);
         this.fxChain = { ...chain, track: dest.stream.getAudioTracks()[0], kind: f.kind };
       } catch (e) { this.log.push('voice fx: ' + e.message); this.fxChain = null; }

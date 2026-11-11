@@ -5,12 +5,13 @@
 // Pure maths – no Three.js – so unit tests can sample every phase without a GLB.
 
 export const DANCE = Object.freeze({
-  bars: 4, beatsPerBar: 4, // the whole routine = 4 bars of 4/4 on the master clock (16 beats)
+  bars: 4, beatsPerBar: 4, // the whole routine = 4 bars of 4/4 at the dancer's own tempo (16 beats)
   beats: 16,
   key: 'KeyX',             // desktop: X
-  bpm: 90,                 // fallback tempo when no clock is given (the master clock's default)
-  minBpm: 60, maxBpm: 180, // outside this band the clock is used in double / half time
+  bpm: 90,                 // fallback tempo when none is given (the default Tempo)
+  minBpm: 60, maxBpm: 180, // outside this band the tempo is used in double / half time
   maxMs: 19000,            // the longest it can take (lead-in ≤ 1 beat + 16 beats at 60 BPM ≈ 17 s)
+  onBeatMs: 0.5,           // danceGrid: this close to a beat counts as on it (no lead-in)
 });
 // (Before Jens t546u: a fixed 19 s timeline at 120 BPM.) Sections, in beats from the first beat:
 //   strut 0–2 · chest pops 2–4 · knee drop 4–6 · kneel hold 6–7 · no-hands pop-up 7–9 ·
@@ -31,10 +32,12 @@ function oldTime(b) {
   return OLD[OLD.length - 1];
 }
 
-// Tempo (Jens t544u/t546u): the dance follows the master clock (shared/clock.mjs: 90 BPM + the
-// room's nudge and phase, on the server-corrected wall clock). It starts on the clock's NEXT beat
-// (lead = up to one beat of standing), so every beat of the routine is a clock beat. Above 180 /
-// below 60 BPM it runs in half / double time (folded by octaves) so it stays human.
+// Tempo (Jens t544u/t546u; t846u 11 Nov 2026: no global clock): the dance follows the DANCER'S OWN
+// tempo – their Tempo (shared/runmode.mjs walkBpm) × their run / crouch step rate while Shift / Ctrl is
+// held (shared/playertempo.mjs danceBpmOf) – on the server-corrected wall clock, so the same dancer
+// looks the same on every screen. Two dancers with different tempi are NOT in step with each other any
+// more (that is the point). It starts on the tempo's NEXT beat (lead = up to one beat of standing).
+// Above 180 / below 60 BPM it runs in half / double time (folded by octaves) so it stays human.
 // grid = { bpm, beat (s), lead (s from the press to the first beat), duration (s, lead incl.) }.
 export function danceGrid(nowMs, tempo) {
   let bpm = tempo && tempo.bpm > 0 && Number.isFinite(tempo.bpm) ? tempo.bpm : 0;
@@ -43,7 +46,9 @@ export function danceGrid(nowMs, tempo) {
   while (bpm > DANCE.maxBpm && guard++ < 40) bpm /= 2;
   while (bpm < DANCE.minBpm && guard++ < 80) bpm *= 2;
   const beatMs = 60000 / bpm, into = ((nowMs - (tempo.phaseMs || 0)) % beatMs + beatMs) % beatMs;
-  const leadMs = into < 1e-6 || beatMs - into < 1e-6 ? 0 : beatMs - into;
+  // on the beat within DANCE.onBeatMs (a retimed dance's anchor is a beat; float / 0.001 ms rounding on
+  // the way through the server must not turn that into a whole beat of lead-in)
+  const leadMs = into < DANCE.onBeatMs || beatMs - into < DANCE.onBeatMs ? 0 : beatMs - into;
   return { bpm: +bpm.toFixed(4), beat: beatMs / 1000, lead: leadMs / 1000, duration: (leadMs + DANCE.beats * beatMs) / 1000 };
 }
 const cleanGrid = (g) => (g && g.beat > 0 && Number.isFinite(g.beat) ? { beat: g.beat, lead: Number.isFinite(g.lead) && g.lead > 0 ? g.lead : 0 } : { beat: 60 / DANCE.bpm, lead: 0 });
@@ -66,6 +71,26 @@ export function danceLoopTime(tRaw, grid = null) {
 }
 /** How many whole passes have finished at tRaw (0 during the first pass). */
 export const danceLoops = (tRaw, grid = null) => { const g = cleanGrid(grid); return tRaw > g.lead ? Math.floor((tRaw - g.lead) / (DANCE.beats * g.beat)) : 0; };
+// The dancer's tempo changed mid-dance (Tempo slider, Shift / Ctrl while dancing – t846u): a new
+// anchor on the new tempo that keeps the routine where it is right now (no jump), so the dance just
+// speeds up / slows down. cur = { at (server ms of the anchor), grid (danceGrid), loop }, tempo = the
+// new { bpm, phaseMs? }. Returns { at, bpm, phaseMs } for startDance / retimeDance (and the room):
+// danceGrid(at, { bpm, phaseMs }) then has no lead-in and danceBeats(…) = the beats danced so far.
+// Still in the lead-in (or no anchor): start again on the new tempo's next beat.
+export function danceRetime(nowMs, cur, tempo) {
+  let bpm = tempo && tempo.bpm > 0 && Number.isFinite(tempo.bpm) ? tempo.bpm : DANCE.bpm;
+  let guard = 0;
+  while (bpm > DANCE.maxBpm && guard++ < 40) bpm /= 2;
+  while (bpm < DANCE.minBpm && guard++ < 80) bpm *= 2;
+  bpm = Math.round(bpm * 1000) / 1000; // the server relays bpm at 0.001: the same grid everywhere
+  const now = Math.round(nowMs);
+  if (!cur || !Number.isFinite(cur.at) || !Number.isFinite(nowMs)) return { at: now, bpm, phaseMs: Number.isFinite(tempo?.phaseMs) ? tempo.phaseMs : 0 };
+  const raw = Math.max(0, (nowMs - cur.at) / 1000), t = cur.loop ? danceLoopTime(raw, cur.grid) : raw;
+  const B = danceBeats(t, cur.grid);
+  if (!(B >= 0)) return { at: now, bpm, phaseMs: Number.isFinite(tempo?.phaseMs) ? tempo.phaseMs : 0 };
+  const beatMs = 60000 / bpm, at = Math.round(now - B * beatMs);
+  return { at, bpm, phaseMs: Math.round((((at % beatMs) + beatMs) % beatMs) * 1000) / 1000 };
+}
 
 const clamp01 = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t);
 const lerp = (a, b, t) => a + (b - a) * t;

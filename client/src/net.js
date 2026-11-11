@@ -61,7 +61,8 @@ export function connect(roomId, handlers) {
         case 'event': h.onEvent(m.e); break;
         case 'signal': h.onSignal(m.from, m.data); break;
         case 'sit': h.onSit(m); break; // someone sat down / stood up (3D props); taken = my chair was someone else's
-        case 'dance': h.onDance?.(m); break; // someone started the runway dance (stop: true = stopped it early)
+        case 'dance': h.onDance?.(m); break; // someone started the runway dance (stop: true = stopped it early; retime: true = its tempo changed)
+        case 'tempo': h.onTempo?.(m); break; // someone's own tempo changed (shared/playertempo.mjs, t846u)
         case 'error': h.onError(m.error); break;
         case 'denied': deniedCode = m.code || 'invite'; h.onDenied(m); break; // demo: not let in (no retry)
         case 'invite': h.onInvite(m); break;
@@ -117,7 +118,8 @@ export function connect(roomId, handlers) {
     sendTalk: (l) => send({ t: 'talk', l }), // my own voice level 0…15 while I talk (recordings only)
     sendHeld: (h) => send({ t: 'held', h }), // the sticker I hold and aim with, or null (recordings only)
     sendSit: (chair, draw = false) => send({ t: 'sit', chair: chair || null, draw: !!draw }), // I sit down on a chair (prop id) / stand up (null)
-    sendDance: (stop = false, d = null) => send(stop ? { t: 'dance', stop: true } : { t: 'dance', ...(d && Number.isFinite(d.at) && d.bpm > 0 ? { at: Math.round(d.at), bpm: d.bpm, phaseMs: d.phaseMs || 0 } : {}), ...(d && d.loop ? { loop: true } : {}) }), // I start the runway dance (others see it on my avatar) / stop it early
+    sendDance: (stop = false, d = null) => send(stop ? { t: 'dance', stop: true } : { t: 'dance', ...(d && Number.isFinite(d.at) && d.bpm > 0 ? { at: Math.round(d.at), bpm: d.bpm, phaseMs: d.phaseMs || 0 } : {}), ...(d && d.loop ? { loop: true } : {}), ...(d && d.retime ? { retime: true } : {}) }), // I start the runway dance (others see it on my avatar) / stop it early / retime: my tempo changed mid-dance
+    sendTempo: (tempo) => send({ t: 'tempo', ...tempo }), // my own tempo { bpm, scale, rate, tune } (shared/playertempo.mjs) when it changes
     sendInvite: (action = 'create') => send({ t: 'invite', action }), // demo: my single-use invite link
     get denied() { return deniedCode; },
     reconnectNow: now,

@@ -287,15 +287,25 @@ export class SynthEngine {
     }
     if (f.crush.wet > 0) { const n = new T.BitCrusher(f.crush.bits); n.wet.value = f.crush.wet; add(n); }
     if (f.dist.wet > 0) { const n = new T.Distortion(f.dist.amount); n.wet.value = f.dist.wet; add(n); }
+    let delay = null;
     if (f.delay.wet > 0) {
-      const sec = delaySeconds(f.delay);
+      const sec = Math.min(1.6, delaySeconds(f.delay, this.syncBpm || SYNTH.bpm)); // synced: beats of MY Tempo (t846u)
       const n = f.delay.pingPong ? new T.PingPongDelay({ delayTime: sec, feedback: f.delay.feedback, maxDelay: 1.6 }) : new T.FeedbackDelay({ delayTime: sec, feedback: f.delay.feedback, maxDelay: 1.6 });
-      n.wet.value = f.delay.wet; add(n);
+      n.wet.value = f.delay.wet; add(n); delay = { node: n, d: f.delay };
     }
     if (f.reverb.wet > 0) { const n = new T.Reverb({ decay: f.reverb.decay, preDelay: f.reverb.preDelay }); n.wet.value = f.reverb.wet; add(n); }
     this.ears.connect(input); last.connect(this.master);
-    this.listenerFx = { key, input, nodes };
+    this.listenerFx = { key, input, nodes, delay };
     return this.listenerFx;
+  }
+  // My Tempo (t846u: no shared clock): the delay's "sync" values (1/4, 1/8 …) are beats of it.
+  // Changed: the running listener delay glides to the new time (no rebuild).
+  setSyncBpm(bpm) {
+    const b = Number(bpm); if (!(b > 0) || b === this.syncBpm) return false;
+    this.syncBpm = b;
+    const dl = this.listenerFx && this.listenerFx.delay;
+    if (dl && dl.d.sync && dl.d.sync !== 'free') { const sec = Math.min(1.6, delaySeconds(dl.d, b)); try { dl.node.delayTime.rampTo(sec, 0.05); } catch { try { dl.node.delayTime.value = sec; } catch { /* ok */ } } }
+    return true;
   }
   // Connect a raw Web Audio node (voice monitor, remote peer) into my ears so it gets listener FX + place.
   // Voices also feed the delay room's three delays and the reverb room's three points (place.voiceIn; silent outside).
@@ -320,7 +330,7 @@ export class SynthEngine {
   // through the listener FX instead (t588u), so per-source FX is no longer heard by others.
   chain(fx) {
     const f = cleanFx(fx); if (!fxActive(f)) return this.roomIn;
-    const key = JSON.stringify(f);
+    const key = JSON.stringify(f) + '@' + (this.syncBpm || SYNTH.bpm);
     const hit = this.chains.get(key); if (hit) { hit.used = Date.now(); return hit.input; }
     const T = this.Tone, nodes = [];
     const input = new T.Gain(1); nodes.push(input);
@@ -333,7 +343,7 @@ export class SynthEngine {
     if (f.crush.wet > 0) { const n = new T.BitCrusher(f.crush.bits); n.wet.value = f.crush.wet; add(n); }
     if (f.dist.wet > 0) { const n = new T.Distortion(f.dist.amount); n.wet.value = f.dist.wet; add(n); }
     if (f.delay.wet > 0) {
-      const t = delaySeconds(f.delay);
+      const t = Math.min(1.6, delaySeconds(f.delay, this.syncBpm || SYNTH.bpm));
       const n = f.delay.pingPong ? new T.PingPongDelay({ delayTime: t, feedback: f.delay.feedback, maxDelay: 1.6 }) : new T.FeedbackDelay({ delayTime: t, feedback: f.delay.feedback, maxDelay: 1.6 });
       n.wet.value = f.delay.wet; add(n);
     }
@@ -378,7 +388,7 @@ export class SynthEngine {
     const vgain = ctx.createGain(); vgain.gain.value = p.gain * gain; vgain.connect(out); nodes.push(vgain);
     let last = null; const made = [];
     this.modTargets = new Set((p.mods || []).map((m) => m.to)); // (a layer whose decim/pan an LFO drives needs its node)
-    // sequencer layers (l.seq) run on the master clock (radio.js plays them one by one with `layer`), not on the trigger
+    // sequencer layers (l.seq) run on my own Tempo (radio.js plays them one by one with `layer`), not on the trigger
     for (const [i, l] of p.layers.entries()) { if (layer == null ? !!l.seq : i !== layer) { made.push(null); continue; } const r = this.layer(ctx, l, vgain, t0 + l.delay, rate, i); made.push(r); if (!r) continue; nodes.push(...r.nodes); if (!last || r.end > last.end) last = r; }
     if (p.mods && p.mods.length) { const mn = this.modulate(ctx, p, made, vgain, p.gain * gain, t0, len); if (mn) nodes.push(mn); }
     if (!last) { for (const n of nodes) { try { n.disconnect(); } catch { /* ok */ } } return true; } // (only an empty sampler)

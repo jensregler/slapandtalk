@@ -763,7 +763,30 @@ feedback ≤ 0,95, wet, ping-pong), filter, bitcrush och distortion – per spel
 - Testerna: `tests/synth.test.mjs` och `tests/e2e-synth.js` (renderar alla patchar med
   `Tone.Offline` och kollar att de hörs och inte klipper).
 
-#### Fotstegs-groove: alla fotsteg i en gemensam takt
+#### Tempo per spelare – ingen gemensam klocka (Jens, 11 nov 2026, t846u)
+
+Det finns ingen rums-, master- eller global klocka längre (`roomTempo` med ±0,3 BPM per rum är borta).
+Varje spelare har sitt eget **Tempo**: Sound settings → Steps → **Tempo** (hette "Walk tempo"),
+30–3000 BPM, standard 90, logaritmiskt (`shared/runmode.mjs` `walkBpm`, i mina personliga
+run-mode-inställningar, inte i rummets preset). Allt musikaliskt som är mitt följer det:
+
+- fotstegen (`shared/groove.mjs`: takten = 2 slag av mitt Tempo × min Groove-skala),
+- walk-ljudets sekvenslager och alla andra sekvenslager + de fyra rösterna (`client/src/radio.js`, `tempo()` = mitt Tempo),
+- delayens sync-värden (1/4, 1/8 … = slag av mitt Tempo, `client/src/synth.js` `setSyncBpm`),
+- röst-ekot (`client/src/voice.js` `setTempo`),
+- dansen (`shared/dance.mjs`): mitt Tempo × run-/crouch-takten medan Shift/Ctrl hålls; byts tempot mitt i
+  dansen ankras den om (`danceRetime`) utan hopp. Två dansare med olika tempo är inte längre i takt med varandra.
+
+Run och crouch tempo är fortfarande procent (−400 … +400 %) av mitt Tempo. De andra hör och ser mig i
+MITT tempo: klienten skickar `tempo {bpm, scale, rate, tune}` när det ändras (högst var 120:e ms, och i
+`hello`); servern sparar det per spelare, skickar vidare och lägger det i `welcome.players` / `join`
+(`shared/playertempo.mjs`). Dansens tempobyten går som `dance {…, retime: true}`. Varje spelares
+rutnät är ankrat i väggklockan (tid 0), så en spelares steg landar samtidigt på alla skärmar.
+Gamla rum med `radio.bpm` i presetet eller ett sparat `room.groove` läses fortfarande in, men driver
+ingenting. Testerna: `tests/playertempo.test.mjs`, `walkseq`, `soundsettings`, `sampler`, `groove`,
+`danceloop`, `e2e-runmode`, `e2e-groove`, `e2e-danceloop`.
+
+#### Fotstegs-groove (äldre text – se Tempo per spelare ovan: takten är nu per spelare)
 
 `shared/groove.mjs` (rutnätet) + `client/src/groove.js` (schemaläggningen). Alla i rummet går på
 **samma takt** (en "bar" på 420 tick). Varje plats i rummet (samma slot som ger ljudet dess färg)

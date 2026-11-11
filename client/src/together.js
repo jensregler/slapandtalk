@@ -9,6 +9,7 @@ import { fabricStats } from './fabrics.js';
 import { has, credentials } from './entitlements.js';
 import { loadSoundLook } from './soundui.js';
 import { SHOW, showTurn } from './avatarview.js';
+import { cleanPlayerTempo, sameTempo, PLAYER_TEMPO } from '../../shared/playertempo.mjs';
 
 const SEND_HZ = 12;
 const CHAT_FADE_MS = 15_000;
@@ -41,7 +42,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   // ---------- Anslutningen ----------
   const net = connect(room, {
     ...(ready ? { ready } : {}),
-    hello: () => { const ps = pass(); return { name: myName(), look: shownLook(), unlock: credentials(), p: camera.position.toArray(), y: controls.yaw, pi: controls.pitch, ...(ps ? { pass: ps } : {}) }; },
+    hello: () => { const ps = pass(); tempoSent = { ...myTempo }; return { name: myName(), look: shownLook(), unlock: credentials(), p: camera.position.toArray(), y: controls.yaw, pi: controls.pitch, tempo: { ...myTempo }, ...(ps ? { pass: ps } : {}) }; },
     onYou(name) { serverName = name; renderPeople(); },
     onWelcome(m) {
       serverName = m.you?.name || ''; mySlot = Number.isInteger(m.you?.slot) ? m.you.slot : 0; onSound(shownSound());
@@ -61,7 +62,14 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     onDenied, onInvite, onSignal,
     // 3D props: someone sat down on a chair / stood up (mine comes back too: taken = the chair was someone else's)
     onSit(m) { if (m.id !== net.id) players.sit(m.id, m.chair, m.draw); onSit(m); },
-    onDance(m) { if (m.id === net.id) return; if (m.stop) players.stopDance(m.id); else players.dance(m.id, Number.isFinite(m.at) ? { at: m.at, bpm: m.bpm, phaseMs: m.phaseMs, loop: m.loop === true } : (m.loop === true ? { loop: true } : null)); },
+    onDance(m) {
+      if (m.id === net.id) return;
+      if (m.stop) { players.stopDance(m.id); return; }
+      const from = Number.isFinite(m.at) ? { at: m.at, bpm: m.bpm, phaseMs: m.phaseMs, loop: m.loop === true } : (m.loop === true ? { loop: true } : null);
+      if (m.retime === true && from && Number.isFinite(from.at)) players.retimeDance(m.id, from); // their tempo changed mid-dance (t846u)
+      else players.dance(m.id, from);
+    },
+    onTempo(m) { if (m.id !== net.id) players.tempo(m.id, m); }, // their own tempo (t846u): their steps follow it
     onMove: (id, p, y) => players.move(id, p, y),
     onLook(id, name, look) {
       const pl = players.map.get(id);
@@ -76,6 +84,37 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   });
 
   const ids = () => [...players.map.keys()];
+  // ---------- My own tempo (Jens t846u: no shared clock – everyone has their own BPM) ----------
+  // { bpm, scale, rate, tune } (shared/playertempo.mjs): main.js setTempo() every frame; sent only when it
+  // changes, at most every PLAYER_TEMPO.sendMs (the last change always goes out), and in hello.
+  let myTempo = cleanPlayerTempo(null), tempoSent = null, tempoTimer = 0, tempoAt = 0;
+  function flushTempo() {
+    tempoTimer = 0;
+    if (net.status !== 'online' || (tempoSent && sameTempo(tempoSent, myTempo))) return;
+    tempoAt = performance.now(); tempoSent = { ...myTempo }; net.sendTempo(tempoSent);
+  }
+  function setTempo(t) {
+    myTempo = cleanPlayerTempo(t);
+    if (tempoSent && sameTempo(tempoSent, myTempo)) return;
+    const wait = PLAYER_TEMPO.sendMs - (performance.now() - tempoAt);
+    if (wait <= 0) flushTempo(); else if (!tempoTimer) tempoTimer = setTimeout(flushTempo, wait);
+  }
+  // My dance changed tempo mid-dance: retimed here at once, the room gets the latest anchor (throttled
+  // like the tempo; the last one always goes out). retime: true – the server relays it only while I dance.
+  let danceSent = 0, danceTimer = 0, dancePending = null;
+  function sendDanceNow() {
+    danceTimer = 0; const d = dancePending; dancePending = null;
+    if (!d || !self.avatar?.dancing || net.status !== 'online') return;
+    danceSent = performance.now(); net.sendDance(false, { ...d, retime: true });
+  }
+  function retimeDance(tempo) {
+    const a = self.avatar; if (!a?.dancing) return false;
+    const d = a.retimeTo(tempo); if (!d) return false;
+    dancePending = d;
+    const wait = PLAYER_TEMPO.sendMs - (performance.now() - danceSent);
+    if (wait <= 0) sendDanceNow(); else if (!danceTimer) danceTimer = setTimeout(sendDanceNow, wait);
+    return true;
+  }
   // Skicka min position ~12 gånger per sekund, men bara när jag faktiskt rör mig.
   let last = null, acc = 0;
   function sendMove(dt) {
@@ -387,13 +426,15 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
       const ensure = self.avatar ? Promise.resolve(self.avatar) : buildSelf();
       return ensure.then((a) => {
         const d = a.startDance(null, { loop }); if (!d) return false;
-        if (net.status === 'online') net.sendDance(false, d); // when + which clock, so it is in sync on every screen
+        if (net.status === 'online') net.sendDance(false, d); // when + which tempo, so it is in sync on every screen
         return true;
       }).catch(() => false);
     },
     // Stopped early (W/A/S/D, the joystick – main.js cancelDance): tell the room so mine stops for them too.
-    stopDance() { if (!self.avatar?.dancing) return false; self.avatar.stopDance(); if (net.status === 'online') net.sendDance(true); return true; },
+    stopDance() { if (!self.avatar?.dancing) return false; self.avatar.stopDance(); dancePending = null; clearTimeout(danceTimer); danceTimer = 0; if (net.status === 'online') net.sendDance(true); return true; },
     dancing: () => !!self.avatar?.dancing,
+    // My own tempo (t846u): main.js every frame → the room when it changes; my dance follows it at once.
+    setTempo, retimeDance, myTempo: () => ({ ...myTempo }),
     // Min gubbe slappar/peelar (syns bara i tredjepersonsvy). De andra får veta via servern (by = net.id).
     // The drag pose (sticker arrays) on my own avatar: point = where the row ends, null = let go.
     selfHold: (point, normal) => { const a = self.avatar; if (!a) return false; if (point) return a.hold(point, normal); a.release(); return true; },
@@ -402,7 +443,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     handPos: () => { const a = self.avatar; if (!a) return null; const w = a.gesture.arms.map((x) => x.wrist.getWorldPosition(new THREE.Vector3()).toArray()); return w; },
     selfInfo: () => ({ built: !!self.avatar, visible: !!self.avatar?.root.visible, gestures: self.avatar?.gestures || 0, fabrics: self.avatar ? self.avatar.fabricInfo() : {},
       face: self.avatar ? self.avatar.faceInfo() : null, look: self.avatar ? { ...self.avatar.look } : null, gesturing: !!self.avatar?.gesture.active(), holding: !!self.avatar?.gesture.holding(), pos: self.avatar?.root.position.toArray() || null,
-      seated: !!self.avatar?.seated, dancing: !!self.avatar?.dancing, dancePhase: self.avatar?.dancePhase || null, danceTime: self.avatar ? +self.avatar.danceTime.toFixed(2) : 0, danceAt: self.avatar?.danceAt ?? null, danceBpm: self.avatar?.danceGrid?.bpm ?? null, danceLoop: !!self.avatar?.danceLoop, danceLoops: self.avatar?.danceLoops || 0,
+      seated: !!self.avatar?.seated, dancing: !!self.avatar?.dancing, dancePhase: self.avatar?.dancePhase || null, danceTime: self.avatar ? +self.avatar.danceTime.toFixed(2) : 0, danceAt: self.avatar?.danceAt ?? null, danceBpm: self.avatar?.danceGrid?.bpm ?? null, tempo: { ...myTempo }, danceLoop: !!self.avatar?.danceLoop, danceLoops: self.avatar?.danceLoops || 0,
       capWorld: self.avatar?.cap.visible ? self.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null }),
     busy: () => av.open,
     // The room's character (null = my own avatar): shown on me, sent to the room, the panel locked.

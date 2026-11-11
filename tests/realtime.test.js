@@ -225,6 +225,35 @@ function client(base, room, hello = {}) {
     await db.wait((m) => m.t === 'dance' && m.stop === true && db.msgs.filter((x) => x.t === 'dance' && x.stop).length > before2);
     assert(db.msgs.filter((m) => m.t === 'dance' && m.stop).length === before2 + 1, 'dance loop: X again (stop) is relayed');
 
+    // ---------- Per-player tempo (Jens t846u: no shared clock – everyone has their own BPM) ----------
+    const ta = join('tempo1', { name: 'Snabb', tempo: { bpm: 180, scale: 0.5, rate: 1, tune: 1 } }); await ta.ready; const twa = await ta.wait((m) => m.t === 'welcome');
+    const tb = join('tempo1', { name: 'Sakta' }); await tb.ready; const twb = await tb.wait((m) => m.t === 'welcome');
+    const seenA = twb.players.find((p) => p.id === twa.id);
+    assert(seenA && seenA.tempo && seenA.tempo.bpm === 180 && seenA.tempo.scale === 0.5 && seenA.tempo.rate === 1,
+      'tempo: a late joiner gets the others\' own tempo in welcome.players (from hello)');
+    const joinB = await ta.wait((m) => m.t === 'join' && m.player.id === twb.id);
+    assert(joinB && joinB.player.tempo.bpm === 90 && joinB.player.tempo.scale === 1, 'tempo: no tempo in hello = the defaults (90 BPM, 1×) in join');
+    tb.send({ t: 'tempo', bpm: 47.25, scale: 2, rate: 0.6667, tune: 0.749 });
+    const tmsg = await ta.wait((m) => m.t === 'tempo');
+    assert(tmsg && tmsg.id === twb.id && tmsg.bpm === 47.3 && tmsg.scale === 2 && tmsg.rate === 0.6667 && tmsg.tune === 0.749 && !tb.msgs.some((m) => m.t === 'tempo'),
+      'tempo: relayed to the others (bpm at 0.1), no echo to the sender');
+    tb.send({ t: 'tempo', bpm: 99999, scale: 1e-9, rate: 50, tune: -1 });
+    const tclamp = await ta.wait((m) => m.t === 'tempo' && m.bpm !== 47.3);
+    assert(tclamp && tclamp.bpm === 3000 && tclamp.scale === 0.01563 && tclamp.rate === 5 && tclamp.tune === 1, 'tempo: clamped like shared/playertempo.mjs (3000 BPM, 1/64, rate 5, bad tune = 1)');
+    const tc = join('tempo1', { name: 'Sen' }); await tc.ready; const twc = await tc.wait((m) => m.t === 'welcome');
+    assert(twc.players.find((p) => p.id === twb.id).tempo.bpm === 3000, 'tempo: the latest one is kept for later joiners');
+    // a dance retime (my tempo changed mid-dance): only while my dance is on
+    const rAt = Date.now() - 3000;
+    ta.send({ t: 'dance', at: rAt, bpm: 120, phaseMs: 0, loop: true, retime: true }); // not dancing yet: dropped
+    await sleep(150);
+    assert(!tb.msgs.some((m) => m.t === 'dance'), 'dance retime without a dance on is not relayed');
+    ta.send({ t: 'dance', at: Date.now(), bpm: 180, phaseMs: 0, loop: true });
+    await tb.wait((m) => m.t === 'dance' && !m.retime);
+    ta.send({ t: 'dance', at: rAt, bpm: 135.5, phaseMs: 123.456, loop: true, retime: true });
+    const rmsg = await tb.wait((m) => m.t === 'dance' && m.retime === true);
+    assert(rmsg && rmsg.id === twa.id && rmsg.at === rAt && rmsg.bpm === 135.5 && rmsg.phaseMs === 123.456 && rmsg.loop === true,
+      'dance retime: the new anchor + tempo is relayed while the dance is on (an anchor seconds back is fine)');
+
     rt.close();
     await sleep(150);
     assert(a.closed === 1012 && b.closed === 1012, 'vid omstart får alla koden 1012 (startar om), så de kopplar upp sig igen');

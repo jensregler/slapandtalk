@@ -192,7 +192,7 @@ const FX_UNITS = [['reverb', 'Reverb'], ['delay', 'Delay'], ['filter', 'Filter']
 const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Landing', fx: 'Effects' }; // Landing = peel landing thud (duff); fx kept for city code paths, not listed in SOUND_TABS
 
 // musicVol: { get, set, def } – master volume (was Music vol header; now in Master section).
-// radioBlock: () => Master section (the one Volume + city sound). radio: Radio instance (my walk tempo on Steps).
+// radioBlock: () => Master section (the one Volume + city sound). radio: Radio instance (my Tempo on Steps).
 export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, musicVol = null, radioBlock = null, radio = null }) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const st = { open: false, tab: 'slap', patches: {}, fx: null, rolls: 0 };
@@ -208,7 +208,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     st.open = true; $('sound-panel').hidden = false; render(); onOpenChange(true);
   }
   // Closed without saving (✕ / Cancel): a Volume that only Reset changed goes back too, and so does
-  // a walk tempo that was only tried out (the saved one from my run mode).
+  // a Tempo that was only tried out (the saved one from my run mode).
   function close(saved = false) {
     if (!saved && st.volReset && musicVol && st.vol0 != null) { musicVol.set(st.vol0); st.volReset = false; }
     if (!saved && radio) radio.setWalkBpm(loadRunMode().walkBpm);
@@ -417,7 +417,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       { patch: p, to: `L${i}.${key}`, sound: k }, ask);
   }
   // ---------- Sequencer (any layer; the old auto-slap's step sequencer, shared/autoslap.mjs schema) ----------
-  // The layer then RUNS on the master clock while the radio is on (radio.js), instead of on the trigger.
+  // The layer then RUNS on my own Tempo while the radio is on (radio.js), instead of on the trigger.
   function seqBlock(p, i, k) {
     const l = p.layers[i];
     const box = el('div', 'snd-seq'); box.dataset.seq = l.seq ? 'on' : 'off';
@@ -440,7 +440,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       grid.appendChild(c);
     });
     box.appendChild(grid);
-    box.appendChild(el('p', 'hint', 'Runs on the master clock while Master is on. Give layers different step counts (3, 4, 5, 7 …) for a polyrhythm.'));
+    box.appendChild(el('p', 'hint', 'Runs on your Tempo (Steps) while Master is on. Give layers different step counts (3, 4, 5, 7 …) for a polyrhythm.'));
     return box;
   }
   // ---------- The sampler layer ----------
@@ -613,7 +613,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       // a new layer TYPE (not a source inside a layer): plays a loaded audio file
       const addS = el('button', 'snd-add snd-add-sampler', '+ Sampler layer'); addS.type = 'button'; addS.id = 'snd-add-sampler';
       addS.onclick = () => { p.layers.push(cleanPatch({ layers: [{ kind: 'sampler', a: 0.003, d: 0.2, s: 1, r: 0.08, level: 0.7 }] }).layers[0]); edited(k, true); };
-      // start a layer as a sequencer: a running, continuous sound on the master clock
+      // start a layer as a sequencer: a running, continuous sound on my own Tempo
       const addQ = el('button', 'snd-add snd-add-seq', '+ Sequencer layer'); addQ.type = 'button'; addQ.id = 'snd-add-seq';
       addQ.onclick = () => { p.layers.push(cleanPatch({ layers: [{ kind: 'osc', wave: 'triangle', freq: 220, d: 0.15, level: 0.25, seq: { len: 5, bars: 1, steps: Array.from({ length: 5 }, () => ({ on: true, vol: 100 })) } }] }).layers[0]); edited(k, true); };
       const addM = el('button', 'snd-add snd-add-mic', '+ Mic layer'); addM.type = 'button'; addM.id = 'snd-add-mic';
@@ -627,12 +627,12 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     if (p.fx) body.appendChild(fxBlock(p.fx, () => edited(k)));
   }
 
-  // ---------- Walk + Run (Steps tab; walk tempo was Master tempo; run = shared/runmode.mjs) ----------
+  // ---------- Tempo + Run (Steps tab; Tempo was Master tempo, then Walk tempo; run = shared/runmode.mjs) ----------
   function runBlock() {
     const r = st.run;
     const box = el('fieldset', 'snd-run'); box.id = 'snd-run';
     box.appendChild(el('legend', null, S.stepsModeTitle || 'Walk & run'));
-    box.appendChild(el('p', 'hint', S.stepsModeHint || 'Walk tempo is yours alone (30–3000 BPM): your walk-sound sequencer follows it while you walk. Hold Shift to run – then run tempo and pitch apply.'));
+    box.appendChild(el('p', 'hint', S.stepsModeHint || 'Tempo is yours alone (30–3000 BPM): everything musical of yours follows it. Hold Shift to run – then run tempo and pitch apply.'));
     const row = (id, label, title, min, max, step, value, show, onInput) => {
       const d = el('div', 'snd-sl'); d.dataset.param = id; d.title = title;
       const inp = el('input'); inp.type = 'range'; inp.id = id; inp.min = min; inp.max = max; inp.step = step; inp.value = value; inp.setAttribute('aria-label', label);
@@ -640,11 +640,13 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       inp.oninput = () => { onInput(Number(inp.value)); out.textContent = show(); };
       d.append(el('span', null, label), inp, out); return d;
     };
-    // Walk tempo (Jens, 11 Nov 2026): MY tempo, per player (st.run.walkBpm → shared/runmode.mjs), log slider
-    // 30…3000 BPM, default 90. Heard live while dragging (radio.setWalkBpm); Save keeps it, Cancel undoes it.
-    // Only my walk-sound sequencer follows it – not the room clock, dance, other sequencers or other players.
+    // Tempo (Jens, 11 Nov 2026; t846u: the global clock is gone): MY tempo, per player (st.run.walkBpm →
+    // shared/runmode.mjs), log slider 30…3000 BPM, default 90. Heard live while dragging (radio.setWalkBpm);
+    // Save keeps it, Cancel undoes it. EVERYTHING musical of mine follows it – footsteps, all sequencers,
+    // four voices, synced delay, voice echo, dance – and the others hear / see me at it. (Was "Walk tempo",
+    // when only the walk-sound sequencer followed it.) The id stays 'walk-tempo'.
     r.walkBpm = cleanWalkBpm(r.walkBpm);
-    const walkRow = row('walk-tempo', S.walkTempo || 'Walk tempo', S.walkTempoTitle || 'Your own walk tempo, 30–3000 BPM (default 90)',
+    const walkRow = row('walk-tempo', S.walkTempo || 'Tempo', S.walkTempoTitle || 'Your own tempo, 30–3000 BPM (default 90)',
       0, 1000, 1, Math.round(walkBpmToKnob(r.walkBpm) * 1000),
       () => walkBpmLabel(r.walkBpm),
       (v) => { r.walkBpm = knobToWalkBpm(v / 1000); if (radio) radio.setWalkBpm(r.walkBpm); });
@@ -656,18 +658,19 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     // Sneak (Jens, 11 Nov 2026): hold Ctrl = crouch – its own tempo (−400 … +400 %) and pitch correction.
     box.appendChild(row('crouch-tempo', S.crouchTempo || 'Crouch tempo', S.crouchTempoTitle, RUN.tempoMin, RUN.tempoMax, RUN.tempoStep, cleanCrouchTempo(r.crouchTempo), () => crouchTempoLabel(r), (v) => { r.crouchTempo = cleanCrouchTempo(v); }));
     box.appendChild(row('crouch-pitch', S.crouchPitch || 'Crouch pitch correction', S.crouchPitchTitle, pitchMin, pitchMax, 1, cleanCrouchPitch(r.crouchPitch), () => pitchLabel(cleanCrouchPitch(r.crouchPitch)), (v) => { r.crouchPitch = cleanCrouchPitch(v); }));
-    // Lock-to-clock stays dormant (default on); Preview kept as a non-slider helper.
+    // Lock-to-clock stays dormant (always off); Preview kept as a non-slider helper.
     const pv = el('button', 'snd-add', S.runPreview); pv.type = 'button'; pv.id = 'run-preview'; pv.title = S.runPreviewTitle; pv.onclick = () => previewRun();
     const pc = el('button', 'snd-add', S.crouchPreview || '▶ Walk → crouch'); pc.type = 'button'; pc.id = 'crouch-preview'; pc.title = S.crouchPreviewTitle || 'Hear one bar of walking, then one bar of sneaking (Ctrl)'; pc.onclick = () => previewRun('crouch');
     const sel = el('div', 'snd-sel'); sel.append(pv, pc); box.appendChild(sel);
     return box;
   }
-  // One bar of walking (4 steps), then one bar of running (or sneaking), with the step patch being edited.
+  // One bar of walking (4 steps), then one bar of running (or sneaking), with the step patch being edited –
+  // at the Tempo being edited (bar = 2 beats of it, like the footsteps at Groove 1×).
   function previewRun(gait = 'run') {
     const ctx = sound.ensure(); const eng = sound.engine; if (!ctx || !eng) { sound.ready?.then(() => previewRun(gait)); return; }
     const p = cleanPatch(st.patches.step); if (!p) return;
     const fx = p.fx ? cleanFx(p.fx) : cleanFx(st.fx);
-    const bar = 4 / 3, walkPulse = bar / 4, crouch = gait === 'crouch', rr = crouch ? crouchRate(st.run) : runRate(st.run), tune = pitchRatio(crouch ? cleanCrouchPitch(st.run.crouchPitch) : st.run.pitch);
+    const bar = 120 / cleanWalkBpm(st.run.walkBpm), walkPulse = bar / 4, crouch = gait === 'crouch', rr = crouch ? crouchRate(st.run) : runRate(st.run), tune = pitchRatio(crouch ? cleanCrouchPitch(st.run.crouchPitch) : st.run.pitch);
     const t0 = ctx.currentTime + 0.08;
     for (let i = 0; i < 4; i++) eng.play(retuneP(p, i % 2 ? 0.97 : 1.02), { gain: 1, fx, time: t0 + i * walkPulse, pool: 'step' });
     const runPulse = walkPulse / rr.rate, n = Math.max(1, Math.min(24, Math.round(bar / runPulse))); // 5:1 = 20 steps, 1:5 = 1
@@ -686,7 +689,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     render(); preview();
   }
   // Reset = everything back to the defaults (Jens, 2 Nov 2026): every SOUNDS patch, Effects data,
-  // Volume, city sound (0), and run mode incl. my walk tempo (90).
+  // Volume, city sound (0), and run mode incl. my Tempo (90).
   function reset() {
     for (const k of SOUNDS) st.patches[k] = base(k);
     st.custom = new Set();

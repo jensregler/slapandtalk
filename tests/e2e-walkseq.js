@@ -12,7 +12,7 @@ const SHOTS = process.env.WALKSEQ_SHOTS || '/workspace/walk-seq-run-shots';
 let pass = 0, fail = 0;
 const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + name); } else { fail++; console.log('  ✗ ' + name + (extra !== undefined ? ' — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
 const KEY = 'walkseq-e2e-full-key';
-// rooms other than the City are nudged ±0.3 BPM (shared/clock.mjs roomTempo) and log whole ms: 1 %
+// my own Tempo (90 BPM default; no room nudge since t846u) – the log is in whole ms: 1 %
 const near = (g, want) => Math.abs(g - want) <= want * 0.01 + 1;
 // a gap of a whole number of steps: turning from W to S stops me for a moment (the footsteps pause too),
 // and the sequencer pauses in place – the next step is still the next one in the pattern, on the grid

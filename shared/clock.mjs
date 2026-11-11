@@ -1,27 +1,22 @@
-// The master clock (Jens, 5 Nov 2026): ONE tempo everything musical locks to – 90 BPM, 4/4.
-//   the four voices (shared/radio.mjs), sequencer layers (shared/synth.mjs seq), the delay's sync
-//   values (SYNTH.bpm) and the footstep groove (its bar at 1.0× = 2 beats = 1333 ms, so the walkers'
-//   3/4/5/6/7-pulse polyrhythm sits on the same grid) all count from it.
-// Time = the server-corrected wall clock (ms, groove.now()) – the same in every browser – turned
-// into AudioContext time by a lookahead scheduler (client/src/radio.js), never by setInterval.
-//
-// Rooms are slightly off (t531 "rooms 1 and 4 may differ only slightly"): every room code gets a
-// small, deterministic tempo nudge (±0.3 BPM) and phase shift (0–12 ms) from its hash, so two rooms
-// or houses heard together almost – but not quite – line up. 'stad' (the City) is exactly 90.
-import { hashSeed } from './synth.mjs';
+// Tempo maths (Jens, 11 Nov 2026 t846u: "ta bort den globala klockan helt och hållet. alla har sin egen bpm").
+// There is NO room / master / global clock any more. Every player has their own tempo – the Tempo
+// slider on Steps (shared/runmode.mjs walkBpm, 30–3000 BPM, default 90) – and everything musical of
+// theirs counts from it: footsteps (shared/groove.mjs, bar = 2 beats × Groove), the walk-sound and other
+// sequencer layers and the four voices (client/src/radio.js), the synced delay (shared/synth.mjs
+// delaySeconds), the voice echo (client/src/voice.js) and the dance (shared/dance.mjs). Other players
+// are heard / seen at THEIR tempo (sent as 'tempo' / 'dance' messages, server/realtime.js).
+// Time = the server-corrected wall clock (ms, groove.now()) – only so a remote player's steps and dance
+// land at the same moment on every screen; it is a time base, not a tempo. The grid of a tempo is
+// anchored at wall time 0 (phaseMs 0) – no per-room nudge or phase shift any more (roomTempo is gone).
+// MASTER is only the defaults (90 BPM, 4/4) used when a tempo is missing – it drives nothing by itself.
+import { cleanWalkBpm } from './runmode.mjs';
 
-export const MASTER = Object.freeze({ bpm: 90, beatsPerBar: 4, maxNudgeBpm: 0.3, maxPhaseMs: 12 });
+export const MASTER = Object.freeze({ bpm: 90, beatsPerBar: 4 });
 export const beatMs = (bpm = MASTER.bpm) => 60000 / bpm;
 export const barMsAt = (bpm = MASTER.bpm) => beatMs(bpm) * MASTER.beatsPerBar;
-export function roomTempo(room) {
-  const id = String(room || 'stad');
-  if (id === 'stad') return { bpm: MASTER.bpm, phaseMs: 0 };
-  const h = hashSeed('tempo:' + id), h2 = hashSeed('phase:' + id);
-  const nudge = ((h % 2001) / 1000 - 1) * MASTER.maxNudgeBpm;      // −0.3 … +0.3 BPM, 0.0003 steps
-  const phaseMs = (h2 % 1201) / 100;                                // 0 … 12 ms
-  return { bpm: +(MASTER.bpm + nudge).toFixed(4), phaseMs: +phaseMs.toFixed(2) };
-}
-// Where the clock is at wall time t (ms): in bars since the epoch (not wrapped).
+// A player's tempo as the schedulers use it: { bpm (30…3000), phaseMs: 0 }.
+export const playerTempo = (bpm) => ({ bpm: cleanWalkBpm(bpm), phaseMs: 0 });
+// Where a tempo's grid is at wall time t (ms): in bars since the epoch (not wrapped).
 export const barsAtTime = (t, tempo = { bpm: MASTER.bpm, phaseMs: 0 }) => (t - tempo.phaseMs) / barMsAt(tempo.bpm);
 export const timeOfBar = (bars, tempo = { bpm: MASTER.bpm, phaseMs: 0 }) => bars * barMsAt(tempo.bpm) + tempo.phaseMs;
 // Every step of a loop of `steps` steps per `bars` bars with from ≤ t < to: [{ t, n (absolute), i (0…steps-1) }].

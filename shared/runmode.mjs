@@ -18,9 +18,12 @@
 //           ladder, default −2 = −5 st, a fourth down).
 //   gait  – while dancing, Shift = run tempo and Ctrl = crouch tempo for the dance's footsteps / walk
 //           sequencer (gaitOf). Ctrl wins over Shift.
-//   walkBpm – MY walk tempo (Jens, 11 Nov 2026): 30…3000 BPM, default 90, log slider. Per player
-//           (this field, in my personal run-mode settings) – not a room / city / global clock. Only my
-//           walk-sound sequencer (Steps sequencer layers, client/src/radio.js walkLoop) follows it.
+//   walkBpm – MY Tempo (Jens, 11 Nov 2026; t846u: the global clock is gone, everyone has their own
+//           BPM): 30…3000 BPM, default 90, log slider ("Tempo" on Steps). Per player (this field, in my
+//           personal run-mode settings) – there is no room / city / global clock. EVERYTHING musical of
+//           mine follows it: my footsteps (shared/groove.mjs), all my sequencer layers incl. the walk
+//           sound's, the four voices, the synced delay, my voice echo and my dance. Others hear / see me
+//           at it (shared/playertempo.mjs). Run / crouch tempo are % of it.
 // Pure maths – shared by the web app (client/src/groove.js, soundui.js) and the unit tests.
 
 export const RUN = Object.freeze({
@@ -33,19 +36,19 @@ export const RUN = Object.freeze({
   pitchDef: 3,              // step index: +7 st (fifth)
   ratios: Object.freeze([[1, 3], [1, 2], [2, 3], [1, 1], [3, 2], [2, 1], [3, 1]]),
   lockDef: false,           // dormant: always off now (see the header)
-  walkMin: 30, walkMax: 3000, walkDef: 90, // walk tempo, BPM (inclusive range)
+  walkMin: 30, walkMax: 3000, walkDef: 90, // my Tempo, BPM (inclusive range)
   key: 'klibb.runMode',     // sessionStorage (personal sound setting, like the groove scale)
 });
 export const RUN_DEFAULTS = Object.freeze({ tempo: RUN.tempoDef, pitch: RUN.pitchDef, lock: RUN.lockDef, walkBpm: RUN.walkDef, crouchTempo: RUN.crouchTempoDef, crouchPitch: RUN.crouchPitchDef });
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
-// Walk tempo (BPM): clamped to 30…3000 (both ends reachable), 0.1 BPM resolution.
+// Tempo (BPM): clamped to 30…3000 (both ends reachable), 0.1 BPM resolution.
 export function cleanWalkBpm(b) {
   if (!isNum(b)) return RUN.walkDef;
   return Math.round(Math.min(RUN.walkMax, Math.max(RUN.walkMin, b)) * 10) / 10;
 }
 const WL = Math.log(RUN.walkMin), WH = Math.log(RUN.walkMax);
-// The walk-tempo slider is logarithmic: knob 0 = 30 BPM, 1 = 3000 BPM (90 BPM ≈ 0.239).
+// The Tempo slider is logarithmic: knob 0 = 30 BPM, 1 = 3000 BPM (90 BPM ≈ 0.239).
 export const walkBpmToKnob = (b) => (Math.log(cleanWalkBpm(b)) - WL) / (WH - WL);
 export const knobToWalkBpm = (k) => cleanWalkBpm(Math.exp(WL + Math.min(1, Math.max(0, isNum(k) ? k : 0)) * (WH - WL)));
 export const walkBpmLabel = (b) => { const c = cleanWalkBpm(b); return `${c < 200 ? c.toFixed(1) : Math.round(c)} BPM`; };

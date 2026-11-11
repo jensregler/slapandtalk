@@ -2,7 +2,7 @@
 // place, run mode tempo + pitch. Run: node tests/walkseq.test.mjs (in npm test)
 import assert from 'node:assert/strict';
 import { planWalkSeq, newWalkSeq, walkGrid } from '../shared/walkseq.mjs';
-import { loopSteps, barMsAt, MASTER } from '../shared/clock.mjs';
+import { loopSteps, barMsAt, MASTER, playerTempo } from '../shared/clock.mjs';
 import { runRate, pitchRatio, RUN_DEFAULTS } from '../shared/runmode.mjs';
 
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ✓ ' + name); };
@@ -24,7 +24,7 @@ ok('standing still: no steps at all, the clock does not roll', () => {
   assert.deepEqual(drive(st, T0, T0 + 4 * BAR, () => false), []);
   assert.equal(st.count, 0);
 });
-ok('walking: the steps come on the master clock grid, in pattern order 0,1,2,3,0…', () => {
+ok('walking: the steps come on my tempo\'s grid (90 BPM default), in pattern order 0,1,2,3,0…', () => {
   const st = newWalkSeq(), evs = drive(st, T0, T0 + 2 * BAR, () => true);
   const grid = loopSteps(T0 - 20, T0 + 2 * BAR + 150, { steps: 4, bars: 1, tempo }).map((e) => e.t);
   assert.ok(evs.length >= 8);
@@ -72,5 +72,21 @@ ok('walk tempo (my per-player walkBpm) scales the walk sequencer', () => {
   const fast = { bpm: 180, phaseMs: 0 }, st = newWalkSeq();
   const evs = []; for (let now = T0; now < T0 + 2000; now += 16) evs.push(...planWalkSeq(st, { now, ahead: now + 150, walk: { until: now + 140, run: null }, steps: 4, bars: 1, tempo: fast }));
   for (let k = 1; k < evs.length; k++) assert.ok(near(evs[k].t - evs[k - 1].t, barMsAt(180) / 4));
+});
+ok('Tempo changed mid-walk (t846u: the slider is live): the sequencer goes on in order on the new grid, no doubled step', () => {
+  const st = newWalkSeq(), sw = T0 + 1500, evs = [];
+  for (let now = T0; now < T0 + 4000; now += 16) {
+    const tempo = playerTempo(now < sw ? 90 : 240);
+    evs.push(...planWalkSeq(st, { now, ahead: now + 150, walk: { until: now + 140, run: null }, steps: 4, bars: 1, tempo }));
+  }
+  evs.forEach((e, k) => assert.equal(e.i, k % 4, 'pattern order kept across the change'));
+  const after = evs.filter((e) => e.t > sw + 400);
+  for (let k = 1; k < after.length; k++) assert.ok(near(after[k].t - after[k - 1].t, barMsAt(240) / 4), 'then at 240 BPM');
+  for (let k = 1; k < evs.length; k++) assert.ok(evs[k].t - evs[k - 1].t > barMsAt(240) / 4 * 0.44, 'no doubled step at the switch');
+});
+ok('run / crouch stay a % of MY Tempo (also at a non-default Tempo)', () => {
+  const st = newWalkSeq(), tempo = playerTempo(120), rr = runRate({ ...RUN_DEFAULTS, tempo: 50 }).rate; // +50 % = 3:2
+  const evs = []; for (let now = T0; now < T0 + 3000; now += 16) evs.push(...planWalkSeq(st, { now, ahead: now + 150, walk: { until: now + 140, run: { rate: rr, tune: 1 } }, steps: 4, bars: 1, tempo }));
+  for (let k = 1; k < evs.length; k++) assert.ok(near(evs[k].t - evs[k - 1].t, barMsAt(120) / 4 / 1.5), `${evs[k].t - evs[k - 1].t}`);
 });
 console.log(`walk sequencer: ${n} checks ok`);

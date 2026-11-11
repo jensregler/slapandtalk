@@ -2,8 +2,9 @@
 // Sound-settings Master UI shows only: Volume (ears; the only volume control) + City sound (0–100 dry↔wet).
 // Saved shape still carries the older fields so presets load:
 //   on, knob – forced to on + 0.5 ("my sound"); Blend / power UI removed
-//   bpm      – dormant (Jens, 11 Nov 2026): walk tempo is per player now (shared/runmode.mjs walkBpm,
-//              30–3000 BPM); radio.tempo() is the room clock and no longer reads this
+//   bpm      – dormant (Jens, 11 Nov 2026): the tempo is per player now (shared/runmode.mjs walkBpm,
+//              30–3000 BPM, the "Tempo" slider on Steps); radio.tempo() = MY tempo, never this field –
+//              an old preset's bpm loads but drives nothing (no room clock comes back from it)
 //   city     – 0..1 dry/wet of the city place bus (reverb + delay); 0 = dry, 1 = wet only
 //   bird, wind, voices – dormant (engine paths kept; no Master UI)
 // Per PLAYER and per ROOM: saved on the server, never broadcast.
@@ -11,7 +12,7 @@ import { cleanSound, rng, hashSeed } from './synth.mjs';
 import { MASTER } from './clock.mjs';
 import { snapRate } from './lfo.mjs';
 
-// bpm: MY master tempo (default 90). Range 30 BPM … 120 000 BPM (= 2 kHz beats: "up to 11"); the
+// bpm (dormant preset field, see above; was MY master tempo, default 90). Range 30 BPM … 120 000 BPM; the
 // knob is logarithmic. From 20 beats/s (1200 BPM) up the tempo snaps to the semitone grid, so a
 // clock run up into audio rate plays an in-tune tone.
 export const RADIO = { maxPresetBytes: 46000, minBpm: 30, maxBpm: 120000, gridFromHz: 20, fastSteps: 25 };
@@ -46,7 +47,7 @@ export function cleanPreset(p) {
 }
 
 // ---------- Four voices in phase ----------
-// One shared cycle (the bar, from the server-corrected clock, so everyone's radio agrees). Each voice
+// One cycle = one bar of MY tempo (no shared clock since t846u: the voices are mine, at my BPM). Each voice
 // has its own step count – 3, 4, 5, 7 – so they run as a polyrhythm and all meet again on beat 1 of
 // every cycle. Pitches are just-intonation ratios over the root (1 : 3/2 : 2 : 5/2 = root, fifth,
 // octave, major tenth): whole-number ratios, so the voices never beat against each other.
@@ -57,8 +58,10 @@ export const FOUR_VOICES = Object.freeze([
   { name: 'Call', steps: 5, ratio: 2, sound: 'peel', gain: 0.7 }, // was nope (removed); peel keeps all four non-nope sounds in the voices
   { name: 'Spark', steps: 7, ratio: 5 / 2, sound: 'slap', gain: 0.45 },
 ]);
-export const VOICE_CYCLE_MS = 60000 / MASTER.bpm * MASTER.beatsPerBar; // one cycle = one master bar (2667 ms at 90 BPM)
-// Every voice step with from ≤ t < to (ms on the shared clock): [{ t, voice, n }], sorted by t.
+// One cycle = one bar (4 beats) of a tempo: 2667 ms at 90 BPM (the default Tempo).
+export const voiceCycleMs = (bpm = MASTER.bpm) => 60000 / (bpm > 0 && Number.isFinite(bpm) ? bpm : MASTER.bpm) * MASTER.beatsPerBar;
+export const VOICE_CYCLE_MS = voiceCycleMs(MASTER.bpm); // at the default 90 BPM (tests; the radio uses voiceCycleMs(my bpm))
+// Every voice step with from ≤ t < to (ms on the wall clock): [{ t, voice, n }], sorted by t.
 export function voiceEvents(from, to, cycleMs = VOICE_CYCLE_MS, max = 200) {
   const out = []; if (!(to > from) || !(cycleMs > 0)) return out;
   FOUR_VOICES.forEach((v, voice) => {

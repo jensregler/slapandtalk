@@ -12,17 +12,21 @@
 //                    unlock {unlock: {key, dev}}  (new full-version key in an open tab)
 //                    ping · signal {to, data}  (signal = för röstchatt via WebRTC, se nedan)
 //                    talk {l} · held {h}  (recording only: my voice level / the sticker I aim with, never relayed)
-//                    dance {at?, bpm?, phaseMs?, loop?, stop?}  (runway dance, shared/dance.mjs: I start the dance (loop = until I stop it); others see it.
-//                    stop: true = I stopped it early – only relayed while my dance is on, so it needs no limiter of its own)
+//                    dance {at?, bpm?, phaseMs?, loop?, stop?, retime?}  (runway dance, shared/dance.mjs: I start the dance (loop = until I stop it); others see it.
+//                    stop: true = I stopped it early – only relayed while my dance is on, so it needs no limiter of its own;
+//                    retime: true = my tempo changed mid-dance, a new anchor – only while my dance is on, own limiter)
+//                    tempo {bpm, scale, rate, tune}  (MY own tempo, shared/playertempo.mjs – Jens t846u: no shared clock, everyone has
+//                    their own BPM; kept per player, relayed, and in welcome.players / join so late joiners hear me at it; also in hello)
 //                    sit {chair: prop id | null, draw}  (3D props, shared/props.mjs: I sit down on a chair – drawing –
 //                    or stand up; one person per chair, the server keeps who sits where)
 //   server → klient: welcome {id, you, players, chat, max, full, rec, now (server ms: the shared clock for the footstep groove)} · join {player} · leave {id}
 //                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
 //                    event {e} · signal {from, data} · pong · error {error}
-//                    dance {id, at?, bpm?, phaseMs?, loop?, stop?}  (someone started the runway dance – at = server ms of the press, on that
-//                    clock – or stopped it early)
+//                    dance {id, at?, bpm?, phaseMs?, loop?, stop?, retime?}  (someone started the runway dance – at = server ms of the press, on that
+//                    clock – or stopped it early, or retimed it to a new tempo)
+//                    tempo {id, bpm, scale, rate, tune}  (someone's own tempo changed)
 //                    sit {id, chair, draw}  (someone sat down / stood up; to the sender with taken: id when that chair was taken)
-//   a player (welcome.players, join) carries sit: { chair, draw } while seated.
+//   a player (welcome.players, join) carries sit: { chair, draw } while seated, and tempo {bpm, scale, rate, tune}.
 //   p = ögats position [x, y, z], y = vridning (yaw), pi = blicken upp/ner (pitch), i radianer.
 //   rec = pågående inspelning { recId, startedAt } eller null (event rec:start / rec:stop när det ändras).
 //
@@ -84,6 +88,21 @@ const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
 const clampN = (n, a, b) => Math.min(b, Math.max(a, n));
 const round = (n) => Math.round(n * 1000) / 1000;
 const DANCE_MS = 19500; // the runway dance's longest length (shared/dance.mjs DANCE.maxMs) + a little slack
+// A player's own tempo (Jens t846u; same limits as shared/playertempo.mjs cleanPlayerTempo – tests/playertempo.test.mjs
+// checks they agree): bpm 30…3000 (0.1), Groove scale 1/64…8 (4 significant digits), step rate 1/5…5, pitch ratio 1/4…4.
+const TEMPO = { minBpm: 30, maxBpm: 3000, defBpm: 90, minScale: 1 / 64, maxScale: 8, minRate: 0.2, maxRate: 5, minTune: 0.25, maxTune: 4 };
+const sig6 = (v) => Number(v.toPrecision(6));
+function cleanTempoMsg(t) {
+  const o = t && typeof t === 'object' ? t : {};
+  const pos = (v) => isNum(v) && v > 0;
+  const scale = pos(o.scale) ? Math.min(TEMPO.maxScale, Math.max(TEMPO.minScale, Number(clampN(o.scale, TEMPO.minScale, TEMPO.maxScale).toPrecision(4)))) : 1;
+  return {
+    bpm: isNum(o.bpm) ? Math.round(clampN(o.bpm, TEMPO.minBpm, TEMPO.maxBpm) * 10) / 10 : TEMPO.defBpm,
+    scale,
+    rate: pos(o.rate) ? sig6(clampN(o.rate, TEMPO.minRate, TEMPO.maxRate)) : 1,
+    tune: pos(o.tune) ? sig6(clampN(o.tune, TEMPO.minTune, TEMPO.maxTune)) : 1,
+  };
+}
 
 // Namn: inga kontroll- eller osynliga tecken (t.ex. tecken som vänder textriktningen), inga
 // dubbla mellanslag, högst 24 tecken (räknat i tecken, så en emoji inte klipps itu).
@@ -269,7 +288,7 @@ function attachRealtime(server, {
     if (!entitle.check || !creds || typeof creds.key !== 'string') return;
     entitle.check(creds).then((ent) => { if (replace || Object.values(ent).some(Boolean)) c.ent = ent; }).catch(() => {});
   };
-  const pub = (c) => ({ id: c.id, name: c.name, look: c.look, p: c.p, y: c.y, pi: c.pi || 0, slot: c.slot ?? 0, ...(c.sit ? { sit: { ...c.sit } } : {}) });
+  const pub = (c) => ({ id: c.id, name: c.name, look: c.look, p: c.p, y: c.y, pi: c.pi || 0, slot: c.slot ?? 0, tempo: { ...(c.tempo || cleanTempoMsg(null)) }, ...(c.sit ? { sit: { ...c.sit } } : {}) });
   // The lowest slot no other player in the room has.
   function takeSlot(c, r) {
     const used = new Set([...r.players.values()].filter((o) => o !== c).map((o) => o.slot));
@@ -400,6 +419,7 @@ function attachRealtime(server, {
       upgradeEnt(c, fromHello(m)); // a paid key we haven't seen yet: ask Lemon Squeezy, then upgrade
       c.look = cleanLook(m.look, c.ent);
       c.p = cleanPos(m.p, boundsOf(c)) || [0, 1.6, 3.5]; c.y = isNum(m.y) ? round(m.y) : 0; c.pi = cleanPitch(m.pi);
+      c.tempo = cleanTempoMsg(m.tempo); // my own tempo (t846u); missing = the defaults (90 BPM, 1.0×)
       if (r.players.size < maxPlayers) { takeSlot(c, r); c.player = true; r.players.set(c.id, c); } else r.watchers.push(c);
       if (onJoin) onJoin(c.room);
       welcome(c, r);
@@ -451,9 +471,21 @@ function attachRealtime(server, {
       const h = cleanHeld(m.h, boundsOf(c)); if (h === undefined) return;
       return rec(r.id, 'held', { id: c.id, h });
     }
+    if (m.t === 'tempo') {
+      // My own tempo changed (Jens t846u: no shared clock; shared/playertempo.mjs). Kept for late joiners, relayed.
+      if (!c.player || !c.tempoLimit()) return;
+      c.tempo = cleanTempoMsg(m);
+      return toRoom(r, { t: 'tempo', id: c.id, ...c.tempo }, c);
+    }
     if (m.t === 'dance') {
       // Runway dance (shared/dance.mjs): one-shot; broadcast so others play it on this player's avatar.
       if (!c.player) return;
+      if (m.retime === true) { // my tempo changed mid-dance (t846u): a new anchor, only while my dance is on
+        if (!(c.danceUntil > Date.now()) || !c.retimeLimit()) return;
+        const now = Date.now(), at = isNum(m.at) && Math.abs(m.at - now) < 120000 ? Math.round(m.at) : null;
+        if (at === null || !isNum(m.bpm) || m.bpm < 1 || m.bpm > 120000) return;
+        return toRoom(r, { t: 'dance', id: c.id, at, bpm: round(m.bpm), phaseMs: isNum(m.phaseMs) ? round(clampN(m.phaseMs, -60000, 60000)) : 0, ...(m.loop === true ? { loop: true } : {}), retime: true }, c);
+      }
       if (m.stop === true) { // stopped early: only while a dance of theirs is on (bounded by the start limiter)
         if (!(c.danceUntil > Date.now())) return;
         c.danceUntil = 0;
@@ -499,7 +531,7 @@ function attachRealtime(server, {
   wss.on('connection', (ws, req, roomId, ip) => {
     const c = {
       id: crypto.randomBytes(5).toString('hex'), ws, room: roomId, ip, joined: false, player: false, strikes: 0,
-      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10), talkLimit: bucket(15, 20), heldLimit: bucket(12, 20), sitLimit: bucket(2, 8), danceLimit: bucket(0.15, 2),
+      limit: bucket(40, 80), moveLimit: bucket(20, 30), lookLimit: bucket(0.5, 5), chatLimit: bucket(0.5, 5), signalLimit: bucket(30, 60), inviteLimit: bucket(0.5, 10), talkLimit: bucket(15, 20), heldLimit: bucket(12, 20), sitLimit: bucket(2, 8), danceLimit: bucket(0.15, 2), tempoLimit: bucket(10, 20), retimeLimit: bucket(10, 20),
     };
     perIp.set(ip, (perIp.get(ip) || 0) + 1);
     ws.on('pong', () => { ws.klibbDead = false; });
@@ -540,7 +572,7 @@ function attachRealtime(server, {
       sit: null, guestNo: null, strikes: 0, moves: 0, ent: {},
       ws: { readyState: 3 }, // WebSocket.CLOSED
       limit: () => true, lookLimit: () => true, chatLimit: () => true,
-      talkLimit: () => true, heldLimit: () => true, danceLimit: () => true,
+      talkLimit: () => true, heldLimit: () => true, danceLimit: () => true, tempoLimit: () => true, retimeLimit: () => true,
     };
   }
   function injectBot(roomId, { id, name, look, p, y, slot } = {}) {
@@ -607,4 +639,4 @@ function attachRealtime(server, {
   };
 }
 
-module.exports = { cleanHeld, broadcast, onBroadcast, playerPosition, roomSeat, activeRooms, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };
+module.exports = { cleanHeld, cleanTempoMsg, broadcast, onBroadcast, playerPosition, roomSeat, activeRooms, attachRealtime, cleanLook, cleanName, cleanFabrics, synthReady };

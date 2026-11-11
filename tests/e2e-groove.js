@@ -44,7 +44,7 @@ const KEY = 'groove-e2e-full-key';
     check(`the slider changes A's scale right away (600 → ${want}×)`, a.scale === want, a.scale);
     await B.waitForFunction((w) => window.klibb.groove().scale === w, want, { timeout: 5000 }).catch(() => {});
     b = await gB();
-    check('…and it is personal: B keeps 1.0× (nothing is synced)', b.scale === 1, { b: b.scale, at: b.at });
+    check('…and it is personal: B\'s own Groove stays 1.0× (A\'s only changes how B hears A\'s steps)', b.scale === 1, { b: b.scale, at: b.at });
     check('B gets no readout chip (nothing came from A)', b.ui.chip === '', b.ui.chip);
 
     // ---------- Keys ----------
@@ -86,8 +86,9 @@ const KEY = 'groove-e2e-full-key';
     check(`B's own steps too, in its own slot (${mineB.length} steps, slot ${slotB})`, mineB.length >= 3 && slotA !== slotB && mineB.every((e) => onGrid(e, stB) && e.slot === slotB), mineB.slice(0, 4));
     const ticksA = new Set(mineA.map((e) => e.tick)), ticksB = new Set(mineB.map((e) => e.tick));
     if (st.scale === stB.scale) check('they interlock: A and B never share a tick', [...ticksA].every((t) => !ticksB.has(t)), { A: [...ticksA], B: [...ticksB] });
-    check(`B hears A's steps on B's own grid, in A's slot (${aFromB.length})`, aFromB.length >= 2 && aFromB.every((e) => onGrid(e, stB) && e.slot === slotA), { aFromB: aFromB.slice(0, 3) });
-    check('and A hears B on the grid', bFromA.length >= 2 && bFromA.every((e) => onGrid(e, st) && e.slot === slotB), bFromA.length);
+    // t846u (no shared clock): I hear someone on THEIR grid – their Tempo + Groove (sent as 'tempo'), not mine
+    check(`B hears A's steps on A's own grid (A's Groove ${st.scale}×, via A's tempo message), in A's slot (${aFromB.length})`, aFromB.length >= 2 && aFromB.every((e) => onGrid(e, st) && e.slot === slotA && e.scale === st.scale), { aFromB: aFromB.slice(0, 3), st });
+    check('and A hears B on B\'s grid', bFromA.length >= 2 && bFromA.every((e) => onGrid(e, stB) && e.slot === slotB && e.scale === stB.scale), bFromA.slice(0, 3));
     const mineNow = (g) => g.log.filter((e) => e.id === 'me').length;
     const still = mineNow(await gA()); await A.waitForTimeout(500);
     const after = await gA();

@@ -78,4 +78,19 @@ ok('run grid: rate 1 = the walk grid; 2:1 puts a run step on every walk step and
   }
   assert.deepEqual(G.runEventsBetween(g, 0, T0, T0 + 1000, 0), G.runEventsBetween(g, 0, T0, T0 + 1000, 1), 'a bad rate = 1');
 });
+// Jens t846u: no shared clock – run / crouch are % of the player's OWN Tempo (the footstep bar = 2 beats of it).
+ok('run / crouch footsteps: % of my own Tempo, not of a room clock', () => {
+  const g = { scale: 1, at: 0, phase: 0 }, gap = (e) => e.slice(1).map((x, i) => x.t - e[i].t);
+  for (const bpm of [60, 90, 150, 600]) {
+    const walk = G.eventsBetween(g, 0, T0, T0 + 4000, { bpm }), run = G.runEventsBetween(g, 0, T0, T0 + 4000, R.gaitStep('run', R.RUN_DEFAULTS).rate, { bpm });
+    const crouch = G.runEventsBetween(g, 0, T0, T0 + 4000, R.gaitStep('crouch', R.RUN_DEFAULTS).rate, { bpm });
+    const w = G.barMs(1, bpm) / 4;
+    assert.ok(gap(walk).every((d) => near(d, w, 1e-3)), `${bpm}: walk`);
+    assert.ok(gap(run).every((d) => near(d, w / 2, 1e-3)), `${bpm}: run +100 % = twice my tempo`);
+    assert.ok(gap(crouch).every((d) => near(d, w * 1.5, 1e-3)), `${bpm}: crouch −50 % = 2:3 of my tempo`);
+  }
+  // ranges / keys unchanged
+  assert.equal(R.RUN.tempoMin, -400); assert.equal(R.RUN.tempoMax, 400); assert.equal(R.RUN.tempoStep, 12.5); assert.equal(R.RUN.sneakSpeed, 0.45);
+  assert.equal(R.gaitOf({ dancing: true, shift: true, ctrl: true }), 'crouch', 'Ctrl wins, also while dancing');
+});
 console.log(`runmode: ${n} checks ok`);

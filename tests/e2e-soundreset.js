@@ -45,7 +45,7 @@ const CUSTOM = {
     check('…Volume at 35 – the ONLY volume control at the top (no header Music vol duplicate; Jens 11 Nov 2026)', vol1.v === '35' && !vol1.header && vol1.top === 1, vol1);
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(150);
     await A.$eval('#walk-tempo', (r) => { r.value = '800'; r.dispatchEvent(new Event('input', { bubbles: true })); });
-    check('…walk tempo tried out (live, not saved): ~1200 BPM', await A.evaluate(() => window.klibb.radio().walkBpm > 1000 && window.klibb.radio().walkBpm < 1500));
+    check('…Tempo tried out (live, not saved): ~1200 BPM', await A.evaluate(() => window.klibb.radio().walkBpm > 1000 && window.klibb.radio().walkBpm < 1500));
     await A.click('#snd-tabs [data-tab="slap"]'); await sleep(150);
     const fxBefore = await A.evaluate(() => { const st = window.klibb.soundUi().state(); return JSON.stringify(st.fx); });
     const tabLabels = await A.$$eval('#snd-tabs button', (b) => b.map((x) => x.textContent));
@@ -62,7 +62,7 @@ const CUSTOM = {
     check('…Effects data back to default (tab hidden; city drives fx – state still resets)', r.fx && r.fxJson !== fxBefore, { before: fxBefore, after: r.fxJson, fx: r.fx });
     check('…visible tabs Slap/Peel/Steps/Landing', r.visible.join() === 'slap,peel,step,duff', r.visible);
     check('…Volume back to 100 and the sound follows (volume 1)', r.mv === '100' && await A.evaluate(() => sessionStorage.getItem('klibb.musicVol')) === '1', r.mv);
-    check('…walk tempo back to 90 BPM', r.walkBpm === 90 && r.runWalk === 90, { walkBpm: r.walkBpm, runWalk: r.runWalk });
+    check('…Tempo back to 90 BPM', r.walkBpm === 90 && r.runWalk === 90, { walkBpm: r.walkBpm, runWalk: r.runWalk });
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(150);
     const stepUi = await A.evaluate(() => { const v = document.querySelector('#snd-body .snd-sl[data-param="level"] output').textContent; const seed = localStorage.getItem('klibb.soundSeed'); const sh = window.klibb.synthShared(); return { v, want: Math.round(sh.variant(sh.DEFAULT_PATCHES.step, seed, 'step').gain * 100) + '%' }; });
     check('…the Steps tab shows its default (Volume slider)', stepUi.v === stepUi.want, stepUi);
@@ -70,7 +70,7 @@ const CUSTOM = {
     // Cancel after Reset: nothing saved, Music vol back to 35
     await A.click('#snd-cancel'); await sleep(200);
     check('Cancel after Reset: nothing saved, Volume back where it was', await A.evaluate((R) => !!sessionStorage.getItem('klibb.sound') && sessionStorage.getItem('klibb.musicVol') === '0.35' && document.getElementById('master-vol').value === '35', R));
-    check('…and the walk tempo back to the saved one (90; the try-out is undone)', await A.evaluate(() => window.klibb.radio().walkBpm === 90));
+    check('…and the Tempo back to the saved one (90; the try-out is undone)', await A.evaluate(() => window.klibb.radio().walkBpm === 90));
     // Reset + Save
     await A.evaluate(() => window.klibb.soundUi().open()); await A.click('#snd-reset'); await sleep(200); await A.click('#snd-save'); await sleep(1200);
     const saved = await A.evaluate((R) => ({ ls: sessionStorage.getItem('klibb.sound'), vol: sessionStorage.getItem('klibb.musicVol'), mine: window.klibb.soundMine() }), R);

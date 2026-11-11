@@ -38,6 +38,7 @@ import { GrooveSteps } from './groove.js';
 import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, grooveLabel } from '../../shared/groove.mjs';
 import { loadSoundLook, initSoundUI, resetPersonalSound, prepareSoundForPlace, personalGet, personalSet, setSoundRoom, soundKey, loadRunMode, VOICE_FX_KEY, VOICE_MON_KEY, VOICE_MIC_KEY } from './soundui.js';
 import { gaitOf, gaitStep } from '../../shared/runmode.mjs';
+import { myPlayerTempo, danceBpmOf } from '../../shared/playertempo.mjs';
 import { setDanceClock } from './avatars.js';
 import { Radio, radioBlock, fetchRoomPreset, putRoomPreset } from './radio.js';
 import * as synthShared from '../../shared/synth.mjs';
@@ -2690,7 +2691,9 @@ var fullUi = initFullVersion({ // eslint-disable-line no-var
   onChange: () => { together.sendUnlock?.(credentials()); together.entitlementsChanged(); onEntitlements(); },
 });
 // ---------- Footstep groove (shared/groove.mjs) ----------
-// The scale (bar length) is a PERSONAL sound setting (Jens, 2 Nov 2026: sound settings are per user,
+// Bar = 2 beats of MY Tempo (Sound settings → Steps → Tempo, radio.walkBpm) × my Groove scale (t846u: no
+// shared clock; others' steps play at their own tempo + Groove, sent as 'tempo', together.js).
+// The scale (bar length in beats) is a PERSONAL sound setting (Jens, 2 Nov 2026: sound settings are per user,
 // local, never synced, never set by the room): this visit only (sessionStorage 'klibb.grooveScale',
 // reset on Exit-to-menu or a new room – soundui.js resetPersonalSound). The room no longer decides
 // it – a room's old stored groove is ignored and nothing is sent. Full version (soundDesign) or admin.
@@ -2703,9 +2706,9 @@ const myGrooveScale = () => { const v = Number(personalGet('klibb.grooveScale'))
 function updateGrooveUi({ flash = false } = {}) {
   const box = document.getElementById('groove-box'); if (!box) return;
   box.hidden = !canGroove();
-  const s = groove.scale, l = grooveLabel(s);
+  const s = groove.scale, l = grooveLabel(s, groove.bpm); // the bar at MY Tempo (t846u)
   const slider = $('groove-scale'); if (document.activeElement !== slider) slider.value = scaleToSlider(s);
-  $('groove-val').textContent = S.grooveValue(l.scale, l.bar);
+  $('groove-val').textContent = S.grooveValue(l.scale, l.bar, l.beats);
   const chip = $('groove-chip'); chip.textContent = S.grooveChip(l.scale);
   chip.hidden = s === GROOVE.def && !flash; // calm: only when it isn't at the default (or just changed)
   chip.classList.toggle('flash', flash);
@@ -2734,7 +2737,7 @@ addEventListener('keydown', (e) => {
 // ---------- Auto-slap: removed (Jens, 5 Nov 2026 – "remove the auto-drop, keep the sequencer") ----------
 // The held sticker no longer slaps by itself (no H / , / . keys, no editor). Its step sequencer
 // (shared/autoslap.mjs: the step schema, lengths, clock) lives on as the Sound settings' sequencer
-// layers (shared/synth.mjs seq, run by the radio on the master clock). Old saved auto-slap settings
+// layers (shared/synth.mjs seq, run by the radio on my own Tempo). Old saved auto-slap settings
 // ('klibb.autoslap') are simply ignored and dropped.
 try { localStorage.removeItem('klibb.autoslap'); } catch { /* private */ }
 var autoSlap = null; // eslint-disable-line no-var
@@ -2761,7 +2764,7 @@ function saveRoomPreset() {
   presetTimer = setTimeout(() => { const cur = loadSoundLook(); putRoomPreset(ROOM, { patches: cur.patches, fx: cur.fx, radio: radio.state }); }, 500);
 }
 const radio = new Radio({ sound, room: ROOM, clock: () => (groove ? groove.now() : Date.now()), onChange: () => { filmLog?.add('radio', { what: 'dial' }); saveRoomPreset(); } });
-radio.setWalkBpm(loadRunMode().walkBpm); // MY walk tempo (per player, run mode; not the room preset)
+radio.setWalkBpm(loadRunMode().walkBpm); // MY Tempo (per player, run mode; not the room preset – no room clock, t846u)
 // The city's place effect (Jens, 5 Nov 2026; shared/cityfx.mjs): the master bus follows where I
 // stand – only outside in the city, and only for me (per listener). Houses / other rooms: neutral
 // (their own room reverb stays). Every PLACE_EVERY_MS, plain params, slewed (PLACE_SLEW).
@@ -3486,10 +3489,12 @@ function cancelDance() {
 }
 const DANCE_CANCEL_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 addEventListener('keydown', (e) => { if (!e.repeat && DANCE_CANCEL_KEYS.has(e.code) && !isTyping(e) && together.dancing()) cancelDance(); });
-// The dance's beat locks to MY master clock in this room (radio.tempo(): 90 BPM + the room's nudge),
-// on the server-corrected wall clock. 4 bars, starting on the next beat (dance.mjs danceGrid); the start
-// message carries when + that clock, so everyone sees the same beats at the same moment.
-setDanceClock(() => ({ nowMs: groove.now(), tempo: radio.tempo() }));
+// The dance's beat follows MY OWN tempo (t846u: no room clock): my Tempo × my run / crouch rate while
+// Shift / Ctrl is held (myTempoNow, walkSounds), on the server-corrected wall clock. 4 bars, starting on
+// the next beat (dance.mjs danceGrid); the start message carries when + that tempo, and a tempo change
+// mid-dance retimes it (together.retimeDance), so everyone sees MY beats at the same moment. Two dancers
+// with different tempi are no longer in step with each other.
+setDanceClock(() => ({ nowMs: groove.now(), tempo: { bpm: danceBpmOf(myTempoNow), phaseMs: 0 } }));
 
 $('view-first').onclick = () => { if (view !== 'first') setView('first'); };
 $('view-third').onclick = () => { if (view !== 'third') setView('third'); };
@@ -3523,27 +3528,39 @@ function updateFront(dt) {
   chase.pose = { dist: chase.dist, target: pose.dist, front: true };
 }
 
-// Footsteps (groove.js + shared/groove.mjs): everyone who walks plays their slot's polyrhythm on
-// ONE shared bar, so the room's footsteps are one groove. Mine while I walk, the others' from where they walk.
+// Footsteps (groove.js + shared/groove.mjs): everyone who walks plays their slot's polyrhythm on THEIR OWN
+// bar (their Tempo × Groove; t846u). Mine while I walk, the others' from where they walk, at their tempo.
 // Sneak is Ctrl + W: Ctrl+W closes the tab in Chrome/Edge/Firefox and a page can't block it. While Ctrl
 // is held (sneaking), ask before the tab closes / reloads, so a sneak never throws you out of the room.
 addEventListener('beforeunload', (e) => { if (!isTouch && controls.ctrlHeld()) { e.preventDefault(); e.returnValue = ''; } });
 // My run-mode settings as heard right now: the Sound settings draft while it is open, else the saved ones.
 var myGait = 'walk'; // eslint-disable-line no-var
+var myTempoNow = myPlayerTempo(loadRunMode().walkBpm, GROOVE.def, null); // eslint-disable-line no-var -- my { bpm, scale, rate, tune } (shared/playertempo.mjs)
 function liveRunMode() { try { return (soundUi && soundUi.runDraft && soundUi.runDraft()) || loadRunMode(); } catch { return loadRunMode(); } }
 function walkSounds() {
   // onPeel: feet on backing paper on the floor = the muffled "paper" step (shared/peelstep.mjs)
   // dancing (Jens t814u): while the dance is on it counts as walking – the footsteps and the walk
   // sound's sequencers go on for as long as it does (groove.js: walkUntil kept up, moveUntil not).
   const walkers = [{ id: 'me', x: camera.position.x, z: camera.position.z, at: null, onPeel: peelLayer.under(camera.position.x, camera.position.z), dancing: !camView && together.dancing() }];
-  for (const pl of together.players.map.values()) walkers.push({ id: pl.id, x: pl.pos.x, z: pl.pos.z, at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id), onPeel: peelLayer.under(pl.pos.x, pl.pos.z), dancing: !!pl.avatar?.dancing }); // their seed + slot colour
+  for (const pl of together.players.map.values()) walkers.push({ id: pl.id, x: pl.pos.x, z: pl.pos.z, at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id), onPeel: peelLayer.under(pl.pos.x, pl.pos.z), dancing: !!pl.avatar?.dancing, tempo: pl.tempo }); // their seed + slot colour + THEIR tempo (t846u)
   // Run mode (Jens t544u): Shift + moving = my steps on the run tempo/pitch (shared/runmode.mjs).
   // Sneak (Jens, 11 Nov 2026): Ctrl + moving = the crouch tempo/pitch. While dancing the same keys
   // work without moving: dance + Shift = run tempo, dance + Ctrl = crouch tempo (gaitOf; Ctrl wins).
   // While Sound settings is open the draft is heard at once (the sliders are live, Save keeps them).
   const dancingMe = !camView && together.dancing();
   myGait = camView ? 'walk' : gaitOf({ moving: controls.moving && !dancingMe, dancing: dancingMe, shift: controls.shiftHeld(), ctrl: controls.ctrlHeld() });
-  groove.setRun(gaitStep(myGait, liveRunMode()));
+  const step = gaitStep(myGait, liveRunMode());
+  // My own tempo (Jens t846u: "ta bort den globala klockan … alla har sin egen bpm"): my Tempo (radio.walkBpm –
+  // the Steps slider, live while Sound settings is open) drives my footsteps, sequencers + four voices
+  // (radio.tick), the synced delay, my voice echo and my dance; the room gets it so they hear / see me at it.
+  const bpm = radio.walkBpm;
+  if (groove.setBpm(bpm)) updateGrooveUi();
+  groove.setRun(step);
+  myTempoNow = myPlayerTempo(bpm, groove.scale, step);
+  together.setTempo(myTempoNow);
+  if (dancingMe) together.retimeDance({ bpm: danceBpmOf(myTempoNow) }); // Tempo / Shift / Ctrl mid-dance: the dance follows
+  try { sound.engine?.setSyncBpm?.(bpm); } catch { /* no audio yet */ }
+  try { voice?.setTempo?.(bpm); } catch { /* voice not up yet */ }
   groove.update(walkers);
   // The walk sound's sequencer layers (radio.js walkLoop, Jens t783u): only while I walk, and on
   // the run tempo/pitch while I run – the same walking test and run state as my footsteps.
@@ -4037,7 +4054,7 @@ window.klibb = {
     };
     return { ...st, view, screen: st.visible ? { sticker: px(preview.mesh), shadow: px(preview.shadow) } : null };
   },
-  setView, toggleView, startDance, cancelDance, toggleDance, dancing: () => together.dancing(), meWalking: () => meWalking(), walkUntil: () => radio.walk.until, runMode: () => ({ ...liveRunMode(), running: !!controls.running, crouching: !!controls.crouching, gait: myGait, run: groove.run ? { ...groove.run } : null }), view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
+  setView, toggleView, startDance, cancelDance, toggleDance, dancing: () => together.dancing(), meWalking: () => meWalking(), walkUntil: () => radio.walk.until, runMode: () => ({ ...liveRunMode(), running: !!controls.running, crouching: !!controls.crouching, gait: myGait, run: groove.run ? { ...groove.run } : null }), myTempo: () => ({ ...myTempoNow, danceBpm: danceBpmOf(myTempoNow), grooveBpm: groove.bpm, syncBpm: sound.engine?.syncBpm ?? null, voiceBpm: voice?.fxBpm ?? null }), view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, toggleNature, setNatureMode, natureMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, dropsPeel, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };

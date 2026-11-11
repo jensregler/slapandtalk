@@ -4,8 +4,9 @@ import assert from 'assert/strict';
 import { SYNTH, DEFAULT_PATCHES, SOUNDS, cleanPatch, cleanLayer, samplerRate, samplerGate, patchLength, morphPatch, diffPatch, snapFreq, noteName, retune, variant } from '../shared/synth.mjs';
 import { newFollower, selfLoop, MOD as MOD2 } from '../shared/lfo.mjs';
 import { MOD, cleanMods, modOrder, canAddMod, newMod, removeMod, removeLayerMods, evalMods, compileMods, modRunner, snapRate, parseTarget } from '../shared/lfo.mjs';
-import { MASTER, roomTempo, loopSteps, barMsAt, barsAtTime } from '../shared/clock.mjs';
-import { cleanRadio, cleanPreset, cleanBpm, knobToBpm, bpmToKnob, FOUR_VOICES, voiceEvents, VOICE_CYCLE_MS, birdPhrase, RADIO } from '../shared/radio.mjs';
+import { MASTER, playerTempo, loopSteps, barMsAt, barsAtTime } from '../shared/clock.mjs';
+import * as CLOCK from '../shared/clock.mjs';
+import { cleanRadio, cleanPreset, cleanBpm, knobToBpm, bpmToKnob, FOUR_VOICES, voiceEvents, VOICE_CYCLE_MS, voiceCycleMs, birdPhrase, RADIO } from '../shared/radio.mjs';
 import { decimate } from '../client/src/decimator.js';
 import { knobToMorph, RADIO_DEFAULTS } from '../shared/radio.mjs';
 import { CITY_FX, PLACE, PLACE_NEUTRAL, cityFxAt, zoneWeight, cleanCityFx, fieldAmounts, cornerField, sideField, peakField, delayParamsAt, glitchDelayParamsAt, PEAKS, FIELD, BEAT } from '../shared/cityfx.mjs';
@@ -146,13 +147,12 @@ ok('decimation: sample-and-hold every N samples + bit reduction', () => {
   const z = decimate(Float32Array.from([0.3, -0.7]), 1, 2); assert.deepEqual([...z], [0.5, -0.5]);
   assert.deepEqual([...decimate(x, 1)], [...x], 'N = 1 is off');
 });
-ok('master clock: 90 BPM, 4/4 (2667 ms bar); rooms nudged ±0.3 BPM / 0–12 ms, deterministic; the City exact', () => {
-  assert.equal(MASTER.bpm, 90); assert.ok(near(barMsAt(90), 8000 / 3));
-  assert.deepEqual(roomTempo('stad'), { bpm: 90, phaseMs: 0 });
-  const a = roomTempo('stad-1'), b = roomTempo('stad-4');
-  assert.deepEqual(a, roomTempo('stad-1')); assert.notDeepEqual(a, b);
-  for (const id of ['stad-1', 'stad-2', 'stad-3', 'stad-4', 'abc123', 'x7k2p9']) { const t = roomTempo(id); assert.ok(Math.abs(t.bpm - 90) <= 0.3 && t.phaseMs >= 0 && t.phaseMs <= 12, id); }
-  console.log(`      stad-1: ${a.bpm} BPM + ${a.phaseMs} ms · stad-4: ${b.bpm} BPM + ${b.phaseMs} ms`);
+ok('no master / room clock (t846u): 90 BPM 4/4 are only defaults; a tempo = the player\'s own bpm, phase 0', () => {
+  assert.equal(MASTER.bpm, 90); assert.equal(MASTER.beatsPerBar, 4); assert.ok(near(barMsAt(90), 8000 / 3));
+  assert.equal(CLOCK.roomTempo, undefined, 'no per-room tempo (the ±0.3 BPM nudge is gone)');
+  assert.ok(!('maxNudgeBpm' in MASTER) && !('maxPhaseMs' in MASTER));
+  assert.deepEqual(playerTempo(90), { bpm: 90, phaseMs: 0 }); assert.deepEqual(playerTempo(5000), { bpm: 3000, phaseMs: 0 }); assert.deepEqual(playerTempo(10), { bpm: 30, phaseMs: 0 });
+  assert.ok(near(voiceCycleMs(90), VOICE_CYCLE_MS) && near(voiceCycleMs(180), VOICE_CYCLE_MS / 2) && near(voiceCycleMs(NaN), VOICE_CYCLE_MS));
 });
 ok('polyrhythm: loops of 3/4/5/7 steps per bar all meet on beat 1 of every bar', () => {
   const tempo = { bpm: 90, phaseMs: 0 }, bar = barMsAt(90);

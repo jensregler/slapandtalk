@@ -1,11 +1,14 @@
 // Master block (was "the radio"; Jens Nov 2026 rebuild).
 // Sound settings Master shows only: master volume (ears) + City sound (0–100 dry↔wet of city FX).
-// Older controls (on/off, Blend, Tempo, Bird/Wind/Four voices) stay in cleanRadio / Radio engine
-// paths but have no UI; on+knob are forced to "my sound" by cleanRadio. Walk tempo lives on Steps:
-// per player (shared/runmode.mjs walkBpm, 30–3000 BPM), only for my walk-sound sequencer – the room
-// clock (tempo(): sequencers, four voices, dance, voice FX) no longer follows it (Jens, 11 Nov 2026).
+// Older controls (on/off, Blend, Tempo knob, Bird/Wind/Four voices) stay in cleanRadio / Radio engine
+// paths but have no UI; on+knob are forced to "my sound" by cleanRadio.
+// Tempo (Jens, 11 Nov 2026 t846u: "ta bort den globala klockan helt och hållet. alla har sin egen bpm"):
+// there is no room clock any more. tempo() = MY Tempo (the "Tempo" slider on Steps, shared/runmode.mjs
+// walkBpm, 30–3000 BPM) and every loop here – the walk sound's sequencer layers, all other sequencer
+// layers and the four voices – runs on it. (Before: only the walk sequencer followed it and everything
+// else stayed on a hidden 90 BPM room clock, which is why "bpm funkar inte".)
 import { cleanRadio, cleanPreset, FOUR_VOICES, RADIO, bpmToKnob, knobToBpm } from '../../shared/radio.mjs';
-import { roomTempo, loopSteps, barMsAt, barsAtTime } from '../../shared/clock.mjs';
+import { playerTempo, loopSteps, barMsAt, barsAtTime } from '../../shared/clock.mjs';
 import { SOUNDS, retune } from '../../shared/synth.mjs';
 import { planWalkSeq, newWalkSeq } from '../../shared/walkseq.mjs';
 import { RUN, cleanWalkBpm } from '../../shared/runmode.mjs';
@@ -30,19 +33,22 @@ export async function putRoomPreset(room, preset) {
 }
 
 // The radio's state + what it drives: sound (Sounds: the knob/on → patchFor), the ambient bird/wind
-// and the four-voice scheduler. clock() = the shared, server-corrected wall clock (groove.now()).
+// and the four-voice scheduler. clock() = the server-corrected wall clock (groove.now()) – a time base only;
+// the tempo is mine (walkBpm). room is kept for the caller's sake; it no longer sets any tempo.
 export class Radio {
   constructor({ sound, clock = () => Date.now(), onChange = () => {}, room = 'stad' }) {
-    this.sound = sound; this.clock = clock; this.onChange = onChange; this.room = room; this.roomTempo = roomTempo(room);
+    this.sound = sound; this.clock = clock; this.onChange = onChange; this.room = room;
     this.state = cleanRadio(null); this.amb = null; this.next = 0; this.voiceLog = [];
     sound.setRadio(this.state);
     // Walk-sound sequencer (shared/walkseq.mjs, Jens t783u): only while I walk, run mode applies.
     this.walk = { until: 0, run: null }; this.walkSeq = new Map(); // key -> newWalkSeq()
-    this.walkBpm = RUN.walkDef; // MY walk tempo (per player; main.js / soundui.js set it from my run mode)
+    this.walkBpm = RUN.walkDef; // MY Tempo (per player; main.js / soundui.js set it from my run mode)
   }
-  // My walk tempo, 30…3000 BPM (shared/runmode.mjs cleanWalkBpm). Only the walk sequencer reads it.
+  // My Tempo, 30…3000 BPM (shared/runmode.mjs cleanWalkBpm). Every loop of mine reads it (tempo()).
+  // (What is already planned – ≤ 150 ms ahead – plays out; the new grid takes over from there, no doubles.
+  // main.js walkSounds reads walkBpm every frame for my footsteps, dance, voice echo, delay and the room.)
   setWalkBpm(bpm) { this.walkBpm = cleanWalkBpm(bpm); return this.walkBpm; }
-  walkTempo() { return { bpm: this.walkBpm, phaseMs: 0 }; }
+  walkTempo() { return playerTempo(this.walkBpm); }
   // main.js walkSounds, every frame: until = wall ms I count as walking until (the footstep groove's
   // own walk detection, 0 = standing); run = { rate, tune } while Shift-running (groove.run) or null.
   setWalk({ until = 0, run = null } = {}) {
@@ -65,9 +71,9 @@ export class Radio {
     this.amb.setBird({ on: !off && this.state.bird.on, vol: this.state.bird.vol });
     this.amb.setWind({ on: !off && this.state.wind.on, vol: this.state.wind.vol });
   }
-  // The master clock in this room: 90 BPM × this room's small nudge, + its phase shift. Not my walk tempo
-  // (state.bpm is a dormant preset field; walk tempo = walkTempo(), per player).
-  tempo() { return { bpm: this.roomTempo.bpm, phaseMs: this.roomTempo.phaseMs }; }
+  // MY tempo (no room clock since t846u): { bpm: walkBpm, phaseMs: 0 }. state.bpm (an old preset's
+  // tempo) is dormant and never read here.
+  tempo() { return playerTempo(this.walkBpm); }
   // Lookahead scheduler (call every frame): what falls in the next 150 ms is put on the AudioContext
   // clock. Loops faster than RADIO.fastSteps steps/s switch to "tone mode": one sustained voice per
   // second with a per-sample step gate in the worklet (synth.js play({ gate })), so they become a tone.
@@ -90,7 +96,7 @@ export class Radio {
     }
     let fired = 0;
     const walk = this.walk, seen = new Set();
-    const wTempo = this.walkTempo(), wBarS = barMsAt(wTempo.bpm) / 1000; // the walk sequencer: MY walk tempo
+    const wTempo = tempo, wBarS = barS; // the walk sequencer: my tempo too (+ run / crouch rate in walkLoop)
     for (const lp of loops) {
       if (lp.walk) { fired += this.walkLoop(lp, { now, ahead, tempo: wTempo, barS: wBarS, at, walk }); seen.add(lp.key); continue; }
       const rate = lp.steps / (lp.bars * barS); // steps per second

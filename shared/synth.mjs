@@ -27,10 +27,10 @@ import { cleanSeq, visibleSteps } from './autoslap.mjs';
 // Decimation on ANY layer (sample-and-hold downsampler, client/src/decimator.js – an AudioWorklet):
 //   decim (hold every input sample for N samples, 1 = off) + crush (bits, 0 = off). Like the sampler
 //   keys these only appear when used, so an old patch's JSON is exactly what it was.
-// Sequencer layer (any kind) – seq: { len 1–16, bars (loop length in master-clock bars), steps:
+// Sequencer layer (any kind) – seq: { len 1–16, bars (loop length in bars of my Tempo), steps:
 //   [{ on, vol 0–100 }] } (the step schema of the old auto-slap sequencer, shared/autoslap.mjs). A
-//   layer with seq does not play on the one-shot trigger: it RUNS on the master clock (90 BPM,
-//   shared/clock.mjs) while my radio is on – layers with different lengths make the polyrhythm.
+//   layer with seq does not play on the one-shot trigger: it RUNS on my own Tempo (shared/runmode.mjs
+//   walkBpm, default 90 BPM; no shared clock since t846u) while my radio is on – layers with different lengths make the polyrhythm.
 // Pitch grid: the pitch controls (osc Pitch, sampler Note/Root) move in equal-tempered semitones
 //   (A4 = 440 Hz); a morph lands on the grid too (snapFreq). LFOs and the per-play wobble still bend
 //   between grid points (vibrato stays natural). Saved values are never moved by loading.
@@ -49,7 +49,7 @@ export const SYNTH = {
   maxLayers: 4,
   maxPatchBytes: 6000,   // one patch as JSON (room for a sampler layer and 16 LFOs)
   maxSoundBytes: 40000,  // (was 20000 before sampler/LFO/follower layers) all of a player's patches + fx as JSON (kept on this device; others only get the seed)
-  bpm: 90,               // tempo the delay "sync" values refer to (= the master clock, shared/clock.mjs)
+  bpm: 90,               // default tempo for the delay "sync" values – live they are beats of MY Tempo (client/src/synth.js setSyncBpm, t846u)
   seqLens: [3, 4, 5, 6, 7, 8, 12, 16], seqMax: 16, seqBars: [0.25, 0.5, 1, 2, 4],
   // [min, max, step]
   layer: {

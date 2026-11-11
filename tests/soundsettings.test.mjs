@@ -1,9 +1,10 @@
-// Sound settings (Jens, 11 Nov 2026): ONE volume control; walk tempo per player, 30–3000 BPM, only
-// for that player's walk-sound sequencer (not the room clock). Run: node tests/soundsettings.test.mjs (in npm test)
+// Sound settings (Jens, 11 Nov 2026): ONE volume control; Tempo per player, 30–3000 BPM. Since t846u
+// ("ta bort den globala klockan") there is no room clock: radio.tempo() IS my Tempo. Run: node tests/soundsettings.test.mjs (in npm test)
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { RUN, RUN_DEFAULTS, cleanRun, cleanWalkBpm, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../shared/runmode.mjs';
-import { roomTempo, barMsAt } from '../shared/clock.mjs';
+import { barMsAt, playerTempo } from '../shared/clock.mjs';
+import * as clock from '../shared/clock.mjs';
 import { Radio } from '../client/src/radio.js';
 
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ✓ ' + name); };
@@ -57,11 +58,44 @@ ok('per player: two players with different walk tempos – each walk sequencer f
   for (const g of gap(ta)) assert.ok(near(g, barMsAt(180) / 4, 1.5), `A: ${g} ms`);
   for (const g of gap(tb)) assert.ok(near(g, barMsAt(90) / 4, 1.5), `B: ${g} ms`);
 });
-ok('walk tempo is not a global clock: the room clock (sequencers, voices, dance, voice FX) ignores it', () => {
-  const r = new Radio({ sound: fakeSound(), room: 'stad' }), room = roomTempo('stad');
-  for (const b of [30, 90, 777, 3000]) { r.setWalkBpm(b); assert.deepEqual(r.tempo(), { bpm: room.bpm, phaseMs: room.phaseMs }); assert.equal(r.walkTempo().bpm, b); }
-  r.amb = { setBird() {}, setWind() {} }; r.set({ bpm: 500 }, { save: false }); // an old preset with a "bpm" in it: dormant, does not touch either
-  assert.deepEqual(r.tempo(), { bpm: room.bpm, phaseMs: room.phaseMs }); assert.equal(r.walkBpm, 3000);
-  assert.equal(r.setWalkBpm(99999), 3000); assert.equal(r.setWalkBpm(0), 30);
+ok('no global clock (t846u): radio.tempo() = MY Tempo – sequencers, four voices, dance, voice FX follow it; old preset bpm stays dormant', () => {
+  assert.equal(clock.roomTempo, undefined, 'roomTempo (90 BPM ± a per-room nudge) is gone');
+  assert.deepEqual(Object.keys(clock.MASTER).sort(), ['beatsPerBar', 'bpm'], 'MASTER = defaults only, no nudge / phase');
+  const a = new Radio({ sound: fakeSound(), room: 'stad-1' }), b = new Radio({ sound: fakeSound(), room: 'stad-4' });
+  assert.deepEqual(a.tempo(), { bpm: 90, phaseMs: 0 }); assert.deepEqual(b.tempo(), a.tempo(), 'the room code sets no tempo');
+  for (const bpm of [30, 90, 777, 3000]) { a.setWalkBpm(bpm); assert.deepEqual(a.tempo(), { bpm, phaseMs: 0 }); assert.deepEqual(a.walkTempo(), a.tempo()); }
+  assert.deepEqual(b.tempo(), { bpm: 90, phaseMs: 0 }, 'mine does not change yours');
+  a.amb = { setBird() {}, setWind() {} }; a.set({ bpm: 500 }, { save: false }); // an old preset with a "bpm" in it: dormant
+  assert.deepEqual(a.tempo(), { bpm: 3000, phaseMs: 0 }); assert.equal(a.walkBpm, 3000);
+  assert.equal(a.setWalkBpm(99999), 3000); assert.equal(a.setWalkBpm(0), 30);
+  assert.deepEqual(playerTempo(120), { bpm: 120, phaseMs: 0 }); assert.deepEqual(playerTempo('x'), { bpm: 90, phaseMs: 0 });
+});
+// A fake Sounds object with a 3-step sequencer layer on the SLAP sound (not the walk sound) – it used to
+// stay on the room clock whatever the walk tempo; now it follows my Tempo too.
+function fakeSlapSeq() {
+  const slap = { gain: 1, layers: [{ kind: 'osc', wave: 'sine', freq: 330, a: 0.003, d: 0.1, s: 0, r: 0.05, level: 0.3, seq: { len: 3, bars: 1, steps: [0, 1, 2].map(() => ({ on: true, vol: 100 })) } }] };
+  return { engine: {}, ctx: { currentTime: 0 }, muted: false, mine: null, plays: [], setRadio() {}, ready: Promise.resolve(),
+    patchFor(kind) { return { patch: kind === 'slap' ? slap : null }; }, play() {}, playPatch(p, o) { this.plays.push(o); } };
+}
+const seqTimes = (radio, t0, ms) => { let now = t0; radio.clock = () => now; for (; now < t0 + ms; now += 16) radio.tick(); return radio.voiceLog.filter((e) => e.key === 'slap0' && !e.tone).map((e) => e.t); };
+ok('other sequencer layers (and the four voices) run on MY Tempo, not a room clock', () => {
+  const T0 = 1793031959884, gap = (ts) => ts.slice(1).map((t, i) => t - ts[i]);
+  for (const bpm of [60, 90, 240]) {
+    const r = new Radio({ sound: fakeSlapSeq(), room: 'stad-2' }); r.setWalkBpm(bpm);
+    const ts = seqTimes(r, T0, 6000);
+    assert.ok(ts.length >= 4, `${bpm}: ${ts.length}`);
+    for (const g of gap(ts)) assert.ok(near(g, barMsAt(bpm) / 3, 1.5), `${bpm} BPM: ${g} ms (want ${barMsAt(bpm) / 3})`);
+  }
+  // the four voices: one loop per voice, bars: 1, on tempo() – a bar of MY tempo
+  const r = new Radio({ sound: fakeSlapSeq(), room: 'stad' }); r.setWalkBpm(180); r.state = { ...r.state, voices: { on: true, vol: 0.5 } };
+  let now = T0; r.clock = () => now; for (; now < T0 + 3000; now += 16) r.tick();
+  const v0 = r.voiceLog.filter((e) => e.key === 'v0').map((e) => e.t);
+  assert.ok(v0.length >= 3 && gap(v0).every((g) => near(g, barMsAt(180) / 3, 1.5)), `Low voice: 3 per bar of 180 BPM ${JSON.stringify(gap(v0))}`);
+});
+ok('Tempo UI: labelled "Tempo" (not "Walk tempo"), help says everything follows it and there is no shared clock', () => {
+  const strings = read('client/src/strings.js'), ui = read('client/src/soundui.js');
+  assert.match(strings, /walkTempo: 'Tempo'/); assert.ok(!/'Walk tempo'/.test(strings) && !/'Walk tempo'/.test(ui));
+  assert.ok(!/room clock|master clock/i.test(strings), 'no string talks about a room / master clock');
+  assert.match(strings, /no shared clock/);
 });
 console.log(`sound settings: ${n} checks ok`);

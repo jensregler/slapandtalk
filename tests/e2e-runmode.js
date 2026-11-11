@@ -68,11 +68,15 @@ const KEY = 'run-e2e-full-key';
       tmin: document.getElementById('run-tempo')?.min, tmax: document.getElementById('run-tempo')?.max, tstep: document.getElementById('run-tempo')?.step,
       wmin: document.getElementById('walk-tempo')?.dataset.min, wmax: document.getElementById('walk-tempo')?.dataset.max,
       bpm: window.klibb.radio().walkBpm }));
-    check('Steps tab: Walk tempo (~90 BPM), Run tempo (+100% · 2:1, −400…+400), Pitch correction (+75% fifth), Crouch tempo (−50% · 2:3, −400…+400) + crouch pitch; no lock UI',
+    const tLab = await A.evaluate(() => document.querySelector('#snd-run [data-param="walk-tempo"] span')?.textContent);
+    check('the slider is labelled "Tempo" (t846u: it drives everything of mine, not just the walk sound)', tLab === 'Tempo', tLab);
+    check('Steps tab: Tempo (~90 BPM), Run tempo (+100% · 2:1, −400…+400), Pitch correction (+75% fifth), Crouch tempo (−50% · 2:3, −400…+400) + crouch pitch; no lock UI',
       ui.box && /90/.test(ui.walk || '') && ui.t === '+100% · 2:1' && ui.p === '+75% · +7 st (fifth up)' && !ui.lock && ui.tmin === '-400' && ui.tmax === '400' && ui.ct === '-50% · 2:3' && ui.cp === '-80% · -5 st (fourth down)' && ui.ctmin === '-400' && ui.ctmax === '400' && ui.tstep === '12.5' && ui.bpm === 90 && ui.wmin === '30' && ui.wmax === '3000', ui);
     await A.evaluate(() => { const w = document.getElementById('walk-tempo'); w.value = '500'; w.dispatchEvent(new Event('input', { bubbles: true })); });
-    const wt = await A.evaluate(() => ({ bpm: window.klibb.radio().walkBpm, room: window.klibb.radio().tempo().bpm, out: document.getElementById('walk-tempo-val').textContent }));
-    check('Walk tempo slider: knob middle = 300 BPM, my walk tempo only – the room clock stays ~90', Math.abs(wt.bpm - 300) < 1 && wt.out === '300 BPM' && Math.abs(wt.room - 90) <= 0.3, wt);
+    await A.waitForTimeout(150); // a frame or two: main.js walkSounds hands it to footsteps / delay / voice / the room
+    const wt = await A.evaluate(() => ({ bpm: window.klibb.radio().walkBpm, mine: window.klibb.radio().tempo().bpm, my: window.klibb.myTempo(), out: document.getElementById('walk-tempo-val').textContent }));
+    check('Tempo slider: knob middle = 300 BPM – and there is no room clock: radio.tempo() (sequencers, voices), footsteps, dance and synced delay all follow it live',
+      Math.abs(wt.bpm - 300) < 1 && wt.out === '300 BPM' && wt.mine === wt.bpm && wt.my.bpm === wt.bpm && wt.my.grooveBpm === wt.bpm && wt.my.danceBpm === wt.bpm && (wt.my.syncBpm === null || wt.my.syncBpm === wt.bpm), wt);
     for (const [k, want] of [['0', 30], ['1000', 3000]]) {
       const b = await A.evaluate((k) => { const w = document.getElementById('walk-tempo'); w.value = k; w.dispatchEvent(new Event('input', { bubbles: true })); return window.klibb.radio().walkBpm; }, k);
       check(`Walk tempo slider end ${k} = ${want} BPM`, b === want, b);
@@ -84,8 +88,11 @@ const KEY = 'run-e2e-full-key';
     const saved = await A.evaluate(() => window.klibb.runMode());
     check('Save keeps it (personal, this visit)', saved.tempo === 50 && saved.pitch === -5 && saved.lock === false, saved);
     const wantW = Math.round(30 * Math.pow(100, 0.6) * 10) / 10;
-    const pp = { a: await A.evaluate(() => ({ run: window.klibb.runMode().walkBpm, radio: window.klibb.radio().walkBpm })), b: await B.evaluate(() => ({ run: window.klibb.runMode().walkBpm, radio: window.klibb.radio().walkBpm, room: window.klibb.radio().tempo().bpm })) };
-    check(`per player: A saved walk tempo ${wantW} BPM, B (same room) keeps its own 90 BPM`, Math.abs(pp.a.run - wantW) < 0.2 && pp.a.radio === pp.a.run && pp.b.run === 90 && pp.b.radio === 90 && Math.abs(pp.b.room - 90) <= 0.3, pp);
+    await B.waitForFunction(({ id, w }) => { const p = window.klibb.players().find((x) => x.id === id); return p && p.tempo && Math.abs(p.tempo.bpm - w) < 0.2; }, { id: aId, w: wantW }, { timeout: 4000 }).catch(() => {});
+    const pp = { a: await A.evaluate(() => ({ run: window.klibb.runMode().walkBpm, radio: window.klibb.radio().walkBpm })) };
+    pp.b = await B.evaluate((id) => ({ run: window.klibb.runMode().walkBpm, radio: window.klibb.radio().walkBpm, mine: window.klibb.radio().tempo().bpm, seesA: (window.klibb.players().find((x) => x.id === id) || {}).tempo }), aId);
+    check(`per player: A saved Tempo ${wantW} BPM, B (same room) keeps its own 90 BPM – and B knows A's tempo (hears / sees A at it)`,
+      Math.abs(pp.a.run - wantW) < 0.2 && pp.a.radio === pp.a.run && pp.b.run === 90 && pp.b.radio === 90 && pp.b.mine === 90 && pp.b.seesA && Math.abs(pp.b.seesA.bpm - wantW) < 0.2, pp);
 
     // ---------- Shift + W = running ----------
     // start each walk at the back of the room facing the long way (W = −z), so no wall stops it
@@ -147,10 +154,17 @@ const KEY = 'run-e2e-full-key';
 
     // ---------- Dance + Shift = run tempo, dance + Ctrl = crouch tempo ----------
     await A.evaluate(() => window.klibb.startDance()); await A.waitForTimeout(400);
+    // t846u: the dance ANIMATION follows my own tempo too (Tempo × run / crouch), and B sees it at mine
+    const fold = (b) => { while (b > 180) b /= 2; while (b < 60) b *= 2; return Math.round(b * 1000) / 1000; };
+    const d0 = await A.evaluate(() => ({ my: window.klibb.myTempo(), self: window.klibb.selfAvatar() }));
+    check(`dance animation on MY Tempo (${d0.my.bpm} BPM → ${fold(d0.my.bpm)} folded), not a room clock`, Math.abs(d0.self.danceBpm - fold(d0.my.bpm)) < 0.01, { bpm: d0.my.bpm, dance: d0.self.danceBpm });
     await A.keyboard.down('Shift'); await A.waitForTimeout(500);
-    const ds = await A.evaluate(() => ({ d: window.klibb.dancing(), m: window.klibb.runMode(), seq: window.klibb.radio().walk }));
+    const ds = await A.evaluate(() => ({ d: window.klibb.dancing(), m: window.klibb.runMode(), seq: window.klibb.radio().walk, my: window.klibb.myTempo(), self: window.klibb.selfAvatar() }));
+    const bSeesRun = await B.waitForFunction(({ id, want }) => { const p = window.klibb.players().find((x) => x.id === id); return p && p.dancing && Math.abs(p.danceBpm - want) < 0.01 && Math.abs((p.tempo?.rate || 0) - 1.375) < 1e-6 ? p.danceBpm : false; }, { id: aId, want: fold(d0.my.bpm * 1.375) }, { timeout: 3000 }).then((h) => h.jsonValue()).catch(() => null);
     await A.keyboard.up('Shift'); await A.waitForTimeout(400);
     check('dance + Shift: still dancing, the dance steps on the run tempo (11:8) and run pitch', ds.d && ds.m.gait === 'run' && Math.abs(ds.m.run?.rate - 1.375) < 1e-9 && Math.abs(ds.seq.run?.rate - 1.375) < 1e-9, ds);
+    check(`dance + Shift: the dance animation speeds up to Tempo × 11:8 (${fold(d0.my.bpm * 1.375)} BPM folded) – and B sees it at that tempo (retime)`,
+      Math.abs(ds.self.danceBpm - fold(d0.my.bpm * 1.375)) < 0.01 && bSeesRun !== null, { a: ds.self.danceBpm, b: bSeesRun, want: fold(d0.my.bpm * 1.375) });
     await A.keyboard.down('Control'); await A.waitForTimeout(500);
     const dc = await A.evaluate(() => ({ d: window.klibb.dancing(), m: window.klibb.runMode(), seq: window.klibb.radio().walk }));
     await A.keyboard.up('Control'); await A.waitForTimeout(400);

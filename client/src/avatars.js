@@ -8,9 +8,11 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import AV from '../../shared/avatar.json';
 import { ArmGesture } from './slapanim.js';
-import { DANCE, dancePoseAt, dancePhase, danceGrid, danceDuration, danceLoopTime, danceLoops } from '../../shared/dance.mjs';
+import { DANCE, dancePoseAt, dancePhase, danceGrid, danceDuration, danceLoopTime, danceLoops, danceRetime } from '../../shared/dance.mjs';
+import { cleanPlayerTempo } from '../../shared/playertempo.mjs';
 export { DANCE, dancePoseAt, dancePhase };
-// The master clock the dance's beats lock to (main.js: () => ({ nowMs, tempo })); null = the fixed 120 BPM.
+// MY dance tempo + the server-corrected wall clock (main.js: () => ({ nowMs, tempo })) – my own Tempo × my
+// run / crouch rate, no room clock (t846u); null = the 90 BPM fallback.
 let danceClock = null;
 export function setDanceClock(fn) { danceClock = typeof fn === 'function' ? fn : null; }
 function clockNow() { try { const c = danceClock && danceClock(); return c && Number.isFinite(c.nowMs) ? c : null; } catch { return null; } }
@@ -570,10 +572,10 @@ export class Avatar {
     for (const [b, qa] of P.a) { if (k) b.quaternion.slerpQuaternions(qa, P.b.get(b), k); else b.quaternion.copy(qa); }
     this.model.position.set(0, -SIT.drop, SIT.back);
   }
-  // Runway dance (Jens t540u/t546u): keyframe routine on this avatar, 4 bars on the master clock.
-  // Refuses while seated. from = { at (server-clock ms of the press), bpm, phaseMs, loop } – someone
-  // else's dance as they sent it, so it plays on THEIR clock grid at the same moment on every screen
-  // (joined late: picks up mid-dance). Without it: mine, now, on my clock. loop (Jens t814u): it
+  // Runway dance (Jens t540u/t546u): keyframe routine on this avatar, 4 bars at the dancer's own tempo
+  // (t846u: no room clock). Refuses while seated. from = { at (server-clock ms of the press), bpm,
+  // phaseMs, loop } – someone else's dance as they sent it, so it plays at THEIR tempo at the same moment
+  // on every screen (joined late: picks up mid-dance). Without it: mine, now, at my tempo. loop (Jens t814u): it
   // repeats every 4 bars on the clock until stopped (X again, W/A/S/D, sitting) instead of playing
   // once. Returns false if it did not start, else { at, bpm, phaseMs, loop } (what to send to the room).
   startDance(from = null, { loop = false } = {}) {
@@ -590,6 +592,24 @@ export class Avatar {
     this.gesture.h = null; this.gesture.g = null; // no slap/hold fighting the arms
     this.dance = { raw, t: loop ? danceLoopTime(raw, grid) : raw, at, grid, end: danceDuration(grid), loop: !!loop };
     return { at, bpm: tempo ? tempo.bpm : null, phaseMs: tempo ? tempo.phaseMs || 0 : 0, loop: !!loop };
+  }
+  // The dancer's tempo changed mid-dance (t846u: Tempo slider, Shift / Ctrl). from = { at, bpm, phaseMs }
+  // (shared/dance.mjs danceRetime: an anchor on the new tempo that keeps the routine where it is) – mine
+  // from retimeTo, someone else's as they sent it. Not dancing: false.
+  retimeDance(from) {
+    const d = this.dance; if (!d || !from || !Number.isFinite(from.at) || !(from.bpm > 0)) return false;
+    const tempo = { bpm: from.bpm, phaseMs: Number.isFinite(from.phaseMs) ? from.phaseMs : 0 };
+    const grid = danceGrid(from.at, tempo), c = clockNow();
+    const raw = c ? Math.max(0, (c.nowMs - from.at) / 1000) : 0;
+    this.dance = { ...d, raw, t: d.loop ? danceLoopTime(raw, grid) : raw, at: from.at, grid, end: danceDuration(grid) };
+    return true;
+  }
+  // Mine: go on at tempo { bpm } from right now. Returns { at, bpm, phaseMs, loop } (for the room) or false.
+  retimeTo(tempo) {
+    const d = this.dance, c = clockNow(); if (!d || !c || d.at == null || !tempo || !(tempo.bpm > 0)) return false;
+    const from = danceRetime(c.nowMs, d, tempo);
+    if (d.grid && Math.abs(d.grid.bpm - from.bpm) < 1e-3) return false; // the same (folded) tempo: nothing to do
+    return this.retimeDance(from) ? { ...from, loop: !!d.loop } : false;
   }
   stopDance() {
     if (!this.dance) return;
@@ -646,9 +666,10 @@ export class Players {
     this.scene.add(p.avatar.root);
     this.place(p, performance.now());
   }
-  upsert({ id, name, look, p, y, slot, sit }) {
+  upsert({ id, name, look, p, y, slot, sit, tempo }) {
     let pl = this.map.get(id);
-    if (!pl) { pl = { id, name, look, snaps: [], pos: new THREE.Vector3(), yaw: 0, speed: 0, slot: 0, sit: null }; this.map.set(id, pl); }
+    if (!pl) { pl = { id, name, look, snaps: [], pos: new THREE.Vector3(), yaw: 0, speed: 0, slot: 0, sit: null, tempo: cleanPlayerTempo(null) }; this.map.set(id, pl); }
+    if (tempo !== undefined) pl.tempo = cleanPlayerTempo(tempo); // their own tempo (shared/playertempo.mjs, t846u)
     if (sit !== undefined) pl.sit = sit && typeof sit.chair === 'string' ? { chair: sit.chair, draw: !!sit.draw } : null;
     pl.name = name; pl.look = look; if (Number.isInteger(slot)) pl.slot = slot;
     if (p) this.move(id, p, y, true);
@@ -667,6 +688,10 @@ export class Players {
   sit(id, chair, draw = false) { const pl = this.map.get(id); if (!pl) return false; pl.sit = chair ? { chair, draw: !!draw } : null; if (!chair) pl.avatar?.setSeated(false); return true; }
   // Someone started the runway dance (others see it on their avatar).
   dance(id, from = null) { const pl = this.map.get(id); if (!pl?.avatar) return false; if (pl.sit) { pl.sit = null; pl.avatar.setSeated(false); } return !!pl.avatar.startDance(from); }
+  // Their tempo changed (t846u): bpm / Groove / run-crouch rate – their steps follow it (main.js walkSounds).
+  tempo(id, t) { const pl = this.map.get(id); if (!pl) return false; pl.tempo = cleanPlayerTempo(t); return true; }
+  // Their dance changed tempo mid-dance (from = { at, bpm, phaseMs, loop }); not dancing here yet: start it.
+  retimeDance(id, from) { const pl = this.map.get(id); if (!pl?.avatar) return false; return pl.avatar.dancing ? pl.avatar.retimeDance(from) : this.dance(id, from); }
   // They stopped it early (walked off: W/A/S/D or the joystick).
   stopDance(id) { const pl = this.map.get(id); if (!pl?.avatar?.dancing) return false; pl.avatar.stopDance(); return true; }
   seatedOn(chair) { for (const p of this.map.values()) if (p.sit && p.sit.chair === chair) return p.id; return null; }
@@ -717,6 +742,6 @@ export class Players {
   list() {
     return [...this.map.values()].map((p) => ({ id: p.id, name: p.name, look: p.look, pos: p.pos.toArray(), yaw: p.yaw, speed: p.speed,
       walking: !!p.avatar && p.avatar.walk > 0.5, built: !!p.avatar, tag: p.avatar ? p.avatar.name : null, bubble: p.avatar?.bubble ? true : false,
-      gestures: p.gestures || 0, slot: p.slot, sit: p.sit ? { ...p.sit } : null, seated: !!p.avatar?.seated, dancing: !!p.avatar?.dancing, dancePhase: p.avatar?.dancePhase || null, danceTime: p.avatar ? +p.avatar.danceTime.toFixed(2) : 0, danceAt: p.avatar?.danceAt ?? null, danceBpm: p.avatar?.danceGrid?.bpm ?? null, danceLoop: !!p.avatar?.danceLoop, danceLoops: p.avatar?.danceLoops || 0, capWorld: p.avatar?.cap.visible ? p.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
+      gestures: p.gestures || 0, slot: p.slot, sit: p.sit ? { ...p.sit } : null, seated: !!p.avatar?.seated, dancing: !!p.avatar?.dancing, dancePhase: p.avatar?.dancePhase || null, danceTime: p.avatar ? +p.avatar.danceTime.toFixed(2) : 0, danceAt: p.avatar?.danceAt ?? null, danceBpm: p.avatar?.danceGrid?.bpm ?? null, tempo: p.tempo ? { ...p.tempo } : null, danceLoop: !!p.avatar?.danceLoop, danceLoops: p.avatar?.danceLoops || 0, capWorld: p.avatar?.cap.visible ? p.avatar.cap.getWorldPosition(new THREE.Vector3()).toArray() : null, speaking: !!p.avatar?.speaking, mouth: p.avatar ? p.avatar.mouthInfo : null, gesturing: !!p.avatar?.gesture.active(), fabrics: p.avatar ? p.avatar.fabricInfo() : {}, face: p.avatar ? p.avatar.faceInfo() : null }));
   }
 }

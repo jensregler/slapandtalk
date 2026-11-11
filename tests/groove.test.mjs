@@ -1,5 +1,5 @@
-// The footstep groove's grid math (shared/groove.mjs): one shared bar, interlocking polyrhythms per
-// slot, a log-mapped scale that stretches the whole bar. Run: node tests/groove.test.mjs (in npm test)
+// The footstep groove's grid math (shared/groove.mjs): a bar per walker (2 beats of their own tempo ×
+// Groove – no shared clock since t846u), interlocking polyrhythms per slot, a log-mapped scale. Run: node tests/groove.test.mjs (in npm test)
 import assert from 'node:assert/strict';
 import * as G from '../shared/groove.mjs';
 
@@ -72,6 +72,30 @@ ok('slider is log: 0 = 1/64, 1000 = 8, 1.0× in between; round trip; keys a quar
   assert.ok(near(G.sliderToScale(500) / G.sliderToScale(400), G.sliderToScale(900) / G.sliderToScale(800), 1e-3), 'equal slider steps = equal ratios');
   assert.equal(G.stepScale(1, 1, true), 2); assert.equal(G.stepScale(1, -1, true), 0.5); assert.equal(G.stepScale(1, 1), 1.189);
   assert.equal(G.stepScale(8, 1), 8); assert.equal(G.stepScale(G.GROOVE.min, -1), G.cleanScale(G.GROOVE.min));
-  assert.deepEqual(G.grooveLabel(1), { scale: '1.00×', bar: '1.3 s' }); assert.equal(G.grooveLabel(1 / 64).bar, '21 ms'); assert.equal(G.grooveLabel(8).bar, '11 s');
+  assert.deepEqual(G.grooveLabel(1), { scale: '1.00×', bar: '1.3 s', beats: '2 beats' }); assert.equal(G.grooveLabel(1 / 64).bar, '21 ms'); assert.equal(G.grooveLabel(8).bar, '11 s');
+  assert.equal(G.grooveLabel(0.5).beats, '1 beat'); assert.equal(G.grooveLabel(8).beats, '16 beats');
+});
+// Jens t846u (11 Nov 2026): no shared clock – the bar is 2 beats of the WALKER'S OWN tempo × their Groove.
+ok('per-player tempo: bar = 2 beats of the walker\'s bpm × Groove; 90 BPM is the old bar; others at theirs', () => {
+  assert.equal(G.GROOVE.beats, 2); assert.equal(G.GROOVE.bpm, 90);
+  assert.ok(near(G.barMs(1, 90), G.barMs(1)) && near(G.barMs(1), 4000 / 3), 'default = 90 BPM = 1333 ms');
+  assert.ok(near(G.barMs(1, 180), 2000 / 3) && near(G.barMs(1, 45), 8000 / 3) && near(G.barMs(0.5, 120), 500), '2 beats × scale');
+  assert.ok(near(G.barMs(1, 3000), 40) && near(G.barMs(1, 30), 4000), 'the Tempo range 30…3000 BPM');
+  assert.ok(near(G.barMs(1, 99999), 40) && near(G.barMs(1, 1), 4000) && near(G.barMs(1, NaN), 4000 / 3), 'clamped like the Tempo slider; junk = 90');
+  assert.ok(near(G.pulseMs(1, 0, 180), 2000 / 12) && G.buzzes(1, 4, 3000) && !G.buzzes(1, 4, 90), 'pulses / buzz at that tempo');
+  // two walkers in the same room, same slot pattern, different tempi: each on its own grid (no shared clock)
+  const g = { scale: 1, at: 0, phase: 0 };
+  const a = G.eventsBetween(g, 0, T0, T0 + 4000, { bpm: 90 }), b = G.eventsBetween(g, 0, T0, T0 + 4000, { bpm: 135 });
+  const gap = (e) => e.slice(1).map((x, i) => x.t - e[i].t);
+  assert.ok(gap(a).every((d) => near(d, 1000 / 3, 1e-3)) && gap(b).every((d) => near(d, 2000 / 9, 1e-3)), '4 pulses per 2 beats: 333 ms at 90, 222 ms at 135');
+  assert.equal(b.length, Math.round(a.length * 1.5));
+  const r = G.runEventsBetween(g, 0, T0, T0 + 4000, 2, { bpm: 135 });
+  assert.ok(gap(r).every((d) => near(d, 1000 / 9, 1e-3)), 'run 2:1 on top of 135 BPM');
+  assert.deepEqual(G.eventsBetween(g, 2, T0, T0 + 3000, { bpm: 77 }), G.eventsBetween(g, 2, T0, T0 + 3000, { bpm: 77 }), 'deterministic per tempo');
+  // grooveLabel at a tempo
+  assert.equal(G.grooveLabel(1, 180).bar, '667 ms'); assert.equal(G.grooveLabel(1, 30).bar, '4.0 s');
+  // retime on a tempo: same phase at the change
+  const h = G.retime({ scale: 1, at: 0, phase: 0 }, 1, T0 + 5, 135);
+  assert.ok(near(G.phaseAt(h, T0 + 5, 200), G.phaseAt({ scale: 1, at: 0, phase: 0 }, T0 + 5, 135), 1e-5));
 });
 console.log(`groove: ${n} checks ok`);
