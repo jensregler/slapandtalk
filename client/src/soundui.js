@@ -14,7 +14,7 @@ import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseT
 import { loadSampleFile, clearSamples, pruneSamples, ensureSamples } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
-import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, pitchMin, pitchMax, runRate, pitchRatio, pitchLabel, tempoLabel, cleanWalkBpm, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../../shared/runmode.mjs';
+import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, cleanCrouchTempo, cleanCrouchPitch, pitchMin, pitchMax, runRate, crouchRate, pitchRatio, pitchLabel, tempoLabel, crouchTempoLabel, cleanWalkBpm, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../../shared/runmode.mjs';
 
 // Visit-scoped (Jens, 6 Nov 2026): patches / FX / Music vol / groove / run / voice FX / Hear myself
 // follow you from a room out into the City. Entering a different room (or a fresh load into a room)
@@ -80,7 +80,7 @@ export function prepareSoundForPlace(place) {
   return { reset: true, prev, scope };
 }
 export const personalGet = sread, personalSet = swrite;
-// Run mode (shared/runmode.mjs, Jens t544u): { tempo %, pitch step, lock } – personal, this visit.
+// Run mode (shared/runmode.mjs, Jens t544u): { tempo %, pitch step, walkBpm, crouchTempo %, crouchPitch step } – personal, this visit.
 let runCache = null;
 export function loadRunMode() {
   if (!runCache) { try { runCache = cleanRun(JSON.parse(sread(RUN.key) || 'null')); } catch { runCache = cleanRun(null); } }
@@ -653,20 +653,24 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     box.appendChild(walkRow);
     box.appendChild(row('run-tempo', S.runTempo, S.runTempoTitle, RUN.tempoMin, RUN.tempoMax, RUN.tempoStep, r.tempo, () => tempoLabel(r), (v) => { r.tempo = cleanTempo(v); }));
     box.appendChild(row('run-pitch', S.runPitch || 'Pitch correction', S.runPitchTitle, pitchMin, pitchMax, 1, r.pitch, () => pitchLabel(r.pitch), (v) => { r.pitch = cleanPitch(v); }));
+    // Sneak (Jens, 11 Nov 2026): hold Ctrl = crouch – its own tempo (−400 … +400 %) and pitch correction.
+    box.appendChild(row('crouch-tempo', S.crouchTempo || 'Crouch tempo', S.crouchTempoTitle, RUN.tempoMin, RUN.tempoMax, RUN.tempoStep, cleanCrouchTempo(r.crouchTempo), () => crouchTempoLabel(r), (v) => { r.crouchTempo = cleanCrouchTempo(v); }));
+    box.appendChild(row('crouch-pitch', S.crouchPitch || 'Crouch pitch correction', S.crouchPitchTitle, pitchMin, pitchMax, 1, cleanCrouchPitch(r.crouchPitch), () => pitchLabel(cleanCrouchPitch(r.crouchPitch)), (v) => { r.crouchPitch = cleanCrouchPitch(v); }));
     // Lock-to-clock stays dormant (default on); Preview kept as a non-slider helper.
     const pv = el('button', 'snd-add', S.runPreview); pv.type = 'button'; pv.id = 'run-preview'; pv.title = S.runPreviewTitle; pv.onclick = () => previewRun();
-    const sel = el('div', 'snd-sel'); sel.appendChild(pv); box.appendChild(sel);
+    const pc = el('button', 'snd-add', S.crouchPreview || '▶ Walk → crouch'); pc.type = 'button'; pc.id = 'crouch-preview'; pc.title = S.crouchPreviewTitle || 'Hear one bar of walking, then one bar of sneaking (Ctrl)'; pc.onclick = () => previewRun('crouch');
+    const sel = el('div', 'snd-sel'); sel.append(pv, pc); box.appendChild(sel);
     return box;
   }
-  // One bar of walking (4 steps), then one bar of running, with the step patch being edited.
-  function previewRun() {
-    const ctx = sound.ensure(); const eng = sound.engine; if (!ctx || !eng) { sound.ready?.then(() => previewRun()); return; }
+  // One bar of walking (4 steps), then one bar of running (or sneaking), with the step patch being edited.
+  function previewRun(gait = 'run') {
+    const ctx = sound.ensure(); const eng = sound.engine; if (!ctx || !eng) { sound.ready?.then(() => previewRun(gait)); return; }
     const p = cleanPatch(st.patches.step); if (!p) return;
     const fx = p.fx ? cleanFx(p.fx) : cleanFx(st.fx);
-    const bar = 4 / 3, walkPulse = bar / 4, rr = runRate(st.run), tune = pitchRatio(st.run.pitch);
+    const bar = 4 / 3, walkPulse = bar / 4, crouch = gait === 'crouch', rr = crouch ? crouchRate(st.run) : runRate(st.run), tune = pitchRatio(crouch ? cleanCrouchPitch(st.run.crouchPitch) : st.run.pitch);
     const t0 = ctx.currentTime + 0.08;
     for (let i = 0; i < 4; i++) eng.play(retuneP(p, i % 2 ? 0.97 : 1.02), { gain: 1, fx, time: t0 + i * walkPulse, pool: 'step' });
-    const runPulse = walkPulse / rr.rate, n = Math.max(1, Math.min(24, Math.round(bar / runPulse)));
+    const runPulse = walkPulse / rr.rate, n = Math.max(1, Math.min(24, Math.round(bar / runPulse))); // 5:1 = 20 steps, 1:5 = 1
     for (let i = 0; i < n; i++) eng.play(retuneP(p, (i % 2 ? 0.97 : 1.02) * tune), { gain: 1, fx, time: t0 + bar + i * runPulse, pool: 'step' });
   }
   function preview() {
@@ -705,7 +709,8 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   $('snd-close').onclick = () => close(); $('snd-cancel').onclick = () => close();
   $('snd-preview').onclick = preview; $('snd-random').onclick = () => randomize(false); $('snd-wild').onclick = () => randomize(true);
   $('snd-reset').onclick = reset; $('snd-save').onclick = save;
-  return { open, close, isOpen: () => st.open, state: () => st, preview, render };
+  // runDraft: the run/walk/crouch settings being edited while the panel is open (main.js hears them live).
+  return { open, close, isOpen: () => st.open, state: () => st, runDraft: () => (st.open && st.run ? st.run : null), preview, render };
 }
 
 // The sample's waveform (min/max per pixel column) with start/end and loop markers.

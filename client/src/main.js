@@ -37,7 +37,7 @@ import { initFullVersion } from './fullversion.js';
 import { GrooveSteps } from './groove.js';
 import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, grooveLabel } from '../../shared/groove.mjs';
 import { loadSoundLook, initSoundUI, resetPersonalSound, prepareSoundForPlace, personalGet, personalSet, setSoundRoom, soundKey, loadRunMode, VOICE_FX_KEY, VOICE_MON_KEY, VOICE_MIC_KEY } from './soundui.js';
-import { runRate, pitchRatio } from '../../shared/runmode.mjs';
+import { gaitOf, gaitStep } from '../../shared/runmode.mjs';
 import { setDanceClock } from './avatars.js';
 import { Radio, radioBlock, fetchRoomPreset, putRoomPreset } from './radio.js';
 import * as synthShared from '../../shared/synth.mjs';
@@ -2112,6 +2112,8 @@ if (!isTouch) {
       if (!e.repeat) peelLast();
       return;
     }
+    // X also with Ctrl held (sneak, Jens 11 Nov 2026): hold Ctrl, press X = dance on the crouch tempo.
+    if (e.code === 'KeyX' && e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) { e.preventDefault(); toggleDance(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return; // inte Ctrl+V osv.
     if (e.code === 'KeyV' && !e.repeat && !selfieOn()) toggleNature(); // Slap ⇄ Nature mode (the demo: Look mode)
     if (e.code === 'KeyG' && !e.repeat) toggleMode(); // Look mode on/off (was V until 28 Oct 2026)
@@ -3464,7 +3466,7 @@ async function startDance() {
   const ok = await together.startDance();
   if (!ok) { if (dancePrevView) setView(dancePrevView, { quiet: true }); dancePrevView = null; toast('Could not start the dance just now.', 1800); return false; }
   toast(isTouch ? '💃 Dance! (tap Dance again to stop)' : '💃 Dance! (X again to stop)', 1600);
-  controls.keys.clear(); controls.joy.set(0, 0); // a key/stick already held when it started doesn't cancel it
+  controls.clearMoveKeys(); controls.joy.set(0, 0); // a key/stick already held when it started doesn't cancel it (Shift/Ctrl stay: run/crouch tempo)
   clearInterval(danceWatch);
   danceWatch = setInterval(() => {
     if (together.dancing()) return;
@@ -3523,6 +3525,12 @@ function updateFront(dt) {
 
 // Footsteps (groove.js + shared/groove.mjs): everyone who walks plays their slot's polyrhythm on
 // ONE shared bar, so the room's footsteps are one groove. Mine while I walk, the others' from where they walk.
+// Sneak is Ctrl + W: Ctrl+W closes the tab in Chrome/Edge/Firefox and a page can't block it. While Ctrl
+// is held (sneaking), ask before the tab closes / reloads, so a sneak never throws you out of the room.
+addEventListener('beforeunload', (e) => { if (!isTouch && controls.ctrlHeld()) { e.preventDefault(); e.returnValue = ''; } });
+// My run-mode settings as heard right now: the Sound settings draft while it is open, else the saved ones.
+var myGait = 'walk'; // eslint-disable-line no-var
+function liveRunMode() { try { return (soundUi && soundUi.runDraft && soundUi.runDraft()) || loadRunMode(); } catch { return loadRunMode(); } }
 function walkSounds() {
   // onPeel: feet on backing paper on the floor = the muffled "paper" step (shared/peelstep.mjs)
   // dancing (Jens t814u): while the dance is on it counts as walking – the footsteps and the walk
@@ -3530,8 +3538,12 @@ function walkSounds() {
   const walkers = [{ id: 'me', x: camera.position.x, z: camera.position.z, at: null, onPeel: peelLayer.under(camera.position.x, camera.position.z), dancing: !camView && together.dancing() }];
   for (const pl of together.players.map.values()) walkers.push({ id: pl.id, x: pl.pos.x, z: pl.pos.z, at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id), onPeel: peelLayer.under(pl.pos.x, pl.pos.z), dancing: !!pl.avatar?.dancing }); // their seed + slot colour
   // Run mode (Jens t544u): Shift + moving = my steps on the run tempo/pitch (shared/runmode.mjs).
-  const running = !camView && !together.dancing() && !!controls.running;
-  if (running) { const rc = loadRunMode(), rr = runRate(rc); groove.setRun({ rate: rr.rate, tune: pitchRatio(rc.pitch) }); } else groove.setRun(null);
+  // Sneak (Jens, 11 Nov 2026): Ctrl + moving = the crouch tempo/pitch. While dancing the same keys
+  // work without moving: dance + Shift = run tempo, dance + Ctrl = crouch tempo (gaitOf; Ctrl wins).
+  // While Sound settings is open the draft is heard at once (the sliders are live, Save keeps them).
+  const dancingMe = !camView && together.dancing();
+  myGait = camView ? 'walk' : gaitOf({ moving: controls.moving && !dancingMe, dancing: dancingMe, shift: controls.shiftHeld(), ctrl: controls.ctrlHeld() });
+  groove.setRun(gaitStep(myGait, liveRunMode()));
   groove.update(walkers);
   // The walk sound's sequencer layers (radio.js walkLoop, Jens t783u): only while I walk, and on
   // the run tempo/pitch while I run – the same walking test and run state as my footsteps.
@@ -3790,7 +3802,7 @@ function frame() {
   if (!camView && !together.dancing()) controls.update(dt);
   else if (together.dancing()) {
     if (controls.joy.lengthSq() > 0.04) cancelDance(); // the phone joystick moved: stop dancing, walk
-    else { controls.keys.clear(); controls.joy.set(0, 0); } // dance owns the body – no WASD/joystick fight
+    else { controls.clearMoveKeys(); controls.joy.set(0, 0); } // dance owns the body – no WASD/joystick fight (Shift/Ctrl kept: dance + Shift/Ctrl = run/crouch tempo)
   }
   propsUi.tick(dt); // props: far ones without ink, my chair, the Props wheel's ghost
   tickCityDoors();
@@ -4025,7 +4037,7 @@ window.klibb = {
     };
     return { ...st, view, screen: st.visible ? { sticker: px(preview.mesh), shadow: px(preview.shadow) } : null };
   },
-  setView, toggleView, startDance, cancelDance, toggleDance, dancing: () => together.dancing(), meWalking: () => meWalking(), walkUntil: () => radio.walk.until, runMode: () => ({ ...loadRunMode(), running: !!controls.running, run: groove.run ? { ...groove.run } : null }), view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
+  setView, toggleView, startDance, cancelDance, toggleDance, dancing: () => together.dancing(), meWalking: () => meWalking(), walkUntil: () => radio.walk.until, runMode: () => ({ ...liveRunMode(), running: !!controls.running, crouching: !!controls.crouching, gait: myGait, run: groove.run ? { ...groove.run } : null }), view: () => view, tpCam, chase: () => ({ ...chase.pose, cam: tpCam.position.toArray() }), selfAvatar: () => together.selfInfo(), avatarView: () => { const v = together.avatarView(); return v && { ...v, cam: showCam.position.toArray(), fov: showCam.fov, pose: show.pose }; }, showCam, peels: () => peelLayer.info(), peelPose: (id) => peelLayer.poseOf(id), nopes: () => nopes,
   peelOverlap: (pos, quat, size) => peelLayer.overlap(state.selected, { position: pos, quaternion: quat, size }), fabricStats: () => together.fabricStats(), previewFabrics: () => together.previewFabrics(), freezeGestures: (ms) => together.freezeGestures(ms), handPos: () => together.handPos(),
   nextDesign, prevDesign, designs, wheelDesigns, validateDesigns, removeDesign, undoRemove, toggleFav, undoMs: UNDO_MS, setMode, toggleMode, toggleNature, setNatureMode, natureMode, peelLast, peelAll, roomHistory: () => peelable(), peelSettled, peelLimit: PER_ROOM, setSize, get maxSizeCm() { return maxSizeCm(); }, freeMaxCm: FREE_MAX_CM, get minSizeCm() { return minSizeCm(); }, freeMinCm: FREE_MIN_CM, nature: NATURE, limitsFor, dropsPeel, selectDesign: (img) => select(img), startSizeCm: (img) => startSizeCm(img, { minCm: minSizeCm(), maxCm: maxSizeCm() }), startHeightCm: START_HEIGHT_CM, sideForHeightCm,
 };

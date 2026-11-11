@@ -13,6 +13,9 @@ export function isTyping(e) {
   return !!inp && !['range', 'checkbox', 'radio', 'button', 'file'].includes(inp.type);
 }
 
+const SNEAK_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
+const MOD_KEYS = new Set(['ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight']);
+
 export class FirstPersonControls {
   constructor(camera, canvas, bounds) {
     this.camera = camera;
@@ -22,11 +25,18 @@ export class FirstPersonControls {
     this.keys = new Set();
     this.joy = new THREE.Vector2(); // -1..1
     this.speed = 2.6; // m/s
-    this.moving = false; this.running = false;
+    this.moving = false; this.running = false; this.crouching = false; // crouching = sneak (Ctrl held + moving)
     this.locked = false;
     this.onLockChange = () => {};
 
-    addEventListener('keydown', (e) => { if (!isTyping(e)) this.keys.add(e.code); });
+    addEventListener('keydown', (e) => {
+      if (isTyping(e)) return;
+      this.keys.add(e.code);
+      // Sneak = Ctrl + WASD: keep the browser's Ctrl+S (save page), Ctrl+D (bookmark), Ctrl+A (select all)
+      // out of the way. Ctrl+W (close tab) can't be blocked by a page – main.js asks before the tab
+      // closes while Ctrl is held (beforeunload).
+      if (e.ctrlKey && !e.metaKey && !e.altKey && SNEAK_KEYS.has(e.code)) e.preventDefault();
+    });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
     document.addEventListener('pointerlockchange', () => {
@@ -38,6 +48,13 @@ export class FirstPersonControls {
     });
     this.apply();
   }
+
+  // Held modifier keys, also while not moving (dancing: Shift = run tempo, Ctrl = crouch tempo).
+  shiftHeld() { return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'); }
+  ctrlHeld() { return this.keys.has('ControlLeft') || this.keys.has('ControlRight'); }
+  // Forget the held movement keys but keep Shift / Ctrl (the dance owns the body, but dance + Shift =
+  // run tempo and dance + Ctrl = crouch tempo still need to know they are held).
+  clearMoveKeys() { for (const k of [...this.keys]) if (!MOD_KEYS.has(k)) this.keys.delete(k); }
 
   lock() { this.canvas.requestPointerLock?.(); }
   unlock() { if (document.pointerLockElement) document.exitPointerLock(); }
@@ -81,9 +98,12 @@ export class FirstPersonControls {
     const len = Math.hypot(f, s); if (len > 1) { f /= len; s /= len; }
     // Run mode (shared/runmode.mjs, Jens t544u): Shift (either one) + moving = running – faster, and
     // my footsteps switch to the run tempo/pitch (main.js walkSounds → groove.setRun).
+    // Sneak (Jens, 11 Nov 2026): Ctrl (either one) + moving = crouching – slower, and my steps switch to
+    // the crouch tempo/pitch. Ctrl wins over Shift (shared/runmode.mjs gaitOf).
     this.moving = len > 0.05;
-    this.running = this.moving && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'));
-    const sp = this.speed * (this.running ? RUN.speed : 1) * dt;
+    this.crouching = this.moving && this.ctrlHeld();
+    this.running = this.moving && !this.crouching && this.shiftHeld();
+    const sp = this.speed * (this.crouching ? RUN.sneakSpeed : this.running ? RUN.speed : 1) * dt;
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     const p = this.camera.position, px = p.x, pz = p.z;

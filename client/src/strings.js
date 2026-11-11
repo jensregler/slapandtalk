@@ -157,7 +157,7 @@ export const EN = {
   // ---------- Desktop / touch help ----------
   enter: 'Enter the room',
   resumeHint: 'Click to enter',
-  quickHelp: 'Click to enter · WASD walk · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C camera (1st / 3rd / front) · O aim on/off · X dance · T chat',
+  quickHelp: 'Click to enter · WASD walk (Shift run · Ctrl sneak) · click = slap · R/F next/prev design · Z peel · V nature mode · G look mode · C camera (1st / 3rd / front) · O aim on/off · X dance · T chat',
   helpDesktopHtml: '<b>Desktop:</b> click to enter. WASD = walk, mouse = look, click = slap, hold the button after a slap and turn = drag out a row of the sticker (scroll while holding = the row grows/shrinks toward its end; Esc or right-click = no copies), scroll wheel = size, Q/E = rotate, '
     + 'R = next design, F = previous design (cycles through your uploads), Z (or Ctrl+Z) = peel your last sticker (back through your last 100 in the room), V = Slap mode / 🌿 Nature mode (nature stickers), G = look mode on/off '
     + '(hides the pointer, clicks do nothing; G again = slap mode), C = 1st/3rd person (see your avatar from behind), O = aim tool on/off (crosshair + held sticker or prop; stickers, nature and assets wheels), X = 💃 dance (your character does the runway dance on a loop until you press X again – it counts as walking, so your steps and walk sequencers keep going; switches to 3rd person while it plays), P = 📷 photo of what you see, Esc = big menu (Sound / Avatar / Room / City / Exit / Name; Esc again = back into the room). '
@@ -198,10 +198,13 @@ export const EN = {
   // Run mode (Sound settings → Steps tab; shared/runmode.mjs)
   runModeTitle: '🏃 Run mode (hold Shift)',
   runModeHint: 'Hold Shift while you walk to run. These change how your footsteps sound while you run; let go of Shift and the walk sound is back on the next step.',
-  stepsModeTitle: 'Walk & run',
-  stepsModeHint: 'Walk tempo is yours alone (30–3000 BPM): your walk-sound sequencer follows it while you walk. Other players keep their own. Hold Shift to run – then run tempo and pitch correction apply.',
+  stepsModeTitle: 'Walk, run & sneak',
+  stepsModeHint: 'Walk tempo is yours alone (30–3000 BPM): your walk-sound sequencer follows it while you walk. Other players keep their own. Hold Shift to run, hold Ctrl to sneak – then run or crouch tempo and pitch correction apply. Also while you dance (X): Shift = run tempo, Ctrl = crouch tempo. Changes are heard at once; Save keeps them.',
   walkTempo: 'Walk tempo', walkTempoTitle: 'Your own walk tempo, 30–3000 BPM (default 90). Only your walk-sound sequencer follows it – not other players, the room clock, dance or other sequencers.',
-  runTempo: 'Run tempo', runTempoTitle: 'Steps per second while running, compared with walking. 0% = the same, +100% = twice as many, −100% = half as many',
+  runTempo: 'Run tempo', runTempoTitle: 'Steps per second while running (Shift), compared with walking: −400 … +400 %. 0% = the same, +100% = twice as many (2:1), +400% = five times (5:1), −100% = half (1:2), −400% = a fifth (1:5)',
+  crouchTempo: 'Crouch tempo', crouchTempoTitle: 'Steps per second while sneaking (hold Ctrl), compared with walking: −400 … +400 %. Default −50% (2:3)',
+  crouchPitch: 'Crouch pitch correction', crouchPitchTitle: 'While sneaking: steps up or down a major-pentatonic scale, so sneaking stays in key. Default a fourth down',
+  crouchPreview: '▶ Walk → crouch', crouchPreviewTitle: 'Hear one bar of walking, then one bar of sneaking (Ctrl)',
   runPitch: 'Pitch correction', runPitchTitle: 'Steps up or down a major-pentatonic scale, so running stays in key',
   runLock: 'Lock to clock', runLockTitle: 'Snap the run tempo to a clean ratio against the walk beat (1:2, 2:3, 1:1, 3:2, 2:1, 3:1) – runners and walkers make a polyrhythm',
   runPreview: '▶ Walk → run', runPreviewTitle: 'Hear one bar of walking, then one bar of running',

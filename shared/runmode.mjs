@@ -1,15 +1,23 @@
 // Run mode (Jens t544u, 5 Nov 2026): hold Shift while walking = running. Two personal settings on
 // the Sound settings' Steps (walk sound) tab change how MY footsteps sound while I run:
-//   tempo – step rate relative to walking, shown −200 % … +200 % in 12.5 % jumps.
-//           p ≥ 0: rate = 1 + p/100  (0 % = 1:1, +50 % = 3:2, +100 % = 2:1, +200 % = 3:1)
-//           p < 0: rate = 1 / (1 + |p|/100)  (−50 % = 2:3, −100 % = 1:2, −200 % = 1:3)
+//   tempo – step rate relative to walking, shown −400 % … +400 % in 12.5 % jumps (Jens, 11 Nov 2026;
+//           was ±200 %). p ≥ 0: rate = 1 + p/100  (0 % = 1:1, +50 % = 3:2, +100 % = 2:1, +400 % = 5:1)
+//           p < 0: rate = 1 / (1 + |p|/100)  (−50 % = 2:3, −100 % = 1:2, −400 % = 1:5)
 //           a mirror image: never zero or negative, and the 50/100/200 marks are the clean ratios.
 //   pitch – a step on a major-pentatonic ladder over the walk sound (C D E G A: no semitone
 //           clashes, so running never sounds out of key against the walk / the four voices):
 //           down 5 steps to an octave below (−40 % each), up 8 steps to an octave + a fifth above
 //           (+25 % each). Default +75 % = +7 semitones (a fifth up).
-//   lock  – "Lock to clock": the run tempo snaps to the nearest clean ratio against the walk grid
-//           (1:3, 1:2, 2:3, 1:1, 3:2, 2:1, 3:1), so walkers and runners form a polyrhythm. Default on.
+//   lock  – "Lock to clock" (dormant, no UI): snapped the run tempo to the nearest of only 7 ratios
+//           (1:3 … 3:1). It was on by default with no way to turn it off, so 4–5 slider notches in a row
+//           gave the SAME tempo (+25 … +75 % all = 3:2) and the run tempo slider seemed not to work
+//           (Jens, 11 Nov 2026). Now always off: every 12.5 % notch is its own tempo. Every notch is still
+//           an exact ratio on the same grid ((8 + k):8 or 8:(8 + k)), so runners stay in time with walkers.
+//   crouch / sneak (Jens, 11 Nov 2026): hold Ctrl = sneak – slower, and my steps use crouchTempo
+//           (same −400 … +400 % maths as tempo, default −50 % = 2:3) and crouchPitch (same pentatonic
+//           ladder, default −2 = −5 st, a fourth down).
+//   gait  – while dancing, Shift = run tempo and Ctrl = crouch tempo for the dance's footsteps / walk
+//           sequencer (gaitOf). Ctrl wins over Shift.
 //   walkBpm – MY walk tempo (Jens, 11 Nov 2026): 30…3000 BPM, default 90, log slider. Per player
 //           (this field, in my personal run-mode settings) – not a room / city / global clock. Only my
 //           walk-sound sequencer (Steps sequencer layers, client/src/radio.js walkLoop) follows it.
@@ -17,16 +25,18 @@
 
 export const RUN = Object.freeze({
   speed: 1.8,               // movement speed while Shift is held (controls.js, as before)
-  tempoMin: -200, tempoMax: 200, tempoStep: 12.5, tempoDef: 100,
+  sneakSpeed: 0.45,         // movement speed while Ctrl is held (sneak / crouch)
+  tempoMin: -400, tempoMax: 400, tempoStep: 12.5, tempoDef: 100,
+  crouchTempoDef: -50, crouchPitchDef: -2, // sneak: 2:3 of the walk step rate, a fourth down
   pitchDown: [-3, -5, -8, -10, -12],        // semitones, steps 1…5 below (pentatonic: A G E D C)
   pitchUp: [2, 4, 7, 9, 12, 14, 16, 19],    // semitones, steps 1…8 above (D E G A C D E G)
   pitchDef: 3,              // step index: +7 st (fifth)
   ratios: Object.freeze([[1, 3], [1, 2], [2, 3], [1, 1], [3, 2], [2, 1], [3, 1]]),
-  lockDef: true,
+  lockDef: false,           // dormant: always off now (see the header)
   walkMin: 30, walkMax: 3000, walkDef: 90, // walk tempo, BPM (inclusive range)
   key: 'klibb.runMode',     // sessionStorage (personal sound setting, like the groove scale)
 });
-export const RUN_DEFAULTS = Object.freeze({ tempo: RUN.tempoDef, pitch: RUN.pitchDef, lock: RUN.lockDef, walkBpm: RUN.walkDef });
+export const RUN_DEFAULTS = Object.freeze({ tempo: RUN.tempoDef, pitch: RUN.pitchDef, lock: RUN.lockDef, walkBpm: RUN.walkDef, crouchTempo: RUN.crouchTempoDef, crouchPitch: RUN.crouchPitchDef });
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
 // Walk tempo (BPM): clamped to 30…3000 (both ends reachable), 0.1 BPM resolution.
@@ -40,20 +50,30 @@ export const walkBpmToKnob = (b) => (Math.log(cleanWalkBpm(b)) - WL) / (WH - WL)
 export const knobToWalkBpm = (k) => cleanWalkBpm(Math.exp(WL + Math.min(1, Math.max(0, isNum(k) ? k : 0)) * (WH - WL)));
 export const walkBpmLabel = (b) => { const c = cleanWalkBpm(b); return `${c < 200 ? c.toFixed(1) : Math.round(c)} BPM`; };
 
-export function cleanTempo(p) {
-  if (!isNum(p)) return RUN.tempoDef;
+export function cleanTempo(p, def = RUN.tempoDef) {
+  if (!isNum(p)) return def;
   const c = Math.min(RUN.tempoMax, Math.max(RUN.tempoMin, p));
   return Math.round(c / RUN.tempoStep) * RUN.tempoStep;
 }
 export const pitchMin = -RUN.pitchDown.length, pitchMax = RUN.pitchUp.length;
-export function cleanPitch(i) { return isNum(i) ? Math.min(pitchMax, Math.max(pitchMin, Math.round(i))) : RUN.pitchDef; }
+export function cleanPitch(i, def = RUN.pitchDef) { return isNum(i) ? Math.min(pitchMax, Math.max(pitchMin, Math.round(i))) : def; }
+export const cleanCrouchTempo = (p) => cleanTempo(p, RUN.crouchTempoDef);
+export const cleanCrouchPitch = (i) => cleanPitch(i, RUN.crouchPitchDef);
+// lock is always false now (an old saved `lock: true` is dropped – it is what made the slider look dead).
 export function cleanRun(r) {
   if (!r || typeof r !== 'object') return { ...RUN_DEFAULTS };
-  return { tempo: cleanTempo(r.tempo), pitch: cleanPitch(r.pitch), lock: typeof r.lock === 'boolean' ? r.lock : RUN.lockDef, walkBpm: cleanWalkBpm(r.walkBpm) };
+  return { tempo: cleanTempo(r.tempo), pitch: cleanPitch(r.pitch), lock: false, walkBpm: cleanWalkBpm(r.walkBpm), crouchTempo: cleanCrouchTempo(r.crouchTempo), crouchPitch: cleanCrouchPitch(r.crouchPitch) };
 }
 
 // Tempo slider % → raw step-rate factor (before lock-to-clock).
 export function tempoRate(p) { const c = cleanTempo(p); return c >= 0 ? 1 + c / 100 : 1 / (1 + -c / 100); }
+// The exact ratio of a tempo % (every 12.5 % notch is (8 + k):8 or 8:(8 + k), reduced): +37.5 % = 11:8.
+const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+export function tempoRatio(p) {
+  const c = cleanTempo(p), k = Math.round(Math.abs(c) / 12.5);
+  let num = c >= 0 ? 8 + k : 8, den = c >= 0 ? 8 : 8 + k; const g = gcd(num, den); num /= g; den /= g;
+  return { num, den };
+}
 // The nearest clean ratio (in log space, i.e. musically). Returns { num, den, rate }.
 export function snapRatio(rate) {
   let best = RUN.ratios[3], bd = Infinity;
@@ -61,10 +81,29 @@ export function snapRatio(rate) {
   return { num: best[0], den: best[1], rate: best[0] / best[1] };
 }
 // What the step grid uses while running: rate (× the walk pulse rate) and the ratio label.
-export function runRate(r) {
+// (lock-to-clock is dormant: always the free rate, which is itself an exact ratio – see tempoRatio.)
+// { lock: true } = the old snap to 7 ratios (kept for tests / a future explicit "Lock to clock" switch).
+export function runRate(r, { lock = false } = {}) {
   const c = cleanRun(r), raw = tempoRate(c.tempo);
-  if (!c.lock) return { rate: raw, num: null, den: null };
-  return snapRatio(raw);
+  return lock ? snapRatio(raw) : { rate: raw, ...tempoRatio(c.tempo) };
+}
+// Sneak (Ctrl): the same maths on crouchTempo.
+export function crouchRate(r) {
+  const c = cleanRun(r);
+  return { rate: tempoRate(c.crouchTempo), ...tempoRatio(c.crouchTempo) };
+}
+// Which gait my steps use: 'crouch' (Ctrl), 'run' (Shift) or 'walk'. Moving OR dancing (Jens, 11 Nov
+// 2026: dance + Shift = run tempo, dance + Ctrl = crouch tempo). Ctrl wins over Shift.
+export function gaitOf({ moving = false, dancing = false, shift = false, ctrl = false } = {}) {
+  if (!moving && !dancing) return 'walk';
+  return ctrl ? 'crouch' : shift ? 'run' : 'walk';
+}
+// What groove.setRun / radio.setWalk get for a gait: { rate, tune } or null (walking).
+export function gaitStep(gait, r) {
+  const c = cleanRun(r);
+  if (gait === 'run') return { rate: runRate(c).rate, tune: pitchRatio(c.pitch) };
+  if (gait === 'crouch') return { rate: crouchRate(c).rate, tune: pitchRatio(c.crouchPitch) };
+  return null;
 }
 // Pitch slider step → semitones and the shown %.
 export function pitchSemitones(i) { const c = cleanPitch(i); return c === 0 ? 0 : c > 0 ? RUN.pitchUp[c - 1] : RUN.pitchDown[-c - 1]; }
@@ -76,8 +115,9 @@ export function pitchLabel(i) {
   const name = INTERVALS[Math.abs(st)] || '';
   return `${pc > 0 ? '+' : ''}${Math.round(pc)}% · ${st > 0 ? '+' : ''}${st} st${st ? ` (${name} ${st > 0 ? 'up' : 'down'})` : ''}`;
 }
-export function tempoLabel(r) {
-  const c = cleanRun(r), rr = runRate(c);
-  const pc = `${c.tempo > 0 ? '+' : ''}${c.tempo % 1 ? c.tempo.toFixed(1) : c.tempo}%`;
-  return rr.num ? `${pc} · ${rr.num}:${rr.den}` : `${pc} · ×${rr.rate.toFixed(2)}`;
+export function tempoPctLabel(p) {
+  const c = cleanTempo(p), { num, den } = tempoRatio(c);
+  return `${c > 0 ? '+' : ''}${c % 1 ? c.toFixed(1) : c}% · ${num}:${den}`;
 }
+export function tempoLabel(r) { return tempoPctLabel(cleanRun(r).tempo); }
+export function crouchTempoLabel(r) { return tempoPctLabel(cleanRun(r).crouchTempo); }

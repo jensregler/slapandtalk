@@ -798,6 +798,19 @@ skiljer sig en aning i tonhöjd.
 - Testerna: `tests/groove.test.mjs` (rutnätet), `tests/groove.test.js` (rättigheter, broadcast,
   sparas, spelas in), `tests/e2e-groove.js` (reglage, tangenter, synk, stegen på rutnätet; port 8846).
 
+#### Spring, smyg och dans (Shift / Ctrl; Jens 11 nov 2026)
+- **Shift** + gå = spring (snabbare), **Ctrl** + gå = smyg (långsammare, `RUN.sneakSpeed` 0,45×). Mina fotsteg
+  och gåljudets sequencer går då på **Run tempo** + **Pitch correction**, resp. **Crouch tempo** + **Crouch
+  pitch correction** (Sound settings → Steps → Walk, run & sneak). Ctrl vinner över Shift.
+- **Dans (X):** samma tangenter utan att gå – dans + Shift = run tempo, dans + Ctrl = crouch tempo. Ctrl + X
+  startar dansen direkt på crouch tempo. Dansen rensar WASD men behåller Shift/Ctrl (`controls.clearMoveKeys`).
+- **Run tempo och crouch tempo: −400 … +400 %** i 12,5 %-steg (+400 % = 5:1, −400 % = 1:5). Varje steg är ett eget
+  exakt förhållande ((8 + k):8 eller 8:(8 + k)) på samma rutnät. Den gamla "lock to clock" (snäppte till bara 7
+  förhållanden, så +25…+75 % lät likadant) är avstängd – därför kändes run tempo som att det inte gick att ställa.
+- Medan Sound settings är öppet hörs utkastet direkt (`soundUi.runDraft()`); Save sparar, Cancel ångrar.
+- Ctrl+W stänger fliken i Chrome/Edge/Firefox och går inte att blockera; medan Ctrl hålls frågar sidan först
+  (beforeunload). Ctrl+S/D/A blockeras medan man smyger. På Mac stänger Cmd+W, inte Ctrl+W.
+
 #### Fotsteg på peels ("pillen", Jens 29 okt 2026)
 Går man **på ett baksidespapper på golvet** (peels) låter steget som pappersprasslande filt: samma
 fotsteg som vanligt (samma spelarvariation, slot-färg och groove-takt), men genom en liten insats
