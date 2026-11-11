@@ -59,11 +59,12 @@ klibban (servern sparar bara en hash av den, och den syns aldrig för andra). Ny
 webbläsaren, så byter du enhet eller rensar webbläsaren kan du inte längre peela de gamla.
 Admin kan fortfarande ta bort allt. Andra som är i rummet ser att klibban försvinner direkt.
 
-**Bara de senaste 10:** du kan peela dina **10 senaste** klibbor i varje rum (*You can peel your
-last 10 slaps in this room*). Äldre sitter kvar för gott (bara admin kan ta bort dem). Servern
-sparar bara peel-nycklar för de 20 senaste per person och rum (person = en slumpad id för
+**Bara de senaste 100:** du kan peela dina **100 senaste** klibbor (steg) i varje rum (*You can peel your
+last 100 slaps in this room*; Jens 11 nov 2026, var 10). Äldre sitter kvar för gott (bara admin kan ta bort dem). Servern
+sparar bara peel-nycklar för de 100 senaste stegen per person och rum (`PEEL_KEEP`; person = en slumpad id för
 enheten, `klibb.device`, annars IP-adressen; bara en hash sparas och den visas aldrig), och
-webbläsaren sparar bara 20 per rum. *Peel all* peelar alltså högst 20.
+webbläsaren sparar bara 100 per rum (`PER_ROOM`). En rad (håll-och-dra) eller en auto-slap-skur är ett steg.
+*Peel all* peelar alltså högst 100 steg.
 
 **Snabb peel:** trycker du Z/↩ så fort du kan peelas klibban på skärmen direkt (med ljud), och
 anropen till servern slås ihop: högst ett anrop åt gången, med allt som hunnit peelas under
@@ -867,6 +868,14 @@ Slap as usual, **keep the mouse button held** and turn toward B: see-through gho
 from A toward the crosshair, edge to edge. **Release** = all of them at once. **Esc**, **right-click**,
 leaving the pointer lock or switching to Look mode while holding = no copies (A stays). A plain click is
 exactly a slap, as before. **Desktop only**: on a phone a drag looks around (no long-press-drag yet).
+- **Drag and scale at once:** while the button is held, the **mouse wheel / trackpad scroll** scales the
+  row's LAST sticker (up = bigger, down = smaller, within the usual size limits) and the row fans from A's
+  size to it, live in the ghosts and saved like that by the server (`endSize`).
+- **Everywhere, the city too** (Jens, 11 Nov 2026 – "reactivate hold-and-drag"): the row is planned on
+  the face of the very surface A hit, in THIS space (`shared/city.mjs roomBox`: the 16 m room / a house,
+  or the 96 × 96 × 24 m city), clipped to that surface's rectangle (a house wall, the ground…). It used
+  to be the 16 m room box everywhere, so out in the city a drag gave no copies except near the middle.
+  The client sends the surface's world rect (`rect: { lo, hi }`); the server only lets it shrink the face.
 - **Spacing** (`shared/array.mjs`, the same in the web app and the server): every copy has A's size and
   rotation, never turned to the drag direction. With d = the direction A→B on A's face in the sticker's
   own axes (du, dv): `step = min(w/|du|, h/|dv|)`, so straight across the step is the width, straight up
@@ -890,7 +899,7 @@ exactly a slap, as before. **Desktop only**: on a phone a drag looks around (no 
   so other players, recordings, replays and videos see it without changes; others hear one slap per row.
 - **One peel step:** the copies share A's peel key and are saved with `group` = A's id. In this browser
   the row is one history entry (A + `extra` ids, shown as "×N"). **Z/↩ peels the whole row**; the
-  history list's ✕ too. It counts as one of the 20 peelable steps, and leaves the history (then
+  history list's ✕ too. It counts as one of the 100 peelable steps, and leaves the history (then
   auto-prune/baking) as a whole. Z right after release (still on the way) takes the row and A at once.
 - **Peels (backing paper):** A drops its paper as usual, plus one for each of the first 4 copies
   (5 at most per row) so a long row doesn't bury the floor.

@@ -99,8 +99,58 @@ const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + na
     const floor1 = (await (await fetch(`${S.base}/api/rooms/${R}/stamps`)).json()).peels?.length ?? 0;
     check(`peels on: a row of ${1 + ten.ghosts} stickers drops ${1 + ten.ghosts} papers (one per sticker), live and on the server`, ten.ghosts >= 9 && c1 - c0 === 1 + ten.ghosts && floor1 - floor0 === 1 + ten.ghosts,
       { ghosts: ten.ghosts, live: c1 - c0, server: floor1 - floor0 });
+    // 5) Hold, drag AND scale at once (Jens, 11 Nov 2026): the wheel while the button is held scales the
+    //    row's last sticker; the row fans from the anchor's size to it, live and on the server.
+    await fetch(`${S.base}/api/rooms/${R}/peels`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-room-key': made.roomKey }, body: JSON.stringify({ on: false }) });
+    await p.evaluate(() => window.klibb.look(0, 0.12));
+    const n5 = (await onServer()).length;
+    await wakeHeld(p); await p.mouse.down();
+    await p.waitForTimeout(150);
+    await p.evaluate(() => window.klibb.look(-0.3, 0.12));
+    await p.waitForFunction(() => window.klibb.arrayState().ghosts > 0, null, { timeout: 5000 }).catch(() => {});
+    const s0 = await p.evaluate(() => window.klibb.arrayState());
+    for (let i = 0; i < 4; i++) { await p.mouse.wheel(0, -100); await p.waitForTimeout(60); }
+    await p.evaluate(() => window.klibb.look(-0.55, 0.12)); // keep dragging after scaling
+    await p.waitForTimeout(200);
+    const s1 = await p.evaluate(() => window.klibb.arrayState());
+    await p.mouse.up();
+    await settle();
+    const fanRow = (await onServer()).slice(n5);
+    check('hold + drag + wheel at once: the last sticker grows while dragging (the row keeps following the crosshair)', s0.dragging && s1.dragging && s1.endSize > s0.endSize * 1.3 && s1.ghosts > 0, { s0, s1 });
+    check(`…and the released row (${fanRow.length}) is saved fanned: first = the anchor size, the last the biggest`, fanRow.length === 1 + s1.ghosts && fanRow.at(-1).size > fanRow[0].size * 1.2 && fanRow.every((x, i) => i === 0 || x.size >= fanRow[i - 1].size - 1e-6),
+      fanRow.map((x) => x.size));
     check('no page errors', !errors.length, errors);
     await ctx.close();
+
+    // 6) Hold-and-drag in the CITY (it was dead outside the middle 16 m: the rows used the room box).
+    const CID = (await (await fetch(S.base + '/api/cities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Rowville', by: 'Jens' }) })).json()).city?.id;
+    if (!CID) { check('city made for the city drag', false); } else {
+      const cctx = await browser.newContext({ viewport: { width: 1000, height: 650 } });
+      const c = await cctx.newPage(); const cerr = []; c.on('pageerror', (e) => cerr.push(e.message));
+      await c.goto(`${S.base}/?room=${CID}`);
+      await c.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 });
+      await c.setInputFiles('#file', file);
+      await c.waitForFunction(() => window.klibb.state.selected && !window.klibb.state.selected.library, null, { timeout: 20000 }).catch(() => {});
+      const place = () => c.evaluate(() => { const k = window.klibb; k.setView && k.setView('first', { quiet: true }); k.controls.ground = null; k.controls.collide = null; k.camera.position.set(0, 1.7, 30); k.controls.yaw = Math.PI / 2; k.controls.pitch = -0.9; k.controls.apply(); });
+      await c.evaluate(() => window.klibb.setSize(15)); await place();
+      await c.mouse.click(500, 325); await c.waitForFunction(() => window.klibb.controls.locked, null, { timeout: 5000 });
+      await c.mouse.move(0, 0); await c.waitForTimeout(100); await place();
+      const cityOn = async () => (await (await fetch(`${S.base}/api/rooms/${CID}/stamps`)).json()).stamps.length;
+      const c0 = await cityOn();
+      await wakeHeld(c); await c.mouse.down(); await c.waitForTimeout(250);
+      await c.evaluate(() => { const k = window.klibb; k.controls.yaw = Math.PI / 2 + 0.4; k.controls.apply(); });
+      await c.waitForFunction(() => window.klibb.arrayState().ghosts > 0, null, { timeout: 5000 }).catch(() => {});
+      const cs = await c.evaluate(() => window.klibb.arrayState());
+      for (let i = 0; i < 3; i++) { await c.mouse.wheel(0, -100); await c.waitForTimeout(60); }
+      const cs2 = await c.evaluate(() => window.klibb.arrayState());
+      await c.mouse.up();
+      await c.waitForFunction(() => window.klibb.pendingSlaps() === 0 && window.klibb.arrayState().inFlight === 0, null, { timeout: 15000 }).catch(() => {});
+      const c1 = await cityOn();
+      check('city, 30 m out on the ground: holding and dragging shows ghost copies (was 0)', cs.dragging && cs.ghosts >= 2, cs);
+      check(`city: drag + scale at once, then release → 1 + ${cs2.ghosts} stickers saved on the server`, cs2.endSize > cs.endSize && c1 - c0 === 1 + cs2.ghosts && cs2.ghosts >= 2, { c0, c1, cs, cs2 });
+      check('city: no page errors', !cerr.length, cerr);
+      await cctx.close();
+    }
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }
   finally { await browser.close(); S.child.kill(); fs.rmSync(tmp, { recursive: true, force: true }); }
   console.log(`\nArray e2e: ${pass} passed, ${fail} failed`);

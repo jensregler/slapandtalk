@@ -332,20 +332,26 @@ async function writeBehind() {
       const after = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).json();
       assert(batch.results[mine2.stamp.id] === 'forbidden' && batch.results.ffffffffffffffff === 'notfound' && batch2.results[mine2.stamp.id] === 'ok'
         && !after.stamps.some((x) => x.id === mine1.stamp.id || x.id === mine2.stamp.id) && after.stamps.length === 3, 'flera på en gång (Peela alla): bara rätt nyckel räknas');
-      // ---------- Bara de senaste 10 per person och rum går att peela (pilhistoriken) ----------
-      const a25 = []; for (let i = 0; i < 25; i++) a25.push(await post({ owner: 'enhet-anna-123' }));
+      // ---------- Bara de senaste 100 per person och rum går att peela (pilhistoriken; Jens 11 Nov 2026, was 10) ----------
+      const { PEEL_KEEP } = require('../server/store');
+      assert(PEEL_KEEP === 100, `peel history keeps 100 steps per person and room (${PEEL_KEEP})`);
+      const A_N = PEEL_KEEP + 15;
+      // 115 slaps in a row: as admin auto slaps (each its own key/step, no join) so the 120/min hand limit per IP doesn't bite
+      const postAuto = (body) => fetch(`${base}/api/rooms/${r.room.id}/stamps`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': 'hemligt-test' },
+        body: JSON.stringify({ imageId: i1.id, position: [1, 1, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', auto: true, ...body }) }).then((x) => x.json());
+      const a25 = []; for (let i = 0; i < A_N; i++) a25.push(await postAuto({ owner: 'enhet-anna-123' }));
       const b2 = [await post({ owner: 'enhet-bosse-456' }), await post({ owner: 'enhet-bosse-456' })];
       await store.flush(); // rummen skrivs i bakgrunden
       const raw2 = (await s3a.get(`rooms/${r.room.id}.json`)).toString();
       const list2 = await (await fetch(`${base}/api/rooms/${r.room.id}/stamps`)).text();
       const ids2 = new Set([...a25, ...b2].map((x) => x.stamp.id)); const keyed = JSON.parse(raw2).stamps.filter((x) => x.peelHash && ids2.has(x.id));
-      assert(keyed.length === 12 && !raw2.includes('enhet-anna') && !list2.includes('peelOwner') && !a25[0].stamp.peelOwner,
-        `servern sparar peel-nycklar bara för de senaste 10 per person (${keyed.length} = 10 + 2), och ägaren syns aldrig`);
+      assert(keyed.length === PEEL_KEEP + 2 && !raw2.includes('enhet-anna') && !list2.includes('peelOwner') && !a25[0].stamp.peelOwner,
+        `servern sparar peel-nycklar bara för de senaste ${PEEL_KEEP} per person (${keyed.length} = ${PEEL_KEEP} + 2), och ägaren syns aldrig`);
       const pAll = await (await fetch(`${base}/api/rooms/${r.room.id}/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: [...a25, ...b2].map((x) => ({ id: x.stamp.id, token: x.peelToken })) }) })).json();
       const resA = a25.map((x) => pAll.results[x.stamp.id]);
-      assert(resA.slice(0, 15).every((x) => x === 'forbidden') && resA.slice(15).every((x) => x === 'ok') && b2.every((x) => pAll.results[x.stamp.id] === 'ok'),
-        'de 15 äldsta av 25 går inte längre att peela (403), de senaste 10 går, och en annan persons gräns är egen');
+      assert(resA.slice(0, 15).every((x) => x === 'forbidden') && resA.slice(15).every((x) => x === 'ok') && resA.length === A_N && b2.every((x) => pAll.results[x.stamp.id] === 'ok'),
+        `de 15 äldsta av ${A_N} går inte längre att peela (403), de senaste ${PEEL_KEEP} går, och en annan persons gräns är egen`);
       // ---------- Konstnärens namn och länk: tvättas på servern ----------
       const { cleanArtistLink, linkLabel } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'shared', 'artistlink.mjs')).href);
       const GOOD = [['@ulla.k', 'https://www.instagram.com/ulla.k'], ['instagram.com/ulla', 'https://instagram.com/ulla'], ['x.com/ulla', 'https://x.com/ulla'],

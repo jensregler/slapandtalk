@@ -754,7 +754,8 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
       for (let i = 0; i < 50; i++) { k.look(-0.6 + (i % 10) * 0.13, -0.25 + Math.floor(i / 10) * 0.1); await k.stampAt(0, 0); } });
     const p50 = await pp.evaluate(() => [window.klibb.stamps.count, window.klibb.roomHistory().length, JSON.parse(localStorage.getItem('klibb.history')).filter((h) => h.room === window.klibb.room).length, window.klibb.peelLimit]);
     const rawRoom = await (await fetch(`${BASE}/api/rooms/${PROOM}/stamps`)).json();
-    assert(p50[0] === 50 && p50[1] === 10 && p50[2] === 10 && p50[3] === 10 && rawRoom.stamps.length === 50, `50 klibbor i rummet, men bara de senaste 10 kan peelas (${p50.join('/')})`);
+    // history cap 100 (Jens, 11 Nov 2026; was 10): all 50 are in the history and peelable
+    assert(p50[0] === 50 && p50[1] === 50 && p50[2] === 50 && p50[3] === 100 && rawRoom.stamps.length === 50, `50 klibbor i rummet, alla 50 kan peelas (historiken rymmer 100) (${p50.join('/')})`);
     // Långsamt nät som på Render (300 ms per peel-anrop), och räkna anropen
     let peelCalls = 0;
     await pp.route('**/peel', async (r) => { peelCalls++; await new Promise((x) => setTimeout(x, 300)); r.continue(); });
@@ -776,21 +777,23 @@ const waitReady = (page) => page.waitForFunction(() => window.klibb && window.kl
     const pAfter = await pp.evaluate(() => ({ count: window.klibb.stamps.count, hist: window.klibb.roomHistory().length, gap: Math.round(window.__gap), toast: document.getElementById('toast').textContent,
       peels: window.klibb.soundLog().filter((e) => e.kind === 'peel').length, items: document.querySelectorAll('#history-list li').length }));
     const pServer = await (await fetch(`${BASE}/api/rooms/${PROOM}/stamps`)).json();
-    assert(shown === 30 && pAfter.count === 30 && pServer.stamps.length === 30 && pAfter.hist === 0 && pAfter.items === 0,
-      `30 snabba Z (${keysMs} ms): de 20 senaste peelas direkt på skärmen och på servern, de 30 äldsta sitter kvar`);
+    assert(shown === 20 && pAfter.count === 20 && pServer.stamps.length === 20 && pAfter.hist === 20 && pAfter.items === 20,
+      `30 snabba Z (${keysMs} ms): de 30 senaste peelas direkt på skärmen och på servern, 20 kvar i historiken (${JSON.stringify({ shown, ...pAfter, server: pServer.stamps.length })})`);
     assert(respMs < 1000 && keysMs < baseMs * 2 + 2000 && doneMs - keysMs < 3000 && peelCalls <= 10 && pAfter.gap < baseGap * 2 + 500,
       `sidan hänger sig inte: 30 Z tar ${keysMs} ms (30 tryck på en tom tangent: ${baseMs} ms), sidan svarar på ${respMs} ms, allt klart ${doneMs - keysMs} ms efter sista trycket med ${peelCalls} anrop till servern (inte ett per tryck), längsta bildruta ${pAfter.gap} ms (utan peel ${baseGap} ms)`);
+    for (let i = 0; i < 20; i++) await pp.keyboard.press('z', { delay: 5 }); // the last 20 of the history
+    await pp.evaluate(() => window.klibb.peelSettled());
+    const pRest = await pp.evaluate(() => ({ count: window.klibb.stamps.count, hist: window.klibb.roomHistory().length }));
+    assert(pRest.count === 0 && pRest.hist === 0 && (await (await fetch(`${BASE}/api/rooms/${PROOM}/stamps`)).json()).stamps.length === 0, `20 Z till: hela historiken (alla 50) är peelad (${JSON.stringify(pRest)})`);
     const pEnd = await pp.evaluate(() => window.klibb.endDialog());
     assert(pEnd.open && pEnd.shows === 1 && pEnd.question === 'Start a fresh room?' && pAfter.peels >= 1,
-      `efter 20 peel visas "End of slap history" en gång (${pEnd.shows}), inte för varje tryck`);
+      `efter hela historiken visas "End of slap history" en gång (${pEnd.shows}), inte för varje tryck`);
     await pp.click('#end-keep');
     for (let i = 0; i < 3; i++) await pp.keyboard.press('z');
     const pEnd2 = await pp.evaluate(() => [window.klibb.endDialog(), document.getElementById('toast').textContent]);
     assert(!pEnd2[0].open && pEnd2[0].shows === 1 && pEnd2[1] === 'End of slap history', 'Keep slapping stänger rutan, och fler Z visar den inte igen (bara en liten notis)');
     await pp.evaluate(() => window.klibb.controls.unlock());
-    // Äldre klibbor (21:a och bakåt) går inte att peela, inte ens med en gammal nyckel från servern
-    const oldOk = await pp.evaluate(async () => { const r = await fetch(`/api/rooms/${window.klibb.room}/peel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ id: window.klibb.stamps.meshes.keys().next().value, token: 'x' }] }) }); return r.status; });
-    assert(oldOk === 200 && (await pp.evaluate(() => window.klibb.stamps.count)) === 30, 'äldre klibbor ligger kvar (kan bara tas bort av admin)');
+    // (Äldre än de senaste 100 stegen går inte att peela – tests/rooms.test.js och history.test.mjs, med 115 klibbor.)
     // [New room] = samma som Room ▾ > New quick room
     await pp.evaluate(() => window.klibb.stampAt(0, 0)); await pp.keyboard.press('z'); await pp.waitForTimeout(300); await pp.keyboard.press('z');
     await pp.waitForFunction(() => window.klibb.endDialog().open, null, { timeout: 3000 });

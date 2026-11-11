@@ -4,8 +4,9 @@
 // Precis som designs läses listan om före varje ändring, så två flikar inte skriver över varandra.
 const KEY = 'klibb.history';
 const MAX = 1000;
-// Bara de senaste 10 i varje rum går att peela (pilhistoriken / undo stack; servern sparar inte nycklar till fler).
-export const PER_ROOM = 10;
+// Bara de senaste 100 i varje rum går att peela (pilhistoriken / undo stack; servern sparar inte nycklar till fler).
+// Jens, 11 Nov 2026: 100 (was 10) – "det är roligt att kunna ta bort dem". Same number as server/store.js PEEL_KEEP.
+export const PER_ROOM = 100;
 
 export function readHistory() {
   try { const v = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(v) ? v.filter((h) => h && h.room && h.stampId && h.token) : []; } catch { return []; }

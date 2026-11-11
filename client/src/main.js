@@ -46,8 +46,7 @@ import * as demo from './demo.js';
 import { noteVisit } from './landing.js';
 import { Voice, VOICE_FX, cleanVoiceFx, cleanMonitor, pitchLabel } from './voice.js';
 import { ArrayGhosts } from './arraydrag.js';
-import { arrayPlan, faceFor, PEELS_PER_ARRAY, wheelScaleFactor, clampStampSize } from '../../shared/array.mjs';
-import { boxFaces } from '../../shared/coverage.mjs';
+import { arrayPlan, anchorFace, PEELS_PER_ARRAY, wheelScaleFactor, clampStampSize } from '../../shared/array.mjs';
 import { initStackMenu } from './stackmenu.js';
 import { createHeldTimer } from '../../shared/heldtimer.mjs';
 import { createRoomSizer, ROOM_RANGE } from './roomsize.js';
@@ -61,7 +60,7 @@ import { CITY_FX, cityFxAt, placeNeutral, placeHouse, cleanCityFx, PLACE_EVERY_M
 import { delayRoomTimes } from '../../shared/delayroom.mjs';
 import { slapHold } from '../../shared/dancehold.mjs';
 import { reverbGazeYaw, reverbPitchesAt, insideReverbRoom } from '../../shared/reverbroom.mjs';
-import { CITY, CITY_ROOM, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
+import { CITY, CITY_ROOM, roomBox, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, PACK_DESIGN_ID, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
 import { initProps } from './propsmode.js';
@@ -1185,7 +1184,17 @@ function dropPending(nonce) {
 let mouseHeld = false;
 let arrayDrag = null; // { a, w, h, endW, endH, endSize, face, to, items }
 const arrayOps = []; // released rows waiting for the server (Z peels the newest as one step)
-const ARRAY_FACES = boxFaces();
+// Rows are planned in THIS space (the room, a house or the 96 × 96 m city – shared/city.mjs roomBox), on
+// the face of the very surface the first sticker hit (its world rect), not the old 16 m room box: that
+// box made hold-and-drag give no copies anywhere in the city but its middle (Jens, 11 Nov 2026).
+const ARRAY_BOX = roomBox(ROOM);
+const _rowBox = new THREE.Box3();
+function surfaceRect(name) {
+  const m = room.surfaces.find((x) => x.name === name);
+  if (!m) return null;
+  _rowBox.setFromObject(m);
+  return _rowBox.isEmpty() ? null : { lo: _rowBox.min.toArray(), hi: _rowBox.max.toArray() };
+}
 const ghosts = new ArrayGhosts(scene, stamps.faces);
 const arrayPlane = new THREE.Plane(), arrayHit = new THREE.Vector3();
 // Arrays work in some browsers and not in others. Whatever goes wrong on the array path (starting
@@ -1202,7 +1211,10 @@ function startArray(a) {
   if (arrayFaults.start) throw new Error('test: array start unavailable');
   if (propMeshSurface(a.surface)) return; // a 3D prop's mesh (not a flat face): no rows there – one sticker
   const [w, h] = StampLayer.dims(a.design, a.size);
-  arrayDrag = { a, w, h, endW: w, endH: h, endSize: a.size, face: faceFor(ARRAY_FACES, a.surface, a.point.toArray(), a.normal.toArray()), to: null, items: [] };
+  const rect = surfaceRect(a.surface);
+  const face = anchorFace({ position: a.point.toArray(), quaternion: a.q.toArray(), surface: a.surface }, { box: ARRAY_BOX, rect });
+  if (!face) return; // no flat face to repeat on: one sticker
+  arrayDrag = { a, w, h, endW: w, endH: h, endSize: a.size, face, rect, to: null, items: [] };
   arrayPlane.setFromNormalAndCoplanarPoint(a.normal, a.point);
   ghosts.setTexture(null);
   stamps.texture(a.design).then((t) => { if (arrayDrag && arrayDrag.a === a) ghosts.setTexture(t); }).catch(() => {});
@@ -1222,7 +1234,7 @@ function updateArray() {
   if (arrayFaults.update) throw new Error('test: array update unavailable');
   aimRay(CENTER);
   if (raycaster.ray.intersectPlane(arrayPlane, arrayHit)) d.to = arrayHit.clone(); // looking away from the plane: keep the last B
-  d.items = d.to ? arrayPlan({ position: d.a.point.toArray(), quaternion: d.a.q.toArray(), surface: d.a.surface }, d.w, d.h, d.to.toArray(), { endW: d.endW, endH: d.endH }).items.filter((x) => x.i > 0) : [];
+  d.items = d.to ? arrayPlan({ position: d.a.point.toArray(), quaternion: d.a.q.toArray(), surface: d.a.surface }, d.w, d.h, d.to.toArray(), { faces: [d.face], endW: d.endW, endH: d.endH }).items.filter((x) => x.i > 0) : [];
   if (d.items.length) ghosts.show(d.items, d.a.q, d.a.normal, d.w, d.h, d.a.surface, d.face); else ghosts.hide();
   return d.items.length;
 }
@@ -1280,7 +1292,7 @@ function commitArray() {
       let res;
       try {
         res = await api.addArray(ROOM, { anchor: { id: anchor.id, token: hist.token }, to: d.to.toArray(), nonce: a.nonce,
-          endSize: d.endSize, ...(together.net.id ? { by: together.net.id } : {}), peelFrom: { p: [from.x, from.z], yaw: from.yaw } });
+          endSize: d.endSize, ...(d.rect ? { rect: d.rect } : {}), ...(together.net.id ? { by: together.net.id } : {}), peelFrom: { p: [from.x, from.z], yaw: from.yaw } });
       } catch (err) {
         dropAll(); // the row did not make it: the first sticker (its own slap) stays – one sticker
         if ([404, 405, 501].includes(err.status)) { arraysOff = true; console.warn('sticker arrays not supported here – plain slaps'); return; }
@@ -2139,15 +2151,24 @@ if (!isTouch) {
   // does not turn while aiming. TWO fingers while a sticker is in hand (Jens, 29 Oct 2026; replaces
   // the two edge sliders): pinch = scale it (the distance ratio × the size it had), twist = rotate it
   // (the change of the fingers' angle, clockwise = clockwise), live, through setSize/setRot – the same
-  // limits and state as everywhere (free 15–100 cm, full 10–150 cm, nature 10 cm – 8 m high). A second
-  // finger cancels the aim (no stamp); after a pinch nothing is stamped or looked until both fingers
-  // are up. Looking around: one finger (or two) when nothing is in hand (faded / not chosen yet – as
+  // limits and state as everywhere (free 15–100 cm, full 10–150 cm, nature 10 cm – 8 m high).
+  // HOLD, DRAG AND SCALE AT ONCE (Jens, 11 Nov 2026 – replaces "a second finger cancels the aim"): when the
+  // first finger is already holding the sticker on a wall (it has dragged it AIM_MOVE_PX or more), a
+  // second finger does NOT cancel it: the sticker keeps following (it moves with the two fingers'
+  // midpoint), pinch scales it and twist turns it, all live; lift the second finger and keep dragging
+  // with the first, and letting go of the aiming finger stamps it where the sticker is. Two fingers put
+  // down together (a plain pinch) work as before: scale/turn only, nothing is stamped or looked until
+  // both fingers are up. Looking around: one finger (or two) when nothing is in hand (faded / not chosen yet – as
   // before). Walking: the joystick (its own element, works alongside an aiming finger).
   const touches = new Map();
   const ndcOf = (x, y) => new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
   const canAim = () => !!(stackMenu && state.selected && state.mode === 'slap' && !propsMode() && !camView && !placingCam && !state.adminToken
     && !stackMenu.isOpen() && !stackMenu.bookOpen() && !sp.open && !together.busy() && stackMenu.held.canSlap(performance.now()));
   const endAim = () => { touchAim = null; document.body.classList.remove('aiming'); preview.hide(); };
+  // A finger that has DRAGGED the sticker (moved AIM_MOVE_PX) is holding it; a finger that only rests
+  // there is the first half of a plain pinch (however slowly the second one comes) – no stamp then.
+  const AIM_MOVE_PX = 12;
+  const aimHolding = () => { const t = touchAim && touches.get(touchAim.id); return !!t && (t.held || Math.hypot(t.x - t.sx, t.y - t.sy) >= AIM_MOVE_PX); };
   // Any touch on the screen (Jens, 29 Oct 2026) counts as working with the held sticker: while it is
   // up, its 2 s (HELD_VISIBLE_MS) start again; it only fades after 2 s untouched. (A faded one is not
   // revived by this – a tap wakes it, as before.)
@@ -2164,7 +2185,7 @@ if (!isTouch) {
     && !stackMenu.isOpen() && !stackMenu.bookOpen() && !sp.open && !together.busy() && stackMenu.held.opacity(performance.now()) > 0);
   const fingers = new Map(); // pointerId -> { x, y } of touches on the room / the held sticker
   const spent = new Set();   // fingers of a pinch: they do nothing else until they are lifted
-  const pinchMetrics = () => { const [a, b] = [...fingers.values()]; return { d: Math.hypot(b.x - a.x, b.y - a.y), ang: Math.atan2(b.y - a.y, b.x - a.x) }; };
+  const pinchMetrics = () => { const [a, b] = [...fingers.values()]; return { d: Math.hypot(b.x - a.x, b.y - a.y), ang: Math.atan2(b.y - a.y, b.x - a.x), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } }; };
   let pinchAfterT = 0;
   const pinchHud = () => {
     const hud = $('pinch-hud'), r = $('held').getBoundingClientRect();
@@ -2181,11 +2202,14 @@ if (!isTouch) {
     if (!onPinchTarget(e)) return;
     fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (fingers.size === 2 && !touchPinch && canPinch()) {
-      if (touchAim) endAim();       // the aim is cancelled: no stamp
+      // Holding the sticker on a wall already: keep it in hand, drag + pinch + twist together (carry).
+      const carry = !!(touchAim && fingers.has(touchAim.id) && aimHolding());
+      if (touchAim && !carry) endAim(); // a plain pinch: the aim is cancelled, no stamp
       stackMenu.cancelRelease();    // a finger on the held sticker does not release it either
-      for (const id of fingers.keys()) spent.add(id);
+      for (const id of fingers.keys()) if (!carry || id !== touchAim.id) spent.add(id); // carry: the aiming finger still stamps
       const m = pinchMetrics();
-      touchPinch = { d0: Math.max(m.d, 1), a0: m.ang, size0: state.size * 100, rot0: state.rotation };
+      touchPinch = { d0: Math.max(m.d, 1), a0: m.ang, size0: state.size * 100, rot0: state.rotation,
+        ...(carry ? { carry: true, mid0: m.mid, aim0: { x: touchAim.x, y: touchAim.y } } : {}) };
       document.body.classList.remove('pinch-after'); document.body.classList.add('pinching'); pinchHud();
       stackMenu.held.keepAlive(performance.now());
     } else if (touchPinch) spent.add(e.pointerId); // a third finger: ignored
@@ -2198,11 +2222,18 @@ if (!isTouch) {
     let da = (m.ang - touchPinch.a0) * 180 / Math.PI; da = ((da + 540) % 360) - 180;
     setSize(touchPinch.size0 * (m.d / touchPinch.d0));
     setRot(Math.round(touchPinch.rot0 + da));
+    // carry: the held sticker moves with the fingers' midpoint while it scales/turns
+    if (touchPinch.carry && touchAim) { touchAim.x = touchPinch.aim0.x + (m.mid.x - touchPinch.mid0.x); touchAim.y = touchPinch.aim0.y + (m.mid.y - touchPinch.mid0.y); }
     stackMenu.held.keepAlive(performance.now());
     pinchHud();
   }, true);
   const fingerUp = (e) => {
-    if (!fingers.delete(e.pointerId)) return;
+    if (!fingers.has(e.pointerId)) return;
+    if (touchPinch && touchPinch.carry && touchAim) {
+      if (e.pointerId === touchAim.id) touchAim.final = { x: touchAim.x, y: touchAim.y }; // the aiming finger lets go: stamp where the sticker is
+      else { const f = fingers.get(touchAim.id); if (f) { touchAim.ox = touchAim.x - f.x; touchAim.oy = touchAim.y - f.y; } } // keep dragging with one finger, no jump
+    }
+    fingers.delete(e.pointerId);
     if (touchPinch && fingers.size < 2) endPinch();
     setTimeout(() => spent.delete(e.pointerId), 0); // after the room's own pointerup has seen it
   };
@@ -2224,7 +2255,9 @@ if (!isTouch) {
     const p = touches.get(e.pointerId); if (!p) return;
     if (touchPinch || spent.has(e.pointerId)) { p.x = e.clientX; p.y = e.clientY; p.drag = true; return; } // pinching: no look
     if (touchAim && touchAim.id === e.pointerId) {
-      touchAim.x = e.clientX; touchAim.y = e.clientY; p.x = e.clientX; p.y = e.clientY;
+      p.x = e.clientX; p.y = e.clientY;
+      if (!p.held && Math.hypot(p.x - p.sx, p.y - p.sy) >= AIM_MOVE_PX) p.held = true; // it has dragged the sticker: a second finger now scales it in hand
+      if (!(touchPinch && touchPinch.carry)) { touchAim.x = e.clientX + (touchAim.ox || 0); touchAim.y = e.clientY + (touchAim.oy || 0); } // carry: the pinch moves it
       stackMenu.held.keepAlive(performance.now()); // aiming = working with it: it does not fade meanwhile
       return;
     }
@@ -2239,10 +2272,12 @@ if (!isTouch) {
     const p = touches.get(e.pointerId); touches.delete(e.pointerId);
     if (spent.has(e.pointerId)) return; // a pinch finger: no stamp, no tap
     if (touchAim && touchAim.id === e.pointerId) {
-      endAim();
+      const aim = touchAim; endAim();
+      const carried = !!(aim.final || aim.ox || aim.oy); // it was dragged + scaled with two fingers
       // a short tap (no aiming) on a menu sticker opens its menu instead of slapping
-      if (e.type === 'pointerup' && p && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 14 && performance.now() - p.t < 500 && menuClick(ndcOf(e.clientX, e.clientY))) return;
-      if (e.type === 'pointerup' && stackMenu) heldTap(ndcOf(e.clientX, e.clientY), e.clientX, e.clientY); // stamp where the finger is
+      if (!carried && e.type === 'pointerup' && p && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 14 && performance.now() - p.t < 500 && menuClick(ndcOf(e.clientX, e.clientY))) return;
+      const ax = aim.final ? aim.final.x : e.clientX + (aim.ox || 0), ay = aim.final ? aim.final.y : e.clientY + (aim.oy || 0);
+      if (e.type === 'pointerup' && stackMenu) heldTap(ndcOf(ax, ay), ax, ay); // stamp where the sticker is (the finger, or where the two fingers carried it)
       return;
     }
     if (p && !p.drag && performance.now() - p.t < 400 && e.type === 'pointerup') {

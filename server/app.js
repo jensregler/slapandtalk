@@ -897,7 +897,13 @@ app.post('/api/rooms/:room/stamps/array', rateLimit(30), wrap(async (req, res) =
     }
   }
   const [endW, endH] = P.stampDims(image, endSize);
-  let items = A.arrayPlan(anchor, w, h, b.to, { endW, endH }).items.filter((x) => x.i > 0);
+  // The row's face (Jens, 11 Nov 2026 – hold-and-drag back in the city): this space's box (the room, a
+  // house or the 96 m city; it was always the 16 m room box, so city rows came out empty), narrowed to
+  // the client's rect of the surface the anchor sits on (b.rect: it can only shrink the face, never grow it).
+  const rect = b.rect && isVec(b.rect.lo, 3) && isVec(b.rect.hi, 3) ? { lo: b.rect.lo, hi: b.rect.hi } : null;
+  const face = A.anchorFace(anchor, { box: CITY.roomBox(room), rect });
+  if (!face) return res.status(400).json({ error: 'Nothing to repeat', empty: true });
+  let items = A.arrayPlan(anchor, w, h, b.to, { faces: [face], endW, endH }).items.filter((x) => x.i > 0);
   if (!items.length) return res.status(400).json({ error: 'Nothing to repeat', empty: true });
   const peelSt = await store.peelState(room);
   if (peelSt.expired && peelSt.expired.length) broadcast(room, { type: 'peels:expire', ids: peelSt.expired });

@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 const sharp = require('sharp');
 const WebSocket = require('ws');
 const { LocalAdapter } = require('../server/storage/local');
-const { createStore } = require('../server/store');
+const { createStore, PEEL_KEEP } = require('../server/store');
 const { createApp } = require('../server/app');
 const { attachRealtime, onBroadcast } = require('../server/realtime');
 const { createRecorder } = require('../server/recorder');
@@ -117,19 +117,25 @@ try {
   room = await store.getRoom(R);
   assert(Object.values(peel.results).every((r) => r === 'ok') && !room.stamps.some((s) => [A.stamp.id, ...ids].includes(s.id)), 'the anchor’s peel key peels the whole row');
 
-  // History: a row counts as ONE of the 20 peel steps.
-  const first = await slap([2, 3, -5], { owner: 'device-bbbb' });
-  await array({ anchor: { id: first.stamp.id, token: first.peelToken }, to: [4, 3, -5] }); // 1 step (7 stickers)
-  for (let k = 0; k < 19; k++) await slap([-4 + k * 0.4, 0.5, -5], { owner: 'device-bbbb' });
-  room = await store.getRoom(R);
+  // History: a row counts as ONE of the PEEL_KEEP (100; Jens 11 Nov 2026, was 10) peel steps. Its own
+  // room, and the filler steps go straight into the store with a big room cap (this test's room cap is 60).
+  const { room: { id: RH } } = await (await post('/api/rooms', {})).json();
+  const first = (await (await post(`/api/rooms/${RH}/stamps`, { imageId: img.id, position: [2, 3, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', owner: 'device-bbbb' })).json());
+  await post(`/api/rooms/${RH}/stamps/array`, { anchor: { id: first.stamp.id, token: first.peelToken }, to: [4, 3, -5] }); // 1 step (7 stickers)
+  const ownerB = (await store.getRoom(RH)).stamps.find((s) => s.id === first.stamp.id).peelOwner;
+  const step = (k) => store.addStamp(RH, { imageId: img.id, position: [-4 + (k % 20) * 0.4, 0.5, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr', peelHash: `fill-${k}`, peelOwner: ownerB }, { maxStamps: 1000 });
+  for (let k = 0; k < PEEL_KEEP - 1; k++) await step(k);
+  room = await store.getRoom(RH);
   const row = room.stamps.filter((s) => s.id === first.stamp.id || s.group === first.stamp.id);
-  assert(row.length === 7 && row.every((s) => s.peelHash), 'a row + 19 single slaps = 20 steps: the row is still peelable');
-  await slap([-4, 0.2, -5], { owner: 'device-bbbb' });
-  room = await store.getRoom(R);
-  assert(room.stamps.filter((s) => s.id === first.stamp.id || s.group === first.stamp.id).every((s) => !s.peelHash), 'the 21st step: the whole row leaves the history together (auto-prune sees them all)');
-  assert((await array({ anchor: { id: first.stamp.id, token: first.peelToken }, to: [4, 3, -5] })).status === 403, 'a row can’t be extended once its anchor left the history');
+  assert(row.length === 7 && row.every((s) => s.peelHash), `a row + ${PEEL_KEEP - 1} single slaps = ${PEEL_KEEP} steps: the row is still peelable`);
+  await step(PEEL_KEEP);
+  room = await store.getRoom(RH);
+  assert(room.stamps.filter((s) => s.id === first.stamp.id || s.group === first.stamp.id).every((s) => !s.peelHash), `the ${PEEL_KEEP + 1}st step: the whole row leaves the history together (auto-prune sees them all)`);
+  assert((await post(`/api/rooms/${RH}/stamps/array`, { anchor: { id: first.stamp.id, token: first.peelToken }, to: [4, 3, -5] })).status === 403, 'a row can’t be extended once its anchor left the history');
 
   // Room cap (60 here): oldest go, broadcast as stamp:remove before the new adds.
+  // (the history steps used to fill this room; they now have their own room, so fill it up here)
+  for (let k = 0; k < 28; k++) await store.addStamp(R, { imageId: img.id, position: [-4 + (k % 20) * 0.4, 0.2, -5], normal: [0, 0, 1], quaternion: [0, 0, 0, 1], size: 0.3, surface: 'vägg-norr' });
   room = await store.getRoom(R);
   const before = room.stamps.length;
   const tinyA = await slap([-4.9, 3.9, -5], { size: 0.15, owner: 'device-cccc' });

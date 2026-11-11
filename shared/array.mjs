@@ -68,6 +68,36 @@ export function faceFor(faces, surface, position, normal) {
   return best;
 }
 
+// The space a row lives in (Jens, 11 Nov 2026: "reactivate hold-and-drag"). Rows used to be planned on
+// the 16 × 8 × 16 m ROOM box only, so out in the 96 × 96 m city every drag away from the middle gave
+// no copies at all. spaceFaces(box) = the six faces of THIS space (shared/city.mjs roomBox: the room, a
+// house or the city), and clipFace narrows the anchor's face to the real surface it sits on (a house
+// wall, a plaza bench top) so a row stops at that wall's edge instead of running out into the air.
+export const spaceFaces = (box) => boxFaces(box || undefined);
+// rect = { lo: [x, y, z], hi: [x, y, z] } (the surface's world bounds). Only shrinks the face; a rect
+// that doesn't hold the anchor (or is junk) is ignored. Returns a face named after the anchor's surface.
+export function clipFace(face, rect, anchorPos = null, eps = 1e-3) {
+  if (!face) return null;
+  if (!rect || !isVec(rect.lo, 3) || !isVec(rect.hi, 3)) return face;
+  const lo = face.lo.slice(), hi = face.hi.slice();
+  for (let j = 0; j < 3; j++) {
+    if (j === face.k) continue;
+    const a = Math.min(rect.lo[j], rect.hi[j]), b = Math.max(rect.lo[j], rect.hi[j]);
+    lo[j] = Math.max(lo[j], a); hi[j] = Math.min(hi[j], b);
+    if (lo[j] > hi[j]) return face;
+    if (anchorPos && (anchorPos[j] < lo[j] - eps || anchorPos[j] > hi[j] + eps)) return face;
+  }
+  return { ...face, lo, hi };
+}
+// The face a row is planned on: the anchor's face in this space, clipped to its surface's rect.
+export function anchorFace(anchor, { box = null, rect = null } = {}) {
+  if (!anchor || !isVec(anchor.position, 3) || !isVec(anchor.quaternion, 4)) return null;
+  const n = qApply(anchor.quaternion, [0, 0, 1]);
+  const F = faceFor(spaceFaces(box), String(anchor.surface || ''), anchor.position, n);
+  if (!F) return null;
+  return clipFace({ ...F, name: String(anchor.surface || F.name) }, rect, anchor.position);
+}
+
 // The plan for one drag. anchor = { position, quaternion, surface }, w × h = the sticker's size in
 // metres (stampDims) at the ANCHOR, to = B (any point; only its part along the face counts).
 // endW × endH (optional): size of the LAST sticker (fan / trapezoid). Defaults to w × h (= old behaviour).

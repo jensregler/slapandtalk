@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { buildBoxRoom } from './room.js';
 import { buildCityRoom } from './city.js';
-import { CITY, isCityOutside } from '../../shared/city.mjs';
+import { CITY, isCityOutside, roomBox as spaceBox } from '../../shared/city.mjs';
 import { PresetLayer } from './preset.js';
 import { applyStyle, normalizeStyle, DEFAULT_STYLE, tickRoomFabric } from './roomstyle.js';
 import { StampLayer, StampPreview } from './stamps.js';
@@ -19,7 +19,7 @@ import { S, LOCALE } from './strings.js';
 import { parseRecording, buildTimeline, snapshotAt, participants, gestureAt, rowEndAt } from '../../shared/replay.mjs';
 import { SLAP_MS, PEEL_MS, RETURN_MS } from './slapanim.js';
 import { ArrayGhosts } from './arraydrag.js';
-import { arrayPlan, faceFor } from '../../shared/array.mjs';
+import { arrayPlan, faceFor, anchorFace } from '../../shared/array.mjs';
 import { boxFaces } from '../../shared/coverage.mjs';
 const GESTURE_MAX_MS = Math.max(SLAP_MS, PEEL_MS);
 const gestureLen = (kind) => (kind === 'peel' ? PEEL_MS : SLAP_MS);
@@ -142,7 +142,7 @@ function syncPlayers(list, dt, jumped) {
     const ended = row ? null : rowEndAt(rp.tl, p.id, rp.t, RETURN_MS); // just let go: the arm swings back down
     const rh = row ? p.held : ended && ended.h;
     if (rh) {
-      const items = row ? row.items : arrayPlan({ position: rh.p, quaternion: rh.q, surface: rh.s }, rh.w, rh.h, rh.a.to, { endW: rh.ew || rh.w, endH: rh.eh || rh.h }).items;
+      const items = row ? row.items : arrayPlan({ position: rh.p, quaternion: rh.q, surface: rh.s }, rh.w, rh.h, rh.a.to, { faces: rowFaces(rh), endW: rh.ew || rh.w, endH: rh.eh || rh.h }).items;
       const end = items[items.length - 1];
       a.avatar.hold(end ? end.position : rh.p, end && end.normal ? end.normal : rh.n, row ? row.age : 1e6, ended ? ended.out : null);
     } else a.avatar.drop();
@@ -158,14 +158,22 @@ const v3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
 // Pulling out a sticker row (held.a = { to }): the see-through ghosts of the copies, recomputed from
 // the anchor and the drag target with the same shared/array.mjs as live (round corners too), all
 // through the drag; the real stickers (+ their papers) come with the row's stamp:add at release.
-const ROW_FACES = boxFaces();
+const ROW_FACES = boxFaces(spaceBox(ROOM)); // this space (the city is 96 m, not the 16 m room box)
+// The row's face as live (main.js startArray): the anchor's face in this space, clipped to its surface.
+const _rowBox = new THREE.Box3();
+function rowFace(h) {
+  const m = room.surfaces.find((x) => x.name === h.s);
+  const rect = m && !_rowBox.setFromObject(m).isEmpty() ? { lo: _rowBox.min.toArray(), hi: _rowBox.max.toArray() } : null;
+  return anchorFace({ position: h.p, quaternion: h.q, surface: h.s }, { box: spaceBox(ROOM), rect });
+}
+const rowFaces = (h) => { const f = rowFace(h); return f ? [f] : ROW_FACES; };
 const rows = new Map(); // id -> { key, items, since }
 function rowOf(id, h) {
   const key = `${h.img}|${h.p}|${h.q}|${h.s}|${h.w}|${h.h}|${h.ew}|${h.eh}|${h.a.to}`;
   let r = rows.get(id);
   if (r && r.key === key) { r.age = Math.max(0, rp.t - r.since); return r; }
   const fresh = !r || r.anchor !== `${h.p}|${h.s}`;
-  const items = arrayPlan({ position: h.p, quaternion: h.q, surface: h.s }, h.w, h.h, h.a.to, { endW: h.ew || h.w, endH: h.eh || h.h }).items.filter((x) => x.i > 0)
+  const items = arrayPlan({ position: h.p, quaternion: h.q, surface: h.s }, h.w, h.h, h.a.to, { faces: rowFaces(h), endW: h.ew || h.w, endH: h.eh || h.h }).items.filter((x) => x.i > 0)
     .map((x) => (x.surface ? { ...x, q: new THREE.Quaternion(...x.quaternion), n: v3(x.normal), face: faceFor(ROW_FACES, x.surface, x.position, x.normal) } : x));
   r = { key, items, anchor: `${h.p}|${h.s}`, since: fresh ? rp.t : r.since, age: fresh ? 0 : Math.max(0, rp.t - r.since) };
   rows.set(id, r);
@@ -185,7 +193,7 @@ function syncHeld(list) {
     if (h.a) { // the row: ghosts instead of the held preview (like live)
       e.prev.hide();
       const r = rowOf(p.id, h);
-      if (r.items.length) e.ghosts.show(r.items, q, v3(h.n), h.w, h.h, h.s, faceFor(ROW_FACES, h.s, h.p, h.n)); else e.ghosts.hide();
+      if (r.items.length) e.ghosts.show(r.items, q, v3(h.n), h.w, h.h, h.s, rowFace(h) || faceFor(ROW_FACES, h.s, h.p, h.n)); else e.ghosts.hide();
       continue;
     }
     rows.delete(p.id); e.ghosts.hide();

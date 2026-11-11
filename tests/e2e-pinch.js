@@ -2,8 +2,10 @@
 // iPhone-sized touch emulation, REAL two-finger touch events (CDP Input.dispatchTouchEvent). With a
 // sticker in hand (held in the middle), two fingers: the distance ratio scales it, the change of the
 // fingers' angle turns it, live, with the usual limits (free 15–100 cm, full 5 cm – no max, nature
-// 5–400 cm); the size is kept when switching sticker; no stamp, no camera turn; a second finger during
-// aiming cancels the aim. The sliders are gone on the phone (desktop keeps its size/rotation inputs).
+// 5–400 cm); the size is kept when switching sticker; no stamp, no camera turn. HOLD, DRAG AND SCALE AT
+// ONCE (Jens, 11 Nov 2026; replaces "a second finger during aiming cancels the aim"): a finger already
+// holding the sticker on a wall + a second finger = it keeps following (the fingers' midpoint) while the
+// pinch scales it, and letting go of the holding finger stamps ONE sticker there at the new size. The sliders are gone on the phone (desktop keeps its size/rotation inputs).
 // Own server (PINCH_E2E_PORT, default 8873). Screenshots: PINCH_SHOTS (default /workspace/pinch-shots).
 const fs = require('fs');
 const path = require('path');
@@ -77,17 +79,37 @@ const W = 390, H = 844, CX = W / 2, CY = H / 2;
     await F.P.evaluate(() => { window.klibb.nextDesign(); window.klibb.stackMenu().chosen(); }); await sleep(300);
     const sw = await F.st();
     check('switching sticker keeps the pinched size and turn (as with the sliders)', sw.sel !== after.sel && sw.cm === after.cm && sw.rot === after.rot, { after, sw });
-    // a second finger while aiming: no stamp
+    // hold, drag and scale at once: a finger holding the sticker on the wall + a second finger
     const n0 = sw.n;
     await F.T('touchStart', [[100, 300, 1]]); for (let i = 1; i <= 4; i++) { await F.T('touchMove', [[100 + i * 10, 300, 1]]); await sleep(30); }
     const a1 = await F.st();
-    await F.T('touchStart', [[110 + 40, 300, 1], [260, 380, 2]]); await sleep(80);
-    for (let i = 1; i <= 6; i++) { await F.T('touchMove', [[150 - i * 5, 300, 1], [260 + i * 10, 380, 2]]); await sleep(30); }
+    await F.T('touchStart', [[140, 300, 1], [260, 380, 2]]); await sleep(80);
+    for (let i = 1; i <= 6; i++) { await F.T('touchMove', [[140 + i * 8, 300 - i * 4, 1], [260 + i * 20, 380 - i * 4, 2]]); await sleep(30); } // both move right/up and spread: drag + scale
+    await sleep(120);
     const a2 = await F.st();
-    await F.T('touchEnd', [[320, 380, 2]]); await sleep(40); await F.T('touchEnd', []); await sleep(700);
+    await F.T('touchEnd', [[188, 276, 1]]); await sleep(40); await F.T('touchEnd', []); await sleep(900); // the HOLDING finger lets go: stamp
     const a3 = await F.st();
-    check('a second finger while aiming cancels the aim and starts a pinch; lifting both stamps nothing', a1.aim && !a2.aim && a2.pinch && !a2.preview && a3.n === n0 && !a3.aim && !a3.pinch && a3.cm !== a1.cm, { a1: [a1.aim, a1.cm], a2: [a2.aim, a2.pinch], a3: [a3.n, n0, a3.cm] });
+    check('a finger holding the sticker + a second finger: it stays in hand (aiming), the pinch scales it, and it moves with the fingers',
+      a1.aim && a2.aim && a2.pinch && a2.pinch.carry && a2.preview && a2.cm > a1.cm && a2.aim.x > a1.aim.x + 20 && a2.aim.y < a1.aim.y, { a1: [a1.aim, a1.cm], a2: [a2.aim, a2.pinch, a2.cm] });
+    check(`…letting go of the holding finger stamps ONE sticker there at the new size (${a1.cm} → ${a3.cm} cm)`, a3.n === n0 + 1 && !a3.aim && !a3.pinch && a3.cm === a2.cm, { n: [n0, a3.n], a3 });
     check('…and the camera did not turn', a3.yaw === f0.yaw && a3.pitch === f0.pitch, a3);
+    // carry, then lift the SECOND finger first: keep dragging with one finger (no jump), let go = stamp
+    const n1 = a3.n;
+    await F.P.evaluate(() => window.klibb.stackMenu().held.keepAlive(performance.now())); await sleep(200);
+    await F.T('touchStart', [[120, 320, 1]]); for (let i = 1; i <= 4; i++) { await F.T('touchMove', [[120 + i * 10, 320, 1]]); await sleep(30); }
+    await F.T('touchStart', [[160, 320, 1], [280, 400, 2]]); await sleep(80);
+    for (let i = 1; i <= 4; i++) { await F.T('touchMove', [[160, 320, 1], [280 + i * 15, 400, 2]]); await sleep(30); }
+    await sleep(200); // let the last move land
+    const b1 = await F.st();
+    await F.T('touchEnd', [[340, 400, 2]]); await sleep(80); // the second finger lets go first
+    const b2 = await F.st();
+    for (let i = 1; i <= 4; i++) { await F.T('touchMove', [[160 + i * 10, 320, 1]]); await sleep(30); }
+    const b3 = await F.st();
+    await F.T('touchEnd', []); await sleep(900);
+    const b4 = await F.st();
+    check('lift the second finger first: still in hand, no jump, one finger keeps dragging; letting go stamps one',
+      b1.pinch && b1.pinch.carry && b2.aim && !b2.pinch && Math.abs(b2.aim.x - b1.aim.x) < 1 && Math.abs(b2.aim.y - b1.aim.y) < 1 && b3.aim.x > b2.aim.x + 15 && b4.n === n1 + 1 && !b4.aim,
+      { b1: b1.aim, b2: b2.aim, b3: b3.aim, n: [n1, b4.n] });
     // nothing in hand: two fingers look around as before, no scaling
     await F.P.evaluate(() => window.klibb.stackMenu().held.placed(performance.now() - 60000)); await sleep(300);
     const g0 = await F.st();
