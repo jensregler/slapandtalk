@@ -80,7 +80,7 @@ async function makeReelRenderer({ roomId, style, stickers, city, size = [1280, 7
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(1); renderer.setSize(W, H, false); renderer.outputColorSpace = THREE.SRGBColorSpace;
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(city ? 0xbfe2f6 : 0x1a1c24);
+  scene.background = new THREE.Color(city ? 0x000000 : 0x1a1c24); // city: night sky (was 0xbfe2f6)
   const room = city ? buildCityRoom() : buildBoxRoom();
   scene.add(room.group);
   if (!city) {

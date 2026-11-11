@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { CITY, PLOTS, PLOT, PLOT_GAP, PLOT_SLAB, HOUSE, HALL_BLOCKS, CITY_SPAWN, PLAZA, PLAZA_BENCHES, FX_OPENING, groundAt, pushOut, doorAt, isKeptHouse } from '../../shared/city.mjs';
 
-const STONE = 0xd2c9ba, SLAB = 0xc9bfae, HALL_GREEN = 0x9fd0a8, SKY = 0xbfe2f6, STREET = 0x8f8a82, INK = 0x15130f;
+const STONE = 0xd2c9ba, SLAB = 0xc9bfae, HALL_GREEN = 0x9fd0a8, SKY = 0x000000, STREET = 0x8f8a82, INK = 0x15130f;
 const PATH = 0xb5ab9a;
 const PAVER = 0xc2b6a2, PAVER_DARK = 0xa99d88, SUBWAY_BLUE = 0x1f5fbf, FX_STONE = 0xd8c7b0; // the plaza, the subway sign, the open rooms (a touch warmer) // the painted streets: a little darker than the plots, never a dark "ditch"
 // Jens (t516u, 4 Nov 2026): no black edge lines on the houses. Flip to true to bring them back.
@@ -85,7 +85,8 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {
   // The ground: ONE flat piece (Jens, t481u – no "ditches" between the plots): the plots are painted on
   // it (pale stone squares, a thin ink line round each) with the streets between them a little darker.
   add('golv', W, D, groundMaterial(W, D), [0, 0, 0], [-Math.PI / 2, 0, 0]);
-  const sky = new THREE.MeshBasicMaterial({ color: SKY }); // the sky: evenly bright, not lit (a ceiling 24 m up would be dark)
+  // Night (Jens, 11 Nov 2026): the sky ceiling + the 4 sky walls are black (were light blue 0xbfe2f6).
+  const sky = new THREE.MeshBasicMaterial({ color: SKY }); // the sky: one even colour, not lit
   add('tak', W, D, sky, [0, H, 0], [Math.PI / 2, 0, 0]);
   add('vägg-norr', W, H, sky, [0, H / 2, -hd], [0, 0, 0]);
   add('vägg-söder', W, H, sky, [0, H / 2, hd], [0, Math.PI, 0]);
@@ -202,10 +203,12 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {
     }
   }
 
-  // Light: an open-air day – sky + ground fill and a low sun from the south-west.
-  group.add(new THREE.HemisphereLight(0xf2f8ff, 0x9a9180, 1.9));
-  const sun = new THREE.DirectionalLight(0xfff1dc, 1.6); sun.position.set(-40, 60, 50); group.add(sun);
-  const back = new THREE.DirectionalLight(0xdfe9ff, 0.5); back.position.set(40, 30, -50); group.add(back);
+  // Light: night (Jens, 11 Nov 2026) – a cool moonlit fill and a dimmer moon from the south-west, so the
+  // black sky reads as night but the streets, houses and doors stay readable.
+  // (Day was: hemisphere 0xf2f8ff/0x9a9180 1.9, sun 0xfff1dc 1.6, back 0xdfe9ff 0.5.)
+  group.add(new THREE.HemisphereLight(0x9aa8d0, 0x2a2733, 1.15));
+  const sun = new THREE.DirectionalLight(0xc8d4ff, 0.9); sun.position.set(-40, 60, 50); group.add(sun); // the moon
+  const back = new THREE.DirectionalLight(0x8090c0, 0.3); back.position.set(40, 30, -50); group.add(back);
 
   // Bus stop (city-bus TEST): large shelter between spawn and Town Hall, right of the door – in camera view.
   let busStop = null;

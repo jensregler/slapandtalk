@@ -68,6 +68,14 @@ ok('rebuild (Jens, 10 Nov 2026): kept houses 1/3/6/8 with presets, subway on plo
   for (let z = -35; z <= -9; z += 0.5) assert.ok(!C.insideHouse(0, z), `walk the plaza at z ${z}`);
   assert.equal(C.spawnOutside('stad-ab12cd-4').z, C.CITY_SPAWN.z); // an old house-4 link: the city's spawn
 });
+ok('night (Jens, 11 Nov 2026): the city sky ceiling + 4 sky walls are black, moonlit light, black highlight-reel background', () => {
+  const src = fs.readFileSync(new URL('../client/src/city.js', import.meta.url), 'utf8');
+  assert.match(src, /SKY = 0x000000\b/);
+  for (const f of ['tak', 'vägg-norr', 'vägg-söder', 'vägg-väster', 'vägg-öster']) assert.match(src, new RegExp(`add\\('${f}', [^\\n]*\\bsky,`));
+  assert.match(src, /new THREE\.HemisphereLight\(0x9aa8d0, 0x2a2733, 1\.15\)/);
+  const hl = fs.readFileSync(new URL('../client/src/highlightui.js', import.meta.url), 'utf8');
+  assert.match(hl, /city \? 0x000000 : 0x1a1c24/);
+});
 ok('nature stickers: up to 24 m high in the city\'s outside, 8 m in a house or room, min 10 cm (t482u)', async () => {
   assert.equal(C.natureMaxHeightCmIn('stad'), 2400); assert.equal(C.natureMaxHeightCmIn('stad-ab12cd'), 2400); assert.equal(C.natureMaxHeightCmIn('stad-ab12cd-2'), 800); assert.equal(C.natureMaxHeightCmIn('stad-4'), 800); assert.equal(C.natureMaxHeightCmIn('abc123'), 800);
 });
