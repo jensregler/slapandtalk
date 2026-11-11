@@ -76,6 +76,21 @@ ok('night (Jens, 11 Nov 2026): the city sky ceiling + 4 sky walls are black, moo
   const hl = fs.readFileSync(new URL('../client/src/highlightui.js', import.meta.url), 'utf8');
   assert.match(hl, /city \? 0x000000 : 0x1a1c24/);
 });
+ok('FX rooms 4/5/7 (Jens, 11 Nov 2026, voice): their ceiling is lit by the house ceiling lamps (room.js ceilingLights + its colour/decay), the rooms stay open', () => {
+  const src = fs.readFileSync(new URL('../client/src/city.js', import.meta.url), 'utf8');
+  const room = fs.readFileSync(new URL('../client/src/room.js', import.meta.url), 'utf8');
+  assert.match(room, /export const CEILING_LIGHT_COLOR = 0xfff4e0, CEILING_LIGHT_DECAY = 1\.6;/);
+  assert.match(room, /new THREE\.PointLight\(CEILING_LIGHT_COLOR, intensity, distance, CEILING_LIGHT_DECAY\)/); // the houses' lamps
+  assert.match(src, /import \{ ceilingLights, CEILING_LIGHT_COLOR, CEILING_LIGHT_DECAY \} from '\.\/room\.js';/);
+  const fx = src.slice(src.indexOf('if (p.open) {'), src.indexOf('if (p.subway) {'));
+  assert.match(fx, /add\(`\$\{tag\}-ceiling`/); // the ceiling you see (and can slap) from inside
+  assert.match(fx, /ceilingLights\(rf\.w, rf\.y0 - p\.house\.y0, rf\.d\)/); // 16 × 8 × 16, like a house
+  assert.match(fx, /new THREE\.PointLight\(CEILING_LIGHT_COLOR, intensity, distance, CEILING_LIGHT_DECAY\)/);
+  for (const p of C.FX_ROOMS) { // the roof sits on the walls at house height and covers the room; the openings stay
+    assert.equal(p.roof.y0, C.HOUSE.height); assert.equal(p.roof.w, C.HOUSE.width); assert.equal(p.roof.d, C.HOUSE.depth);
+  }
+  assert.ok(!C.insideHouse(-40.5, 0) && !C.insideHouse(40.5, 0) && !C.insideHouse(0, 39.8), 'openings on 4 (west), 5 (east), 7 (south door gap)');
+});
 ok('nature stickers: up to 24 m high in the city\'s outside, 8 m in a house or room, no lower limit beyond the 0.01 cm epsilon (t482u, Jens 11 Nov 2026)', async () => {
   assert.equal(C.natureMaxHeightCmIn('stad'), 2400); assert.equal(C.natureMaxHeightCmIn('stad-ab12cd'), 2400); assert.equal(C.natureMaxHeightCmIn('stad-ab12cd-2'), 800); assert.equal(C.natureMaxHeightCmIn('stad-4'), 800); assert.equal(C.natureMaxHeightCmIn('abc123'), 800);
 });

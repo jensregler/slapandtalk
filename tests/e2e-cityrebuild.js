@@ -66,6 +66,14 @@ async function seedPresets(dir) {
       ['subway-s', 'subway-t', 'subway-sign', 'fx4-roof', 'fx4-ceiling', 'fx5-roof', 'fx7-roof', 'fx-sign-4', 'fx-sign-5', 'fx-sign-7', 'plaza-bench', 'h0-s', 'h2-s', 'h6-s', 'h8-s'].every((x) => names.includes(x))
       && !['h1-s', 'h3-s', 'h5-s', 'h7-s', 'door-4', 'door-5', 'door-7', 'door-2'].some((x) => names.includes(x)), names.filter((x) => /^(h\d|fx|subway|door)/.test(x)));
 
+    // The FX rooms' ceiling light (Jens, 11 Nov 2026, voice): each open room 4/5/7 has the same four ceiling
+    // lamps as a house's ceiling (compared with house 1's lamps below: colour, intensity, reach, decay, layout).
+    const lampsOf = (Q, root) => Q.evaluate((root) => { const k = window.klibb, out = []; (root ? k.scene.getObjectByName(root) : k.scene).traverse((o) => { if (o.isPointLight) { const p = o.getWorldPosition(o.position.clone()); out.push({ name: o.name, fx: o.userData.fxCeiling || 0, color: o.color.getHex(), intensity: o.intensity, distance: o.distance, decay: o.decay, x: p.x, y: p.y, z: p.z }); } }); return out; }, root);
+    const fxLamps = await lampsOf(P, 'city');
+    const FXC = { 4: [-32, 0], 5: [32, 0], 7: [0, 32] };
+    check('FX rooms 4/5/7: four ceiling lamps each, inside the walls, just under the ceiling (8 m); no other point lights in the city',
+      fxLamps.length === 12 && [4, 5, 7].every((n) => { const l = fxLamps.filter((o) => o.fx === n && o.name === `fx${n}-ceiling-light`); return l.length === 4 && l.every((o) => Math.abs(o.x - FXC[n][0]) < 7.6 && Math.abs(o.z - FXC[n][1]) < 7.6 && o.y > 7 && o.y < 8); }), fxLamps);
+
     // ---- from above (the sketch's view): sky ceiling hidden, camera high over the middle, looking straight down
     await P.evaluate(() => { const k = window.klibb; const g = k.scene.getObjectByName('city'); g.traverse((o) => { if (o.name === 'tak' || /^vägg-/.test(o.name)) o.visible = false; }); k.camera.far = 400; k.camera.updateProjectionMatrix(); });
     await pose(P, 0, 125, 0.01, 0, -Math.PI / 2 + 0.0001); await sleep(1500);
@@ -131,6 +139,11 @@ async function seedPresets(dir) {
     await ready(P); await sleep(3500);
     let pr = await P.evaluate(() => window.klibb.preset());
     check('inside house 1: the preset room is on (baked walls)', pr.room === true, pr);
+    const houseLamps = await lampsOf(P, null);
+    const key = (o, cx = 0, cz = 0) => [o.color, +o.intensity.toFixed(4), +o.distance.toFixed(4), o.decay, +(o.x - cx).toFixed(3), +o.y.toFixed(3), +(o.z - cz).toFixed(3)].join(',');
+    const houseSet = houseLamps.map((o) => key(o)).sort().join(' | ');
+    check('…the FX rooms\' ceiling lamps are house 1\'s ceiling lamps (same warm colour, intensity, reach, decay, same spots under the ceiling)',
+      houseLamps.length === 4 && [4, 5, 7].every((n) => fxLamps.filter((o) => o.fx === n).map((o) => key(o, FXC[n][0], FXC[n][1])).sort().join(' | ') === houseSet), { houseSet, fx: fxLamps.map((o) => key(o, FXC[o.fx][0], FXC[o.fx][1])) });
     await shot(P, '12-house1-inside-village-in-forrest.png');
     for (const [n, name] of [[3, '13-house3-inside-reglersro.png'], [6, '14-house6-inside-modern-office.png'], [8, '15-house8-inside-cozy-village.png']]) {
       await P.goto(`${S.base}/?room=${CID}-${n}`); await ready(P); await sleep(3500);

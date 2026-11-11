@@ -33,7 +33,7 @@ export function buildBoxRoom({ width = ROOM_SIZE.width, height = ROOM_SIZE.heigh
   // Ljus: ett mjukt allmänljus + några lampor i taket (ceilingLights: samma ljus på golvet som i det gamla rummet).
   group.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 1.6));
   for (const { x, y, z, intensity, distance } of ceilingLights(width, height, depth)) {
-    const l = new THREE.PointLight(0xfff4e0, intensity, distance, 1.6);
+    const l = new THREE.PointLight(CEILING_LIGHT_COLOR, intensity, distance, CEILING_LIGHT_DECAY);
     l.position.set(x, y, z);
     group.add(l);
   }
@@ -47,6 +47,8 @@ export function buildBoxRoom({ width = ROOM_SIZE.width, height = ROOM_SIZE.heigh
 // under the ceiling. The old 10 × 4 × 10 m room had intensity 6, reach 9 m, decay 1.6; in a bigger
 // room they are further from the floor and from each other, so they get brighter and reach further
 // (the same light where you stand as before).
+// Their colour (warm white) and fall-off – shared with the city's open FX rooms (city.js).
+export const CEILING_LIGHT_COLOR = 0xfff4e0, CEILING_LIGHT_DECAY = 1.6;
 export function ceilingLights(width, height, depth) {
   const drop = Math.max(1, (height - 0.3) / 3.7), spread = Math.max(1, Math.max(width, depth) / 10);
   const intensity = 6 * Math.pow(drop, 1.6), distance = 9 * Math.max(drop, spread);

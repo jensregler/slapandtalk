@@ -5,6 +5,7 @@
 //   - drawn like Jens's sketch: pale stone slabs and houses, thick black outlines, black arched doors,
 //     a green Town Hall of three blocks with black slit windows on its top block.
 import * as THREE from 'three';
+import { ceilingLights, CEILING_LIGHT_COLOR, CEILING_LIGHT_DECAY } from './room.js';
 import { CITY, PLOTS, PLOT, PLOT_GAP, PLOT_SLAB, HOUSE, HALL_BLOCKS, CITY_SPAWN, PLAZA, PLAZA_BENCHES, FX_OPENING, groundAt, pushOut, doorAt, isKeptHouse } from '../../shared/city.mjs';
 
 const STONE = 0xd2c9ba, SLAB = 0xc9bfae, HALL_GREEN = 0x9fd0a8, SKY = 0x000000, STREET = 0x8f8a82, INK = 0x15130f;
@@ -142,6 +143,13 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {
       add(`${tag}-ceiling`, rf.w, rf.d, material(FX_STONE, rf.w, rf.d, 95 + p.n), [rf.x, rf.y0, rf.z], [Math.PI / 2, 0, 0]);
       const edge = new THREE.Mesh(new THREE.BoxGeometry(rf.w, rf.h, rf.d), material(FX_STONE, rf.w, rf.d, 99 + p.n));
       edge.position.set(rf.x, rf.y0 + rf.h / 2 + 0.01, rf.z); edge.scale.set(1.001, 0.98, 1.001); group.add(edge);
+      // The ceiling's light (Jens, 11 Nov 2026, voice): the same lamps as a house's ceiling (room.js
+      // buildBoxRoom → ceilingLights) – four warm (CEILING_LIGHT_COLOR) point lights, a quarter in from each wall, 0.3 m
+      // under the ceiling, same intensity / reach / decay 1.6 – so the open room is lit inside at night.
+      for (const { x, y, z, intensity, distance } of ceilingLights(rf.w, rf.y0 - p.house.y0, rf.d)) {
+        const lamp = new THREE.PointLight(CEILING_LIGHT_COLOR, intensity, distance, CEILING_LIGHT_DECAY);
+        lamp.name = `${tag}-ceiling-light`; lamp.position.set(rf.x + x, p.house.y0 + y, rf.z + z); lamp.userData.fxCeiling = p.n; group.add(lamp);
+      }
       // a sign over the opening: the plot's number and what the room does
       const word = { reverb: 'REVERB', delay: 'DELAY', noise: 'NOISE' }[p.fx];
       const sign = label(`${p.n} · ${word}`, 4.2, 1.05, { font: '900 88px Arial Black, Arial, sans-serif', cw: 512, ch: 128 });
