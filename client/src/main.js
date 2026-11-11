@@ -2695,12 +2695,12 @@ try { localStorage.removeItem('klibb.autoslap'); } catch { /* private */ }
 var autoSlap = null; // eslint-disable-line no-var
 
 // Sound settings (soundui.js): only reachable with entitlements.full.soundDesign.
-// Music vol (Jens, 31 Oct 2026): in the Sound settings header – how loud the room's sounds are for me.
+// Volume (was Music vol, Jens 31 Oct 2026): how loud the room's sounds are for me. ONE control only –
+// #master-vol in the Sound settings' Master block (Jens, 11 Nov 2026: the header duplicate is gone).
 const MUSIC_VOL_DEFAULT = 1;
 const musicVol = { def: MUSIC_VOL_DEFAULT, get: () => sound.volume, set: (v) => {
   sound.setVolume(v);
   const pct = String(Math.round(sound.volume * 100));
-  const mv = $('music-vol'); if (mv) mv.value = pct;
   const m2 = $('master-vol'); if (m2) m2.value = pct;
   const o2 = $('master-vol-val'); if (o2) o2.textContent = pct + ' %';
 } };
@@ -2716,6 +2716,7 @@ function saveRoomPreset() {
   presetTimer = setTimeout(() => { const cur = loadSoundLook(); putRoomPreset(ROOM, { patches: cur.patches, fx: cur.fx, radio: radio.state }); }, 500);
 }
 const radio = new Radio({ sound, room: ROOM, clock: () => (groove ? groove.now() : Date.now()), onChange: () => { filmLog?.add('radio', { what: 'dial' }); saveRoomPreset(); } });
+radio.setWalkBpm(loadRunMode().walkBpm); // MY walk tempo (per player, run mode; not the room preset)
 // The city's place effect (Jens, 5 Nov 2026; shared/cityfx.mjs): the master bus follows where I
 // stand – only outside in the city, and only for me (per listener). Houses / other rooms: neutral
 // (their own room reverb stays). Every PLACE_EVERY_MS, plain params, slewed (PLACE_SLEW).
@@ -2765,13 +2766,6 @@ const soundUi = initSoundUI({ $, sound, toast, musicVol, radio,
   radioBlock: () => radioBlock({ radio, imgUrl: radioImg(), el: elx, musicVol }),
   onOpenChange: (o) => { if (o) controls.unlock?.(); } });
 $('sound-design-btn').onclick = () => { if (entitlements.full.soundDesign) { closeMore(); soundUi.open(); } };
-{
-  // Music vol lives in Master now; keep the header input as a hidden sync target for Reset/tests.
-  const row = $('music-vol-row'); if (row) row.hidden = true;
-  const mv = $('music-vol');
-  mv.value = String(Math.round(sound.volume * 100));
-  mv.oninput = () => sound.setVolume(Number(mv.value) / 100);
-}
 
 // ---------- Esc menu actions (was menu stickers; Jens, Nov 2026) ----------
 // The big Esc buttons call the same actions. openChoice is still used for exit / city / door flows.

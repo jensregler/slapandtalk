@@ -10,6 +10,9 @@
 //           (+25 % each). Default +75 % = +7 semitones (a fifth up).
 //   lock  – "Lock to clock": the run tempo snaps to the nearest clean ratio against the walk grid
 //           (1:3, 1:2, 2:3, 1:1, 3:2, 2:1, 3:1), so walkers and runners form a polyrhythm. Default on.
+//   walkBpm – MY walk tempo (Jens, 11 Nov 2026): 30…3000 BPM, default 90, log slider. Per player
+//           (this field, in my personal run-mode settings) – not a room / city / global clock. Only my
+//           walk-sound sequencer (Steps sequencer layers, client/src/radio.js walkLoop) follows it.
 // Pure maths – shared by the web app (client/src/groove.js, soundui.js) and the unit tests.
 
 export const RUN = Object.freeze({
@@ -20,10 +23,22 @@ export const RUN = Object.freeze({
   pitchDef: 3,              // step index: +7 st (fifth)
   ratios: Object.freeze([[1, 3], [1, 2], [2, 3], [1, 1], [3, 2], [2, 1], [3, 1]]),
   lockDef: true,
+  walkMin: 30, walkMax: 3000, walkDef: 90, // walk tempo, BPM (inclusive range)
   key: 'klibb.runMode',     // sessionStorage (personal sound setting, like the groove scale)
 });
-export const RUN_DEFAULTS = Object.freeze({ tempo: RUN.tempoDef, pitch: RUN.pitchDef, lock: RUN.lockDef });
+export const RUN_DEFAULTS = Object.freeze({ tempo: RUN.tempoDef, pitch: RUN.pitchDef, lock: RUN.lockDef, walkBpm: RUN.walkDef });
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+
+// Walk tempo (BPM): clamped to 30…3000 (both ends reachable), 0.1 BPM resolution.
+export function cleanWalkBpm(b) {
+  if (!isNum(b)) return RUN.walkDef;
+  return Math.round(Math.min(RUN.walkMax, Math.max(RUN.walkMin, b)) * 10) / 10;
+}
+const WL = Math.log(RUN.walkMin), WH = Math.log(RUN.walkMax);
+// The walk-tempo slider is logarithmic: knob 0 = 30 BPM, 1 = 3000 BPM (90 BPM ≈ 0.239).
+export const walkBpmToKnob = (b) => (Math.log(cleanWalkBpm(b)) - WL) / (WH - WL);
+export const knobToWalkBpm = (k) => cleanWalkBpm(Math.exp(WL + Math.min(1, Math.max(0, isNum(k) ? k : 0)) * (WH - WL)));
+export const walkBpmLabel = (b) => { const c = cleanWalkBpm(b); return `${c < 200 ? c.toFixed(1) : Math.round(c)} BPM`; };
 
 export function cleanTempo(p) {
   if (!isNum(p)) return RUN.tempoDef;
@@ -34,7 +49,7 @@ export const pitchMin = -RUN.pitchDown.length, pitchMax = RUN.pitchUp.length;
 export function cleanPitch(i) { return isNum(i) ? Math.min(pitchMax, Math.max(pitchMin, Math.round(i))) : RUN.pitchDef; }
 export function cleanRun(r) {
   if (!r || typeof r !== 'object') return { ...RUN_DEFAULTS };
-  return { tempo: cleanTempo(r.tempo), pitch: cleanPitch(r.pitch), lock: typeof r.lock === 'boolean' ? r.lock : RUN.lockDef };
+  return { tempo: cleanTempo(r.tempo), pitch: cleanPitch(r.pitch), lock: typeof r.lock === 'boolean' ? r.lock : RUN.lockDef, walkBpm: cleanWalkBpm(r.walkBpm) };
 }
 
 // Tempo slider % → raw step-rate factor (before lock-to-clock).

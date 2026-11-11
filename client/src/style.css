@@ -796,8 +796,6 @@ body.touch #room-panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; m
 .choice-btn { font-size: 26px; font-weight: 800; padding: 20px 24px; border-radius: 16px; border: 3px solid #fff; background: #1d1d1d; color: #fff; cursor: pointer; }
 .choice-btn:hover { background: #333; }
 #sound-panel .more-head { display: flex; align-items: center; gap: 10px; }
-.music-vol { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 14px; font-weight: 700; }
-.music-vol input { width: 120px; }
 
 /* The start menu (Run-DMC style; Jens, 6 Nov 2026): black square, dark-red bars, huge white type */
 body.start-card-on { overflow: auto; background: #fff; }

@@ -1,11 +1,14 @@
 // Master block (was "the radio"; Jens Nov 2026 rebuild).
 // Sound settings Master shows only: master volume (ears) + City sound (0–100 dry↔wet of city FX).
 // Older controls (on/off, Blend, Tempo, Bird/Wind/Four voices) stay in cleanRadio / Radio engine
-// paths but have no UI; on+knob are forced to "my sound" by cleanRadio. Walk tempo lives on Steps.
+// paths but have no UI; on+knob are forced to "my sound" by cleanRadio. Walk tempo lives on Steps:
+// per player (shared/runmode.mjs walkBpm, 30–3000 BPM), only for my walk-sound sequencer – the room
+// clock (tempo(): sequencers, four voices, dance, voice FX) no longer follows it (Jens, 11 Nov 2026).
 import { cleanRadio, cleanPreset, FOUR_VOICES, RADIO, bpmToKnob, knobToBpm } from '../../shared/radio.mjs';
-import { roomTempo, loopSteps, barMsAt, barsAtTime, MASTER } from '../../shared/clock.mjs';
+import { roomTempo, loopSteps, barMsAt, barsAtTime } from '../../shared/clock.mjs';
 import { SOUNDS, retune } from '../../shared/synth.mjs';
 import { planWalkSeq, newWalkSeq } from '../../shared/walkseq.mjs';
+import { RUN, cleanWalkBpm } from '../../shared/runmode.mjs';
 import { Ambient } from './ambient.js';
 
 const OWNER_KEY = 'klibb.soundOwner';
@@ -35,7 +38,11 @@ export class Radio {
     sound.setRadio(this.state);
     // Walk-sound sequencer (shared/walkseq.mjs, Jens t783u): only while I walk, run mode applies.
     this.walk = { until: 0, run: null }; this.walkSeq = new Map(); // key -> newWalkSeq()
+    this.walkBpm = RUN.walkDef; // MY walk tempo (per player; main.js / soundui.js set it from my run mode)
   }
+  // My walk tempo, 30…3000 BPM (shared/runmode.mjs cleanWalkBpm). Only the walk sequencer reads it.
+  setWalkBpm(bpm) { this.walkBpm = cleanWalkBpm(bpm); return this.walkBpm; }
+  walkTempo() { return { bpm: this.walkBpm, phaseMs: 0 }; }
   // main.js walkSounds, every frame: until = wall ms I count as walking until (the footstep groove's
   // own walk detection, 0 = standing); run = { rate, tune } while Shift-running (groove.run) or null.
   setWalk({ until = 0, run = null } = {}) {
@@ -58,8 +65,9 @@ export class Radio {
     this.amb.setBird({ on: !off && this.state.bird.on, vol: this.state.bird.vol });
     this.amb.setWind({ on: !off && this.state.wind.on, vol: this.state.wind.vol });
   }
-  // The master clock for me in this room: my bpm × this room's small nudge, + its phase shift.
-  tempo() { return { bpm: this.state.bpm * (this.roomTempo.bpm / MASTER.bpm), phaseMs: this.roomTempo.phaseMs }; }
+  // The master clock in this room: 90 BPM × this room's small nudge, + its phase shift. Not my walk tempo
+  // (state.bpm is a dormant preset field; walk tempo = walkTempo(), per player).
+  tempo() { return { bpm: this.roomTempo.bpm, phaseMs: this.roomTempo.phaseMs }; }
   // Lookahead scheduler (call every frame): what falls in the next 150 ms is put on the AudioContext
   // clock. Loops faster than RADIO.fastSteps steps/s switch to "tone mode": one sustained voice per
   // second with a per-sample step gate in the worklet (synth.js play({ gate })), so they become a tone.
@@ -82,8 +90,9 @@ export class Radio {
     }
     let fired = 0;
     const walk = this.walk, seen = new Set();
+    const wTempo = this.walkTempo(), wBarS = barMsAt(wTempo.bpm) / 1000; // the walk sequencer: MY walk tempo
     for (const lp of loops) {
-      if (lp.walk) { fired += this.walkLoop(lp, { now, ahead, tempo, barS, at, walk }); seen.add(lp.key); continue; }
+      if (lp.walk) { fired += this.walkLoop(lp, { now, ahead, tempo: wTempo, barS: wBarS, at, walk }); seen.add(lp.key); continue; }
       const rate = lp.steps / (lp.bars * barS); // steps per second
       if (rate <= RADIO.fastSteps) {
         for (const e of loopSteps(from, ahead, { steps: lp.steps, bars: lp.bars, tempo, max: 64 })) { lp.play(at(e.t), e.i); fired++; this.voiceLog.push({ t: Math.round(e.t), key: lp.key, i: e.i }); }
@@ -159,11 +168,11 @@ export function radioBlock({ radio, imgUrl, el, musicVol = null }) {
   box.appendChild(el('legend', null, 'Master'));
   box.appendChild(el('p', 'hint', 'Volume in your ears, and how much of the city effects you hear.'));
 
-  // ----- Master volume (was Music vol in the header) -----
+  // ----- Volume: the ONLY volume control (Jens, 11 Nov 2026: the header "Music vol" duplicate is gone) -----
   const volRow = el('div', 'snd-sl'); volRow.dataset.param = 'master-vol';
   volRow.appendChild(el('span', null, 'Volume'));
   const vol = el('input'); vol.type = 'range'; vol.min = 0; vol.max = 100; vol.step = 1; vol.id = 'master-vol';
-  vol.setAttribute('aria-label', 'Master volume');
+  vol.setAttribute('aria-label', 'Volume');
   const vol0 = musicVol ? musicVol.get() : 1;
   vol.value = String(Math.round(vol0 * 100));
   const volOut = el('output', null, `${Math.round(vol0 * 100)} %`); volOut.id = 'master-vol-val';

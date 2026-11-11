@@ -68,7 +68,7 @@ ok('walk ↔ run switch mid-bar: the pattern position carries on, no doubled ste
   for (let k = 1; k < evs.length; k++) assert.ok(evs[k].t - evs[k - 1].t > BAR / 8 * 0.44, 'no doubled step');
   assert.ok(evs.some((e) => e.tune === 1.5) && evs.filter((e) => e.t > back + 200).every((e) => e.tune === 1), 'run pitch only while running');
 });
-ok('walk tempo (radio bpm) scales the walk sequencer like the other sequencers', () => {
+ok('walk tempo (my per-player walkBpm) scales the walk sequencer', () => {
   const fast = { bpm: 180, phaseMs: 0 }, st = newWalkSeq();
   const evs = []; for (let now = T0; now < T0 + 2000; now += 16) evs.push(...planWalkSeq(st, { now, ahead: now + 150, walk: { until: now + 140, run: null }, steps: 4, bars: 1, tempo: fast }));
   for (let k = 1; k < evs.length; k++) assert.ok(near(evs[k].t - evs[k - 1].t, barMsAt(180) / 4));

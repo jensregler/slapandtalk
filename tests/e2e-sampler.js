@@ -43,9 +43,9 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     const r0 = await A.evaluate(() => ({ radio: !!document.querySelector('#snd-radio #radio-box'), vol: !!document.getElementById('master-vol'), city: !!document.getElementById('city-sound'),
       knobEl: !!document.getElementById('radio-knob'), bpmEl: !!document.getElementById('radio-bpm'),
       bpm: window.klibb.radio().state.bpm, cityV: window.klibb.radio().state.city, knob: window.klibb.radio().state.knob, on: window.klibb.radio().state.on,
-      tempo: window.klibb.radio().tempo(), headerVol: document.getElementById('music-vol-row')?.hidden }));
+      tempo: window.klibb.radio().tempo(), headerVol: !!document.getElementById('music-vol-row') || !!document.getElementById('music-vol') }));
     check('Sound settings Master: volume + city sound only (no blend/tempo/power UI); bpm 90, city 0, on+knob forced my-sound',
-      r0.radio && r0.vol && r0.city && !r0.knobEl && !r0.bpmEl && r0.bpm === 90 && r0.cityV === 0 && r0.knob === 0.5 && r0.on === true && r0.headerVol === true, r0);
+      r0.radio && r0.vol && r0.city && !r0.knobEl && !r0.bpmEl && r0.bpm === 90 && r0.cityV === 0 && r0.knob === 0.5 && r0.on === true && r0.headerVol === false, r0);
     check(`…this room's clock is slightly off 90 (deterministic): ${r0.tempo.bpm} BPM, phase ${r0.tempo.phaseMs} ms`, Math.abs(r0.tempo.bpm - 90) <= 0.3 && r0.tempo.phaseMs >= 0 && r0.tempo.phaseMs <= 12, r0.tempo);
     // ---------- sampler layer ----------
     await A.click('#snd-add-sampler'); await sleep(200);
@@ -196,8 +196,8 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     const forced = await A.evaluate(() => { window.klibb.radio().set({ knob: 0, on: false }); return window.klibb.radio().state; });
     check('blend/power dormant: cleanRadio forces on + knob 0.5 (my sound)', forced.on === true && forced.knob === 0.5, forced);
     await A.$eval('#master-vol', (r) => { r.value = '40'; r.dispatchEvent(new Event('input', { bubbles: true })); });
-    const vol = await A.evaluate(() => ({ v: window.klibb.soundObj().volume, ui: document.getElementById('master-vol').value, hidden: document.getElementById('music-vol').value }));
-    check('Master volume is the ears gain (Music vol merged)', Math.abs(vol.v - 0.4) < 1e-6 && vol.ui === '40' && vol.hidden === '40', vol);
+    const vol = await A.evaluate(() => ({ v: window.klibb.soundObj().volume, ui: document.getElementById('master-vol').value, header: !!document.getElementById('music-vol') }));
+    check('Volume is the ears gain – the only volume control (no header duplicate)', Math.abs(vol.v - 0.4) < 1e-6 && vol.ui === '40' && !vol.header, vol);
     await A.$eval('#city-sound', (r) => { r.value = '55'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
     const city = await A.evaluate(() => ({ c: window.klibb.radio().state.city, out: document.getElementById('city-sound-val').textContent, placeCity: window.klibb.soundObj().engine?.place?.city }));
     check('City sound 0–100 sets radio.city (dry/wet of city FX)', Math.abs(city.c - 0.55) < 1e-6 && /55 %/.test(city.out), city);
@@ -208,9 +208,9 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     check('Steps tab: Walk tempo, Run tempo, Pitch correction (no lock UI)', walkUi.walk && walkUi.run && walkUi.pitch && !walkUi.lock, walkUi);
     await A.$eval('#walk-tempo', (r) => { r.value = '1000'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
     await sleep(400);
-    const fast = await A.evaluate(() => ({ bpm: window.klibb.radio().state.bpm, out: document.getElementById('walk-tempo-val').textContent }));
-    check('Walk tempo to top: ~120 000 BPM (semitone grid)', fast.bpm > 100000 && /BPM/.test(fast.out), fast);
-    await A.evaluate(() => { window.klibb.radio().set({ bpm: 90, voices: { on: false }, city: 0 }); window.klibb.soundObj().setVolume(1); });
+    const fast = await A.evaluate(() => ({ bpm: window.klibb.radio().walkBpm, out: document.getElementById('walk-tempo-val').textContent, room: window.klibb.radio().tempo().bpm }));
+    check('Walk tempo to top: 3000 BPM (my walk tempo; the room clock stays ~90)', fast.bpm === 3000 && fast.out === '3000 BPM' && Math.abs(fast.room - 90) <= 0.3, fast);
+    await A.evaluate(() => { window.klibb.radio().setWalkBpm(90); window.klibb.radio().set({ voices: { on: false }, city: 0 }); window.klibb.soundObj().setVolume(1); });
     // bird + wind still work via API (UI dormant)
     await A.evaluate(() => { window.klibb.radio().set({ bird: { on: true }, wind: { on: true } }); });
     await sleep(500);

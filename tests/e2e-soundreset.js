@@ -40,7 +40,13 @@ const CUSTOM = {
     const bSees0 = await B.evaluate(() => window.klibb.players()[0].look.sound);
     check('before: A has custom sounds + effects (personal: B gets only A\'s seed, never the settings – Jens, 2 Nov 2026)', !!before.patches && Object.keys(before.patches).length === 4 && before.fx && before.fx.crush.bits === 3 && bSees0 && !bSees0.patches && !bSees0.fx, { before: before && Object.keys(before), bSees0 });
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
-    check('…Master volume at 35 (Music vol merged into Master; header input synced/hidden)', await A.inputValue('#music-vol') === '35' && await A.evaluate(() => document.getElementById('music-vol-row')?.hidden === true));
+    const vol1 = await A.evaluate(() => ({ v: document.getElementById('master-vol')?.value, header: !!document.getElementById('music-vol') || !!document.getElementById('music-vol-row'),
+      top: [...document.querySelectorAll('#sound-panel .more-head input[type=range], #snd-radio input[type=range]')].filter((i) => /volume/i.test(i.getAttribute('aria-label') || i.parentElement.textContent)).length }));
+    check('…Volume at 35 – the ONLY volume control at the top (no header Music vol duplicate; Jens 11 Nov 2026)', vol1.v === '35' && !vol1.header && vol1.top === 1, vol1);
+    await A.click('#snd-tabs [data-tab="step"]'); await sleep(150);
+    await A.$eval('#walk-tempo', (r) => { r.value = '800'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+    check('…walk tempo tried out (live, not saved): ~1200 BPM', await A.evaluate(() => window.klibb.radio().walkBpm > 1000 && window.klibb.radio().walkBpm < 1500));
+    await A.click('#snd-tabs [data-tab="slap"]'); await sleep(150);
     const fxBefore = await A.evaluate(() => { const st = window.klibb.soundUi().state(); return JSON.stringify(st.fx); });
     const tabLabels = await A.$$eval('#snd-tabs button', (b) => b.map((x) => x.textContent));
     check('sound settings tabs: Slap, Peel, Steps, Landing (no Nope, Effects)', tabLabels.join() === 'Slap,Peel,Steps,Landing', tabLabels);
@@ -49,20 +55,22 @@ const CUSTOM = {
       const k = window.klibb, sh = k.synthShared(), st = k.soundUi().state(), seed = localStorage.getItem('klibb.soundSeed');
       const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
       const tabs = Object.fromEntries(sh.SOUNDS.map((s) => [s, same(st.patches[s], sh.variant(sh.DEFAULT_PATCHES[s], seed, s)) && !st.patches[s].fx]));
-      return { tabs, custom: [...st.custom], fx: same(sh.cleanFx(st.fx), sh.cleanFx(sh.FX_DEFAULTS)), mv: document.getElementById('music-vol').value, fxJson: JSON.stringify(st.fx),
+      return { tabs, custom: [...st.custom], fx: same(sh.cleanFx(st.fx), sh.cleanFx(sh.FX_DEFAULTS)), mv: document.getElementById('master-vol').value, walkBpm: k.radio().walkBpm, runWalk: st.run.walkBpm, fxJson: JSON.stringify(st.fx),
         visible: [...document.querySelectorAll('#snd-tabs button')].map((x) => x.dataset.tab) };
     });
     check('Reset: every sound (Slap, Peel, Steps, Duff) back to my default, no own effects, nothing custom', Object.values(r.tabs).every(Boolean) && r.custom.length === 0, r);
     check('…Effects data back to default (tab hidden; city drives fx – state still resets)', r.fx && r.fxJson !== fxBefore, { before: fxBefore, after: r.fxJson, fx: r.fx });
     check('…visible tabs Slap/Peel/Steps/Landing', r.visible.join() === 'slap,peel,step,duff', r.visible);
-    check('…Master volume back to 100 and the sound follows (master volume 1)', r.mv === '100' && await A.evaluate(() => sessionStorage.getItem('klibb.musicVol')) === '1', r.mv);
+    check('…Volume back to 100 and the sound follows (volume 1)', r.mv === '100' && await A.evaluate(() => sessionStorage.getItem('klibb.musicVol')) === '1', r.mv);
+    check('…walk tempo back to 90 BPM', r.walkBpm === 90 && r.runWalk === 90, { walkBpm: r.walkBpm, runWalk: r.runWalk });
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(150);
     const stepUi = await A.evaluate(() => { const v = document.querySelector('#snd-body .snd-sl[data-param="level"] output').textContent; const seed = localStorage.getItem('klibb.soundSeed'); const sh = window.klibb.synthShared(); return { v, want: Math.round(sh.variant(sh.DEFAULT_PATCHES.step, seed, 'step').gain * 100) + '%' }; });
     check('…the Steps tab shows its default (Volume slider)', stepUi.v === stepUi.want, stepUi);
     await A.screenshot({ path: path.join(SHOTS, '40-sound-reset.png') });
     // Cancel after Reset: nothing saved, Music vol back to 35
     await A.click('#snd-cancel'); await sleep(200);
-    check('Cancel after Reset: nothing saved, Master volume back where it was', await A.evaluate((R) => !!sessionStorage.getItem('klibb.sound') && sessionStorage.getItem('klibb.musicVol') === '0.35' && document.getElementById('music-vol').value === '35', R));
+    check('Cancel after Reset: nothing saved, Volume back where it was', await A.evaluate((R) => !!sessionStorage.getItem('klibb.sound') && sessionStorage.getItem('klibb.musicVol') === '0.35' && document.getElementById('master-vol').value === '35', R));
+    check('…and the walk tempo back to the saved one (90; the try-out is undone)', await A.evaluate(() => window.klibb.radio().walkBpm === 90));
     // Reset + Save
     await A.evaluate(() => window.klibb.soundUi().open()); await A.click('#snd-reset'); await sleep(200); await A.click('#snd-save'); await sleep(1200);
     const saved = await A.evaluate((R) => ({ ls: sessionStorage.getItem('klibb.sound'), vol: sessionStorage.getItem('klibb.musicVol'), mine: window.klibb.soundMine() }), R);
@@ -70,7 +78,7 @@ const CUSTOM = {
     check('Save: the defaults are kept on this device (no custom sound stored, Music vol 1) and my own engine plays the defaults', saved.ls === null && saved.vol === '1' && saved.mine && !saved.mine.patches && !saved.mine.fx, saved);
     check('…and B still gets only A\'s seed (no patches, no effects – nothing is sent)', bSees && !bSees.patches && !bSees.fx && bSees.seed === before.seed, bSees);
     await A.reload(); await A.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }); await sleep(500);
-    const again = await A.evaluate(() => { window.klibb.soundUi().open(); return { custom: [...window.klibb.soundUi().state().custom], mv: document.getElementById('music-vol').value }; });
+    const again = await A.evaluate(() => { window.klibb.soundUi().open(); return { custom: [...window.klibb.soundUi().state().custom], mv: document.getElementById('master-vol').value }; });
     check('…after a reload it is still the defaults', again.custom.length === 0 && again.mv === '100', again);
 
     // ---------- Session model (t572u): room → city keeps; city → new room resets; fresh load defaults ----------

@@ -62,18 +62,26 @@ const KEY = 'run-e2e-full-key';
       t: document.getElementById('run-tempo-val')?.textContent, p: document.getElementById('run-pitch-val')?.textContent,
       lock: document.getElementById('run-lock'),
       tmin: document.getElementById('run-tempo')?.min, tmax: document.getElementById('run-tempo')?.max, tstep: document.getElementById('run-tempo')?.step,
-      bpm: window.klibb.radio().state.bpm }));
+      wmin: document.getElementById('walk-tempo')?.dataset.min, wmax: document.getElementById('walk-tempo')?.dataset.max,
+      bpm: window.klibb.radio().walkBpm }));
     check('Steps tab: Walk tempo (~90 BPM), Run tempo (+100% · 2:1), Pitch correction (+75% fifth); no lock UI',
-      ui.box && /90/.test(ui.walk || '') && ui.t === '+100% · 2:1' && ui.p === '+75% · +7 st (fifth up)' && !ui.lock && ui.tmin === '-200' && ui.tmax === '200' && ui.tstep === '12.5' && ui.bpm === 90, ui);
+      ui.box && /90/.test(ui.walk || '') && ui.t === '+100% · 2:1' && ui.p === '+75% · +7 st (fifth up)' && !ui.lock && ui.tmin === '-200' && ui.tmax === '200' && ui.tstep === '12.5' && ui.bpm === 90 && ui.wmin === '30' && ui.wmax === '3000', ui);
     await A.evaluate(() => { const w = document.getElementById('walk-tempo'); w.value = '500'; w.dispatchEvent(new Event('input', { bubbles: true })); });
-    const walkBpm = await A.evaluate(() => window.klibb.radio().state.bpm);
-    check('Walk tempo slider moves the room clock (radio.bpm)', walkBpm > 90 && walkBpm < 5000, walkBpm);
-    await A.evaluate(() => { window.klibb.radio().set({ bpm: 90 }); const s = document.getElementById('run-tempo'); s.value = '50'; s.dispatchEvent(new Event('input', { bubbles: true })); const p = document.getElementById('run-pitch'); p.value = '-5'; p.dispatchEvent(new Event('input', { bubbles: true })); });
+    const wt = await A.evaluate(() => ({ bpm: window.klibb.radio().walkBpm, room: window.klibb.radio().tempo().bpm, out: document.getElementById('walk-tempo-val').textContent }));
+    check('Walk tempo slider: knob middle = 300 BPM, my walk tempo only – the room clock stays ~90', Math.abs(wt.bpm - 300) < 1 && wt.out === '300 BPM' && Math.abs(wt.room - 90) <= 0.3, wt);
+    for (const [k, want] of [['0', 30], ['1000', 3000]]) {
+      const b = await A.evaluate((k) => { const w = document.getElementById('walk-tempo'); w.value = k; w.dispatchEvent(new Event('input', { bubbles: true })); return window.klibb.radio().walkBpm; }, k);
+      check(`Walk tempo slider end ${k} = ${want} BPM`, b === want, b);
+    }
+    await A.evaluate(() => { const w = document.getElementById('walk-tempo'); w.value = '600'; w.dispatchEvent(new Event('input', { bubbles: true })); const s = document.getElementById('run-tempo'); s.value = '50'; s.dispatchEvent(new Event('input', { bubbles: true })); const p = document.getElementById('run-pitch'); p.value = '-5'; p.dispatchEvent(new Event('input', { bubbles: true })); });
     const ui2 = await A.evaluate(() => ({ t: document.getElementById('run-tempo-val').textContent, p: document.getElementById('run-pitch-val').textContent }));
     check('the sliders show the mapping (+50% · 3:2, −200% octave down)', ui2.t === '+50% · 3:2' && ui2.p === '-200% · -12 st (octave down)', ui2);
     await A.evaluate(() => document.getElementById('snd-save').click());
     const saved = await A.evaluate(() => window.klibb.runMode());
     check('Save keeps it (personal, this visit)', saved.tempo === 50 && saved.pitch === -5 && saved.lock === true, saved);
+    const wantW = Math.round(30 * Math.pow(100, 0.6) * 10) / 10;
+    const pp = { a: await A.evaluate(() => ({ run: window.klibb.runMode().walkBpm, radio: window.klibb.radio().walkBpm })), b: await B.evaluate(() => ({ run: window.klibb.runMode().walkBpm, radio: window.klibb.radio().walkBpm, room: window.klibb.radio().tempo().bpm })) };
+    check(`per player: A saved walk tempo ${wantW} BPM, B (same room) keeps its own 90 BPM`, Math.abs(pp.a.run - wantW) < 0.2 && pp.a.radio === pp.a.run && pp.b.run === 90 && pp.b.radio === 90 && Math.abs(pp.b.room - 90) <= 0.3, pp);
 
     // ---------- Shift + W = running ----------
     await A.evaluate(() => { window.klibb.grooveObj().log.length = 0; });

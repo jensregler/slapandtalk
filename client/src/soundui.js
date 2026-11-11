@@ -14,8 +14,7 @@ import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseT
 import { loadSampleFile, clearSamples, pruneSamples, ensureSamples } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
-import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, pitchMin, pitchMax, runRate, pitchRatio, pitchLabel, tempoLabel } from '../../shared/runmode.mjs';
-import { cleanBpm, bpmToKnob, knobToBpm } from '../../shared/radio.mjs';
+import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, pitchMin, pitchMax, runRate, pitchRatio, pitchLabel, tempoLabel, cleanWalkBpm, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../../shared/runmode.mjs';
 
 // Visit-scoped (Jens, 6 Nov 2026): patches / FX / Music vol / groove / run / voice FX / Hear myself
 // follow you from a room out into the City. Entering a different room (or a fresh load into a room)
@@ -193,7 +192,7 @@ const FX_UNITS = [['reverb', 'Reverb'], ['delay', 'Delay'], ['filter', 'Filter']
 const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Landing', fx: 'Effects' }; // Landing = peel landing thud (duff); fx kept for city code paths, not listed in SOUND_TABS
 
 // musicVol: { get, set, def } – master volume (was Music vol header; now in Master section).
-// radioBlock: () => Master section (volume + city sound). radio: Radio instance (walk tempo on Steps).
+// radioBlock: () => Master section (the one Volume + city sound). radio: Radio instance (my walk tempo on Steps).
 export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, musicVol = null, radioBlock = null, radio = null }) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const st = { open: false, tab: 'slap', patches: {}, fx: null, rolls: 0 };
@@ -208,9 +207,11 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     st.run = { ...loadRunMode() };
     st.open = true; $('sound-panel').hidden = false; render(); onOpenChange(true);
   }
-  // Closed without saving (✕ / Cancel): a Music vol that only Reset changed goes back too.
+  // Closed without saving (✕ / Cancel): a Volume that only Reset changed goes back too, and so does
+  // a walk tempo that was only tried out (the saved one from my run mode).
   function close(saved = false) {
     if (!saved && st.volReset && musicVol && st.vol0 != null) { musicVol.set(st.vol0); st.volReset = false; }
+    if (!saved && radio) radio.setWalkBpm(loadRunMode().walkBpm);
     closeAsk(); closePop();
     st.open = false; $('sound-panel').hidden = true; onOpenChange(false);
   }
@@ -627,15 +628,11 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   }
 
   // ---------- Walk + Run (Steps tab; walk tempo was Master tempo; run = shared/runmode.mjs) ----------
-  function walkBpmLabel(bpm) {
-    const b = cleanBpm(bpm);
-    return `${b.toFixed(b < 200 ? 1 : 0)} BPM`;
-  }
   function runBlock() {
     const r = st.run;
     const box = el('fieldset', 'snd-run'); box.id = 'snd-run';
     box.appendChild(el('legend', null, S.stepsModeTitle || 'Walk & run'));
-    box.appendChild(el('p', 'hint', S.stepsModeHint || 'Walk tempo is the room clock (dance, sequencers). Hold Shift to run – then run tempo and pitch apply.'));
+    box.appendChild(el('p', 'hint', S.stepsModeHint || 'Walk tempo is yours alone (30–3000 BPM): your walk-sound sequencer follows it while you walk. Hold Shift to run – then run tempo and pitch apply.'));
     const row = (id, label, title, min, max, step, value, show, onInput) => {
       const d = el('div', 'snd-sl'); d.dataset.param = id; d.title = title;
       const inp = el('input'); inp.type = 'range'; inp.id = id; inp.min = min; inp.max = max; inp.step = step; inp.value = value; inp.setAttribute('aria-label', label);
@@ -643,13 +640,16 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       inp.oninput = () => { onInput(Number(inp.value)); out.textContent = show(); };
       d.append(el('span', null, label), inp, out); return d;
     };
-    // Walk tempo (was Master Tempo): log BPM knob 30…120000, default 90. Drives radio.state.bpm / dance clock.
-    const bpm0 = radio ? radio.state.bpm : 90;
-    const walkRow = row('walk-tempo', S.walkTempo || 'Walk tempo', S.walkTempoTitle || 'Steps / dance clock while walking (default 90 BPM)',
-      0, 1000, 1, Math.round(bpmToKnob(bpm0) * 1000),
-      () => walkBpmLabel(radio ? radio.state.bpm : bpm0),
-      (v) => { if (radio) radio.set({ bpm: knobToBpm(v / 1000) }, { save: false }); });
-    walkRow.querySelector('input').addEventListener('change', () => { if (radio) radio.set({}); });
+    // Walk tempo (Jens, 11 Nov 2026): MY tempo, per player (st.run.walkBpm → shared/runmode.mjs), log slider
+    // 30…3000 BPM, default 90. Heard live while dragging (radio.setWalkBpm); Save keeps it, Cancel undoes it.
+    // Only my walk-sound sequencer follows it – not the room clock, dance, other sequencers or other players.
+    r.walkBpm = cleanWalkBpm(r.walkBpm);
+    const walkRow = row('walk-tempo', S.walkTempo || 'Walk tempo', S.walkTempoTitle || 'Your own walk tempo, 30–3000 BPM (default 90)',
+      0, 1000, 1, Math.round(walkBpmToKnob(r.walkBpm) * 1000),
+      () => walkBpmLabel(r.walkBpm),
+      (v) => { r.walkBpm = knobToWalkBpm(v / 1000); if (radio) radio.setWalkBpm(r.walkBpm); });
+    const wIn = walkRow.querySelector('input');
+    wIn.dataset.min = String(RUN.walkMin); wIn.dataset.max = String(RUN.walkMax);
     box.appendChild(walkRow);
     box.appendChild(row('run-tempo', S.runTempo, S.runTempoTitle, RUN.tempoMin, RUN.tempoMax, RUN.tempoStep, r.tempo, () => tempoLabel(r), (v) => { r.tempo = cleanTempo(v); }));
     box.appendChild(row('run-pitch', S.runPitch || 'Pitch correction', S.runPitchTitle, pitchMin, pitchMax, 1, r.pitch, () => pitchLabel(r.pitch), (v) => { r.pitch = cleanPitch(v); }));
@@ -682,23 +682,23 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     render(); preview();
   }
   // Reset = everything back to the defaults (Jens, 2 Nov 2026): every SOUNDS patch, Effects data,
-  // Master volume, walk tempo (90), city sound (0), and run mode.
+  // Volume, city sound (0), and run mode incl. my walk tempo (90).
   function reset() {
     for (const k of SOUNDS) st.patches[k] = base(k);
     st.custom = new Set();
     st.fx = cleanFx(FX_DEFAULTS);
     if (musicVol) { musicVol.set(musicVol.def); st.volReset = true; }
     st.run = { ...RUN_DEFAULTS };
-    if (radio) radio.set({ bpm: 90, city: 0 });
+    if (radio) { radio.set({ city: 0 }); radio.setWalkBpm(st.run.walkBpm); }
     render(); preview();
-    toast(S.soundReset || 'All sounds, effects and Master volume back to default – Save to keep it', 2600);
+    toast(S.soundReset || 'All sounds, effects and Volume back to default – Save to keep it', 2600);
   }
   function save() {
     const patches = {}; for (const k of st.custom) patches[k] = st.patches[k];
     const fx = JSON.stringify(cleanFx(st.fx)) === JSON.stringify(cleanFx(FX_DEFAULTS)) ? undefined : st.fx;
     const clean = saveSoundLook({ patches, fx });
     if (Object.keys(patches).length && !clean.patches) { toast(S.soundTooBig || 'Too much sound data – remove a layer or two.', 3000); return; }
-    saveRunMode(st.run);
+    const run = saveRunMode(st.run); if (radio) radio.setWalkBpm(run.walkBpm);
     onSave(clean); st.volReset = false; close(true); toast(S.soundSaved || 'Sound settings saved', 1800);
   }
 

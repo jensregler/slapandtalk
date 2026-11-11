@@ -1,8 +1,9 @@
 // Master / room sound (was "the radio"; Jens, 5 Nov 2026 + rebuild Nov 2026).
-// Sound-settings Master UI shows only: master volume (ears) + City sound (0–100 dry↔wet).
+// Sound-settings Master UI shows only: Volume (ears; the only volume control) + City sound (0–100 dry↔wet).
 // Saved shape still carries the older fields so presets load:
 //   on, knob – forced to on + 0.5 ("my sound"); Blend / power UI removed
-//   bpm      – walk tempo (moved to Steps tab; dance clock / radio.tempo() follow it)
+//   bpm      – dormant (Jens, 11 Nov 2026): walk tempo is per player now (shared/runmode.mjs walkBpm,
+//              30–3000 BPM); radio.tempo() is the room clock and no longer reads this
 //   city     – 0..1 dry/wet of the city place bus (reverb + delay); 0 = dry, 1 = wet only
 //   bird, wind, voices – dormant (engine paths kept; no Master UI)
 // Per PLAYER and per ROOM: saved on the server, never broadcast.
