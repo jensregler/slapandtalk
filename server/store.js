@@ -387,6 +387,18 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       return res;
     });
   }
+  // Put a whole room in place (a city import – server/cityarchive.js): replaces what is there (or makes it),
+  // in the room's lock, and waits until it is written. data: a room record (its id is set to `id`).
+  async function replaceRoom(id, data) {
+    return withLock(id, async () => {
+      await loadRoom(id);
+      const { exists, ...rest } = data || {};
+      const room = normalize(id, { ...rest, id });
+      markDirty(id, room);
+      await writeRoom(id);
+      return structuredClone(room);
+    });
+  }
   // Läs ett rum utan kopia och utan lås (bara för att läsa).
   async function peek(id) { return structuredClone(await peekRoom(id)); }
 
@@ -623,7 +635,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
   }
 
   return {
-    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, addStamps, deleteStamp, peelStamps, resetStamps, clearMine, noteVisitor, listRooms, deleteRoom, lastActivity,
+    adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, replaceRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, addStamps, deleteStamp, peelStamps, resetStamps, clearMine, noteVisitor, listRooms, deleteRoom, lastActivity,
     deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, setGroove, addPeel, peelState, expirePeels, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle, getSoundPreset, putSoundPreset,
   };

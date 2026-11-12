@@ -39,7 +39,24 @@ if (licenses.enabled) console.log('Full version: Lemon Squeezy keys on' + (proce
 let realtime = null; // set when the server listens
 const demo = DEMO ? createDemo({ store, settings: DEMO, onExpire: async (id) => { if (realtime) realtime.closeRoom(id, { type: 'room:closed' }); await recorder.stop(id, 'closed').catch(() => null); } }) : null;
 const library = loadLibrary();
-const app = createApp(store, { adminToken: process.env.ADMIN_TOKEN || '', quickTtlHours: QUICK_TTL_HOURS, recorder, entitle, demo, library });
+// Local mode (Jens's own PC – scripts/start-local.js / start-local.bat, README "Run the city on your own PC"):
+// LOCAL_MODE=1 → listens on this computer only (127.0.0.1), keeps empty cities (nobody else comes by), and –
+// when no ADMIN_TOKEN is set – makes its own admin token once in DATA_DIR (local-admin-token.txt), so the
+// Esc menu's Export / Import city work here without the production key.
+const LOCAL = /^(1|true|on|yes)$/i.test(String(process.env.LOCAL_MODE || ''));
+function localAdminToken() {
+  if (process.env.ADMIN_TOKEN) return process.env.ADMIN_TOKEN;
+  const fs = require('fs'), path = require('path'), crypto = require('crypto');
+  const dir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+  const file = path.join(dir, 'local-admin-token.txt');
+  try { const t = fs.readFileSync(file, 'utf8').trim(); if (t.length >= 32) return t; } catch { /* first start */ }
+  const t = crypto.randomBytes(24).toString('hex');
+  fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(file, t + '\n', { mode: 0o600 });
+  return t;
+}
+const ADMIN = LOCAL ? localAdminToken() : (process.env.ADMIN_TOKEN || '');
+if (LOCAL && process.env.EMPTY_ROOM_DELETE == null) process.env.EMPTY_ROOM_DELETE = '0';
+const app = createApp(store, { adminToken: ADMIN, local: LOCAL ? { token: ADMIN } : null, quickTtlHours: QUICK_TTL_HOURS, recorder, entitle, demo, library });
 // Invites over the WebSocket (demo): { t: 'invite', action: 'create' | 'status' } → { t: 'invite', ok, token?, status }
 const gate = demo ? {
   admit: (room, pass, name) => demo.admit(room, pass, name),
@@ -75,7 +92,8 @@ async function cleanup() {
   if (n) console.log(`Flyttade ${n} bilder från images.json till images/`);
   await safeStep('Sticker library', () => seedLibrary(store, library), { fallback: null });
 })().catch((e) => console.error('[start] Oväntat fel före start:', e)).finally(() => {
-  const server = app.listen(PORT, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind}, max ${MAX_PLAYERS} per rum${DEMO ? ', DEMO' : ''})`));
+  const HOST = process.env.HOST || (LOCAL ? '127.0.0.1' : undefined);
+  const server = app.listen(PORT, HOST, () => console.log(`Slap and Talk kör på http://localhost:${PORT} (lagring: ${adapter.kind}${adapter.dir ? ' ' + adapter.dir : ''}, max ${MAX_PLAYERS} per rum${DEMO ? ', DEMO' : ''}${LOCAL ? ', LOCAL MODE' : ''})`));
   // Flerspelarläget (WebSocket på /ws) går på samma port som webbappen.
   // Empty rooms are deleted after EMPTY_ROOM_GRACE_SECONDS (10); presets' source rooms and the City stay. EMPTY_ROOM_DELETE=0: off.
   // Plus a sweep of every empty room: at startup (after the grace period + 5 s, so people reconnecting after the restart keep theirs)

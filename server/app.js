@@ -58,12 +58,13 @@ const { createHousePresets } = require('./housepresets');
 const { createCityBus, BUS: CITYBUS } = require('./citybus');
 const { createCityPresets } = require('./citypresets');
 const { createSurfaceTex, surfaceTexSettings } = require('./surfacetex');
+const { createCityArchive } = require('./cityarchive');
 const STX = require('../shared/surfacetex.mjs');
 const CITY = require('../shared/city.mjs');
 const PROPS = require('../shared/props.mjs'); // 3D props (t491u/t509u): tables, chairs, street furniture
 
 // demo: the demo profile (server/demo.js createDemo) or null. library: loadLibrary() list.
-function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), photos = photoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500, cityAutosaveMs = undefined, surfaceTex: surfaceTexOpts = surfaceTexSettings(process.env) } = {}) {
+function createApp(store, { adminToken = '', quickTtlHours = 24, recorder = null, entitle = makeEntitlements(process.env), mailer = createMailer(process.env), videos = videoSettings(process.env), photos = photoSettings(process.env), clock = () => Date.now(), pay = payConfig(process.env), log = console, demo = null, library = [], autoPrune = autoPruneOn(process.env), pruneDelayMs = 1500, cityAutosaveMs = undefined, surfaceTex: surfaceTexOpts = surfaceTexSettings(process.env), local = null, cityImportMaxMb = Number(process.env.CITY_IMPORT_MAX_MB || 2048) } = {}) {
 const ADMIN_TOKEN = adminToken;
 const app = express();
 const presets = createPresets(store.adapter, { log });
@@ -90,6 +91,7 @@ var surfaceTex = createSurfaceTex(store, { // eslint-disable-line no-var
   broadcast: (roomId, e) => broadcast(roomId, e),
   listPresets: () => cityPresets.list(),
 });
+const cityArchive = createCityArchive(store, { surfaceTex, clock, log }); // city file export / import (t864u)
 const cityPacks = createCityPacks(store.adapter, { imageInfo: (id) => imageAvailable(id), clock, log });
 app.set('trust proxy', true); // vi ligger bakom Cloudflare-tunneln
 // Full-version flags for a request; asks Lemon Squeezy first when the key is a paid key we haven't seen.
@@ -152,9 +154,19 @@ const upload = multer({
 });
 
 // What the web app should be (the demo profile or the normal app). Never cached.
+// Local mode (Jens's own PC – scripts/start-local.js, LOCAL_MODE=1): the page on THIS computer gets the local
+// admin token (made on this PC, never the production one) so Export / Import city work without typing a key.
+// Only to a request from this computer to localhost (not another machine, not a page on another host name).
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+function localReq(req) {
+  const ip = String(req.socket?.remoteAddress || '');
+  const host = String(req.get('host') || '').toLowerCase().replace(/:\d+$/, '');
+  return (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') && LOCAL_HOSTS.has(host);
+}
 app.get('/api/config', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json(demo ? demo.publicConfig() : { demo: false });
+  if (demo) return res.json(demo.publicConfig());
+  res.json({ demo: false, ...(local ? { local: true, ...(local.token && localReq(req) ? { localToken: local.token } : {}) } : {}) });
 });
 // The curated sticker library (server/library.js).
 // startCm: the design's starting height (cm) from its original file name's letter prefix.
@@ -466,6 +478,46 @@ app.get('/api/cities', rateLimit(120), wrap(async (req, res) => {
 app.post('/api/cities', rateLimit(10), wrap(async (req, res) => {
   if (demoBlocks(req, res)) return;
   try { res.json({ city: await cities.create({ name: req.body?.name, by: who(req) }) }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+}));
+// The Town Hall's one rename (Jens, t864u): { name, by } → { city }; 409 once it has been used.
+app.post('/api/cities/:id/name', rateLimit(10), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
+  const id = String(req.params.id);
+  try {
+    const city = await cities.rename(id, { name: req.body?.name, by: who(req) });
+    broadcast(id, { type: 'city:name', name: city.name, canRename: city.canRename });
+    res.json({ city });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+}));
+// ---------- City file: export / import a whole city (server/cityarchive.js; Jens t864u) ----------
+// GET  /api/admin/cities/:id/export             → <name>.satcity (gzipped tar: rooms, baked tiles, archive, designs)
+// GET  /api/admin/cities/:id/export?plan=1      → what the file would hold (counts, no bytes)
+// POST /api/admin/cities/import?target=same|new|stad-xxxxxx   body: the .satcity file (application/gzip)
+// Both admin only (x-admin-token: ADMIN_TOKEN – in local mode the token made on that PC).
+app.get('/api/admin/cities/:id/export', wrap(async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  const id = String(req.params.id);
+  let p;
+  try { p = await cityArchive.plan(id); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+  if (String(req.query.plan || '') === '1') return res.set('Cache-Control', 'no-store').json({ city: p.city, name: p.name, rooms: p.rooms.map((r) => r.id), stamps: p.stamps, painted: p.painted, tiles: p.tiles.length, segments: p.segs.length, designs: p.images.length });
+  res.set({ 'Content-Type': 'application/gzip', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="${cityArchive.fileName(p.name, id)}"`, 'X-City-Name': encodeURIComponent(p.name || id) });
+  try { await cityArchive.exportCity(id, res); }
+  catch (e) { log.error?.('[cityfile] export failed', e && e.message); if (!res.headersSent) res.status(500).json({ error: 'Export failed' }); else res.destroy(e); }
+}));
+app.post('/api/admin/cities/import', wrap(async (req, res) => {
+  if (!adminOnly(req, res)) { req.resume(); return; }
+  const target = String(req.query.target || 'same');
+  if (!['same', 'new'].includes(target) && !CITY.isCityOutside(target)) { req.resume(); return res.status(400).json({ error: 'target: same, new or a city id' }); }
+  const len = Number(req.get('content-length') || 0), max = cityImportMaxMb * 1024 * 1024;
+  if (len && len > max) { req.resume(); return res.status(413).json({ error: `The city file is bigger than ${cityImportMaxMb} MB` }); }
+  try {
+    const out = await cityArchive.importCity(req, { target, maxBytes: max * 4 });
+    for (const id of out.rooms) broadcast(id, { type: 'city:imported', city: out.city });
+    res.json(out);
+  } catch (e) {
+    if (!e.status) log.error?.('[cityfile] import failed', e);
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Import failed' });
+  }
 }));
 app.get('/api/cities/:id', rateLimit(240), wrap(async (req, res) => {
   const i = CITY.isCityOutside(String(req.params.id)) ? await cities.info(String(req.params.id)) : null;
