@@ -35,6 +35,7 @@ import { seededLook, roomCharacterSeed } from '../../shared/randomlook.mjs';
 import AVATAR_SPEC from '../../shared/avatar.json';
 import { initFullVersion } from './fullversion.js';
 import { GrooveSteps } from './groove.js';
+import { Npcs } from './npcs.js';
 import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, grooveLabel } from '../../shared/groove.mjs';
 import { loadSoundLook, initSoundUI, resetPersonalSound, prepareSoundForPlace, personalGet, personalSet, setSoundRoom, soundKey, loadRunMode, VOICE_FX_KEY, VOICE_MON_KEY, VOICE_MIC_KEY } from './soundui.js';
 import { gaitOf, gaitStep } from '../../shared/runmode.mjs';
@@ -2585,7 +2586,7 @@ const together = initTogether({
   ready: DEMO ? null : () => Promise.race([Promise.all([roomInfoLoaded, entitlementsReady]), new Promise((r) => setTimeout(r, 3000))]),
   room: ROOM, scene, camera, controls, isTouch, toast, artist: () => state.artist,
   onEvent: onRoomEvent, onReconnect: resyncRoom,
-  onWelcome: (m) => { if (groove && Number.isFinite(m.now)) groove.setServerClock(m.now); setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }); if (DEMO) demoWelcome(m); if (voice) voice.reset(); },
+  onWelcome: (m) => { if (groove && Number.isFinite(m.now)) groove.setServerClock(m.now); (npcs || (npcs = new Npcs(scene))).set(m.npcs || []); setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }); if (DEMO) demoWelcome(m); if (voice) voice.reset(); },
   onSound: (s) => sound.setMine(s),
   pass: () => (DEMO ? demo.passFor(ROOM) : null),
   onDenied: (m) => { if (m.code === 'house-full' && IN_CITY) { houseFullBack(); return; } if (DEMO && m.code === 'gone') demo.forgetRoom(ROOM); if (DEMO) demoClosed(demo.deniedText(m.code), m.code === 'gone' ? S.closedTitle : ' '); },
@@ -2643,6 +2644,8 @@ var fullUi = initFullVersion({ // eslint-disable-line no-var
 var groove = new GrooveSteps(sound); // eslint-disable-line no-var
 // The noise room's speakers A + B (Jens t872u): only in a city's outside; on the shared (server) clock.
 const noiseSpeakers = CITY_OUTSIDE ? new NoiseSpeakers({ sound, now: () => groove.now(), lamps: room.noiseLamps || null }) : null;
+// Dancing NPCs (Jens t873u, client/src/npcs.js + shared/npcs.mjs): the welcome's list, seen and heard like players.
+var npcs = npcs || new Npcs(scene); // eslint-disable-line no-var
 const canGroove = () => !DEMO && (!!state.adminToken || !!entitlements.full.soundDesign);
 let chipTimer = null;
 const myGrooveScale = () => { const v = Number(personalGet('klibb.grooveScale')); return personalGet('klibb.grooveScale') != null && Number.isFinite(v) ? v : GROOVE.def; };
@@ -3518,6 +3521,7 @@ function walkSounds() {
   // sound's sequencers go on for as long as it does (groove.js: walkUntil kept up, moveUntil not).
   const walkers = [{ id: 'me', x: camera.position.x, z: camera.position.z, at: null, onPeel: peelLayer.under(camera.position.x, camera.position.z), dancing: !camView && together.dancing() }];
   for (const pl of together.players.map.values()) walkers.push({ id: pl.id, x: pl.pos.x, z: pl.pos.z, at: [pl.pos.x, 0.05, pl.pos.z], voice: together.voiceOf(pl.id), onPeel: peelLayer.under(pl.pos.x, pl.pos.z), dancing: !!pl.avatar?.dancing, tempo: pl.tempo }); // their seed + slot colour + THEIR tempo (t846u)
+  if (npcs) walkers.push(...npcs.walkers(sound.listener.p)); // dancing NPCs within earshot (t873u): THEIR Steps sound + tempo, spatial like a remote player
   // Run mode (Jens t544u): Shift + moving = my steps on the run tempo/pitch (shared/runmode.mjs).
   // Sneak (Jens, 11 Nov 2026): Ctrl + moving = the crouch tempo/pitch. While dancing the same keys
   // work without moving: dance + Shift = run tempo, dance + Ctrl = crouch tempo (gaitOf; Ctrl wins).
@@ -3815,6 +3819,7 @@ function frame() {
   if (wantSelf !== selfShown) { selfShown = wantSelf; together.showSelf(wantSelf); }
   const camAtMe = cv && Math.hypot(camera.position.x - viewCam.position.x, camera.position.z - viewCam.position.z) < 0.45;
   // gubbar precis vid kameran döljs, och min egen om kameran kommer för nära (t.ex. mot en vägg)
+  npcs?.update(dt, eyeCam.position, groove.now(), eyeCam);
   together.update(dt, eyeCam.position, { hideSelf: cv ? camAtMe : !tp || chase.dist < (view === 'front' ? FRONT.minDist * 0.8 : CHASE.hideBelow) });
   cams.update(cv ? null : eyeCam.position);
   peelLayer.update();
@@ -3920,6 +3925,7 @@ window.addEventListener('pagehide', () => { persistWornBeforeLeave(); });
   syncAimToggleBtn();
 }
 window.klibb = {
+  npcs: () => npcs?.info() ?? null, npcsObj: () => npcs,
   filmsEnabled: FILMS_ENABLED,
   filmLog: () => filmLog, filmState, filmBlob, filmThenCity: () => filmThenCity(),
   highlightLog: () => highlightLog, highlightStore: () => highlightStore, highlightState, highlightBlob,

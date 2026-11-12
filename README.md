@@ -1165,6 +1165,20 @@ south side. Everything outside (ground, slabs, house walls and roofs, sky) is a 
 - Not in the City (yet): peels, cameras/cameramen, recordings start, clear-hidden (all box features) → 400.
   They work in the houses.
 
+### Dancing NPCs (Jens t873u, 12 Nov 2026)
+
+Every city's outside has 7 dancing NPCs (`shared/npcs.mjs`, `client/src/npcs.js`): three on the plaza in a
+12 m triangle (walk between them and hear one fade out as the next fades in) and four in the streets around
+the Town Hall and the south houses. The server hands the list out in the WebSocket welcome (`welcome.npcs`,
+seeded by the city id – the same NPCs for everyone in that city); after that nothing goes over the wire.
+Each NPC does the looping X dance on the server clock and has its own randomized Steps sound (noise scuff +
+a pentatonic oscillator), Tempo (75–170 BPM, 5 BPM steps), Groove scale, groove slot and run / crouch
+settings; its gait (walk / run / crouch) changes every 32 beats, on the clock. Their footsteps go through the
+normal footstep groove as spatial sounds (inverse distance like any remote player), in their own voice pool
+(`npc`, 8 voices) so they never take a real player's steps; only the 4 nearest within 34 m are scheduled,
+beyond 60 m they are hidden, off-screen ones are not animated. Yellow name tags "<name> · NPC". They are not
+players: not in "N here", voice chat, slots, room limits or recordings. `NPCS=0` on the server turns them off.
+
 ## Run the city on your own PC (local mode, Jens 12 Nov 2026, t864u)
 
 The whole game (server + client) can run on a Windows PC, with its own data folder, without touching the live site.

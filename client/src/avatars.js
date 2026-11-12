@@ -458,12 +458,13 @@ export class Avatar {
   get facePhoto() { return !!(this.fab.face?.tex && this.fab.face.f.photo); }
   fabricInfo() { return Object.fromEntries(Object.entries(this.fab).map(([s, e]) => [s, { id: e.id, loaded: !!e.tex, f: e.f }])); }
   // The name above the head, and under it (smaller) the Instagram name with an @ (look.insta).
+  // tagStyle = { opts (labelTexture), mpp } (set before setName): a name tag of its own look – the dancing NPCs' (npcs.js).
   setName(name, insta = this.look?.insta || '') {
     this.name = name; this.insta = insta || '';
     for (const k of ['tag', 'instaTag']) if (this[k]) { this.root.remove(this[k]); this[k].material.map.dispose(); this[k].material.dispose(); this[k] = null; }
     if (!name) return; // (my own avatar has no tag)
     const lift = this.insta ? 0.09 : 0;
-    { this.tag = makeSprite(name, { size: 44 }, 0.0021); this.tag.position.set(0, TOP + 0.22 + lift, 0); this.tag.name = 'name-tag'; this.root.add(this.tag); }
+    { const ts = this.tagStyle; this.tag = makeSprite(name, ts ? ts.opts : { size: 44 }, ts ? ts.mpp : 0.0021); this.tag.position.set(0, TOP + 0.22 + lift, 0); this.tag.name = 'name-tag'; this.root.add(this.tag); }
     if (this.insta) {
       this.instaTag = makeSprite('@' + this.insta, { size: 30, font: 500, color: '#ffe680', pad: 14 }, 0.0021);
       this.instaTag.position.set(0, TOP + 0.2, 0); this.instaTag.name = 'insta-tag'; this.root.add(this.instaTag);

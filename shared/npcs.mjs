@@ -1,0 +1,143 @@
+// Dancing NPCs in the city (Jens t873u, 12 Nov 2026: "kan du sätta ut några npc som dansar lite här o där.
+// slumpa runt med deras olika steg och gå, run, crouch inställningar. jag vill ha tre på torget en bit
+// ifrån varandra så man får känslan av volym rangen").
+//
+// Every city's outside has the same handful of NPCs for everybody in it: the server hands the list out in
+// the WebSocket welcome (server/realtime.js, welcome.npcs) and every client renders them like the other
+// players – an avatar doing the looping X dance (shared/dance.mjs), whose footsteps play on THEIR OWN
+// tempo grid (shared/groove.mjs) as a spatial sound, i.e. the normal remote-player falloff. No traffic
+// after the welcome: everything below is a pure function of the city id (the seed) and the server clock.
+//
+//   - Three stand on the plaza (torg) in a 12 m equilateral triangle, so walking between them you hear
+//     one fade out while the next fades in; four more stand in the streets around the city.
+//   - Each has its own randomized (seeded) Steps sound (a variation built on the default step: noise
+//     scuff + a tuned oscillator on a pentatonic note), Tempo (a musical BPM, 5 BPM steps), Groove scale,
+//     groove slot (polyrhythm 3/4/5/6/7) and walk / run / crouch settings (run tempo, run pitch, crouch
+//     tempo, crouch pitch – the same settings real players have, shared/runmode.mjs).
+//   - Their gait changes on the clock: every NPC_TIME.segBeats beats of their own dance tempo they pick
+//     walk, run or crouch again (seeded by the segment number), so all screens agree. Run / crouch rates are
+//     octaves (×2, ×4, ×½, ×¼): the dance keeps its walk tempo (it never jumps) and the steps stay on its
+//     beat – double or half time.
+//   - Not players: they are not in "N here", voice chat, slots, room limits or the recording.
+// Pure maths (no DOM / Three.js) – the server, the web app and tests/npcs.test.mjs share it.
+import AV from './avatar.json' with { type: 'json' };
+import { PLAZA, isCityOutside, cityOf } from './city.mjs';
+import { cleanPatch, snapFreq } from './synth.mjs';
+import { RUN, snapWalkBpm, tempoRate, pitchRatio } from './runmode.mjs';
+import { cleanPlayerTempo } from './playertempo.mjs';
+import { danceGrid } from './dance.mjs';
+
+export const NPC = Object.freeze({
+  audibleM: 34,   // beyond this their steps are not scheduled at all (gain there ≈ 5 %, inverse distance from 1.6 m)
+  visibleM: 60,
+  slowM: 25,      // beyond this the dance is animated every other frame
+  maxHeard: 4,    // at most this many (the nearest) are scheduled at once   // beyond this the avatar is hidden and not animated (cheap; the city is 96 m across)
+  plazaSide: 12,  // the plaza triangle's side (m)
+});
+// The plaza triangle: two near the subway end, one towards the Town Hall (all on the paving, clear of the benches).
+const PZ = PLAZA.z, H = NPC.plazaSide * Math.sqrt(3) / 2;
+export const NPC_SPOTS = Object.freeze([
+  Object.freeze({ x: -NPC.plazaSide / 2, z: +(PZ - H / 3 - 1).toFixed(3), plaza: true }),
+  Object.freeze({ x: NPC.plazaSide / 2, z: +(PZ - H / 3 - 1).toFixed(3), plaza: true }),
+  Object.freeze({ x: 0, z: +(PZ + (2 * H) / 3 - 1).toFixed(3), plaza: true }),
+  // "here and there": the streets between the plots (open ground, not in a building)
+  Object.freeze({ x: -16, z: 2 }),   // west of the Town Hall, by the reverb room
+  Object.freeze({ x: 16.5, z: -3 }), // east of the Town Hall, by the delay room
+  Object.freeze({ x: -17, z: 28 }),  // south-west, between houses 6 and the noise room
+  Object.freeze({ x: 17, z: 30 }),   // south-east, between the noise room and house 8
+]);
+const NAMES = ['Bop', 'Zuzu', 'Kiko', 'Moxie', 'Pim', 'Rumba', 'Tilly', 'Juno', 'Ozzy', 'Fizz', 'Lulu', 'Dex', 'Mira', 'Taro'];
+// Tempo: BPMs that groove (5 BPM steps, the Tempo slider's grid). Groove scale: mostly 1.
+const BPMS = [75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 140, 160, 170];
+const SCALES = [1, 1, 1, 2, 0.5];
+// Run / crouch tempo in % (shared/runmode.mjs): octaves only, so the steps stay on the dance's beat.
+const RUN_TEMPI = [100, 100, 300];       // ×2, ×2, ×4
+const CROUCH_TEMPI = [-100, -100, -300]; // ×½, ×½, ×¼
+// Pentatonic notes for the step oscillator (A minor pentatonic, A1 … A4): nothing clashes much.
+const PENTA = [0, 3, 5, 7, 10];
+const NOTES = [];
+for (let o = 0; o < 3; o++) for (const s of PENTA) NOTES.push(snapFreq(55 * Math.pow(2, o + s / 12)));
+NOTES.push(440);
+export const NPC_TIME = Object.freeze({ segBeats: 32, gaits: ['walk', 'walk', 'run', 'crouch'] });
+
+export function npcHash(str) { // FNV-1a → uint32
+  let h = 0x811c9dc5 >>> 0; const s = String(str);
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+export function npcRng(seed) { // mulberry32
+  let a = (typeof seed === 'number' ? seed : npcHash(seed)) >>> 0;
+  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const pick = (r, list) => list[Math.floor(r() * list.length) % list.length];
+const between = (r, a, b, dp = 3) => +(a + r() * (b - a)).toFixed(dp);
+
+// One NPC's Steps sound: the default footstep's shape (a soft noise scuff + a tuned oscillator thump), each
+// part randomized within tasteful bounds; sometimes a third layer (a sub or a high tick).
+export function npcStepPatch(seed) {
+  const r = npcRng('npc-step:' + seed);
+  const wave = pick(r, ['sine', 'sine', 'triangle', 'triangle', 'square', 'sawtooth']);
+  const hard = wave === 'square' || wave === 'sawtooth';
+  const freq = pick(r, NOTES);
+  const layers = [
+    { kind: 'noise', noise: pick(r, ['pink', 'pink', 'white']), filter: 'lowpass', cutoff: Math.round(between(r, 320, 2600, 0)), q: between(r, 0.6, 2.5, 1),
+      fEnv: between(r, -2, -0.5, 2), fTime: between(r, 0.03, 0.09), a: 0.002, d: between(r, 0.035, 0.11), level: between(r, 0.1, 0.2, 2) },
+    { kind: 'osc', wave, freq, pitchAmt: between(r, 0, 12, 1), pitchTime: between(r, 0.02, 0.07), a: 0.002, d: between(r, 0.05, 0.17),
+      filter: 'lowpass', cutoff: Math.round(Math.min(18000, freq * between(r, 4, 14, 1))), level: hard ? between(r, 0.05, 0.09, 2) : between(r, 0.1, 0.18, 2) },
+  ];
+  const extra = r();
+  if (extra < 0.2) layers.push({ kind: 'osc', wave: 'sine', freq: snapFreq(freq / 2), a: 0.002, d: between(r, 0.06, 0.14), level: between(r, 0.06, 0.12, 2) });
+  else if (extra < 0.35) layers.push({ kind: 'osc', wave: 'triangle', freq: snapFreq(freq * 4), a: 0.001, d: between(r, 0.015, 0.04), level: between(r, 0.03, 0.06, 2), delay: between(r, 0, 0.02) });
+  return cleanPatch({ v: 1, gain: 1, layers });
+}
+
+// The NPCs of a room: [] unless it is a city's outside. Each: { id, name, label, x, z, yaw, plaza, slot,
+// look, sound: { seed, colour, patches: { step } }, walkBpm, scale, run: { tempo, pitch, crouchTempo, crouchPitch }, danceBpm }.
+export function npcsFor(roomId) {
+  if (!isCityOutside(roomId)) return [];
+  const city = cityOf(roomId), names = NAMES.slice();
+  const nr = npcRng('npc-names:' + city);
+  return NPC_SPOTS.map((spot, k) => {
+    const seed = `npc:${city}:${k}`, r = npcRng(seed);
+    const name = names.splice(Math.floor(nr() * names.length), 1)[0];
+    const walkBpm = snapWalkBpm(pick(r, BPMS));
+    const scale = pick(r, SCALES);
+    const run = { tempo: pick(r, RUN_TEMPI), pitch: pick(r, [1, 2, 3, 3, 4, 5]), crouchTempo: pick(r, CROUCH_TEMPI), crouchPitch: pick(r, [-1, -2, -2, -3, -5]) };
+    const any = (list) => pick(r, list);
+    const look = { outfit: any(Object.keys(AV.outfits)), hair: any(Object.keys(AV.hair)), shirt: any(AV.colors.shirt), pants: any(AV.colors.pants),
+      hairColor: any(AV.colors.hair), skin: any(AV.colors.skin), shoes: any(AV.colors.shoes || ['#222222']), hat: false, hatColor: any(AV.colors.hat) };
+    // face the middle of the plaza triangle (plaza ones) / the city's middle (the rest), a little off
+    const cx = spot.plaza ? 0 : 0, cz = spot.plaza ? PZ - 1 : 0;
+    const yaw = +(Math.atan2(-(cx - spot.x), -(cz - spot.z)) + between(r, -0.4, 0.4)).toFixed(3);
+    const slot = Math.floor(r() * 5);
+    const id = `npc-${k}`;
+    return { id, npc: true, name, label: `${name} · NPC`, x: spot.x, z: spot.z, yaw, plaza: !!spot.plaza, slot, look,
+      sound: { seed: `npc${npcHash(seed).toString(36)}`, colour: slot, patches: { step: npcStepPatch(seed) } },
+      walkBpm, scale, run, danceBpm: danceGrid(0, { bpm: walkBpm }).bpm };
+  });
+}
+
+// The dance: looping, anchored at server time 0 on the NPC's walk tempo (folded to 60–180 like everyone's),
+// so it is at the same beat on every screen. What Avatar.startDance takes.
+export const npcDance = (npc) => ({ at: 0, bpm: npc.danceBpm, phaseMs: 0, loop: true });
+// How long one gait segment is (ms): NPC_TIME.segBeats beats of the dance tempo = whole dance loops (16 beats each).
+export const npcSegMs = (npc) => (NPC_TIME.segBeats * 60000) / npc.danceBpm;
+// Which gait it is in at server time nowMs: 'walk' | 'run' | 'crouch' (seeded per segment, the same everywhere).
+export function npcGaitAt(npc, nowMs) {
+  const k = Math.floor(nowMs / npcSegMs(npc));
+  return pick(npcRng(`npc-gait:${npc.sound.seed}:${k}`), NPC_TIME.gaits);
+}
+// Its player tempo at nowMs (shared/playertempo.mjs { bpm, scale, rate, tune }) – what groove.js plays its steps on.
+export function npcTempoAt(npc, nowMs) {
+  const g = npcGaitAt(npc, nowMs), R = npc.run;
+  const rate = g === 'run' ? tempoRate(R.tempo) : g === 'crouch' ? tempoRate(R.crouchTempo) : 1;
+  const tune = g === 'run' ? pitchRatio(R.pitch) : g === 'crouch' ? pitchRatio(R.crouchPitch) : 1;
+  return cleanPlayerTempo({ bpm: npc.walkBpm, scale: npc.scale, rate, tune });
+}
+// A received list (welcome.npcs) checked: at most 16, the fields the client needs, sane numbers. Bad → [].
+export function cleanNpcs(list) {
+  if (!Array.isArray(list)) return [];
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  return list.slice(0, 16).filter((n) => n && typeof n.id === 'string' && /^npc-[0-9]{1,2}$/.test(n.id) && isNum(n.x) && isNum(n.z) && isNum(n.walkBpm) && isNum(n.danceBpm) && n.danceBpm > 0 && n.sound && n.run)
+    .map((n) => ({ ...n, walkBpm: Math.min(RUN.walkMax, Math.max(RUN.walkMin, n.walkBpm)), label: String(n.label || n.name || 'NPC').slice(0, 24) }));
+}

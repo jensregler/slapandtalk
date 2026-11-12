@@ -144,9 +144,10 @@ export class Sounds {
   // shared/synth.mjs sizeRate; slap without area → treated as square), volume }.
   // time: when (AudioContext seconds, the footstep groove schedules ahead); tune: extra pitch ratio.
   // onPeel + speed (m/s, footsteps only): the step lands on backing paper – the paper variant.
+  // pool: the voice budget (synth.js; NPC footsteps: 'npc'), npc: the NPC's id (the step log, tests).
   // hold (s, slap): every layer's envelope hold for this one play (the dance-mode vector, shared/dancehold.mjs);
   // null/absent = the patch's own hold.
-  play(kind, at = null, { sound, area, size, volume = 1, time = null, tune = 1, onPeel = false, speed = 0, exact = false, hold = null } = {}) {
+  play(kind, at = null, { sound, area, size, volume = 1, time = null, tune = 1, onPeel = false, speed = 0, exact = false, hold = null, pool = null, npc = null } = {}) {
     const remote = !!at;
     const who = sound === undefined ? this.mine : sound;
     const wobble = exact ? 1 : kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06; // tiny per-play life
@@ -171,13 +172,14 @@ export class Sounds {
     if (paper) { gain *= paper.gain; entry.paper = paper; }
     if (kind === 'step') {
       this.steps++; if (paper) this.peelSteps++;
-      this.stepLog.push({ onPeel: !!paper, speed: +(+speed || 0).toFixed(2), cutoff: paper?.cutoff ?? null, drive: paper?.drive ?? null, remote, muted: this.muted, fq: (patch?.layers || []).map((l) => +(+l.freq || 0).toFixed(2)), waves: (patch?.layers || []).map((l) => (l.kind === 'osc' ? l.wave : l.kind)), t: Date.now() }); // fq / waves: the patch played, per layer (tests, t869u)
+      this.stepLog.push({ onPeel: !!paper, speed: +(+speed || 0).toFixed(2), cutoff: paper?.cutoff ?? null, drive: paper?.drive ?? null, remote, ...(remote ? { at: at.map((v) => +(+v).toFixed(2)), distance: +distance.toFixed(2), gain: +heard.toFixed(3) } : {}), ...(npc ? { npc } : {}), muted: this.muted, fq: (patch?.layers || []).map((l) => +(+l.freq || 0).toFixed(2)), waves: (patch?.layers || []).map((l) => (l.kind === 'osc' ? l.wave : l.kind)), t: Date.now() }); // fq / waves: the patch played, per layer (tests, t869u)
       if (this.stepLog.length > 40) this.stepLog.shift();
+      if (npc) { this.npcHeard ||= {}; const h = this.npcHeard[npc] ||= { n: 0 }; h.n++; h.gain = +heard.toFixed(3); h.distance = +distance.toFixed(2); h.t = Date.now(); } // (tests: the last step of each NPC)
     } else { this.log.push(entry); if (this.log.length > 50) this.log.shift(); }
     if (this.muted) return entry;
     if (!this.ensure()) return entry;
     // FX is on the listener chain (setMine → setListenerFx), not per voice.
-    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, pos: remote ? at : null, time, pool: kind === 'step' ? 'step' : 'main', paper })) entry.skipped = true; };
+    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, pos: remote ? at : null, time, pool: pool || (kind === 'step' ? 'step' : 'main'), paper })) { entry.skipped = true; if (kind === 'step') this.stepsSkipped = (this.stepsSkipped || 0) + 1; } };
     if (this.engine) go(this.engine);
     else if (time == null) { const t = Date.now(); this.ready.then((eng) => { if (Date.now() - t < 400) go(eng); }); } // the very first sound waits for Tone.js
     return entry;

@@ -21,6 +21,8 @@ export const MAX_VOICES = 12;
 export const MAX_STEP_VOICES = 10;
 // The radio's running loops (sequencer layers, four voices) have their own budget too (pool 'seq').
 export const MAX_SEQ_VOICES = 16;
+// Dancing NPCs' footsteps (Jens t873u, client/src/npcs.js) have their own budget (pool 'npc'): they never take a real player's step voices.
+export const MAX_NPC_VOICES = 8;
 // Sampler layers (Jens, 5 Nov 2026): decoded audio by sha-256 (filled by client/src/samples.js).
 // A sampler layer whose sample isn't here (yet) is silent; the rest of the patch still plays.
 export const SAMPLE_BUFFERS = new Map();
@@ -187,10 +189,10 @@ export class SynthEngine {
     const p = cleanPatch(patch); if (!p) return false;
     const ctx = this.raw, t0 = Math.max(time ?? 0, ctx.currentTime) + 0.005, len = length ?? patchLength(p);
     if (gate) p.mods = [...(p.mods || []), { id: 'gate', to: 'G.gain', wave: 'gate', rate: gate.rate, depth: 1, phase: gate.phase || 0, pattern: gate.pattern, decay: gate.decay || 0 }];
-    const step = pool === 'step', key = step ? 'stepVoices' : pool === 'seq' ? 'seqVoices' : 'voices';
+    const step = pool === 'step', npc = pool === 'npc', key = step ? 'stepVoices' : npc ? 'npcVoices' : pool === 'seq' ? 'seqVoices' : 'voices';
     this[key] = (this[key] || []).filter((end) => end > ctx.currentTime);
     // (scheduled-ahead voices count from when they are scheduled: a cap on what is queued, too)
-    if (this[key].length >= (step ? MAX_STEP_VOICES : pool === 'seq' ? MAX_SEQ_VOICES : MAX_VOICES)) return false;
+    if (this[key].length >= (step ? MAX_STEP_VOICES : npc ? MAX_NPC_VOICES : pool === 'seq' ? MAX_SEQ_VOICES : MAX_VOICES)) return false;
     this[key].push(t0 + len);
     const nodes = [];
     // t588u: no per-source FX – everything shares the listener chain on ears → master.

@@ -79,7 +79,8 @@ export class GrooveSteps {
 
   // walkers: [{ id, x, z, at: [x,y,z] | null (me), voice: look.sound | undefined (me), onPeel: feet on backing paper,
   //            dancing: the dance is on – counts as walking (Jens t814u) for as long as it is,
-  //            tempo: their shared/playertempo.mjs tempo (others only; mine is setBpm / setGroove / setRun) }]
+  //            tempo: their shared/playertempo.mjs tempo (others only; mine is setBpm / setGroove / setRun),
+  //            npc: a dancing NPC (client/src/npcs.js – its steps use the 'npc' voice pool) }]
   update(walkers, nowMs = this.now()) {
     const seen = new Set(); let budget = WALK.maxPerFrame;
     // look ahead at least 1.5 frames (slow machines), at most WALK.maxAheadMs
@@ -124,7 +125,7 @@ export class GrooveSteps {
         const time = this.audioTime(e.t);
         if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up
         // left/right foot: a hair lower on every other pulse
-        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), time, tune: (e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v });
+        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: (e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v });
       }
       if (budget <= 0) break;
     }

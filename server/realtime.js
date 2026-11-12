@@ -19,7 +19,7 @@
 //                    their own BPM; kept per player, relayed, and in welcome.players / join so late joiners hear me at it; also in hello)
 //                    sit {chair: prop id | null, draw}  (3D props, shared/props.mjs: I sit down on a chair – drawing –
 //                    or stand up; one person per chair, the server keeps who sits where)
-//   server → klient: welcome {id, you, players, chat, max, full, rec, now (server ms: the shared clock for the footstep groove)} · join {player} · leave {id}
+//   server → klient: welcome {id, you, players, npcs (a city's outside: its dancing NPCs, shared/npcs.mjs), chat, max, full, rec, now (server ms: the shared clock for the footstep groove)} · join {player} · leave {id}
 //                    move {id, p, y, pi} · look {id, name, look} · you {id, name} · chat {msg}
 //                    event {e} · signal {from, data} · pong · error {error}
 //                    dance {id, at?, bpm?, phaseMs?, loop?, stop?, retime?}  (someone started the runway dance – at = server ms of the press, on that
@@ -264,6 +264,16 @@ function bucket(rate, burst) {
 }
 
 const CITY = require('../shared/city.mjs');
+// Dancing NPCs (Jens t873u): a city's outside gets the same seeded NPCs for everyone (shared/npcs.mjs) –
+// handed out once in the welcome; not players (no slot, not counted, nothing more on the wire). NPCS=0: none.
+const NPCS = require('../shared/npcs.mjs');
+const npcsOn = () => process.env.NPCS !== '0';
+const npcCache = new Map();
+function npcsOf(roomId) {
+  if (!npcsOn() || !CITY.isCityOutside(roomId)) return [];
+  if (!npcCache.has(roomId)) { if (npcCache.size > 200) npcCache.clear(); npcCache.set(roomId, NPCS.npcsFor(roomId)); }
+  return npcCache.get(roomId);
+}
 
 function attachRealtime(server, {
   maxPlayers = FREE_MAX_PLAYERS, path = '/ws', heartbeatMs = 15_000, maxPerIp = 30, clock = () => Date.now(),
@@ -333,7 +343,7 @@ function attachRealtime(server, {
 
   function welcome(c, r) {
     send(c, { t: 'welcome', now: clock(), id: c.id, you: { id: c.id, name: c.name, slot: c.slot ?? 0 }, full: !c.player, ...(c.player ? {} : { fullText: fullText(maxPlayers) }), ...(c.extra || {}), max: maxPlayers, count: r.players.size,
-      players: [...r.players.values()].filter((p) => p !== c).map(pub), chat: r.chat, rec: recorder ? recorder.status(r.id) : null });
+      players: [...r.players.values()].filter((p) => p !== c).map(pub), npcs: npcsOf(r.id), chat: r.chat, rec: recorder ? recorder.status(r.id) : null });
   }
   // Någon gick: släpp in den som väntat längst (om rummet var fullt).
   function promote(r) {
