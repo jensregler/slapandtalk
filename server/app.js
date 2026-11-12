@@ -1558,6 +1558,8 @@ const noCache = (res) => res.setHeader('Cache-Control', 'no-cache');
 app.use(express.static(DIST, {
   setHeaders: (res, file) => {
     if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    // the noise room's music (scripts/noise-speakers.mjs): the names carry the content's hash → cache for good (Render bandwidth)
+    else if (/[\\/]noise-speakers[\\/][^\\/]+\.(mp3|m4a|ogg|opus|webm)$/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     else noCache(res);
   },
 }));

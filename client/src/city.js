@@ -6,6 +6,7 @@
 //     a green Town Hall of three blocks with black slit windows on its top block.
 import * as THREE from 'three';
 import { ceilingLights, CEILING_LIGHT_COLOR, CEILING_LIGHT_DECAY } from './room.js';
+import { SPEAKERS, NOISE_SPEAKERS } from '../../shared/noisespeakers.mjs';
 import { CITY, PLOTS, PLOT, PLOT_GAP, PLOT_SLAB, HOUSE, HALL_BLOCKS, CITY_SPAWN, PLAZA, PLAZA_BENCHES, FX_OPENING, groundAt, pushOut, doorAt, isKeptHouse } from '../../shared/city.mjs';
 
 const STONE = 0xd2c9ba, SLAB = 0xc9bfae, HALL_GREEN = 0x9fd0a8, SKY = 0xbfe2f6, STREET = 0x8f8a82, INK = 0x15130f;
@@ -129,6 +130,27 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time
     add(`${tag}-roof`, w, d, material(base, w, d, seed + 20), [x, y0 + h, z], [-Math.PI / 2, 0, 0]);
     outlineBox(x, y0, z, w, h, d);
   };
+  // The noise room's speakers A (west wall) and B (east wall), facing each other (Jens t872u; shared/noisespeakers.mjs,
+  // the music: client/src/noisespeakers.js). Built from boxes and canvas labels; not sticker surfaces.
+  const speakers = () => {
+    const { w, h, d } = NOISE_SPEAKERS.size, y = NOISE_SPEAKERS.mountY;
+    const body = new THREE.MeshStandardMaterial({ color: 0x1b1a1d, roughness: 0.7 });
+    const cone = new THREE.MeshStandardMaterial({ color: 0x3a3a40, roughness: 0.5, metalness: 0.2 });
+    const cap = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 0.4 });
+    for (const s of SPEAKERS) {
+      const g = new THREE.Group(); g.name = `noise-speaker-${s.id}`; g.userData.speaker = s.id;
+      g.position.set(s.x + s.facing * d / 2, y, s.z); g.rotation.y = s.facing > 0 ? Math.PI / 2 : -Math.PI / 2; // local +z = into the room
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, d), body));
+      for (const [cy, r] of [[-h * 0.2, w * 0.36], [h * 0.3, w * 0.17]]) { // woofer + tweeter
+        const ring = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.06, 32), cone); ring.rotation.x = Math.PI / 2; ring.position.set(0, cy, d / 2 + 0.02); g.add(ring);
+        const dust = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.35, r * 0.35, 0.08, 24), cap); dust.rotation.x = Math.PI / 2; dust.position.set(0, cy, d / 2 + 0.04); g.add(dust);
+      }
+      const bracket = new THREE.Mesh(new THREE.BoxGeometry(w * 0.5, 0.18, d + 0.02), body); bracket.position.set(0, -h / 2 - 0.09, -0.01); g.add(bracket);
+      const tag = label(s.id, 1.0, 1.0, { bg: '#ffd400', fg: '#15130f', font: '900 110px Arial Black, Arial, sans-serif', cw: 128, ch: 128 }); // big and clear
+      tag.name = `noise-speaker-label-${s.id}`; tag.position.set(0, h / 2 + 0.7, -d / 2 + 0.05); g.add(tag);
+      group.add(g);
+    }
+  };
   for (const p of PLOTS) {
     if (p.open) { // ---- an open FX room (plots 4, 5, 7): wall segments (both faces + their ends) and a roof, no door
       const tag = `fx${p.n}`, wallMat = (w, h, k) => material(FX_STONE, w, h, 60 + p.n * 7 + k);
@@ -167,6 +189,7 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time
       else if (p.n === 5) { sign.position.set(p.x + hw + 0.05, HOUSE.height - 1.2, p.z); sign.rotation.y = Math.PI / 2; }
       else sign.position.set(p.x, HOUSE.height - 1.2, p.z + HOUSE.depth / 2 + 0.05);
       group.add(sign);
+      if (p.fx === 'noise') speakers();
       continue;
     }
     if (p.subway) { // ---- the subway station (plot 2): a low stone box, black door, a blue T sign on a pole

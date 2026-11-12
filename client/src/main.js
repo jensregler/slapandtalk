@@ -59,6 +59,7 @@ import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs
 import { buildCityRoom, markDoors } from './city.js';
 import { cityTime, toggleCityTime } from './daynight.js';
 import { Sightline } from './sightline.js';
+import { NoiseSpeakers } from './noisespeakers.js';
 import { sightFreq } from '../../shared/sightline.mjs';
 import { exportCity as exportCityFile, importCity as importCityFile } from './cityfile.js';
 import { slapHold } from '../../shared/dancehold.mjs';
@@ -2640,6 +2641,8 @@ var fullUi = initFullVersion({ // eslint-disable-line no-var
 // Slider in ⚙ More → Sound, keys [ and ] (Shift = a whole octave).
 // var: the WebSocket welcome can arrive before these lines have run.
 var groove = new GrooveSteps(sound); // eslint-disable-line no-var
+// The noise room's speakers A + B (Jens t872u): only in a city's outside; on the shared (server) clock.
+const noiseSpeakers = CITY_OUTSIDE ? new NoiseSpeakers({ sound, now: () => groove.now() }) : null;
 const canGroove = () => !DEMO && (!!state.adminToken || !!entitlements.full.soundDesign);
 let chipTimer = null;
 const myGrooveScale = () => { const v = Number(personalGet('klibb.grooveScale')); return personalGet('klibb.grooveScale') != null && Number.isFinite(v) ? v : GROOVE.def; };
@@ -3822,6 +3825,7 @@ function frame() {
   voice.update();
   updateCredit();
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
+  if (noiseSpeakers) noiseSpeakers.update(camera.position); // where I stand (not a camera I look through)
   let dragging = false;
   if (arrayDrag && controls.locked) { try { dragging = updateArray() > 0; } catch (err) { arrayFailed('drag', err); } }
   let heldNow = null; // what goes into a running recording as the sticker I hold (recordHeld)
@@ -4014,6 +4018,8 @@ window.klibb = {
   // day / night + the Town Hall (t864u), for the tests
   cityLook: () => ({ time: room.time ? room.time() : null, sky: room.group.getObjectByName('tak')?.material?.color?.getHexString() || null, stored: cityTime() }),
   openHall: () => openHall(), cityInfo: () => cityInfo,
+  noiseSpeakers: () => (noiseSpeakers ? noiseSpeakers.info() : null), noiseSpeakersObj: () => noiseSpeakers,
+  noiseSpeakerModels: () => ['A', 'B'].map((id) => { const g = room.group.getObjectByName(`noise-speaker-${id}`); if (!g) return null; const p = new THREE.Vector3(); g.getWorldPosition(p); const v = p.clone().project(camera); return { id, visible: g.visible, at: p.toArray().map((n) => +n.toFixed(2)), screen: [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(3)], label: !!g.getObjectByName(`noise-speaker-label-${id}`) }; }),
   sightline: () => ({ on: sightOn, hz: sightHz, base: stepOscHz(), ...sightline.info() }), sightlineHud,
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
   held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3), aimOff }, aimOff: () => aimOff, setAimOff, syncAimToggleBtn, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),

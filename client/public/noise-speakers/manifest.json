@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "format": "mp3",
+  "bitrate": "96k",
+  "made": "2026-11-12T21:17:52.180Z",
+  "tracks": [
+    {
+      "file": "test-tone-1-a-440-9800ba64.mp3",
+      "title": "Test tone 1 (A 440)",
+      "duration": 9.038,
+      "bytes": 108817,
+      "placeholder": true
+    },
+    {
+      "file": "test-tone-2-e-330-f10d24f1.mp3",
+      "title": "Test tone 2 (E 330)",
+      "duration": 12.042,
+      "bytes": 144866,
+      "placeholder": true
+    },
+    {
+      "file": "test-tone-3-c-523-74190444.mp3",
+      "title": "Test tone 3 (C 523)",
+      "duration": 7.027,
+      "bytes": 84680,
+      "placeholder": true
+    }
+  ]
+}
