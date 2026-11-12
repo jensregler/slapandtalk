@@ -368,7 +368,7 @@ export class Voice {
         src.connect(g);
         this.monSrc = src;
       }
-      // t588u: through the listener FX (+ city place) instead of straight to the speakers.
+      // t588u: through the listener FX instead of straight to the speakers.
       const eng = this.sound && this.sound.engine;
       if (eng && eng.plugEars) eng.plugEars(g); else g.connect(ctx.destination);
       this.monGain = g;
@@ -420,7 +420,7 @@ export class Voice {
       try {
         p.src = ctx.createMediaStreamSource(stream); p.gain = ctx.createGain();
         p.src.connect(p.gain);
-        // t588u: other players' voices through my listener FX (+ city place), not raw speakers.
+        // t588u: other players' voices through my listener FX, not raw speakers.
         const eng = this.sound && this.sound.engine;
         if (eng && eng.plugEars) eng.plugEars(p.gain); else p.gain.connect(ctx.destination);
         p.analyser = ctx.createAnalyser(); p.analyser.fftSize = 512; p.buf = new Float32Array(p.analyser.fftSize); p.src.connect(p.analyser);

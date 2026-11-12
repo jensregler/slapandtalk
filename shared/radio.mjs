@@ -1,11 +1,12 @@
 // Master / room sound (was "the radio"; Jens, 5 Nov 2026 + rebuild Nov 2026).
-// Sound-settings Master UI shows only: Volume (ears; the only volume control) + City sound (0–100 dry↔wet).
+// Sound-settings Master UI shows only: Volume (ears; the only volume control).
 // Saved shape still carries the older fields so presets load:
 //   on, knob – forced to on + 0.5 ("my sound"); Blend / power UI removed
 //   bpm      – dormant (Jens, 11 Nov 2026): the tempo is per player now (shared/runmode.mjs walkBpm,
 //              30–3000 BPM, the "Tempo" slider on Steps); radio.tempo() = MY tempo, never this field –
 //              an old preset's bpm loads but drives nothing (no room clock comes back from it)
-//   city     – 0..1 dry/wet of the city place bus (reverb + delay); 0 = dry, 1 = wet only
+//   (city – the old City sound dry/wet – was removed with the city place effects, Jens t857u 12 Nov 2026;
+//    an old preset's city field is dropped on load)
 //   bird, wind, voices – dormant (engine paths kept; no Master UI)
 // Per PLAYER and per ROOM: saved on the server, never broadcast.
 import { cleanSound, rng, hashSeed } from './synth.mjs';
@@ -26,14 +27,14 @@ export const bpmToKnob = (b) => (Math.log(cleanBpm(b)) - BL) / (BH - BL);
 export const knobToBpm = (k) => cleanBpm(Math.exp(BL + Math.min(1, Math.max(0, k)) * (BH - BL)));
 export const OWNER_RE = /^[A-Za-z0-9_-]{16,64}$/;
 export const knobToMorph = (k) => 2 * Math.min(1, Math.max(0, Number.isFinite(k) ? k : 0.5));
-export const RADIO_DEFAULTS = Object.freeze({ on: true, knob: 0.5, bpm: MASTER.bpm, city: 0, bird: { on: false, vol: 0.35 }, wind: { on: false, vol: 0.25 }, voices: { on: false, vol: 0.5 } });
+export const RADIO_DEFAULTS = Object.freeze({ on: true, knob: 0.5, bpm: MASTER.bpm, bird: { on: false, vol: 0.35 }, wind: { on: false, vol: 0.25 }, voices: { on: false, vol: 0.5 } });
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const unit = (v, fb) => (isNum(v) ? Math.round(Math.min(1, Math.max(0, v)) * 100) / 100 : fb);
 const sw = (o, d) => ({ on: typeof o?.on === 'boolean' ? o.on : d.on, vol: unit(o?.vol, d.vol) });
 export function cleanRadio(r) {
   const d = RADIO_DEFAULTS; if (!r || typeof r !== 'object') return { ...d, bird: { ...d.bird }, wind: { ...d.wind }, voices: { ...d.voices } };
-  // on + knob always "my sound" (Blend / power UI gone). bpm / city / ambients still load from presets.
-  return { on: true, knob: 0.5, bpm: cleanBpm(r.bpm), city: unit(r.city, d.city), bird: sw(r.bird, d.bird), wind: sw(r.wind, d.wind), voices: sw(r.voices, d.voices) };
+  // on + knob always "my sound" (Blend / power UI gone). bpm / ambients still load from presets.
+  return { on: true, knob: 0.5, bpm: cleanBpm(r.bpm), bird: sw(r.bird, d.bird), wind: sw(r.wind, d.wind), voices: sw(r.voices, d.voices) };
 }
 // A room preset as stored: { patches?, fx?, radio }. null = nothing (= the original sound, radio defaults).
 export function cleanPreset(p) {

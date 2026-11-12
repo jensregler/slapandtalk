@@ -58,10 +58,7 @@ import { initEscMenu } from './escmenu.js';
 import { SlapFx } from './slapfx.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
-import { CITY_FX, cityFxAt, placeNeutral, placeHouse, cleanCityFx, PLACE_EVERY_MS, PLACE_SLEW } from '../../shared/cityfx.mjs';
-import { delayRoomTimes } from '../../shared/delayroom.mjs';
 import { slapHold } from '../../shared/dancehold.mjs';
-import { reverbGazeYaw, reverbPitchesAt, insideReverbRoom } from '../../shared/reverbroom.mjs';
 import { CITY, CITY_ROOM, roomBox, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, PACK_DESIGN_ID, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
@@ -105,7 +102,6 @@ const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
 const CITY_OUTSIDE = isCityOutside(ROOM), IN_CITY = isCityRoom(ROOM), THIS_CITY = cityOf(ROOM);
 // The rebuild (Jens, 10 Nov 2026): only houses 1, 3, 6, 8 are rooms now – an old link to house 2/4/5/7 lands outside.
 if (IN_CITY && houseNumber(ROOM) && !isKeptHouse(houseNumber(ROOM))) location.replace(`${location.origin}/?room=${THIS_CITY}`);
-const IN_HOUSE = IN_CITY && !CITY_OUTSIDE && isKeptHouse(houseNumber(ROOM)); // a kept house: a quiet room (PLACE_HOUSE)
 // FILMS_ENABLED (shared/features.mjs): closed room – code/media stay, no film or reel in the experience.
 const filmLog = (FILMS_ENABLED && !IN_CITY) ? new FilmLog(ROOM) : null; // the session film (filmThenCity)
 const highlightLog = FILMS_ENABLED ? new HighlightLog(ROOM) : null; // room AND city – automatic cameraman moments
@@ -1068,8 +1064,6 @@ async function slapAt(ndc, info, onStart, auto = null) {
   // envelope hold – 0 s within 1 m, 3 s across the city (96 m), linear (shared/dancehold.mjs). Not dancing: untouched.
   const danceHold = slapHold({ dancing: together.dancing(), from: camera.position.toArray(), to: h.point.toArray() });
   { const [aw, ah] = stampDims(design, slapSize); sound.play('slap', null, { area: aw * ah, size: slapSize, ...(auto ? { volume: auto.volume } : {}), ...(danceHold != null ? { hold: danceHold } : {}) }); } // bigger sticker = bigger slap (same curve as duff)
-  // The delay room: a slap sets its three delay times from MY distance to each delay (not the sticker's).
-  if (CITY_OUTSIDE && delayRoom.slap(camera.position.x, camera.position.z)) placeAt = 0;
   const nonce = Math.random().toString(36).slice(2, 12);
   myNonces.add(nonce); setTimeout(() => myNonces.delete(nonce), 60_000);
   const body = { nonce, owner: deviceId(), ...(together.net.id ? { by: together.net.id } : {}), // by: så de andra ser min gubbe slappa
@@ -2778,38 +2772,9 @@ function saveRoomPreset() {
 }
 const radio = new Radio({ sound, room: ROOM, clock: () => (groove ? groove.now() : Date.now()), onChange: () => { filmLog?.add('radio', { what: 'dial' }); saveRoomPreset(); } });
 radio.setWalkBpm(loadRunMode().walkBpm); // MY Tempo (per player, run mode; not the room preset – no room clock, t846u)
-// The city's place effect (Jens, 5 Nov 2026; shared/cityfx.mjs): the master bus follows where I
-// stand – only outside in the city, and only for me (per listener). Houses / other rooms: neutral
-// (their own room reverb stays). Every PLACE_EVERY_MS, plain params, slewed (PLACE_SLEW).
-let placeCfg = CITY_FX, placeAt = 0, placeNow = null;
-// The delay room (plot 5, Jens's sketch t790u; shared/delayroom.mjs): its three delay times are held here –
-// set from where I stand when I walk in (every entry) and when I slap in the room, kept while I walk.
-const delayRoom = delayRoomTimes();
-// The reverb room (plot 4, shared/reverbroom.mjs): nothing is held. Its three sines' volume-LFO frequencies are my
-// distance to each point (cityFxAt, live); here only the look is added: pitch from where I look (reverbPitchesAt,
-// live even standing still) and the look-out fade (reverbGazeYaw – walk out or look out shuts the tones).
 // meWalking (e2e hook only, Jens t814u): really moving = groove track 'me'.moveUntil. Dancing counts as walking
-// for the steps and the walk sequencers (walkUntil) but not as moving. Nothing in the reverb room reads it.
+// for the steps and the walk sequencers (walkUntil) but not as moving.
 const meWalking = () => { const me = groove?.track?.get('me'); return !!(me && !camView && (me.moveUntil || 0) > groove.now()); };
-function placeTick() {
-  const eng = sound.engine; if (!eng) return;
-  const now = performance.now(); if (now - placeAt < PLACE_EVERY_MS) return; placeAt = now;
-  const v = CITY_OUTSIDE ? cityFxAt(camera.position.x, camera.position.z, placeCfg) : IN_HOUSE ? placeHouse() : placeNeutral();
-  if (CITY_OUTSIDE) { const t = delayRoom.update(camera.position.x, camera.position.z); v.roomTime1 = t[0]; v.roomTime2 = t[1]; v.roomTime3 = t[2]; v.rvGaze = reverbGazeYaw(camera.position.x, camera.position.z, controls.yaw); v.rvTone = (v.rvTone || 0) * v.rvGaze;
-    const hz = reverbPitchesAt(camera.position.x, camera.position.z, controls.yaw, controls.pitch || 0, camera.position.y); v.rvHz1 = hz[0]; v.rvHz2 = hz[1]; v.rvHz3 = hz[2]; }
-  // City sound dry/wet only outside; in a room keep dry=1 so the slider does not mute the room.
-  const city = CITY_OUTSIDE ? (radio.state?.city ?? 0) : 0;
-  if (eng.setPlace(v, { slew: PLACE_SLEW, neutral: !CITY_OUTSIDE, city })) placeNow = v;
-  radio.amb?.setPlaceMix?.(v.bird, v.wind, PLACE_SLEW);
-  if (CITY_OUTSIDE) placeChip(v);
-}
-// A big, plain label of where I am (sound-wise): the strongest zone, else "Street".
-let placeEl = null;
-function placeChip(v) {
-  if (!placeEl) { placeEl = document.createElement('div'); placeEl.id = 'place-chip'; placeEl.setAttribute('aria-live', 'polite'); document.body.appendChild(placeEl); }
-  let best = null, w = 0.5; for (const zn of placeCfg.zones || []) { const x = v.zones?.[zn.id] || 0; if (x >= w) { w = x; best = zn; } }
-  const text = `🎛 ${best ? best.name || best.id : 'Street'}`; if (placeEl.textContent !== text) placeEl.textContent = text;
-}
 try { const r = JSON.parse(personalGet(RADIO_KEY) || 'null'); if (r) radio.set(r, { save: false }); } catch { /* none */ }
 const radioReady = DEMO ? Promise.resolve() : fetchRoomPreset(ROOM).then((p) => {
   if (!p) return; // (undefined: offline – keep this visit's copy; null: nothing saved yet – the original)
@@ -3859,7 +3824,6 @@ function frame() {
   slapFx.update();
   walkSounds();
   radio.tick();
-  placeTick();
   voice.update();
   updateCredit();
   { const cam = cv ? viewCam : camera; cam.getWorldDirection(fwd); sound.setListener(cam.position, fwd); }
@@ -3969,7 +3933,7 @@ window.klibb = {
   demoState: () => ({ timer: $('demo-timer').hidden ? null : $('demo-timer').textContent, closed: !$('demo-closed').hidden, closedTitle: $('demo-closed-title').textContent,
     closedText: $('demo-closed-text').textContent, invite: inviteState, inviteNote: $('invite-note').hidden ? '' : $('invite-note').textContent, left: demoTimer && demoTimer.left ? demoTimer.left() : null }),
   inviteFriend, mySlot: () => together.mySlot(), talking: () => together.talking(),
-  soundUi: () => soundUi, delayRoom: () => ({ ...delayRoom.state, times: delayRoom.times, live: sound.engine?.place?.room ? sound.engine.place.room.map((r) => ({ time: r.d.delayTime.value, fb: r.fb.gain.value, send: r.send.gain.value, ret: r.ret.gain.value })) : null }), reverbRoom: () => ({ inside: insideReverbRoom(camera.position.x, camera.position.z), gaze: placeNow?.rvGaze, live: sound.engine?.place?.verbRoom ? sound.engine.place.verbRoom.map((r) => ({ time: r.pre.delayTime.value, fb: r.fb.gain.value, send: r.send.gain.value, ret: r.ret.gain.value, toneInLoop: !!r.toneInLoop, toneInSend: !!r.toneInSend, toneInTail: !!r.toneInTail, toneInEars: !!r.toneInEars, toneOut: !!r.toneOut, toneRet: r.toneRet ? r.toneRet.gain.value : null, wires: (r.wires || []).map((w) => w.slice()), toneHz: r.osc.frequency.value, toneLvl: r.lvl.gain.value, toneWet: r.toneWet ? r.toneWet.gain.value : null, lfoHz: r.lfo.frequency.value, lfoBase: r.am.gain.value, lfoDepth: r.depth.gain.value })) : null, street: sound.engine?.place ? { small: sound.engine.place.small.send.gain.value, big: sound.engine.place.big.send.gain.value } : null }), place: () => ({ now: placeNow, bus: !!sound.engine?.place, worklet: !!sound.engine?.place?.node, sets: sound.engine?.place?.sets || 0, cfg: placeCfg }), setCityFx: (cfg) => { placeCfg = cfg ? (cleanCityFx(cfg) || CITY_FX) : CITY_FX; placeAt = 0; return placeCfg; }, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
+  soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
   groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), moving: (t.moveUntil || 0) > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
   setGrooveScale, grooveObj: () => groove,
   autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundMine: () => sound.mine, prepareSoundForPlace, resetPersonalSound, voiceOf: (id) => together.voiceOf(id),

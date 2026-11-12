@@ -40,12 +40,12 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     check('auto-slap removed: no editor, no chip, no trigger (old settings dropped)', !gone.box && !gone.chip && gone.api === null && gone.old === null, gone);
     // ---------- open Sound settings: Master block on top ----------
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(400);
-    const r0 = await A.evaluate(() => ({ radio: !!document.querySelector('#snd-radio #radio-box'), vol: !!document.getElementById('master-vol'), city: !!document.getElementById('city-sound'),
+    const r0 = await A.evaluate(() => ({ radio: !!document.querySelector('#snd-radio #radio-box'), vol: !!document.getElementById('master-vol'), city: !!document.getElementById('city-sound'), cityV: window.klibb.radio().state.city,
       knobEl: !!document.getElementById('radio-knob'), bpmEl: !!document.getElementById('radio-bpm'),
-      bpm: window.klibb.radio().state.bpm, cityV: window.klibb.radio().state.city, knob: window.klibb.radio().state.knob, on: window.klibb.radio().state.on,
+      bpm: window.klibb.radio().state.bpm, knob: window.klibb.radio().state.knob, on: window.klibb.radio().state.on,
       tempo: window.klibb.radio().tempo(), headerVol: !!document.getElementById('music-vol-row') || !!document.getElementById('music-vol') }));
-    check('Sound settings Master: volume + city sound only (no blend/tempo/power UI); bpm 90, city 0, on+knob forced my-sound',
-      r0.radio && r0.vol && r0.city && !r0.knobEl && !r0.bpmEl && r0.bpm === 90 && r0.cityV === 0 && r0.knob === 0.5 && r0.on === true && r0.headerVol === false, r0);
+    check('Sound settings Master: volume only (no City sound slider since t857u, no blend/tempo/power UI); bpm 90, on+knob forced my-sound',
+      r0.radio && r0.vol && !r0.city && r0.cityV === undefined && !r0.knobEl && !r0.bpmEl && r0.bpm === 90 && r0.knob === 0.5 && r0.on === true && r0.headerVol === false, r0);
     check(`…no room clock (t846u): radio.tempo() is my own Tempo, 90 BPM by default, phase 0 – ${r0.tempo.bpm} BPM`, r0.tempo.bpm === 90 && r0.tempo.phaseMs === 0, r0.tempo);
     // ---------- sampler layer ----------
     await A.click('#snd-add-sampler'); await sleep(200);
@@ -198,10 +198,7 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await A.$eval('#master-vol', (r) => { r.value = '40'; r.dispatchEvent(new Event('input', { bubbles: true })); });
     const vol = await A.evaluate(() => ({ v: window.klibb.soundObj().volume, ui: document.getElementById('master-vol').value, header: !!document.getElementById('music-vol') }));
     check('Volume is the ears gain – the only volume control (no header duplicate)', Math.abs(vol.v - 0.4) < 1e-6 && vol.ui === '40' && !vol.header, vol);
-    await A.$eval('#city-sound', (r) => { r.value = '55'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
-    const city = await A.evaluate(() => ({ c: window.klibb.radio().state.city, out: document.getElementById('city-sound-val').textContent, placeCity: window.klibb.soundObj().engine?.place?.city }));
-    check('City sound 0–100 sets radio.city (dry/wet of city FX)', Math.abs(city.c - 0.55) < 1e-6 && /55 %/.test(city.out), city);
-    await (await A.$('#radio-box')).screenshot({ path: path.join(SHOTS, '05-master-volume-city.png') });
+    await (await A.$('#radio-box')).screenshot({ path: path.join(SHOTS, '05-master-volume.png') });
     // Walk tempo lives on Steps (was Master tempo)
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(200);
     const walkUi = await A.evaluate(() => ({ walk: !!document.getElementById('walk-tempo'), run: !!document.getElementById('run-tempo'), pitch: !!document.getElementById('run-pitch'), lock: !!document.getElementById('run-lock') }));
@@ -210,7 +207,7 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await sleep(400);
     const fast = await A.evaluate(() => ({ bpm: window.klibb.radio().walkBpm, out: document.getElementById('walk-tempo-val').textContent, room: window.klibb.radio().tempo().bpm }));
     check('Tempo to top: 3000 BPM – my sequencers / voices (radio.tempo()) follow it, no room clock left at 90', fast.bpm === 3000 && fast.out === '3000 BPM' && fast.room === 3000, fast);
-    await A.evaluate(() => { window.klibb.radio().setWalkBpm(90); window.klibb.radio().set({ voices: { on: false }, city: 0 }); window.klibb.soundObj().setVolume(1); });
+    await A.evaluate(() => { window.klibb.radio().setWalkBpm(90); window.klibb.radio().set({ voices: { on: false } }); window.klibb.soundObj().setVolume(1); });
     // bird + wind still work via API (UI dormant)
     await A.evaluate(() => { window.klibb.radio().set({ bird: { on: true }, wind: { on: true } }); });
     await sleep(500);
@@ -228,38 +225,19 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await A.goto(`${S.base}/?room=${made2.room.id}`); await A.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }); await A.evaluate(() => window.klibb.radioReady()); await sleep(300);
     const fresh = await A.evaluate(() => window.klibb.soundMine());
     check('a different room starts from the original sound (no preset there yet)', !fresh.patches, fresh);
-    // ---------- the city: the place effect follows where I stand ----------
-    // City sound (radio.city) is the dry/wet of place FX (slim-synth); default 0 = fully dry.
+    // ---------- the city: no place effect any more (Jens t857u, 12 Nov 2026) ----------
+    // My sounds and the others' voices go straight to my ears (positional panning only): no place bus,
+    // no worklet, no zone label, no debug hooks – wherever I stand (street corners, the old FX rooms).
     const C = await (await browser.newContext({ viewport: { width: 1200, height: 800 } })).newPage(); C.on('pageerror', (e) => errors.push('C: ' + e.message));
     await C.goto(`${S.base}/?room=stad`); await C.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 });
     await C.mouse.click(600, 400); await sleep(300);
-    await C.evaluate(async () => { const s = window.klibb.soundObj(); await s.ready; await s.engine?.ready; window.klibb.radio().set({ city: 1 }); });
-    await sleep(400);
-    const go = async (x, z, ms = 1600) => { await C.evaluate(([x, z]) => window.klibb.moveTo(x, z), [x, z]); await sleep(ms); return C.evaluate(() => { const p = window.klibb.place(), e = window.klibb.soundObj().engine?.place; return { ...p, cfg: undefined, live: e ? { a: e.a.send.gain.value, b: e.b.send.gain.value, big: e.big.send.gain.value, mod: e.node?.parameters.get('modMix').value, st: e.node?.parameters.get('stutter').value, dm: e.node?.parameters.get('decimMix').value, fm: e.node?.parameters.get('freqMix')?.value, fh: e.node?.parameters.get('freqHz')?.value } : null, chip: document.getElementById('place-chip')?.textContent }; }); };
-    const q = {};
-    for (const [id, x, z] of [['delay', -42, -42], ['reverb', 42, -42], ['flanger', -20, 0], ['chorus', 20, 0], ['glitch', -42, 42], ['freq', 42, 42], ['hall', 0, 0]]) q[id] = await go(x, z);
-    check('city: one place bus (worklet) after my master; each quarter is heard where it is (delay, reverb, flanger, chorus, glitch, freq)',
-      q.delay.bus && q.delay.worklet && q.delay.now.zones.delay > 0.85 && q.delay.live.a > 0.25 && q.reverb.live.big > 0.4 && q.flanger.live.mod > 0.7 && q.chorus.live.mod > 0.6 && q.glitch.live.st > 0.3 && q.glitch.live.dm > 0.5 && q.glitch.live.a > 0.5 && q.glitch.live.mod > 0.7 && q.freq.live.fm > 0.4 && Math.abs(q.freq.live.fh) > 50,
-      Object.fromEntries(Object.entries(q).map(([k, v]) => [k, v.live])));
-    check('…Town Hall is quiet (no strong sends / freq / glitch)', q.hall.live.a < 0.25 && q.hall.live.big < 0.25 && q.hall.live.mod < 0.2 && (q.hall.live.fm || 0) < 0.15 && q.hall.live.st < 0.15, q.hall.live);
-    check('…a big label says where I am ("🎛 Delay quarter" / "🎛 Freq shift quarter")', q.delay.chip === '🎛 Delay quarter' && q.freq.chip === '🎛 Freq shift quarter', [q.delay.chip, q.freq.chip]);
-    // smooth: jump from freq to delay – the params glide (no step), settle in about a second
-    await go(42, 42, 1500);
-    const g0 = await go(-42, -42, 160), g1 = await go(-42, -42, 1400);
-    check('…no jumps: teleporting freq → delay quarter, the delay send glides (slew ≈ 0.75 s), then settles', g0.live.a > 0.01 && g0.live.a < 0.35 && g1.live.a > 0.25, { after160ms: g0.live.a, after1_5s: g1.live.a });
-    await C.screenshot({ path: path.join(SHOTS, '09-city-delay-quarter.png') });
-    // between two quarters: a blend
-    const mid = await go(-32, -16);
-    check('…on the street between two quarters (delay ↔ flanger) both blend', mid.now.zones.delay > 0.3 && mid.now.zones.flanger > 0.3 && mid.live.a > 0.1 && mid.live.mod > 0.2, mid.now.zones);
-    // Blend UI is dormant (cleanRadio forces knob 0.5); place FX are driven by city sound, not knob.
-    const before = await C.evaluate(() => JSON.stringify(window.klibb.place().now));
-    await C.evaluate(() => window.klibb.radio().set({ knob: 0.1 })); await sleep(400);
-    const after = await C.evaluate(() => ({ place: JSON.stringify(window.klibb.place().now), morph: window.klibb.soundObj().radio.knob, city: window.klibb.radio().state.city }));
-    check('…knob forced to my-sound (0.5); place effect unchanged (driven by city sound)', before === after.place && after.morph === 0.5 && after.city === 1, after);
-    // a house: neutral
-    await C.goto(`${S.base}/?room=stad-1`); await C.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 }); await C.mouse.click(600, 400); await sleep(800);
-    const house = await C.evaluate(() => ({ ...window.klibb.place(), cfg: undefined, chip: !!document.getElementById('place-chip') }));
-    check('…inside a house: no place effect (the bus is never built; the room\'s own reverb only)', !house.bus && !house.chip, house);
+    await C.evaluate(async () => { const s = window.klibb.soundObj(); await s.ready; await s.engine?.ready; });
+    const seen = [];
+    for (const [x, z] of [[-42, -42], [42, -42], [-42, 42], [42, 42], [0, 0], [-30, 0], [30, 0], [0, 30]]) {
+      await C.evaluate(([x, z]) => window.klibb.moveTo(x, z), [x, z]); await sleep(250);
+      seen.push(await C.evaluate(() => { const e = window.klibb.soundObj().engine; return { place: e ? ('place' in e) || typeof e.setPlace === 'function' || typeof e.placeBus === 'function' : null, chip: !!document.getElementById('place-chip'), hooks: ['place', 'reverbRoom', 'delayRoom', 'setCityFx'].filter((k) => k in window.klibb) }; }));
+    }
+    check('city: no place bus / worklet / zone label / debug hooks anywhere (street corners, Town Hall, old FX rooms)', seen.every((v) => v.place === false && !v.chip && !v.hooks.length), seen);
     await C.close();
     // ---------- iPhone ----------
     const ictx = await browser.newContext({ ...devices['iPhone 13'] });

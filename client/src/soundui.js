@@ -1,6 +1,6 @@
 // Sound settings (full version, entitlements.full.soundDesign): synth panels for slap, peel,
-// steps and Landing/duff (SOUND_TABS). Effects data (st.fx) stays and is driven from the city
-// (cityfx) – the Effects tab is kept in code but not shown.
+// steps and Landing/duff (SOUND_TABS). Effects data (st.fx) stays (the listener FX) – the Effects tab
+// is kept in code but not shown.
 // Personal (Jens, 2 Nov 2026 / session model 6 Nov 2026): my sound settings are mine only –
 // sessionStorage 'klibb.sound' (and voice FX / Hear myself / Music vol / groove / run / mic). They
 // come along from a room out into the City (and around inside the city), never sent to anyone.
@@ -192,7 +192,7 @@ const FX_UNITS = [['reverb', 'Reverb'], ['delay', 'Delay'], ['filter', 'Filter']
 const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Landing', fx: 'Effects' }; // Landing = peel landing thud (duff); fx kept for city code paths, not listed in SOUND_TABS
 
 // musicVol: { get, set, def } – master volume (was Music vol header; now in Master section).
-// radioBlock: () => Master section (the one Volume + city sound). radio: Radio instance (my Tempo on Steps).
+// radioBlock: () => Master section (the one Volume). radio: Radio instance (my Tempo on Steps).
 export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, musicVol = null, radioBlock = null, radio = null }) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const st = { open: false, tab: 'slap', patches: {}, fx: null, rolls: 0 };
@@ -689,14 +689,14 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     render(); preview();
   }
   // Reset = everything back to the defaults (Jens, 2 Nov 2026): every SOUNDS patch, Effects data,
-  // Volume, city sound (0), and run mode incl. my Tempo (90).
+  // Volume, and run mode incl. my Tempo (90).
   function reset() {
     for (const k of SOUNDS) st.patches[k] = base(k);
     st.custom = new Set();
     st.fx = cleanFx(FX_DEFAULTS);
     if (musicVol) { musicVol.set(musicVol.def); st.volReset = true; }
     st.run = { ...RUN_DEFAULTS };
-    if (radio) { radio.set({ city: 0 }); radio.setWalkBpm(st.run.walkBpm); }
+    if (radio) radio.setWalkBpm(st.run.walkBpm);
     render(); preview();
     toast(S.soundReset || 'All sounds, effects and Volume back to default – Save to keep it', 2600);
   }

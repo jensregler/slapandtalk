@@ -60,7 +60,7 @@ export function newCityId(rnd = Math.random) {
 //   - A PLAZA (torg) between the subway station and the Town Hall.
 //   - Plots 4, 5, 7: the rooms are gone – OPEN rooms of walls + a roof (sketch: orange), no door, walk in:
 //     4 = reverb room (open to the west), 5 = delay room (open to the east), 7 = noise room (open
-//     doorway in the south wall). Their sound lives in shared/cityfx.mjs (FX_ROOMS).
+//     doorway in the south wall). (Their city audio was removed, Jens t857u 12 Nov 2026 – the rooms stay as plain open buildings.)
 export const KEPT_HOUSES = Object.freeze([1, 3, 6, 8]);
 export const isKeptHouse = (n) => KEPT_HOUSES.includes(Number(n));
 export const HOUSE_MAX = 4; // people in one kept house (pt781u: number five is denied and asked to try another room)

@@ -2,19 +2,17 @@
 // the first paint stays light). Every sound in the room is one of these patches:
 //   slap, peel, step (footsteps), duff (peel landing thud; also four voices Low).
 // Signal path per voice (t588u listener FX):
-//   layers → [spatial panner] → room bus → [city place bus] → ears → [listener FX] → master → guard → speakers
-//   reverb-room sines (the listening path, Jens 11 Nov 2026): osc → volume LFO → toneOut → master → guard → speakers
-//     (dry, plus wet through their own feedforward tail) – never ears, never the listener FX (no FeedbackDelay)
+//   layers → [spatial panner] → room bus → ears → [listener FX] → master → guard → speakers
 //   room bus = automatic, subtle acoustics from the room's materials (free, no UI)
-//   city place = position-based effects (shared/cityfx.mjs), already per-listener
+//   (Jens t857u, 12 Nov 2026: the city's position-based place effects – street FX fields, the reverb /
+//   delay / noise rooms, the City sound slider – are gone. Out in the city my sounds and the others'
+//   voices go straight to my ears with normal positional panning/distance only.)
 //   listener FX = MY copy of the room/sound-settings effect chain (filter→crush→dist→delay→reverb).
 //     Applied once, locally, to everything I hear (synths, samples, voice monitor, other voices).
 //     No per-source FX, no extra network messages. Voices are short-lived; MAX_VOICES caps polyphony.
 import { cleanPatch, cleanFx, delaySeconds, patchLength, samplerRate, FX_DEFAULTS, SYNTH } from '../../shared/synth.mjs';
 import { evalMods, compileMods, MOD } from '../../shared/lfo.mjs';
-import { ensureDecimator, makeDecimator, makeMods, makePlace } from './decimator.js';
-import { DELAY_ROOM } from '../../shared/delayroom.mjs';
-import { REVERB_ROOM } from '../../shared/reverbroom.mjs';
+import { ensureDecimator, makeDecimator, makeMods } from './decimator.js';
 import { getMic, micStream } from './mic.js';
 import { peelCurve } from '../../shared/peelstep.mjs';
 
@@ -35,17 +33,14 @@ export class SynthEngine {
   // Tone: the loaded module. ctx: a Tone context (Tone.getContext() or the one inside Tone.Offline).
   constructor(Tone, { output = null } = {}) {
     this.Tone = Tone;
-    this.out = new Tone.Gain(1);       // room-bus output (pre place / ears)
-    this.ears = new Tone.Gain(1);      // everything I hear lands here (post place)
+    this.out = new Tone.Gain(1);       // room-bus output (into ears)
+    this.ears = new Tone.Gain(1);      // everything I hear lands here
     this.master = new Tone.Gain(1);    // post listener-FX, into the guard
-    // The listening output (Jens 11 Nov 2026): the reverb room's three sines (dry + their own wet tail) join HERE,
-    // after ears and the listener FX, before the guard – so they can never enter a feedback delay after the ears.
-    this.toneOut = new Tone.Gain(1); this.toneOut.connect(this.master);
     // ears + speakers guard (audio-rate LFOs, many voices): a fast limiter, then a gentle tanh soft clip
     const raw = Tone.getContext().rawContext;
     const lim = raw.createDynamicsCompressor(); lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.1;
     const clip = raw.createWaveShaper(); clip.curve = softClipCurve(); clip.oversample = '2x';
-    // Default path (no city place yet): out → ears → master → lim → clip → speakers
+    // out → ears → master → lim → clip → speakers
     this.out.connect(this.ears); this.ears.connect(this.master);
     this.master.connect(lim); lim.connect(clip); Tone.connect(clip, output || Tone.getDestination());
     this.guard = { lim, clip };
@@ -61,7 +56,6 @@ export class SynthEngine {
     this.polys = new Map();  // sampler polyphony: sample hash → ringing voices [{ env, src, end }]
     this.ready = ensureDecimator(Tone.getContext()); // the decimation worklet (decimator.js)
     this.ready.then((ok) => { this.workletOk = !!ok; });
-    this.place = null; // the city's place bus (setPlace), built on first use
   }
 
   // ---------- The live mic (mic layers, 'mic' followers) ----------
@@ -73,179 +67,6 @@ export class SynthEngine {
     return this.micNode;
   }
 
-  // ---------- The place bus (city: shared/cityfx.mjs) ----------
-  // Built ONCE (the first time a non-neutral place is set), between the room bus and my ears:
-  //   out → low-pass → place worklet (flanger/chorus, decimate+bits, stutter/chop) → mix
-  //   mix → ears (dry) · mix → delay A/B → ears · mix → small/big reverb → ears
-  //   mix → distSend → WaveShaper (intersection Dist peaks) → soft level → ears
-  //   mix (+ voices, voiceIn) → delay room 1/2/3 (send → delay ⟲ fb → ret) → ears (plot 5 only: shared/delayroom.mjs)
-  //   mix (+ voices) → reverb room 1/2/3 (send → pre-delay → 2 all-passes → damp → fb ⟲ ; → diffuse tail → ret) → ears
-  //   (fixed settings, plot 4 only) + THE LISTENING PATH: three sines (20 … 2000 Hz from my look), volume LFO 0…100 %
-  //   (2 … 1000 Hz = my distance to the point) → lvl → toneOut (dry), + am → toneWet → toneTail (the sines' own
-  //   feedforward listening room) → toneRet → toneOut; toneOut → master (after listener FX) → guard → speakers
-  //   ears → [listener FX] → master → guard → speakers
-  // After that only plain AudioParams move (setTargetAtTime, PLACE_SLEW): no graph rebuilds.
-  // Place follows MY position (per listener); nothing is sent to anyone.
-  placeBus() {
-    if (this.place) return this.place;
-    const T = this.Tone, ctx = this.raw, ears = this.ears;
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.5; lp.frequency.value = Math.min(20000, ctx.sampleRate / 2 - 100);
-    const node = this.workletOk ? makePlace(T.getContext()) : null;
-    const mix = ctx.createGain();
-    // dryGain: City sound crossfade (Jens Nov 2026) – 1 = dry own sounds, 0 = wet-only through city FX
-    const dryGain = ctx.createGain(); dryGain.gain.value = 1;
-    const intoEars = (n) => { try { T.connect(n, ears); } catch { try { n.connect(ears.input || ears); } catch { /* ok */ } } };
-    // the listening output: toneOut → master, after ears + listener FX (only the reverb room's sines go here)
-    const toneOut = this.toneOut;
-    const intoListen = (n) => { try { T.connect(n, toneOut); } catch { try { n.connect(toneOut.input || toneOut); } catch { /* ok */ } } };
-    const tap = (max) => { const d = ctx.createDelay(max), fb = ctx.createGain(), send = ctx.createGain(); fb.gain.value = 0; send.gain.value = 0; mix.connect(send); send.connect(d); d.connect(fb); fb.connect(d); intoEars(d); return { d, fb, send }; };
-    const verb = (decay, pre) => { const v = new T.Reverb({ decay, preDelay: pre, wet: 1 }), send = ctx.createGain(); send.gain.value = 0; mix.connect(send); T.connect(send, v); intoEars(v); return { v, send }; };
-    // Intersection Distortion (Peaks A+C): soft fold WaveShaper on a wet send; level kept under the master guard.
-    const dist = ctx.createWaveShaper(); dist.curve = placeDistCurve(0.2); dist.oversample = '2x';
-    const distSend = ctx.createGain(); distSend.gain.value = 0;
-    const distGain = ctx.createGain(); distGain.gain.value = 0.55; // makeup under soft-clip so peaks don't clip
-    mix.connect(distSend); distSend.connect(dist); dist.connect(distGain); intoEars(distGain);
-    // Noise room (plot 7, rebuild 10 Nov 2026): ONE looping pink-noise buffer drives a gain's AudioParam, so
-    // mix × noise = my sound turned to hiss (silent when nothing plays); the same noise also feeds a quiet
-    // steady hiss bed. Both sends start at 0 – only the noise room opens them.
-    const nlen = Math.round(ctx.sampleRate * 2), nbuf = ctx.createBuffer(1, nlen, ctx.sampleRate), nd = nbuf.getChannelData(0);
-    { let b0 = 0, b1 = 0, b2 = 0; for (let i = 0; i < nlen; i++) { const w = Math.random() * 2 - 1; b0 = 0.99765 * b0 + w * 0.099046; b1 = 0.963 * b1 + w * 0.2965164; b2 = 0.57 * b2 + w * 1.0526913; nd[i] = (b0 + b1 + b2 + w * 0.1848) * 0.2; } }
-    const nsrc = ctx.createBufferSource(); nsrc.buffer = nbuf; nsrc.loop = true;
-    const nmod = ctx.createGain(); nmod.gain.value = 0; nsrc.connect(nmod.gain); mix.connect(nmod);
-    const noiseSend = ctx.createGain(); noiseSend.gain.value = 0; nmod.connect(noiseSend); intoEars(noiseSend);
-    const noiseBed = ctx.createGain(); noiseBed.gain.value = 0; nsrc.connect(noiseBed); intoEars(noiseBed);
-    try { nsrc.start(); } catch { /* ok */ }
-    // Delay room (plot 5, Jens's sketch t790u): THREE delay lines (left / centre / right on the back wall).
-    // send (wet × City sound × the room gate) → delay ⟲ feedback → ret (the room gate) → ears. ret closes
-    // outside the room, so echoes still ringing never follow me out (NO DELAY OUTSIDE THE ROOM).
-    // voiceIn: voices (my monitor, the others' – plugEars) go through the same three delays.
-    const voiceIn = ctx.createGain(); voiceIn.gain.value = 1;
-    const roomTap = () => {
-      const d = ctx.createDelay(DELAY_ROOM.maxTime + 0.2), fb = ctx.createGain(), send = ctx.createGain(), ret = ctx.createGain();
-      fb.gain.value = 0; send.gain.value = 0; ret.gain.value = 0; d.delayTime.value = 0.5;
-      mix.connect(send); voiceIn.connect(send); send.connect(d); d.connect(fb); fb.connect(d); d.connect(ret); intoEars(ret);
-      return { d, fb, send, ret };
-    };
-    const room = [roomTap(), roomTap(), roomTap()];
-    // Reverb room (plot 4, Jens 10 Nov 2026, corrected t808u–t812u – shared/reverbroom.mjs): a plain FIXED room
-    // reverb for my sound and voices, built from three small diffuse cells:
-    //   send → pre (fixed pre-delay) → AP1 → AP2 (Schroeder all-passes, |H| = 1) → damp (one-pole low-pass, |H| ≤ 1)
-    //   → fb (fixed loopGain 0.5) ↻ back into pre; AP2 → tail (a ~1.6 s decaying-noise convolver) → ret → ears.
-    // Nothing here follows my distance or my slaps; send / ret open only while I'm inside (rvWet).
-    // THE LISTENING PATH (Jens 11 Nov 2026 – FL Studio structure: three oscillators, LFO on volume, reverb after,
-    // never back). ONE pure sine per point (pitch from where I look, 20 … 2000 Hz – rvHz) produces forward only:
-    //   osc → am (0.5 + 0.5·LFO = always 0 … 100 % volume – the LFO only modulates amplitude; its frequency = my
-    //   distance to the point, 2 … 1000 Hz – rvLfo)
-    //   dry: am → lvl (rvTone × presence × look-out × City) → toneOut
-    //   wet: am → toneWet (rvTone × wet 0.35 × City) → toneTail (the sines' OWN 1.6 s feedforward listening room,
-    //        same impulse response as the room tail) → toneRet (presence) → toneOut
-    //   toneOut → master (after ears and the listener FX) → guard → speakers.
-    // The sines never reach ears, so they never enter the listener FX (FeedbackDelay/PingPong up to 0.95 feedback):
-    // continuous 2000 Hz tones with ~700 Hz AM recirculated there, slammed the limiter and locked the sound card
-    // (t827u + voice 11 Nov). They never touch send / pre / a1 / a2 / damp / fb / tail / ret either (5884a56 sent
-    // them into send = the FDN loop and it howled, t820u). The FDN stays mix + voiceIn → … → tail → ret → ears.
-    // Nothing downstream ever reaches osc, LFO, am, lvl or toneWet. Every link here is listed in point.wires
-    // (from → to) so the tests can check the graph.
-    const sr = ctx.sampleRate;
-    const allpass = (sec, g) => { // y = −g·v + v[n−D], v = x + g·v[n−D]
-      const inp = ctx.createGain(), v = ctx.createGain(), d = ctx.createDelay(0.1), fbg = ctx.createGain(), neg = ctx.createGain(), out = ctx.createGain();
-      d.delayTime.value = Math.max(sec, 256 / sr); fbg.gain.value = g; neg.gain.value = -g;
-      inp.connect(v); v.connect(d); d.connect(fbg); fbg.connect(v); v.connect(neg); neg.connect(out); d.connect(out);
-      return { inp, out };
-    };
-    const tailIR = (sec, seed) => {
-      const n = Math.round(sr * sec), b = ctx.createBuffer(2, n, sr); let x = seed;
-      for (let c = 0; c < 2; c++) { const ch = b.getChannelData(c); for (let i = 0; i < n; i++) { x = (x * 1664525 + 1013904223) >>> 0; ch[i] = ((x / 4294967296) * 2 - 1) * Math.exp(-6.9 * i / n) * Math.min(1, i / (sr * 0.004)); } }
-      return b;
-    };
-    const AP = [[0.0047, 0.0113], [0.0053, 0.0127], [0.0061, 0.0139]];
-    const verbPoint = (i) => {
-      const wires = [], wire = (a, b, from, to) => { a.connect(b); wires.push([from, to]); };
-      const send = ctx.createGain(), pre = ctx.createDelay(REVERB_ROOM.maxPre), fb = ctx.createGain(), ret = ctx.createGain();
-      send.gain.value = 0; fb.gain.value = REVERB_ROOM.loopGain; ret.gain.value = 0; pre.delayTime.value = REVERB_ROOM.preTimes[i];
-      const a1 = allpass(AP[i][0], 0.6), a2 = allpass(AP[i][1], 0.55);
-      let damp; try { damp = ctx.createIIRFilter([0.45], [1, -0.55]); } catch { damp = ctx.createGain(); damp.gain.value = 0.9; }
-      const tail = ctx.createConvolver(); tail.normalize = true; tail.buffer = tailIR(1.6, 0x9e3779b9 + i * 7919);
-      wire(mix, send, 'mix', 'send'); wire(voiceIn, send, 'voiceIn', 'send'); wire(send, pre, 'send', 'pre');
-      wire(pre, a1.inp, 'pre', 'a1'); wire(a1.out, a2.inp, 'a1', 'a2'); wire(a2.out, damp, 'a2', 'damp'); wire(damp, fb, 'damp', 'fb'); wire(fb, pre, 'fb', 'pre');
-      wire(a2.out, tail, 'a2', 'tail'); wire(tail, ret, 'tail', 'ret'); intoEars(ret); wires.push(['ret', 'ears']);
-      // the point's sine: pitch from my look (rvHz, 20 … 2000 Hz; rest 200 / 2000 / 2000); its volume LFO's FREQUENCY = my distance (rvLfo)
-      const osc = ctx.createOscillator(); osc.type = 'sine'; osc.frequency.value = REVERB_ROOM.restHz[i];
-      const am = ctx.createGain(); am.gain.value = 0.5; // 0.5 + 0.5·sin = 0 … 1
-      const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = REVERB_ROOM.lfoMin;
-      const depth = ctx.createGain(); depth.gain.value = 0.5 * REVERB_ROOM.lfoDepth;
-      const lvl = ctx.createGain(); lvl.gain.value = 0;       // dry:  rvTone × City
-      const toneWet = ctx.createGain(); toneWet.gain.value = 0; // wet: rvTone × REVERB_ROOM.wet × City → toneTail (feedforward)
-      const toneTail = ctx.createConvolver(); toneTail.normalize = true; toneTail.buffer = tail.buffer; // the sines' own listening room
-      const toneRet = ctx.createGain(); toneRet.gain.value = 0; // presence (0 outside), like ret
-      wire(lfo, depth, 'lfo', 'depth'); wire(depth, am.gain, 'depth', 'am.gain'); wire(osc, am, 'osc', 'am');
-      wire(am, lvl, 'am', 'lvl'); intoListen(lvl); wires.push(['lvl', 'toneOut']);   // dry → the listening output
-      wire(am, toneWet, 'am', 'toneWet'); wire(toneWet, toneTail, 'toneWet', 'toneTail'); // wet → its own feedforward tail
-      wire(toneTail, toneRet, 'toneTail', 'toneRet'); intoListen(toneRet); wires.push(['toneRet', 'toneOut']); wires.push(['toneOut', 'master']);
-      try { osc.start(); lfo.start(); } catch { /* ok */ }
-      return { send, pre, fb, ret, tail, osc, lfo, am, depth, lvl, toneWet, toneTail, toneRet, wires, toneInLoop: false, toneInSend: false, toneInTail: false, toneInEars: false, toneOut: true };
-    };
-    const verbRoom = [verbPoint(0), verbPoint(1), verbPoint(2)];
-    for (const n of this.plugged || []) { try { n.connect(voiceIn); } catch { /* ok */ } }
-    try { this.out.disconnect(); } catch { /* ok */ } // was out → ears
-    T.connect(this.out, lp);
-    if (node) { lp.connect(node); node.connect(mix); } else lp.connect(mix);
-    mix.connect(dryGain); intoEars(dryGain);
-    this.place = { lp, node, mix, dryGain, city: 0, a: tap(1.5), b: tap(1.5), small: verb(0.9, 0.01), big: verb(5.5, 0.04), dist, distSend, distGain, distAmt: 0.2, noiseSend, noiseBed, voiceIn, room, verbRoom, last: null, sets: 0 };
-    return this.place;
-  }
-  // v: the values from cityFxAt (or PLACE_NEUTRAL). Neutral before the bus exists = nothing to do.
-  setPlace(v, { slew = 0.25, neutral = false, city = undefined } = {}) {
-    if (!v) return false;
-    if (!this.place && (neutral || this.workletOk === undefined)) return false; // neutral and no bus yet: stay untouched; worklet still loading: next tick
-    const P = this.placeBus(), t = this.raw.currentTime, to = (param, x) => { if (Number.isFinite(x)) param.setTargetAtTime(x, t, slew); };
-    // city 0..1: dry↔wet of reverb/delay (and other place sends). 0 = dry only, 1 = wet only.
-    if (city !== undefined && Number.isFinite(city)) P.city = Math.min(1, Math.max(0, city));
-    const c = P.city || 0;
-    to(P.dryGain.gain, 1 - c);
-    to(P.lp.frequency, Math.min(v.cutoff, this.raw.sampleRate / 2 - 100));
-    to(P.a.d.delayTime, v.delayTime); to(P.a.fb.gain, v.delayFb); to(P.a.send.gain, (v.delayWet || 0) * c);
-    to(P.b.d.delayTime, v.delay2Time); to(P.b.fb.gain, v.delay2Fb); to(P.b.send.gain, (v.delay2Wet || 0) * c);
-    to(P.small.send.gain, (v.verbWet || 0) * (1 - v.verbSize) * c); to(P.big.send.gain, (v.verbWet || 0) * v.verbSize * c);
-    // Distortion wet send (Peaks A+C). Curve rebuild only when amount steps enough (no audio glitch every tick).
-    to(P.distSend.gain, (v.distWet || 0) * c);
-    if (Number.isFinite(v.distAmount)) {
-      const a = Math.round((v.distAmount || 0) * 50) / 50;
-      if (a !== P.distAmt) { P.dist.curve = placeDistCurve(a); P.distAmt = a; }
-    }
-    if (P.node) for (const k of ['modMix', 'modBase', 'modDepth', 'modRate', 'modFb', 'decim', 'bits', 'decimMix', 'stutter', 'stutterLen', 'chop', 'freqHz', 'freqMix']) {
-      const prm = P.node.parameters.get(k); if (!prm) continue;
-      let x = v[k];
-      // Mix-ish params also scale with city so 0 is truly dry
-      if (k === 'modMix' || k === 'decimMix' || k === 'freqMix' || k === 'stutter' || k === 'chop') x = (x || 0) * c;
-      to(prm, x);
-    }
-    // Noise room: hiss that follows my sound (×3: pink noise sits low) + a quiet bed (kept well under the guard).
-    to(P.noiseSend.gain, (v.noiseWet || 0) * 3 * c); to(P.noiseBed.gain, (v.noiseBed || 0) * 0.08 * c);
-    // Delay room: send = roomWet (0 outside the room) × City sound, ret = the room's presence (0 outside), feedback
-    // 0…100 % → loop gain 0…loopMax, times (held by the client since my entry / last slap).
-    const open = Math.min(1, Math.max(0, (v.roomWet || 0) / DELAY_ROOM.wet));
-    P.room.forEach((r, i) => {
-      to(r.send.gain, (v.roomWet || 0) * c); to(r.ret.gain, open);
-      to(r.fb.gain, Math.min(1, Math.max(0, v['roomFb' + (i + 1)] || 0)) * DELAY_ROOM.loopMax);
-      const tm = v['roomTime' + (i + 1)]; if (Number.isFinite(tm)) to(r.d.delayTime, Math.min(DELAY_ROOM.maxTime, Math.max(DELAY_ROOM.minTime, tm)));
-    });
-    // Reverb room: the fixed room reverb opens inside (send = rvWet × City sound, ret = presence); feedback and
-    // pre-delays stay fixed (set at build). The sines: dry level = rvTone × City sound (0 outside / looking out),
-    // wet toneWet = rvTone × REVERB_ROOM.wet (0.35) × City straight into the sines' own tail (not through send – City applied
-    // once, wet gated by look-out and presence too; toneRet = presence on top, like ret),
-    // pitch = rvHz (look), volume-LFO frequency = rvLfo (my distance, 2 … 1000 Hz); the LFO depth never changes.
-    const vopen = Math.min(1, Math.max(0, (v.rvWet || 0) / REVERB_ROOM.wet));
-    P.verbRoom.forEach((r, i) => {
-      to(r.send.gain, (v.rvWet || 0) * c); to(r.ret.gain, vopen); to(r.toneRet.gain, vopen);
-      const tone = Math.min(1, Math.max(0, v.rvTone || 0));
-      to(r.lvl.gain, tone * c); to(r.toneWet.gain, tone * REVERB_ROOM.wet * c);
-      const f = v['rvHz' + (i + 1)]; if (Number.isFinite(f)) to(r.osc.frequency, Math.min(REVERB_ROOM.toneMaxHz, Math.max(REVERB_ROOM.toneMinHz, f)));
-      const hz = v['rvLfo' + (i + 1)]; if (Number.isFinite(hz)) to(r.lfo.frequency, Math.min(REVERB_ROOM.lfoMax, Math.max(REVERB_ROOM.lfoMin, hz)));
-    });
-    P.last = v; P.sets++;
-    return true;
-  }
   get now() { return this.Tone.now(); }
 
   // Free acoustics: { reverb: { decay, preDelay, wet } } from roomAcoustics(style).
@@ -307,20 +128,17 @@ export class SynthEngine {
     if (dl && dl.d.sync && dl.d.sync !== 'free') { const sec = Math.min(1.6, delaySeconds(dl.d, b)); try { dl.node.delayTime.rampTo(sec, 0.05); } catch { try { dl.node.delayTime.value = sec; } catch { /* ok */ } } }
     return true;
   }
-  // Connect a raw Web Audio node (voice monitor, remote peer) into my ears so it gets listener FX + place.
-  // Voices also feed the delay room's three delays and the reverb room's three points (place.voiceIn; silent outside).
+  // Connect a raw Web Audio node (voice monitor, remote peer) into my ears so it gets the listener FX.
   plugEars(node) {
     if (!node) return;
     try { this.Tone.connect(node, this.ears); } catch {
       try { node.connect(this.ears.input || this.ears); } catch { /* ok */ }
     }
     (this.plugged ||= new Set()).add(node);
-    if (this.place?.voiceIn) { try { node.connect(this.place.voiceIn); } catch { /* ok */ } }
   }
   unplugEars(node) {
     if (!node) return;
     this.plugged?.delete(node);
-    if (this.place?.voiceIn) { try { node.disconnect(this.place.voiceIn); } catch { /* ok */ } }
     try { this.Tone.disconnect(node, this.ears); } catch {
       try { node.disconnect(this.ears.input || this.ears); } catch { /* ok */ }
     }
@@ -418,7 +236,7 @@ export class SynthEngine {
         let from = null;
         if (/^L\d$/.test(src)) from = made[Number(src[1])]?.level || null;
         else if (src === 'mic') from = this.micSource();
-        else if (src === 'bus') from = this.place ? this.place.mix : this.out;
+        else if (src === 'bus') from = this.out;
         else if (src === 'master') from = this.out;
         if (!from) return;
         try { this.Tone.connect(from, node, 0, k); wired.push(from); } catch (e) { this.modErrors = (this.modErrors || 0) + 1; }
@@ -665,16 +483,6 @@ export class SynthEngine {
 function softClipCurve() {
   const n = 2048, c = new Float32Array(n);
   for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.abs(x) < 0.5 ? x : Math.sign(x) * (0.5 + 0.5 * Math.tanh((Math.abs(x) - 0.5) / 0.5)); }
-  return c;
-}
-// Soft fold for city intersection Distortion peaks (amount 0..1). Output stays in ±1 so the master guard does not engage hard.
-function placeDistCurve(amount = 0.2) {
-  const k = Math.max(0.01, Math.min(1, amount) * 28);
-  const n = 2048, c = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const x = (i / (n - 1)) * 2 - 1;
-    c[i] = ((1 + k) * x) / (1 + k * Math.abs(x));
-  }
   return c;
 }
 // Why the voices are plain Web Audio and not Tone instruments: every Tone node wraps its params

@@ -12,14 +12,10 @@ export class Ambient {
     this.engine = engine; this.Tone = engine.Tone; this.ctx = engine.raw;
     this.bird = { on: false, vol: 0.35, timer: null, bus: null, phrases: 0 };
     this.wind = { on: false, vol: 0.25, timer: null, nodes: null };
-    // the place's bird/wind mix (city zones, shared/cityfx.mjs): × the radio's volumes
+    // bird/wind buses into the engine's output (unity; the city's per-zone mix is gone, t857u)
     const out = engine.out.input || engine.out;
     this.mix = { bird: this.ctx.createGain(), wind: this.ctx.createGain(), v: { bird: 1, wind: 1 } };
     this.mix.bird.connect(out); this.mix.wind.connect(out);
-  }
-  setPlaceMix(bird = 1, wind = 1, slew = 0.25) {
-    const t = this.ctx.currentTime; this.mix.v = { bird, wind };
-    this.mix.bird.gain.setTargetAtTime(bird, t, slew); this.mix.wind.gain.setTargetAtTime(wind, t, slew);
   }
   birdBus() {
     if (this.bird.bus) return this.bird.bus;

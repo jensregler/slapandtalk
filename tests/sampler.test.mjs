@@ -9,7 +9,6 @@ import * as CLOCK from '../shared/clock.mjs';
 import { cleanRadio, cleanPreset, cleanBpm, knobToBpm, bpmToKnob, FOUR_VOICES, voiceEvents, VOICE_CYCLE_MS, voiceCycleMs, birdPhrase, RADIO } from '../shared/radio.mjs';
 import { decimate } from '../client/src/decimator.js';
 import { knobToMorph, RADIO_DEFAULTS } from '../shared/radio.mjs';
-import { CITY_FX, PLACE, PLACE_NEUTRAL, cityFxAt, zoneWeight, cleanCityFx, fieldAmounts, cornerField, sideField, peakField, delayParamsAt, glitchDelayParamsAt, PEAKS, FIELD, BEAT } from '../shared/cityfx.mjs';
 import fs from 'fs';
 import { insideHouse } from '../shared/city.mjs';
 
@@ -171,13 +170,13 @@ ok('tempo: 30 BPM … 120 000 BPM (2 kHz, "11"), log knob, ≥ 20 beats/s snaps 
 });
 ok('radio + room preset: cleaned, per room; nothing = the original', () => {
   const r = cleanRadio({ on: false, knob: 7, bird: { on: 'x', vol: 0.9 }, bpm: 120, city: 0.55 });
-  // Master rebuild: on + knob always "my sound"; city 0..1 kept; ambients still load
-  assert.equal(r.on, true); assert.equal(r.knob, 0.5); assert.equal(r.city, 0.55);
+  // Master rebuild: on + knob always "my sound"; ambients still load; the old City sound field is dropped (t857u)
+  assert.equal(r.on, true); assert.equal(r.knob, 0.5); assert.ok(!('city' in r));
   assert.equal(r.bird.on, false); assert.equal(r.bird.vol, 0.9); assert.equal(r.bpm, 120);
-  assert.equal(cleanRadio(null).city, 0); assert.equal(RADIO_DEFAULTS.city, 0);
+  assert.ok(!('city' in cleanRadio(null)) && !('city' in RADIO_DEFAULTS));
   assert.equal(cleanPreset(null), null); assert.equal(cleanPreset({}), null);
   const p = cleanPreset({ patches: { slap: { layers: [{ kind: 'sampler', sample: 'c'.repeat(64) }] }, bogus: {} }, radio: { knob: 0.3, city: 0.2 } });
-  assert.ok(p.patches.slap && !p.patches.bogus && p.radio.knob === 0.5 && p.radio.city === 0.2);
+  assert.ok(p.patches.slap && !p.patches.bogus && p.radio.knob === 0.5 && !('city' in p.radio));
 });
 ok('sequencer layer: lengths 1–16, steps {on, vol} (the old auto-slap step schema), compact storage', () => {
   const l = cleanLayer({ kind: 'osc', seq: { len: 40, bars: 3, steps: [{ on: false }] } });
@@ -204,175 +203,6 @@ ok('radio knob = morph + seek (not a volume): 0 = original, ½ = my preset, 1 = 
   const m15 = morphPatch(a, b, 1.5); assert.ok(m15.layers[0].cutoff > 2000 && m15.layers[0].cutoff < 4000);
 });
 
-ok('city place effect v2: continuous fields, Freq shift replaces Clean, peaks steep-but-smooth, delay gradients', () => {
-  const at = (x, z) => cityFxAt(x, z);
-  const A = (x, z) => fieldAmounts(x, z);
-  // Layout: corners Delay NW / Reverb NE / Glitch SW / Freq SE; sides Flanger W / Chorus E
-  assert.ok(A(-48, -48).delay >= 0.99, 'Delay extreme at NW outer corner');
-  assert.ok(A(48, -48).reverb >= 0.99, 'Reverb extreme at NE outer corner');
-  assert.ok(A(-48, 48).glitch >= 0.99, 'Glitch extreme at SW outer corner');
-  assert.ok(A(48, 48).freq >= 0.99, 'Freq shift extreme at SE outer corner');
-  assert.ok(!('clean' in at(32, 32).zones), 'Clean quarter is gone');
-  assert.ok(at(32, 32).zones.freq > 0.5 && at(32, 32).freqMix > 0.3, 'SE is Freq shift, not dry');
-  // Town Hall ~0
-  const hall = A(0, 0);
-  for (const k of ['delay', 'reverb', 'flanger', 'chorus', 'glitch', 'freq', 'peakA', 'peakB', 'peakC', 'peakD']) {
-    assert.ok(hall[k] < 0.05, `Town Hall quiet: ${k}=${hall[k]}`);
-  }
-  const hv = at(0, 0);
-  assert.ok(hv.delayWet < 0.2 && hv.verbWet < 0.2 && hv.modMix < 0.15 && hv.freqMix < 0.1 && hv.decimMix < 0.2, 'Town Hall params quiet');
-  // Corner slow falloff: still strong near house centre, weaker toward centre
-  assert.ok(A(-32, -32).delay > 0.55, 'Delay still strong at house centre');
-  assert.ok(A(-32, -32).delay > A(-16, -16).delay, 'Delay falls toward centre');
-  assert.ok(A(-16, -16).delay > A(0, 0).delay, 'Delay keeps falling');
-  // ONE shape, rotated: the four corners match under sign-flip
-  for (const [x, z] of [[-40, -30], [-25, -40], [-35, -35]]) {
-    const d = cornerField(x, z, -1, -1);
-    assert.ok(near(d, cornerField(-x, z, 1, -1), 1e-9), 'NE mirror of NW');
-    assert.ok(near(d, cornerField(x, -z, -1, 1), 1e-9), 'SW mirror of NW');
-    assert.ok(near(d, cornerField(-x, -z, 1, 1), 1e-9), 'SE mirror of NW');
-  }
-  // Side half-disc: strong near the house toward centre, ~0 at Town Hall, soft outer shoulder
-  assert.ok(sideField(-24, 0, -1) > 0.7, 'Flanger strong on the inner side of the west house');
-  assert.ok(sideField(-32, 0, -1) > 0.95, 'Flanger ≈1 at house centre');
-  assert.ok(sideField(0, 0, -1) < 0.08, 'Flanger ~0 at Town Hall');
-  assert.ok(sideField(-48, 0, -1) < 0.35, 'Flanger soft at the outer city edge');
-  assert.ok(sideField(24, 0, 1) > 0.7, 'Chorus strong on the inner side of the east house');
-  assert.ok(Math.abs(sideField(-24, 0, -1) - sideField(24, 0, 1)) < 1e-9, 'side shapes are mirrors');
-  // Alley blending: Delay corner field meets Flanger half-disc in the NW–W street
-  const alley = A(-16, -8);
-  assert.ok(alley.delay > 0.15 && alley.flanger > 0.3, 'alley blends Delay + Flanger');
-  const alleyV = at(-16, -8);
-  assert.ok(alleyV.delayWet > 0.05 && alleyV.modMix > 0.3, 'alley params mix both');
-  // Two corner fields meet along the north street (Delay NW + Reverb NE)
-  const deep = A(0, -36);
-  assert.ok(deep.delay > 0.15 && deep.reverb > 0.15, 'north street blends Delay + Reverb');
-  assert.ok(deep.delay + deep.reverb > 0.4, 'deep alley: combined corner energy');
-  // Extreme combo near where side + corner + peak shoulders meet
-  const combo = A(-20, -14);
-  assert.ok(combo.delayAmt + combo.flangerAmt > 0.6, 'combo zone has multiple effects');
-  // Peaks: ~4× radius; each has a UNIQUE set of 3 different effects
-  assert.ok(Math.abs(FIELD.peakR - 12.8) < 1e-9 && Math.abs(FIELD.peakKnee - 1.4) < 1e-9, 'peak radius ×4');
-  assert.equal(PEAKS[0].effects.join('+'), 'dist+delay+freq');
-  assert.equal(PEAKS[1].effects.join('+'), 'bitcrush+reverb+chorus');
-  assert.equal(PEAKS[2].effects.join('+'), 'dist+flanger+stutter');
-  assert.equal(PEAKS[3].effects.join('+'), 'bitcrush+freq+reverb');
-  // uniqueness: every peak has 3 distinct effects; no two peaks share the same set
-  const keys = PEAKS.map((p) => [...p.effects].sort().join('+'));
-  assert.equal(new Set(keys).size, PEAKS.length, 'every peak combo unique');
-  for (const p of PEAKS) assert.equal(new Set(p.effects).size, 3, `${p.id} has 3 different effects`);
-  assert.ok(peakField(-16, -16, -16, -16) === 1, 'peak centre = 1');
-  assert.ok(peakField(-16, -16, -16 + FIELD.peakR + 0.01, -16) === 0, 'peak outside R = 0');
-  const p0 = peakField(-16, -16, -16 + FIELD.peakKnee + 0.5, -16);
-  const p1 = peakField(-16, -16, -16 + FIELD.peakKnee + 0.6, -16);
-  assert.ok(p0 > p1 && p0 - p1 < 0.25, `peak continuous steep step ${p0}->${p1}`);
-  assert.ok(peakField(-16, -16, -16 + 6, -16) < 0.55, 'peak already down by 6 m');
-  assert.ok(peakField(-16, -16, -16 + 10, -16) < 0.2, 'peak nearly gone by 10 m');
-  // Peak A: dist + delay + freq (extreme at centre)
-  const pa = A(-16, -16);
-  assert.ok(pa.peakA > 0.95 && pa.distAmt > 0.95 && pa.delayAmt > 0.9 && pa.freqAmt > 0.9, 'Peak A stack dist+delay+freq');
-  assert.ok(pa.crushAmt < 0.05 && pa.stutterAmt < 0.05, 'Peak A no bitcrush/stutter');
-  const pav = at(-16, -16);
-  assert.ok(pav.distWet > 0.5 && pav.delayWet > 0.3 && pav.freqMix > 0.5, 'Peak A audible as dist+delay+freq');
-  // Peak B: bitcrush + reverb + chorus
-  const pb = A(16, -16);
-  assert.ok(pb.peakB > 0.95 && pb.crushAmt > 0.95 && pb.reverbAmt > 0.9 && pb.chorusAmt > 0.9, 'Peak B stack');
-  assert.ok(pb.distAmt < 0.05, 'Peak B no dist');
-  const pbv = at(16, -16);
-  assert.ok(pbv.decimMix > 0.5 && pbv.bits < 8 && pbv.verbWet > 0.4 && pbv.modMix > 0.5 && pbv.distWet < 0.05, 'Peak B audible');
-  // Peak C: dist + flanger + stutter
-  const pc = A(-16, 16);
-  assert.ok(pc.peakC > 0.95 && pc.distAmt > 0.95 && pc.flangerAmt > 0.9 && pc.stutterAmt > 0.95, 'Peak C stack');
-  assert.ok(pc.crushAmt < 0.05, 'Peak C no bitcrush');
-  const pcv = at(-16, 16);
-  assert.ok(pcv.distWet > 0.5 && pcv.modMix > 0.5 && pcv.stutter > 0.5 && pcv.modBase < 6, 'Peak C audible dist+flanger+stutter');
-  // Peak D: bitcrush + freq + reverb
-  const pd = A(16, 16);
-  assert.ok(pd.peakD > 0.95 && pd.crushAmt > 0.95 && pd.freqAmt > 0.9 && pd.reverbAmt > 0.9, 'Peak D stack');
-  const pdv = at(16, 16);
-  assert.ok(pdv.decimMix > 0.5 && pdv.freqMix > 0.5 && pdv.verbWet > 0.4 && pdv.distWet < 0.05, 'Peak D audible');
-  assert.ok(PLACE.distWet && PLACE.distAmount, 'dist keys in PLACE');
-  assert.equal(PLACE_NEUTRAL.distWet, 0);
-  // Delay time short near house, tempo-synced moderate mid-alley
-  const nearHouse = delayParamsAt(-40, -40);
-  const midAlley = delayParamsAt(-32, -8);
-  assert.ok(nearHouse.delayTime < 0.12, `short near house: ${nearHouse.delayTime}`);
-  assert.ok(Math.abs(midAlley.delayTime - BEAT / 2) < 0.08, `mid-alley near ⅛: ${midAlley.delayTime} vs ${BEAT / 2}`);
-  assert.ok(nearHouse.delayFb > midAlley.delayFb, 'feedback also follows gradient');
-  const dl = at(-40, -40);
-  assert.ok(dl.delayWet > 0.35 && dl.delayTime < 0.12, 'Delay quarter extreme: wet + short');
-  // Quarters as laid out (chip weights)
-  const z = (x, zz) => at(x, zz).zones;
-  assert.ok(z(-42, -42).delay > 0.85); assert.ok(z(42, -42).reverb > 0.85);
-  assert.ok(z(-18, 0).flanger > 0.5); assert.ok(z(18, 0).chorus > 0.5);
-  assert.ok(z(-42, 42).glitch > 0.85); assert.ok(z(42, 42).freq > 0.85);
-  assert.ok(z(0, -47.5).park > 0.5, 'north park');
-  // Reverb / flanger / chorus / glitch character
-  assert.ok(at(40, -40).verbWet >= 0.5 && at(40, -40).verbSize > 0.7);
-  assert.ok(at(-18, 0).modBase < 4 && at(-18, 0).modFb > 0.4, 'flanger: short + feedback');
-  assert.ok(at(18, 0).modBase > 10 && at(18, 0).modFb < 0.15, 'chorus: longer, little feedback');
-  const g = at(-40, 40); assert.ok(g.stutter > 0.3 && g.decimMix > 0.5 && g.bits < 10, 'glitch: crush + stutter');
-  // Glitch SW also drives delay + flanger with depth (0 at edge → max / 100% fb at tip), hotter than other quarters
-  const gTip = at(-48, 48);
-  const gMid = at(-24, 24);
-  const gEdge = at(20, 40); // far from SW tip; glitch field ≈ 0
-  const nwTip = at(-48, -48);
-  const flW = at(-32, 0);
-  assert.ok(gTip.delayWet >= 0.9 && gTip.delayFb >= 0.99, `glitch tip: max delay + 100% fb (wet=${gTip.delayWet} fb=${gTip.delayFb})`);
-  assert.ok(gTip.modMix >= 0.95 && gTip.modBase < 4 && gTip.modFb >= 0.85, 'glitch tip: max flanger');
-  assert.ok(gTip.modDepth > flW.modDepth + 2, `glitch tip flanger depth hotter than Flanger W (${gTip.modDepth} vs ${flW.modDepth})`);
-  assert.ok(gTip.delayWet > nwTip.delayWet + 0.2 && gTip.delayFb > nwTip.delayFb + 0.3, 'glitch tip hotter than Delay NW wet/fb');
-  assert.ok(gTip.stutter > 0.3 && gTip.decimMix > 0.5 && gTip.chop > 0.4, 'glitch tip keeps crush+stutter+chop');
-  assert.ok(gMid.delayWet > 0.25 && gMid.delayWet < gTip.delayWet, 'glitch mid: intermediate delay wet');
-  assert.ok(gMid.delayFb > 0.25 && gMid.delayFb < gTip.delayFb, 'glitch mid: intermediate delay fb');
-  assert.ok(gMid.modMix > 0.4 && gMid.modMix <= gTip.modMix, 'glitch mid: intermediate flanger');
-  assert.ok(gEdge.delayWet < 0.05 && gEdge.delayFb < 0.05 && gEdge.modMix < 0.08, 'glitch field edge: ~0 extra delay/flanger/fb');
-  // Along the outer wall: delay TIME changes with position (not just on/off)
-  const wallNear = at(-48, 40); // close to tip along west wall
-  const wallFar = at(-48, 20);  // further north along west wall
-  assert.ok(Math.abs(wallNear.delayTime - wallFar.delayTime) > 0.15, `wall delay time moves (${wallNear.delayTime} vs ${wallFar.delayTime})`);
-  const gpNear = glitchDelayParamsAt(-48, 40), gpFar = glitchDelayParamsAt(-48, 20);
-  assert.ok(gpNear.along < gpFar.along && gpNear.delayTime < gpFar.delayTime, 'glitchDelayParamsAt: time grows along the wall');
-  assert.ok(PLACE.delayFb[1] >= 1, 'PLACE.delayFb allows 100% feedback for glitch tip');
-  assert.ok(Math.abs(at(40, 40).freqHz) > 100 && at(40, 40).freqMix > 0.5, 'freq shift: Hz + mix');
-  assert.ok(at(47.5, 0).decimMix > 0.5 && at(47.5, 0).cutoff < 8000, 'edge: broken radio');
-  // Walking: every 10 cm step changes each value by only a small part of its range (no jumps)
-  // Peaks are steep by design – exclude a small radius around each peak centre from the worst-step check,
-  // but still require continuity (no hard discontinuities) everywhere including peaks.
-  let worst = 0, worstPeak = 0;
-  const nearPeak = (x, z) => PEAKS.some((p) => Math.hypot(x - p.x, z - p.z) < FIELD.peakR + 0.5);
-  for (const line of [[[-48, -32], [48, -32]], [[-48, 0], [48, 0]], [[-48, 32], [48, 32]], [[-32, -48], [-32, 48]], [[32, -48], [32, 48]], [[0, -48], [0, 48]], [[-48, -48], [48, 48]]]) {
-    let prev = null, prevXZ = null;
-    for (let i = 0; i <= 960; i++) {
-      const t = i / 960, x = line[0][0] + (line[1][0] - line[0][0]) * t, zz = line[0][1] + (line[1][1] - line[0][1]) * t;
-      // Nobody walks through a wall: a step across a building / an open room's wall (the delay room's
-      // "no delay outside the room" edge, Jens t790u) starts the walk again on the other side.
-      if (insideHouse(x, zz)) { prev = null; prevXZ = null; continue; }
-      const v = at(x, zz);
-      if (prev) {
-        for (const k of Object.keys(PLACE)) {
-          const [lo, hi, log] = PLACE[k];
-          const d = log ? Math.abs(Math.log(Math.max(1e-12, v[k]) / Math.max(1e-12, prev[k]))) / Math.log(hi / lo) : Math.abs(v[k] - prev[k]) / (hi - lo);
-          if (nearPeak(x, zz) || nearPeak(prevXZ[0], prevXZ[1])) worstPeak = Math.max(worstPeak, d);
-          else worst = Math.max(worst, d);
-        }
-      }
-      prev = v; prevXZ = [x, zz];
-    }
-  }
-  assert.ok(worst < 0.06, `largest non-peak step ${worst.toFixed(4)} of a range per 10 cm`);
-  assert.ok(worstPeak < 0.35, `largest peak-area step ${worstPeak.toFixed(4)} (steep but continuous)`);
-  for (let i = 0; i < 300; i++) { const v = at(Math.random() * 120 - 60, Math.random() * 120 - 60); for (const k of Object.keys(PLACE)) assert.ok(v[k] >= PLACE[k][0] && v[k] <= PLACE[k][1] && Number.isFinite(v[k]), k); }
-  assert.ok(same(Object.keys(at(NaN, 0)).sort(), Object.keys(at(0, 0)).sort()));
-  // Legacy zoneWeight still works for custom circle/rect overlays
-  const q = { shape: 'circle', x: 0, z: 0, r: 5, feather: 4 }; assert.equal(zoneWeight(q, 3, 0), 1); assert.equal(zoneWeight(q, 9, 0), 0); assert.ok(near(zoneWeight(q, 7, 0), 0.5));
-  const ed = cleanCityFx({ base: { verbWet: 9 }, zones: [{ shape: 'circle', x: 0, z: 0, r: 4, fx: { modMix: 1, bogus: 3 } }, { shape: 'star' }, null] });
-  assert.equal(ed.base.verbWet, PLACE.verbWet[1]); assert.equal(ed.zones.length, 1); assert.ok(!('bogus' in ed.zones[0].fx));
-  assert.equal(cityFxAt(0, 0, ed).modMix, 1); assert.equal(cityFxAt(30, 30, ed).modMix, 0);
-  assert.ok(same(cleanCityFx(CITY_FX).zones.map((x) => x.id), CITY_FX.zones.map((x) => x.id)), 'the built-in table passes its own check');
-  assert.ok(PLACE.freqHz && PLACE.freqMix, 'freq shift keys in PLACE');
-  assert.equal(PLACE_NEUTRAL.freqHz, 0); assert.equal(PLACE_NEUTRAL.freqMix, 0);
-});
 ok('envelope follower: a mod source like an LFO (same list/limits/cycles/nesting), rectify + one-pole, threshold, invert, loops smoothed', () => {
   const layers = cleanPatch({ layers: [{ kind: 'osc' }, { kind: 'mic' }] }).layers;
   assert.equal(layers[1].kind, 'mic'); assert.ok(!('sample' in layers[1]) && !('note' in layers[1]), 'a mic layer gets no sampler keys');

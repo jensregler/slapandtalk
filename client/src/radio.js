@@ -1,5 +1,5 @@
 // Master block (was "the radio"; Jens Nov 2026 rebuild).
-// Sound settings Master shows only: master volume (ears) + City sound (0–100 dry↔wet of city FX).
+// Sound settings Master shows only: master volume (ears). (The City sound slider is gone – Jens t857u, 12 Nov 2026.)
 // Older controls (on/off, Blend, Tempo knob, Bird/Wind/Four voices) stay in cleanRadio / Radio engine
 // paths but have no UI; on+knob are forced to "my sound" by cleanRadio.
 // Tempo (Jens, 11 Nov 2026 t846u: "ta bort den globala klockan helt och hållet. alla har sin egen bpm"):
@@ -58,8 +58,6 @@ export class Radio {
     const s = this.state;
     this.state = cleanRadio({ ...s, ...patch, bird: { ...s.bird, ...(patch.bird || {}) }, wind: { ...s.wind, ...(patch.wind || {}) }, voices: { ...s.voices, ...(patch.voices || {}) } });
     this.sound.setRadio(this.state); this.apply();
-    // City sound amount is read by placeTick (outdoors only). Stash for the next tick.
-    if (patch && 'city' in patch && this.sound.engine?.place) this.sound.engine.place.city = this.state.city;
     if (save) this.onChange(this.state);
     return this.state;
   }
@@ -148,8 +146,7 @@ function sustain(p, len) {
 }
 
 // ---------- Master block (top of Sound settings) ----------
-// Volume = Music vol (final output gain). City sound = dry/wet of the city place bus
-// (reverb + delay sends; 0 = dry own sounds, 100 = wet only). Dormant fields stay in radio.state.
+// Volume = Music vol (final output gain). Dormant fields stay in radio.state.
 export const detent = (k) => { k = Math.min(1, Math.max(0, k)); return Math.abs(k - 0.5) < 0.03 ? 0.5 : k; };
 export function knobText(st) {
   // Kept for tests / old callers; Blend UI is gone.
@@ -160,19 +157,13 @@ export function knobText(st) {
   if (k < 0.5) return `${Math.round(k * 200)} % toward my sound`;
   return `${Math.round((k - 0.5) * 200)} % past my sound (stronger)`;
 }
-export function citySoundText(city) {
-  const p = Math.round(Math.min(1, Math.max(0, Number(city) || 0)) * 100);
-  if (p <= 0) return '0 % – dry (own sounds, no city FX)';
-  if (p >= 100) return '100 % – city FX only (wet)';
-  return `${p} % city FX`;
-}
 // musicVol: { get, set, def } – same object main.js uses for Music vol (merged into Master).
 export function radioBlock({ radio, imgUrl, el, musicVol = null }) {
   void imgUrl;
-  const st = radio.state;
+  void radio;
   const box = el('fieldset', 'snd-layer radio-box'); box.id = 'radio-box';
   box.appendChild(el('legend', null, 'Master'));
-  box.appendChild(el('p', 'hint', 'Volume in your ears, and how much of the city effects you hear.'));
+  box.appendChild(el('p', 'hint', 'Volume in your ears.'));
 
   // ----- Volume: the ONLY volume control (Jens, 11 Nov 2026: the header "Music vol" duplicate is gone) -----
   const volRow = el('div', 'snd-sl'); volRow.dataset.param = 'master-vol';
@@ -190,24 +181,6 @@ export function radioBlock({ radio, imgUrl, el, musicVol = null }) {
   };
   vol.oninput = () => syncVol(Number(vol.value) / 100);
   volRow.append(vol, volOut); box.appendChild(volRow);
-
-  // ----- City sound (dry ↔ wet of city place FX) -----
-  const cityWrap = el('div', 'snd-group');
-  cityWrap.appendChild(el('small', null, 'City sound'));
-  const cityRow = el('div', 'snd-sl'); cityRow.dataset.param = 'city-sound';
-  cityRow.appendChild(el('span', null, 'City sound'));
-  const city = el('input'); city.type = 'range'; city.min = 0; city.max = 100; city.step = 1; city.id = 'city-sound';
-  city.setAttribute('aria-label', 'City sound: dry to wet city effects');
-  city.value = String(Math.round((st.city || 0) * 100));
-  const cityOut = el('output'); cityOut.id = 'city-sound-val';
-  const showCity = () => { cityOut.textContent = citySoundText(radio.state.city); city.value = String(Math.round((radio.state.city || 0) * 100)); };
-  city.oninput = () => { radio.set({ city: Number(city.value) / 100 }, { save: false }); showCity(); };
-  city.onchange = () => radio.set({});
-  cityRow.append(city, cityOut); cityWrap.appendChild(cityRow);
-  cityWrap.appendChild(el('p', 'hint', '0 = your sounds dry. 100 = only through the city reverb and delay.'));
-  box.appendChild(cityWrap);
-
-  showCity();
   return box;
 }
 export { cleanPreset };

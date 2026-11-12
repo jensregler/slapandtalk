@@ -1,8 +1,8 @@
 // Dance-mode hold vector (Jens, 11 Nov 2026, voice ~14:28–14:29): "När dansläget är aktiverat … när man
 // sätter ett klistermärke ska avståndet till var klistermärket sitter kopplas till hold."
 //   - Only while the dance (X) is on. Not dancing: the slap sounds exactly as its patch says.
-//   - The distance is from ME (the character's head, camera.position – the same point the delay room
-//     measures from) to the point where the sticker lands, in metres (3D).
+//   - The distance is from ME (the character's head, camera.position)
+//     to the point where the sticker lands, in metres (3D).
 //   - Hold (the envelope's hold, the patch's 0 … 3 s range, shared/synth.mjs SYNTH.layer.hold) for THAT slap:
 //     0 s within NEAR metres of me, 3 s at FAR metres = the city's width (96 m, the wall on the other side
 //     of the city), linear in between, clamped outside (further than 96 m is still 3 s).

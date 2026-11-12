@@ -1,10 +1,8 @@
 // The city rebuild (Jens, 10 Nov 2026, pt781u + his annotated sketch): the kept houses' room presets
-// (server/housepresets.js – id first, then title), the open FX rooms' sound (shared/cityfx.mjs: reverb in
-// 4, delay in 5, noise in 7, ducking the street fields inside) and the calm kept houses (PLACE_HOUSE).
+// (server/housepresets.js – id first, then title). (The open FX rooms' sound tests went with the city
+// place effects – Jens t857u, 12 Nov 2026.)
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import * as C from '../shared/city.mjs';
-import * as F from '../shared/cityfx.mjs';
 const require = createRequire(import.meta.url);
 const { createHousePresets } = require('../server/housepresets.js');
 let n = 0; const ok = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); };
@@ -24,38 +22,5 @@ await ok('… a re-made preset (new id, same name) is found by its title; a miss
   assert.equal(await hp.resolve(1), null); assert.equal(await hp.extraFor(6), null);
   const broken = createHousePresets({ get: async () => { throw new Error('S3 down'); }, list: async () => [] }, { log: { error() {} } });
   assert.equal(await broken.resolve(1), null);
-});
-await ok('FX rooms: reverb inside 4, delay inside 5, noise inside 7 – the room is the boss inside (street fields ducked)', () => {
-  const at = (p, dx = 0, dz = 0) => F.cityFxAt(p.x + dx, p.z + dz);
-  const [r4, r5, r7] = C.FX_ROOMS;
-  const v4 = at(r4), v5 = at(r5), v7 = at(r7);
-  // reverb room (Jens 10 Nov 2026, corrected t808u–t812u, shared/reverbroom.mjs): fixed room reverb + sines, the street's reverb out (tests/reverbroom.test.mjs)
-  assert.equal(v4.zones.fxReverb, 1); assert.ok(v4.rvWet === F.REVERB_ROOM.wet && v4.rvTone > 0 && v4.verbWet === 0 && v4.noiseWet === 0 && v4.roomWet === 0, JSON.stringify(v4));
-  // delay room (Jens's sketch t790u, shared/delayroom.mjs): three delays, the street's delay A/B out (tests/delayroom.test.mjs)
-  assert.equal(v5.zones.fxDelay, 1); assert.ok(v5.roomWet >= 0.49 && v5.delayWet === 0 && v5.delay2Wet === 0 && v5.roomFb2 === 1, JSON.stringify(v5));
-  assert.equal(v7.zones.fxNoise, 1); assert.ok(v7.noiseWet >= 0.84 && v7.noiseBed >= 0.49 && v7.verbWet < 0.2);
-  // ducked: the old Flanger W / Chorus E side fields peak on plots 4/5 – inside the rooms they are ≤ 15 %
-  assert.ok(v4.zones.flanger <= 0.151 && v5.zones.chorus <= 0.151, JSON.stringify([v4.zones, v5.zones]));
-});
-await ok('… the noise room spills out through its doorway, much less through a wall; the delay and reverb rooms spill nothing', () => {
-  const [r4, r5, r7] = C.FX_ROOMS;
-  const pairs = [[r7, 0, 1]]; // [room, open direction x, z]
-  for (const [p, ox, oz] of pairs) {
-    const o = F.fxRoomField(p.x + ox * 9.5, p.z + oz * 9.5, p), w = F.fxRoomField(p.x - ox * 9.5, p.z - oz * 9.5, p);
-    const wFar = F.fxRoomField(p.x - ox * 11, p.z - oz * 11, p), oFar = F.fxRoomField(p.x + ox * 11, p.z + oz * 11, p);
-    assert.ok(o > w + 0.3 && wFar === 0 && oFar > 0.15, `room ${p.n}: open ${o} / ${oFar}, wall ${w} / ${wFar}`);
-  }
-  // …but the delay room does NOT spill (Jens's sketch: NO DELAY OUTSIDE THE ROOM): 0 just outside the opening and behind its walls
-  for (const [dx, dz] of [[8.05, 0], [9.5, 0], [11, 0], [-9.5, 0], [0, 9.5], [0, -9.5]]) assert.equal(F.fxRoomField(r5.x + dx, r5.z + dz, r5), 0, `room 5 at ${dx},${dz}`);
-  // …nor the reverb room (opens west: −x): 0 just outside the opening and behind its walls
-  for (const [dx, dz] of [[-8.05, 0], [-9.5, 0], [-11, 0], [9.5, 0], [0, 9.5], [0, -9.5]]) assert.equal(F.fxRoomField(r4.x + dx, r4.z + dz, r4), 0, `room 4 at ${dx},${dz}`);
-  // the Town Hall, the spawn and the plaza hear none of it
-  for (const [x, z] of [[0, 9], [C.CITY_SPAWN.x, C.CITY_SPAWN.z], [0, -22]]) { const v = F.cityFxAt(x, z); assert.ok(!v.zones.fxReverb && !v.zones.fxDelay && !v.zones.fxNoise && v.noiseWet === 0, `${x},${z}`); }
-});
-await ok('kept houses: calm – no place effect, the bird/wind bed well down; every value inside its range', () => {
-  const h = F.placeHouse();
-  for (const k of Object.keys(F.PLACE)) { assert.ok(h[k] >= F.PLACE[k][0] && h[k] <= F.PLACE[k][1], k); }
-  assert.ok(h.bird < 0.5 && h.wind < 0.5 && h.verbWet === 0 && h.delayWet === 0 && h.noiseWet === 0);
-  for (let x = -47; x <= 47; x += 4) for (let z = -47; z <= 47; z += 4) { const v = F.cityFxAt(x, z); for (const k of Object.keys(F.PLACE)) assert.ok(Number.isFinite(v[k]) && v[k] >= F.PLACE[k][0] - 1e-9 && v[k] <= F.PLACE[k][1] + 1e-9, `${k} at ${x},${z}`); }
 });
 console.log(`cityrebuild: ${n} checks ✓`);
