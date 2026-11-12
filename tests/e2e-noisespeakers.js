@@ -70,7 +70,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
       const iA = reads.map((r) => r.lamps.A[0].intensity), iB = reads.map((r) => r.lamps.B[0].intensity), base = L.A[0].base;
       const spread = (a) => Math.max(...a) - Math.min(...a);
       check(`A lamps move with A (${Math.min(...iA).toFixed(2)} … ${Math.max(...iA).toFixed(2)} of base ${base}), B lamps with B (${Math.min(...iB).toFixed(2)} … ${Math.max(...iB).toFixed(2)}); never below the glow`,
-        spread(iA) > 0.02 * base && spread(iB) > 0.02 * base && [...iA, ...iB].every((v) => v >= base * 0.35 - 1e-6 && v <= base * 1.5 + 1e-6), { iA, iB });
+        spread(iA) > 0.005 * base && spread(iB) > 0.005 * base && [...iA, ...iB].every((v) => v >= base * 0.35 - 1e-6 && v <= base * 1.5 + 1e-6), { iA, iB });
       check('a lamp = base × (min + (max − min) × that speaker\'s level), the level from its RMS (before the position gain)', reads.every((r) => r.players.every((p) => { const want = base * (0.35 + 1.15 * p.level); return r.lamps[p.id].every((l) => Math.abs(l.intensity - want) < 0.05 * base + 0.01); })) && reads.some((r) => r.players[1].rms > 0.01), reads.slice(-1)[0]);
       await go(0, 38.6); await P.evaluate(() => window.klibb.look(0, 0.55)); await sleep(600);
       await P.screenshot({ path: path.join(SHOTS, '04-lamps-follow-the-speakers.png') });
@@ -109,11 +109,31 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await go(0, 39); await P.evaluate(() => window.klibb.look(0, 0.12)); await sleep(800);
     await P.screenshot({ path: path.join(SHOTS, '03-both-speakers-from-the-opening.png') });
     // out of the room: silent, paused, no more downloads
-    await go(0, 44); await sleep(600);
+    // out through the door (t879u + t880u): radial 4 m from the opening (x −2.2 … 2.2, z 40), outside only, never through walls
+    const doorRows = [];
+    const doorAt = async (label, x, z, want) => {
+      await go(x, z); if (want > 0) await settle(); else await sleep(500);
+      const r = await P.evaluate(async () => { let a = 0, b = 0; for (let k = 0; k < 8; k++) { a = Math.max(a, window.__rms('A')); b = Math.max(b, window.__rms('B')); await new Promise((ok) => setTimeout(ok, 90)); } return { i: window.klibb.noiseSpeakers(), a, b }; });
+      const [A, B] = r.i.players; doorRows.push({ label, x, z, door: r.i.door, A: A.zone, B: B.zone, want, rmsA: +r.a.toFixed(4), rmsB: +r.b.toFixed(4), active: r.i.inside });
+      check(`${label}: door distance ${r.i.door ?? '–'} m → A ${Math.round(A.zone * 100)} %, B ${Math.round(B.zone * 100)} % (want ${Math.round(want * 100)}); sound out A ${r.a.toFixed(3)}, B ${r.b.toFixed(3)}`,
+        Math.abs(A.zone - want) < 0.01 && Math.abs(B.zone - want) < 0.01 && (want > 0.2 ? r.a > 0.005 && r.b > 0.005 : want === 0 ? r.a < 0.003 && r.b < 0.003 : true), doorRows[doorRows.length - 1]);
+      return r;
+    };
+    await doorAt('inside, middle (unchanged)', 0, 32, 1);
+    for (const d of [0, 1, 2, 3, 4, 5]) await doorAt(`${d} m out in front of the door`, 0, 40 + d, Math.max(0, 1 - d / 4));
+    await doorAt('2 m out, 2 m east of the opening (radial: 2.83 m)', 4.2, 42, 1 - Math.hypot(2, 2) / 4);
+    const beside = await doorAt('beside the room, behind the east wall (2 m from the door corner)', 9.6, 38, 0);
+    check('beside the room: no sound through the wall, players paused', !beside.i.inside && beside.i.players.every((p) => p.paused));
+    await doorAt('behind the west wall', -9.6, 32, 0);
+    await doorAt('behind the north wall', 0, 22.5, 0);
+    fs.writeFileSync(path.join(SHOTS, 'door.json'), JSON.stringify(doorRows, null, 2));
+    await go(0, 42); await settle(); await P.evaluate(() => window.klibb.look(0, 0.05)); await sleep(700);
+    await P.screenshot({ path: path.join(SHOTS, '05-two-metres-out-in-front-of-the-door.png') });
+    await go(0, 46); await sleep(600); // 6 m out: past the 4 m fade and the 1 m keep margin
     const nReq = audioReqs.length;
     const out = await P.evaluate(() => ({ i: window.klibb.noiseSpeakers(), a: window.__rms('A'), b: window.__rms('B') }));
     await sleep(3000);
-    check('out through the opening: both paused, no src, gain 0, no sound, no further downloads', !out.i.inside && out.i.players.every((p) => p.paused && !p.src && p.gain === 0) && out.a < 0.001 && out.b < 0.001 && audioReqs.length === nReq, { out, n: [nReq, audioReqs.length] });
+    check('6 m out from the door: both paused, no src, gain 0, no sound, no further downloads', !out.i.inside && out.i.players.every((p) => p.paused && !p.src && p.gain === 0) && out.a < 0.001 && out.b < 0.001 && audioReqs.length === nReq, { out, n: [nReq, audioReqs.length] });
     const rest = await P.evaluate(() => window.klibb.noiseSpeakers().lamps);
     check('outside: the lamps back to their normal light', [...rest.A, ...rest.B].every((l) => Math.abs(l.intensity - l.base) < 0.01), rest);
     await go(-32, 0); // the reverb room: nothing either

@@ -7,7 +7,7 @@
 // Everyone in the room hears the same track at the same spot: the schedule comes from the server-corrected
 // clock (groove.now()) and the manifest (public/noise-speakers/manifest.json, written by
 // scripts/noise-speakers.mjs).
-import { SPEAKERS, NOISE_SPEAKERS, speakerGain, speakerTrackAt, inNoiseRoom } from '../../shared/noisespeakers.mjs';
+import { SPEAKERS, NOISE_SPEAKERS, speakerGain, speakerTrackAt, inNoiseRoom, noiseActive, doorDistance } from '../../shared/noisespeakers.mjs';
 
 const BASE = '/noise-speakers/';
 // the lamps (t875u): ~30 updates a second; RMS ≥ full = brightest; min = the glow in silence (× the lamp's normal intensity)
@@ -100,7 +100,8 @@ export class NoiseSpeakers {
   }
   // Every frame with the listener's position.
   update(pos) {
-    const inside = inNoiseRoom(pos.x, pos.z);
+    // "inside" = the players run: in the room, or out in front of the door within reach (t880u); else paused, no downloads
+    const inside = noiseActive(pos.x, pos.z); this.inRoom = inNoiseRoom(pos.x, pos.z); this.doorD = doorDistance(pos.x, pos.z);
     if (inside !== this.inside) {
       this.inside = inside;
       if (inside) { if (this.tracks) this.sync(true); else this.load().then(() => this.sync(true)); }
@@ -118,7 +119,7 @@ export class NoiseSpeakers {
     }
   }
   info() {
-    return { inside: this.inside, lamps: this.lamps ? Object.fromEntries(Object.entries(this.lamps).map(([k, v]) => [k, v.map((l) => ({ x: +l.position.x.toFixed(2), intensity: +l.intensity.toFixed(3), base: l.userData.base }))])) : null, tracks: this.tracks ? this.tracks.length : null, log: this.log.slice(),
+    return { inside: this.inside, inRoom: !!this.inRoom, door: Number.isFinite(this.doorD) ? +this.doorD.toFixed(2) : null, lamps: this.lamps ? Object.fromEntries(Object.entries(this.lamps).map(([k, v]) => [k, v.map((l) => ({ x: +l.position.x.toFixed(2), intensity: +l.intensity.toFixed(3), base: l.userData.base }))])) : null, tracks: this.tracks ? this.tracks.length : null, log: this.log.slice(),
       players: this.players.map((p) => ({ id: p.id, rms: +p.rms.toFixed(4), level: +p.level.toFixed(3), gain: +p.g.toFixed(4), zone: +(p.g / NOISE_SPEAKERS.master).toFixed(4), file: p.want ? p.want.track.file : null, plays: p.plays,
         paused: p.el ? p.el.paused : true, time: p.el ? +p.el.currentTime.toFixed(2) : 0, ready: p.el ? p.el.readyState : 0, src: p.el ? p.el.getAttribute('src') : null, blocked: p.blocked })) };
   }

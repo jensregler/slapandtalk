@@ -4,7 +4,7 @@
 // random one, and so on – A and B independently.
 //
 // Volume depends ONLY on where the listener stands along the west–east axis INSIDE the room (no ordinary
-// distance falloff, no sound outside). t = 0 at a speaker's own wall, 1 at the opposite wall:
+// distance falloff). Outside: only out through the south doorway, fading over doorRadius m (t880u; below). t = 0 at a speaker's own wall, 1 at the opposite wall:
 //   0      … FULL            100 %
 //   FULL   … FADE_END        99 % → 0 % (straight line)
 //   FADE_END … 1             silent
@@ -15,7 +15,7 @@
 //   2/3 … 8/9                B 100 %, A fading out
 //   east ninth  (8/9 … 1)    only B
 // ---- the numbers to tweak are all here ----
-import { PLOTS, HOUSE, WALL_T } from './city.mjs';
+import { PLOTS, HOUSE, WALL_T, FX_OPENING } from './city.mjs';
 
 export const NOISE_SPEAKERS = Object.freeze({
   plot: 7,                 // the noise room
@@ -27,6 +27,11 @@ export const NOISE_SPEAKERS = Object.freeze({
   size: Object.freeze({ w: 1.1, h: 1.7, d: 0.55 }), // the cabinet (m)
   blockHours: 6,           // the shared schedule restarts every 6 h (a track running over the edge is cut there)
   resyncSec: 1.5,          // seek again if my player drifts more than this from the shared schedule
+  // Out through the door (Jens t879u + t880u): outside, the music is heard only in front of the south doorway –
+  // the doorway's own mix at the opening, fading in a straight line to 0 over doorRadius metres (radial, measured
+  // from the nearest point of the opening). Never through the walls: only the half-space in front of the south wall.
+  doorRadius: 4,
+  doorKeep: 1,             // (players keep streaming up to doorRadius + doorKeep m out, so the edge doesn't stop/start)
 });
 
 export const NOISE_PLOT = PLOTS.find((p) => p.n === NOISE_SPEAKERS.plot);
@@ -42,6 +47,8 @@ export const SPEAKERS = Object.freeze([
   Object.freeze({ id: 'B', wall: 'east', x: NOISE_INSIDE.x1, z: NOISE_PLOT.z, facing: -1 }),
 ]);
 
+// The doorway (plot 7's south wall, FX_OPENING wide, centred): x0 … x1 at the wall's outer face zOut.
+export const NOISE_DOOR = Object.freeze({ x0: NOISE_PLOT.x - FX_OPENING / 2, x1: NOISE_PLOT.x + FX_OPENING / 2, zIn: NOISE_INSIDE.z1, zOut: NOISE_PLOT.z + HOUSE.depth / 2 });
 export const inNoiseRoom = (x, z) => x > NOISE_INSIDE.x0 && x < NOISE_INSIDE.x1 && z > NOISE_INSIDE.z0 && z < NOISE_INSIDE.z1;
 // The zone curve: t = share of the room's width from the speaker's wall (0 … 1) → gain 0 … 1.
 export function zoneGain(t, Z = NOISE_SPEAKERS) {
@@ -50,12 +57,28 @@ export function zoneGain(t, Z = NOISE_SPEAKERS) {
   if (t >= Z.fadeEnd) return 0;
   return Z.fadeTop * (1 - (t - Z.full) / (Z.fadeEnd - Z.full));
 }
-// A speaker's gain for a listener at (x, z): 0 outside the room.
-export function speakerGain(id, x, z, Z = NOISE_SPEAKERS) {
-  if (!inNoiseRoom(x, z)) return 0;
-  const u = (x - NOISE_INSIDE.x0) / NOISE_WIDTH; // 0 west wall … 1 east wall
-  return zoneGain(id === 'A' ? u : 1 - u, Z);
+// Distance (m) from (x, z) to the doorway opening, for a point OUTSIDE in front of the south wall; Infinity
+// anywhere else (inside, or beside / behind the room – no sound through the walls).
+export function doorDistance(x, z) {
+  const D = NOISE_DOOR;
+  if (z < D.zIn || inNoiseRoom(x, z)) return Infinity;
+  const dx = x < D.x0 ? D.x0 - x : x > D.x1 ? x - D.x1 : 0;
+  if (z < D.zOut && dx > 0) return Infinity; // inside the wall's thickness beside the opening: that's wall
+  return Math.hypot(dx, Math.max(0, z - D.zOut));
 }
+// The leak's fade: 1 at the opening → 0 at doorRadius (straight line).
+export const doorFade = (d, Z = NOISE_SPEAKERS) => (d >= Z.doorRadius ? 0 : 1 - d / Z.doorRadius);
+const insideGain = (id, x, Z) => { const u = (x - NOISE_INSIDE.x0) / NOISE_WIDTH; return zoneGain(id === 'A' ? u : 1 - u, Z); }; // 0 west wall … 1 east wall
+// A speaker's gain for a listener at (x, z). Inside: the zones. Outside: the doorway's mix (the zones at the
+// nearest point of the opening, both 100 % – the opening is in the middle third) × the door fade. Else 0.
+export function speakerGain(id, x, z, Z = NOISE_SPEAKERS) {
+  if (inNoiseRoom(x, z)) return insideGain(id, x, Z);
+  const d = doorDistance(x, z); if (!(d < Z.doorRadius)) return 0;
+  const xd = Math.min(NOISE_DOOR.x1, Math.max(NOISE_DOOR.x0, x));
+  return insideGain(id, xd, Z) * doorFade(d, Z);
+}
+// Should the players be running here (inside, or out in front of the door within reach + a margin)?
+export const noiseActive = (x, z, Z = NOISE_SPEAKERS) => inNoiseRoom(x, z) || doorDistance(x, z) < Z.doorRadius + Z.doorKeep;
 
 // ---- the shared schedule: everyone in the room hears the same track at the same place ----
 // No server state: from the server-corrected clock (groove.now()) and the manifest, every client works out
