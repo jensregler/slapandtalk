@@ -68,13 +68,17 @@ ok('rebuild (Jens, 10 Nov 2026): kept houses 1/3/6/8 with presets, subway on plo
   for (let z = -35; z <= -9; z += 0.5) assert.ok(!C.insideHouse(0, z), `walk the plaza at z ${z}`);
   assert.equal(C.spawnOutside('stad-ab12cd-4').z, C.CITY_SPAWN.z); // an old house-4 link: the city's spawn
 });
-ok('night (Jens, 11 Nov 2026): the city sky ceiling + 4 sky walls are black, moonlit light, black highlight-reel background', () => {
+ok('day again (Jens t864u, 12 Nov 2026): a light-blue sky by default, night (black sky, moonlight) per player via setTime', () => {
   const src = fs.readFileSync(new URL('../client/src/city.js', import.meta.url), 'utf8');
-  assert.match(src, /SKY = 0x000000\b/);
+  assert.match(src, /SKY = 0xbfe2f6\b/);
   for (const f of ['tak', 'vägg-norr', 'vägg-söder', 'vägg-väster', 'vägg-öster']) assert.match(src, new RegExp(`add\\('${f}', [^\\n]*\\bsky,`));
-  assert.match(src, /new THREE\.HemisphereLight\(0x9aa8d0, 0x2a2733, 1\.15\)/);
+  assert.match(src, /day: \{ sky: SKY, hemi: \[0xf2f8ff, 0x9a9180, 1\.9\], sun: \[0xfff1dc, 1\.6\], back: \[0xdfe9ff, 0\.5\]/);
+  assert.match(src, /night: \{ sky: 0x000000, hemi: \[0x9aa8d0, 0x2a2733, 1\.15\]/);
+  assert.match(src, /time = 'day'/);
+  const dn = fs.readFileSync(new URL('../client/src/daynight.js', import.meta.url), 'utf8');
+  assert.match(dn, /'klibb\.cityTime'/); assert.match(dn, /=== 'night' \? 'night' : 'day'/);
   const hl = fs.readFileSync(new URL('../client/src/highlightui.js', import.meta.url), 'utf8');
-  assert.match(hl, /city \? 0x000000 : 0x1a1c24/);
+  assert.match(hl, /CITY_TIMES\[cityTime\(\)\]\.reel/);
 });
 ok('FX rooms 4/5/7 (Jens, 11 Nov 2026, voice): their ceiling is lit by the house ceiling lamps (room.js ceilingLights + its colour/decay), the rooms stay open', () => {
   const src = fs.readFileSync(new URL('../client/src/city.js', import.meta.url), 'utf8');
@@ -213,7 +217,7 @@ try {
   ok('houses start in order (the next free KEPT number – rebuild: 1, 3, 6) – a room of type stad (no matching room preset here)', () => {
     assert.deepEqual(first.map((r) => r.n), [1, 3, 6]); assert.equal(house.type, 'stad'); assert.ok(!house.preset);
   });
-  const noName = await post('/api/cities', { name: '   ' });
+  const noName = await J(await post('/api/cities', { name: '   ' }));
   const made = await J(await post('/api/cities', { name: '  Slap\u0000ville  ', by: 'Jens' }));
   const cid = made.city && made.city.id;
   const h = []; for (let k = 0; k < 5; k++) h.push(await post(`/api/cities/${cid}/houses`, { by: 'Jens' }));
@@ -221,8 +225,8 @@ try {
   const info = (await J(await fetch(`${S.base}/api/cities/${cid}`))).city;
   const list = (await J(await fetch(`${S.base}/api/cities`))).cities;
   const gone = await fetch(`${S.base}/api/cities/stad-zz99zz`);
-  ok('a city: started with a name (required, cleaned), the 4 kept houses then 409, a removed one 400, listed, a gone one is 404', () => {
-    assert.equal(noName.status, 400); assert.ok(C.CITY_CODE_RE.test(cid)); assert.equal(made.city.name, 'Slapville'); assert.equal(made.city.startedBy, 'Jens');
+  ok('a city: started with a name (cleaned; none → a fictional one, t864u), the 4 kept houses then 409, a removed one 400, listed, a gone one is 404', () => {
+    assert.ok(noName.city && noName.city.name && noName.city.name.trim() && noName.city.canRename === true); assert.ok(C.CITY_CODE_RE.test(cid)); assert.equal(made.city.name, 'Slapville'); assert.equal(made.city.startedBy, 'Jens');
     assert.deepEqual(h.map((r) => r.status), [200, 200, 200, 200, 409]);
     assert.equal(removed.status, 400); assert.equal(again.n, 3); // starting a started house = the same house
     assert.deepEqual(info.houses, [1, 3, 6, 8]); assert.equal(info.next, 0);
