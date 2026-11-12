@@ -1164,3 +1164,33 @@ south side. Everything outside (ground, slabs, house walls and roofs, sky) is a 
 - **Old City stickers** (from the box City) are put away in the room file (`legacy`), not deleted.
 - Not in the City (yet): peels, cameras/cameramen, recordings start, clear-hidden (all box features) → 400.
   They work in the houses.
+
+## Run the city on your own PC (local mode, Jens 12 Nov 2026, t864u)
+
+The whole game (server + client) can run on a Windows PC, with its own data folder, without touching the live site.
+
+**One-time setup (Windows 10/11):**
+
+1. Install **Node.js LTS, version 22.12 or newer** (24 LTS is fine) from <https://nodejs.org> – the default "Windows Installer (.msi)", all default options.
+2. Get the code, either
+   - with **Git for Windows** (<https://git-scm.com/download/win>): `git clone https://github.com/jensregler/slapandtalk.git` and `git checkout feature/day-townhall` (later: `master`), or
+   - without git: on GitHub choose the branch, **Code → Download ZIP**, and unzip it, e.g. to `C:\SlapAndTalk`.
+
+**Every time:** double-click **`start-local.bat`** in the folder. The first time it installs the packages (`npm ci`, a few minutes) and builds the client. The browser opens **http://localhost:8790/?room=stad-byggen**. Keep the black window open while you play; close it to stop the server.
+
+- All data (rooms, stickers, baked tiles, uploads) lives in **`data-local\`** in the same folder. Copy that folder to back it up.
+- Only this PC can reach the server (it listens on 127.0.0.1).
+- Local mode makes its own admin key (`data-local\local-admin-token.txt`) and the browser uses it by itself, so **Esc → CITY → Export city / Import city** just works – no password. The live site's key is never needed locally.
+- Options: `node scripts/start-local.js --port 8800`, `--no-open`, `--front` (open the front page), `--build` (rebuild the client). `DATA_DIR=D:\cities` picks another data folder.
+- Empty cities are not deleted in local mode (the live server reaps empty cities after ~30 s).
+
+### City files (.satcity): Export city / Import city
+
+**Esc → CITY → 💾 Export city** downloads `<City name>-<date>.satcity` – one file with everything: the city and its houses (stamps, props/assets, the name), the baked surface tiles + their manifest, and the uploaded sticker images. **📥 Import city** loads such a file into the city you stand in (it shows a big "replace this city?" question first; the old rooms are kept in `backups/cityimport/` on the server).
+
+- On **the live site** import needs the admin key (the same as for the admin tools); everyone in the city reloads into the imported city.
+- From the command line (also for the live site, the key is read from a file and never printed):
+  `node scripts/city-transfer.js export --server http://localhost:8790 --city stad-byggen --file my.satcity`
+  `node scripts/city-transfer.js import --server https://<live> --token-file <file with the admin key> --file my.satcity --target stad-byggen`
+  (`--target new` makes a new city; `plan` shows what a file/city contains.)
+- The server checks every file in an archive (only known paths, images must be WebP) and limits the size (`CITY_IMPORT_MAX_MB`, default 2048).

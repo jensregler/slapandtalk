@@ -4,3 +4,4 @@ data/
 .env
 *.log
 .tunnel-url
+data-local/
