@@ -375,8 +375,8 @@ function buildHall() {
     const submit = () => { const v = inp.value.replace(/\s+/g, ' ').trim(); if (!v) { inp.focus(); return; } renderCity({ ask: v }); };
     go.onclick = submit;
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-    cityBox.append(el('div', { className: 'th-city-note', textContent: S.thCityRenameNote }), el('div', { className: 'th-city-row' }, [inp, go]),
-      msg ? el('div', { className: 'th-city-note th-msg', id: 'th-city-msg', textContent: msg }) : null);
+    cityBox.append(el('div', { className: 'th-city-note', textContent: S.thCityRenameNote }), el('div', { className: 'th-city-row' }, [inp, go]));
+    if (msg) cityBox.append(el('div', { className: 'th-city-note th-msg', id: 'th-city-msg', textContent: msg }));
   }
   async function loadCity() {
     const id = st.opts?.city; if (!id) { st.city = null; return; }

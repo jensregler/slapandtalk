@@ -105,8 +105,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await P.click('#esc-menu [data-esc="city"]'); await sleep(200);
     await Promise.all([P.waitForNavigation({ timeout: 30000 }).catch(() => null), P.click('#esc-menu [data-esc="createcity"]')]);
     await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 });
-    const made = await P.evaluate(() => ({ url: location.search, pick: window.klibb.city().pick }));
-    check('Create new city goes straight into a new city (no name step)', /room=stad-[a-z0-9]+/.test(made.url) && !(made.pick && made.pick.open), made);
+    const madeCity = await P.evaluate(() => ({ url: location.search, pick: window.klibb.city().pick }));
+    check('Create new city goes straight into a new city (no name step)', /room=stad-[a-z0-9]+/.test(madeCity.url) && !(madeCity.pick && madeCity.pick.open), madeCity);
 
     // SOUND still works
     await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); }); await sleep(200);

@@ -93,6 +93,8 @@ async function seed(dir, n = 60) {
     // ---- 3. the Town Hall: rename once ----
     await P.evaluate(() => window.klibb.openHall()); await P.waitForSelector('#th-city-input', { timeout: 15000 }); await sleep(600);
     await shot(P, '6-townhall-before.png');
+    const thText = await P.evaluate(() => document.getElementById('th-city').innerText);
+    check('Town Hall city strip: no stray text ("null")', !/\bnull\b|undefined/.test(thText), thText);
     await P.fill('#th-city-input', 'Jensköping'); await P.click('#th-city-go'); await P.waitForSelector('#th-city-yes'); await sleep(300);
     await shot(P, '7-townhall-confirm.png');
     await P.click('#th-city-yes');
