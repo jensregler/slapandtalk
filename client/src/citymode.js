@@ -99,6 +99,7 @@ function buildHall() {
     <div class="th-panel">
       <div class="th-head"><span class="th-title" id="th-title"></span><button type="button" class="th-x" id="th-x" aria-label="close">✕</button></div>
       <div class="th-bar" id="th-bar"></div>
+      <div class="th-city" id="th-city" hidden></div>
       <div class="th-body" id="th-main">
         <section class="th-mine" id="th-mine"><div class="th-h" id="th-h-mine"></div><img id="th-mine-img" alt=""><div class="th-name" id="th-mine-name"></div>
           <div class="th-note" id="th-mine-note"></div><button type="button" class="th-big" id="th-handin"></button></section>
@@ -113,7 +114,7 @@ function buildHall() {
   const $ = (id) => box.querySelector('#' + id);
   const st = { opts: null, data: null, busy: false, view: 'main', detail: null, deck: null };
   const close = () => { if (box.hidden) return; box.hidden = true; st.opts?.onClose?.(); };
-  const show = (view) => { st.view = view; for (const v of ['main', 'detail', 'form', 'deck']) $('th-' + v).hidden = v !== view; $('th-back').textContent = view === 'main' ? S.hallBack : S.hallDetailBack; $('th-back').hidden = view === 'form' || view === 'deck'; /* (they have their own buttons) */ box.querySelector('.th-panel').scrollTop = 0; for (const v of ['main', 'detail', 'form', 'deck']) $('th-' + v).scrollTop = 0; };
+  const show = (view) => { st.view = view; for (const v of ['main', 'detail', 'form', 'deck']) $('th-' + v).hidden = v !== view; $('th-back').textContent = view === 'main' ? S.hallBack : S.hallDetailBack; $('th-back').hidden = view === 'form' || view === 'deck'; /* (they have their own buttons) */ box.querySelector('.th-panel').scrollTop = 0; for (const v of ['main', 'detail', 'form', 'deck']) $('th-' + v).scrollTop = 0; $('th-city').hidden = !st.city || !st.opts?.city || view !== 'main'; /* the city's name: main view only */ };
   const back = () => { if (st.view === 'main') close(); else { show('main'); render(); } };
   $('th-x').onclick = close; $('th-back').onclick = back;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
@@ -341,16 +342,59 @@ function buildHall() {
     }
     draw(); show('deck');
   }
+  // ---- the city's name (Jens t864u, 12 Nov 2026): it lives here now. A new city is born with a fictional
+  // name; the first person in the Town Hall may change it ONCE (server: POST /api/cities/:id/name), then the
+  // field is gone for good – for everyone. ----
+  const cityBox = $('th-city');
+  st.city = null; // { id, name, canRename }
+  function renderCity({ ask = null, msg = '' } = {}) {
+    const c = st.city; cityBox.textContent = '';
+    cityBox.hidden = !c || !st.opts?.city || st.view !== 'main';
+    if (!c) return;
+    cityBox.append(el('div', { className: 'th-city-h', textContent: S.thCityH }), el('div', { className: 'th-city-name', id: 'th-city-name', textContent: c.name }));
+    if (!c.canRename) { cityBox.append(el('div', { className: 'th-city-note', id: 'th-city-locked', textContent: c.first || c.testBus ? S.thCityKept : S.thCityLocked })); return; }
+    if (ask) {
+      const yes = el('button', { type: 'button', className: 'th-big', id: 'th-city-yes', textContent: S.thCityRenameYes });
+      const no = el('button', { type: 'button', className: 'th-big th-plain', id: 'th-city-no', textContent: S.thCityRenameNo });
+      no.onclick = () => renderCity();
+      yes.onclick = async () => {
+        yes.disabled = no.disabled = true;
+        try {
+          const r = await fetch(`/api/cities/${encodeURIComponent(c.id)}/name`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: ask, by: st.opts?.by?.() || myLook().name }) }).then(answer);
+          st.city = { ...c, ...r.city };
+          st.opts?.toast?.(S.thCityRenamed(r.city.name), 3200); st.opts?.onRenamed?.(r.city);
+          renderCity();
+        } catch (e) { await loadCity(); renderCity({ msg: e.message }); }
+      };
+      cityBox.append(el('div', { className: 'th-city-note th-city-ask', id: 'th-city-ask', textContent: S.thCityRenameAsk(ask) }), el('div', { className: 'th-btns' }, [no, yes]));
+      yes.focus();
+      return;
+    }
+    const inp = el('input', { id: 'th-city-input', className: 'th-city-input', type: 'text', maxLength: 32, autocomplete: 'off', spellcheck: false, placeholder: S.thCityRenamePlaceholder, value: '' });
+    const go = el('button', { type: 'button', className: 'th-big', id: 'th-city-go', textContent: S.thCityRenameGo });
+    const submit = () => { const v = inp.value.replace(/\s+/g, ' ').trim(); if (!v) { inp.focus(); return; } renderCity({ ask: v }); };
+    go.onclick = submit;
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+    cityBox.append(el('div', { className: 'th-city-note', textContent: S.thCityRenameNote }), el('div', { className: 'th-city-row' }, [inp, go]),
+      msg ? el('div', { className: 'th-city-note th-msg', id: 'th-city-msg', textContent: msg }) : null);
+  }
+  async function loadCity() {
+    const id = st.opts?.city; if (!id) { st.city = null; return; }
+    try { const r = await fetch(`/api/cities/${encodeURIComponent(id)}`, { cache: 'no-store' }).then(answer); st.city = { id, ...r.city }; } catch { st.city = null; }
+  }
   return {
     box,
     open(opts) {
       st.opts = opts; $('th-title').textContent = S.hallTitle; $('th-h-mine').textContent = S.hallYourPack;
+      st.city = null; renderCity();
       box.hidden = false; show('main'); render(); load();
+      loadCity().then(() => renderCity());
     },
     close,
     openDetail: (id) => { const p = st.data?.packs.find((x) => x.id === id); if (p) openDetail(p); },
     openForm, openDeck: (id) => { const p = st.data?.packs.find((x) => x.id === id); if (p) openDeck(p); },
-    state: () => ({ open: !box.hidden, view: st.view, mine: st.data?.mine || null, paid: paid(), packs: st.data ? st.data.packs.length : null, taken: takenPacks().map((p) => p.id),
+    city: () => st.city,
+    state: () => ({ open: !box.hidden, view: st.view, city: st.city ? { id: st.city.id, name: st.city.name, canRename: !!st.city.canRename, form: !!cityBox.querySelector('#th-city-input'), shown: !cityBox.hidden } : null, mine: st.data?.mine || null, paid: paid(), packs: st.data ? st.data.packs.length : null, taken: takenPacks().map((p) => p.id),
       maxPacks: st.data?.maxPacks ?? null, deck: st.deck ? { pack: st.deck.pack, fresh: st.deck.fresh, targets: Object.fromEntries(st.deck.targets) } : null }),
   };
 }
@@ -401,7 +445,11 @@ function buildPick() {
   const step = (s) => { st.step = s; $('cp-list-view').hidden = s !== 'list'; $('cp-name-view').hidden = s !== 'name'; if (s === 'name') $('cp-name').focus(); };
   $('cp-x').onclick = close; box.addEventListener('click', (e) => { if (e.target === box) close(); });
   trapKeys(box, () => (st.step === 'name' ? step('list') : close()));
-  $('cp-new').onclick = () => { $('cp-msg').textContent = ''; step('name'); };
+  // ＋ Start a new city (Jens t864u): no name step – the server names it (it can be renamed once in the Town Hall).
+  $('cp-new').onclick = async () => {
+    $('cp-new').disabled = true;
+    try { const r = await api.newCity('', myLook().name); st.opts?.go?.(r.city.id); } catch (e) { st.opts?.toast?.(e.message || S.cpFailed, 3000); } finally { $('cp-new').disabled = false; }
+  };
   $('cp-back').onclick = () => step('list');
   $('cp-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('cp-go').click(); } });
   $('cp-go').onclick = async () => {

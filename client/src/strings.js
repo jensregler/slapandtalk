@@ -305,7 +305,7 @@ export const EN = {
   cityCameraNo: 'Not in the City (yet)', cityGone: 'This city has closed – everybody left.', cityGoneTitle: 'This city is gone',
   cityHud: (name, n) => (n ? `${name} · house ${n}` : name),
   // the city picker (after "to city →")
-  cpTitle: '🏙 Which city?', cpNew: '＋ Start a new city', cpNewNote: 'You are the first one there – you name it.',
+  cpTitle: '🏙 Which city?', cpNew: '＋ Start a new city', cpNewNote: 'It gets a made-up name – the first one in its Town Hall may change it once.',
   cpNameTitle: 'Name your city', cpNamePlaceholder: 'e.g. Slapville', cpGo: 'start it and go in →', cpJoin: 'go in →', cpBack: '↩ Back',
   cpNone: 'No cities right now – start the first one!', cpLoading: 'Looking for cities…', cpFailed: 'Could not fetch the cities.',
   cpFacts: (people, houses) => `${people === 1 ? '1 person' : `${people} people`} here · ${houses} of 8 houses started`,
@@ -522,6 +522,29 @@ export const EN = {
   busLoadFailed: 'Could not load cities.',
   busRiding: 'Riding the bus…',
   busOpenHint: 'Bus stop – destinations',
+
+  // ---------- Day / night, the city's name, the city file (Jens, t864u, 12 Nov 2026) ----------
+  escDay: 'DAY', escNight: 'NIGHT', escDayNightTitle: 'Switch the city between day and night (only for you)',
+  dayNightToast: (t) => (t === 'night' ? '🌙 Night in the city' : '☀️ Day in the city'),
+  escExportCity: 'Export city', escImportCity: 'Import city',
+  scEnterCity: 'Starting your city…',
+  // the Town Hall: the city's name – changed once, by whoever comes first
+  thCityH: 'THIS CITY', thCityRenameNote: 'This name was given by chance. The first person here may change it – ONCE. After that it stays for good.',
+  thCityRenamePlaceholder: 'New name for the city', thCityRenameGo: 'RENAME CITY (once)',
+  thCityRenameAsk: (name) => `Rename the city to “${name}”? This can only be done once – for everyone.`,
+  thCityRenameYes: 'Yes, rename it', thCityRenameNo: 'No',
+  thCityRenamed: (name) => `The city is now called ${name}`,
+  thCityLocked: 'The name is set for good.', thCityKept: 'This city keeps its name.',
+  // export / import (admin; on your own PC the local key is used by itself)
+  cityFileExporting: 'Packing the city…', cityFileExported: (name, mb) => `Exported ${name} (${mb} MB) – saved in your downloads`,
+  cityFileFailed: (m) => `Could not do it: ${m}`,
+  cityFileTokenTitle: 'Admin key', cityFileTokenNote: 'Export and import on the live server need the admin key.',
+  cityFileTokenGo: 'OK', cityFileCancel: 'Cancel',
+  cityFileImportTitle: 'Import city', cityFileImportAsk: (file, here) => `Put the city from “${file}” into ${here}? What is here now is replaced (a backup is kept on the server).`,
+  cityFileImportYes: 'Yes, import it', cityFileImporting: (mb) => `Uploading and unpacking (${mb} MB)…`,
+  cityFileImported: (name, n) => `Imported ${name} (${n} room${n === 1 ? '' : 's'}) – loading it…`,
+  cityFileOnlyCity: 'Go out into a city first.',
+  cityImportedToast: 'This city was just replaced from a file – loading it again…',
 };
 
 

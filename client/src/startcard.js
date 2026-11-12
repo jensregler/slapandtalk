@@ -1,9 +1,10 @@
-// Landing → name a new city → enter that city (Jens, Nov 2026).
+// Landing → straight into a new city (Jens, Nov 2026; t864u, 12 Nov 2026: no naming step any more).
 // Bare slapandtalk.com / ?start=1: SLP/TLK art only (no menus/buttons). One click anywhere
-// (desktop), Enter, or tap (touch) opens one big "NAME THE NEW CITY" field; Enter confirms
-// (empty → random default) and POST /api/cities, then the boot continues straight into that
-// city (outside, no room/door/pac intro) without a full reload so the same gesture can unlock
-// WebAudio. Direct ?room= / city links still skip this (boot.js). Esc CITY / door remain.
+// (desktop), Enter, or tap (touch) starts a new city right away – POST /api/cities without a name,
+// the server gives it a fictional one (shared/citynames.mjs; it can be changed ONCE in the Town Hall) –
+// then the boot continues straight into that city (outside, no room/door/pac intro) without a full
+// reload so the same gesture can unlock WebAudio. Direct ?room= / city links still skip this (boot.js).
+// (nameCity() – the old "NAME THE NEW CITY" field – is kept below but no longer used.)
 import { S } from './strings.js';
 import { resetPersonalSound } from './soundui.js';
 import { leaveCity } from './cityleave.js';
@@ -117,7 +118,7 @@ export function showStartCard() {
     root.remove();
   }
 
-  async function enterCity(name) {
+  async function enterCity(name = '') {
     const msg = body.querySelector('#sc-msg') || el('p', { className: 'sc-msg', id: 'sc-msg' });
     if (!msg.parentNode) body.append(msg);
     msg.textContent = S.scMakingCity || S.cpMaking || 'Starting your city…';
@@ -127,7 +128,7 @@ export function showStartCard() {
     try {
       const r = await fetch('/api/cities', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, ...(by ? { by } : {}) }),
+        body: JSON.stringify({ ...(name ? { name } : {}), ...(by ? { by } : {}) }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.city) throw new Error(data.error || `Error ${r.status}`);
@@ -209,6 +210,19 @@ export function showStartCard() {
     inp.focus({ preventScroll: true });
   }
 
+  // Straight in (t864u): the jingle, a big "Starting your city…", the new city. On an error: one more
+  // click / Enter / tap tries again.
+  async function startNow() {
+    frame.dataset.screen = 'entering';
+    bottom.textContent = '';
+    playStartupJingle();
+    const ok = await enterCity('');
+    if (ok) return;
+    const retry = () => { root.removeEventListener('pointerdown', retry); root.removeEventListener('keydown', retryKey); startNow(); };
+    const retryKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); retry(); } };
+    root.addEventListener('pointerdown', retry); root.addEventListener('keydown', retryKey);
+  }
+
   function splash() {
     clear();
     frame.dataset.screen = 'splash';
@@ -228,7 +242,7 @@ export function showStartCard() {
       preloadStartupJingle();
       root.removeEventListener('pointerdown', onPtr);
       root.removeEventListener('keydown', onKey);
-      nameCity();
+      startNow();
     };
     const onPtr = (e) => {
       // Desktop mouse click, pen, or touch anywhere advances (left button only for mouse).

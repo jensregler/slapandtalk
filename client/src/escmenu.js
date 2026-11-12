@@ -10,6 +10,11 @@ export function initEscMenu({
   onSound, onAvatar, onRoom, onCity, onExit, onCreate,
   onStickers, onStickerPack,
   onCreateCity, onPickCity,
+  // DAY / NIGHT (Jens t864u): flips the city's look, returns the new time ('day' | 'night'); the menu stays open.
+  onDayNight = null, dayNight = () => 'day',
+  // CITY → Export city / Import city (the city file; Jens t864u)
+  onExportCity = null, onImportCity = null,
+  showButton = () => true, // false: that button is hidden (DAY/NIGHT outside the city, export/import outside a city)
   formatCity = (c) => c, // enrich with ageText / facts for the Join list
   onClose = () => {},
   closeTop = () => false,
@@ -41,6 +46,8 @@ export function initEscMenu({
     stickers: onStickers,
     stickerpack: onStickerPack,
     createcity: onCreateCity,
+    exportcity: onExportCity,
+    importcity: onImportCity,
   };
   const pickCity = onPickCity;
 
@@ -59,12 +66,15 @@ export function initEscMenu({
     root.classList.toggle('esc-cityjoin', view === 'cityjoin');
     root.classList.toggle('esc-catalog-view', view === 'catalog' || view === 'help');
     if (view !== 'catalog') catKind = null;
+    paintDayNight();
     root.dataset.catalog = catKind || '';
     for (const btn of root.querySelectorAll('[data-esc]')) {
       const g = btn.dataset.escGroup || 'main';
-      if (view === 'main') btn.hidden = g !== 'main' || (btn.dataset.esc === 'create' && !!hideCreate) || (btn.dataset.esc === 'catassets' && !showCatalog('assets'));
-      else if (view === 'create') btn.hidden = g !== 'create';
-      else if (view === 'city') btn.hidden = g !== 'city';
+      const key = btn.dataset.esc;
+      let shown = true; try { shown = showButton(key) !== false; } catch { shown = true; }
+      if (view === 'main') btn.hidden = g !== 'main' || !shown || (key === 'create' && !!hideCreate) || (key === 'catassets' && !showCatalog('assets'));
+      else if (view === 'create') btn.hidden = g !== 'create' || !shown;
+      else if (view === 'city') btn.hidden = g !== 'city' || !shown;
       else btn.hidden = true; // cityjoin: buttons hidden, list shown
     }
     const list = $('esc-city-list');
@@ -105,6 +115,16 @@ export function initEscMenu({
     } else if (resume) onClose();
   }
 
+  // The DAY / NIGHT button shows the time it is now (☀️ DAY / 🌙 NIGHT, big); a click switches to the other.
+  function paintDayNight() {
+    const b = root.querySelector('[data-esc="daynight"]'); if (!b) return;
+    let t = 'day'; try { t = dayNight() === 'night' ? 'night' : 'day'; } catch { /* day */ }
+    b.dataset.time = t;
+    const ico = b.querySelector('.esc-ico'), lab = b.querySelector('.esc-lab');
+    if (ico) ico.textContent = t === 'night' ? '🌙' : '☀️';
+    if (lab) lab.textContent = t === 'night' ? (labels.night || 'NIGHT') : (labels.day || 'DAY');
+    b.setAttribute('aria-pressed', String(t === 'night'));
+  }
   function closeSubmenu() {
     if (view === 'cityjoin') setView('city');
     else if (view === 'catalog' && catKind === 'packs') setView('create');
@@ -215,6 +235,7 @@ export function initEscMenu({
       const key = btn.dataset.esc;
       if (CAT_KEYS[key]) { openCatalog(CAT_KEYS[key]); return; }
       if (key === 'help') { openHelp(); return; }
+      if (key === 'daynight') { try { onDayNight?.(); } catch (err) { console.warn('esc-menu', key, err); } paintDayNight(); return; }
       if (key === 'create') {
         if (hideCreate) return;
         setView('create'); try { mainActions.create?.(); } catch (err) { console.warn('esc-menu', key, err); } return;
@@ -282,6 +303,8 @@ export function initEscMenu({
       submenu: view !== 'main',
       touch: !!isTouch,
       hideCreate: !!hideCreate,
+      time: (() => { try { return dayNight(); } catch { return null; } })(),
+      dayNightLabel: root.querySelector('[data-esc="daynight"]')?.textContent?.trim() || null,
       buttons: [...root.querySelectorAll('[data-esc]:not([hidden])')].map((b) => b.dataset.esc),
       catalog: view === 'catalog' ? {
         kind: catKind,

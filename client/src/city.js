@@ -8,8 +8,16 @@ import * as THREE from 'three';
 import { ceilingLights, CEILING_LIGHT_COLOR, CEILING_LIGHT_DECAY } from './room.js';
 import { CITY, PLOTS, PLOT, PLOT_GAP, PLOT_SLAB, HOUSE, HALL_BLOCKS, CITY_SPAWN, PLAZA, PLAZA_BENCHES, FX_OPENING, groundAt, pushOut, doorAt, isKeptHouse } from '../../shared/city.mjs';
 
-const STONE = 0xd2c9ba, SLAB = 0xc9bfae, HALL_GREEN = 0x9fd0a8, SKY = 0x000000, STREET = 0x8f8a82, INK = 0x15130f;
+const STONE = 0xd2c9ba, SLAB = 0xc9bfae, HALL_GREEN = 0x9fd0a8, SKY = 0xbfe2f6, STREET = 0x8f8a82, INK = 0x15130f;
 const PATH = 0xb5ab9a;
+// Day and night (Jens, t864u, 12 Nov 2026: day again by default, a DAY / NIGHT button in the Esc menu – each
+// player's own choice, client/src/daynight.js). The sky's colour and the light are all that change.
+export const CITY_TIMES = Object.freeze({
+  day: { sky: SKY, hemi: [0xf2f8ff, 0x9a9180, 1.9], sun: [0xfff1dc, 1.6], back: [0xdfe9ff, 0.5], reel: SKY },
+  // night (Jens, 11 Nov 2026): a black sky, a cool moonlit fill and a dimmer moon – streets and doors stay readable
+  night: { sky: 0x000000, hemi: [0x9aa8d0, 0x2a2733, 1.15], sun: [0xc8d4ff, 0.9], back: [0x8090c0, 0.3], reel: 0x000000 },
+});
+export const cityTimeOf = (t) => (t === 'night' ? 'night' : 'day');
 const PAVER = 0xc2b6a2, PAVER_DARK = 0xa99d88, SUBWAY_BLUE = 0x1f5fbf, FX_STONE = 0xd8c7b0; // the plaza, the subway sign, the open rooms (a touch warmer) // the painted streets: a little darker than the plots, never a dark "ditch"
 // Jens (t516u, 4 Nov 2026): no black edge lines on the houses. Flip to true to bring them back.
 const CITY_EDGE_LINES = false;
@@ -59,7 +67,7 @@ function groundMaterial(W, D) {
   return new THREE.MeshStandardMaterial({ color: 0xffffff, map: t, roughness: 0.95 });
 }
 
-export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {}) {
+export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time = 'day' } = {}) {
   const group = new THREE.Group(); group.name = 'city';
   const surfaces = [];
   const ink = new THREE.MeshBasicMaterial({ color: INK });
@@ -86,7 +94,7 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {
   // The ground: ONE flat piece (Jens, t481u – no "ditches" between the plots): the plots are painted on
   // it (pale stone squares, a thin ink line round each) with the streets between them a little darker.
   add('golv', W, D, groundMaterial(W, D), [0, 0, 0], [-Math.PI / 2, 0, 0]);
-  // Night (Jens, 11 Nov 2026): the sky ceiling + the 4 sky walls are black (were light blue 0xbfe2f6).
+  // The sky ceiling + the 4 sky walls: light blue by day, black at night (CITY_TIMES; setTime below).
   const sky = new THREE.MeshBasicMaterial({ color: SKY }); // the sky: one even colour, not lit
   add('tak', W, D, sky, [0, H, 0], [Math.PI / 2, 0, 0]);
   add('vägg-norr', W, H, sky, [0, H / 2, -hd], [0, 0, 0]);
@@ -211,12 +219,22 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {
     }
   }
 
-  // Light: night (Jens, 11 Nov 2026) – a cool moonlit fill and a dimmer moon from the south-west, so the
-  // black sky reads as night but the streets, houses and doors stay readable.
-  // (Day was: hemisphere 0xf2f8ff/0x9a9180 1.9, sun 0xfff1dc 1.6, back 0xdfe9ff 0.5.)
-  group.add(new THREE.HemisphereLight(0x9aa8d0, 0x2a2733, 1.15));
-  const sun = new THREE.DirectionalLight(0xc8d4ff, 0.9); sun.position.set(-40, 60, 50); group.add(sun); // the moon
-  const back = new THREE.DirectionalLight(0x8090c0, 0.3); back.position.set(40, 30, -50); group.add(back);
+  // Light: an open-air day – sky + ground fill and a low sun from the south-west; at night the same three
+  // lights turn into a moonlit fill and a dimmer moon (CITY_TIMES.night).
+  const hemi = new THREE.HemisphereLight(0xf2f8ff, 0x9a9180, 1.9); hemi.name = 'city-sky-light'; group.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff1dc, 1.6); sun.name = 'city-sun'; sun.position.set(-40, 60, 50); group.add(sun);
+  const back = new THREE.DirectionalLight(0xdfe9ff, 0.5); back.name = 'city-back-light'; back.position.set(40, 30, -50); group.add(back);
+  let cityTime = 'day';
+  const setTime = (t) => {
+    cityTime = cityTimeOf(t); const T = CITY_TIMES[cityTime];
+    sky.color.setHex(T.sky);
+    hemi.color.setHex(T.hemi[0]); hemi.groundColor.setHex(T.hemi[1]); hemi.intensity = T.hemi[2];
+    sun.color.setHex(T.sun[0]); sun.intensity = T.sun[1];
+    back.color.setHex(T.back[0]); back.intensity = T.back[1];
+    group.userData.time = cityTime;
+    return cityTime;
+  };
+  setTime(time);
 
   // Bus stop (city-bus TEST): large shelter between spawn and Town Hall, right of the door – in camera view.
   let busStop = null;
@@ -260,7 +278,7 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false } = {
   const margin = 0.35;
   const bounds = new THREE.Box3(new THREE.Vector3(-hw + margin, 0, -hd + margin), new THREE.Vector3(hw - margin, H, hd - margin));
   const spawn = new THREE.Vector3(CITY_SPAWN.x, 1.6 + groundAt(CITY_SPAWN.x, CITY_SPAWN.z), CITY_SPAWN.z);
-  return { group, surfaces, bounds, spawn, city: true, groundAt, pushOut, doorAt, doors, busStop, camFar: 260 };
+  return { group, surfaces, bounds, spawn, city: true, groundAt, pushOut, doorAt, doors, busStop, camFar: 260, setTime, time: () => cityTime };
 }
 // Which houses are started (t479u: houses start in order): a started house's door is black (go in),
 // the next one to start is a warm yellow (start it), the ones after it are grey (not yet).

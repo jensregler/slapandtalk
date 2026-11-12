@@ -9,7 +9,8 @@ import { assembleReel, detectHighlights, sceneAt, clipPose, reelCameras, cityBou
 import { roomBounds } from '../../shared/autocam.mjs';
 import { pickFilmMime } from '../../shared/film.mjs';
 import { buildBoxRoom } from './room.js';
-import { buildCityRoom } from './city.js';
+import { buildCityRoom, CITY_TIMES } from './city.js';
+import { cityTime } from './daynight.js';
 import { applyStyle, normalizeStyle, DEFAULT_STYLE } from './roomstyle.js';
 import { StampLayer } from './stamps.js';
 import { poseCamera } from './cameras.js';
@@ -80,8 +81,8 @@ async function makeReelRenderer({ roomId, style, stickers, city, size = [1280, 7
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(1); renderer.setSize(W, H, false); renderer.outputColorSpace = THREE.SRGBColorSpace;
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(city ? 0x000000 : 0x1a1c24); // city: night sky (was 0xbfe2f6)
-  const room = city ? buildCityRoom() : buildBoxRoom();
+  scene.background = new THREE.Color(city ? CITY_TIMES[cityTime()].reel : 0x1a1c24); // city: the player's day (light blue) or night (black) sky
+  const room = city ? buildCityRoom({ time: cityTime() }) : buildBoxRoom();
   scene.add(room.group);
   if (!city) {
     try { await applyStyle(room.surfaces, normalizeStyle(style || DEFAULT_STYLE)); }

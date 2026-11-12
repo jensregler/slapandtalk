@@ -57,6 +57,8 @@ import { initEscMenu } from './escmenu.js';
 import { SlapFx } from './slapfx.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
+import { cityTime, toggleCityTime } from './daynight.js';
+import { exportCity as exportCityFile, importCity as importCityFile } from './cityfile.js';
 import { slapHold } from '../../shared/dancehold.mjs';
 import { CITY, CITY_ROOM, roomBox, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, PACK_DESIGN_ID, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
@@ -124,7 +126,7 @@ document.body.classList.toggle('film-studio', FILM_STUDIO);
 setStudioUnlock(FILM_STUDIO); // patches / fabrics / sticker gates open in film studio
 var cityBusBots = null; // eslint-disable-line no-var
 var cityBusSession = null; // eslint-disable-line no-var
-const room = CITY_OUTSIDE ? buildCityRoom({ hallColor: TESTBUS ? hallColorFor(ROOM) : null, busStop: !!(TESTBUS && isTestBusCity(ROOM)) }) : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
+const room = CITY_OUTSIDE ? buildCityRoom({ hallColor: TESTBUS ? hallColorFor(ROOM) : null, busStop: !!(TESTBUS && isTestBusCity(ROOM)), time: cityTime() }) : buildBoxRoom(); // senare: await loadGltfRoom('/rum/stad.glb')
 scene.add(room.group);
 if (room.camFar) { camera.far = room.camFar; camera.updateProjectionMatrix(); }
 document.body.classList.toggle('in-city', IN_CITY); document.body.classList.toggle('city-build', IN_CITY && CITY_BUILD_PHASE); document.body.classList.toggle('build-city', isBuildCity(ROOM)); document.body.classList.toggle('city-outside', CITY_OUTSIDE);
@@ -2493,6 +2495,10 @@ function onRoomEvent(e) {
     if (e.type === 'stamp:add' || e.type === 'stamp:remove' || e.type === 'room:clear-hidden') surfTex.noteChange();
     if (e.type === 'room:reset') surfTex.clear();
   }
+  // the Town Hall's one rename (t864u): everyone sees the new name at once
+  if (e.type === 'city:name' && typeof e.name === 'string') { if (cityInfo) { cityInfo.name = e.name; cityInfo.canRename = !!e.canRename; } refreshCity(); return; }
+  // the city was replaced from a city file (Import city): load it again
+  if (e.type === 'city:imported') { toast(S.cityImportedToast, 3000); setTimeout(() => location.reload(), 1500); return; }
   if (e.type === 'stamp:add' && e.stamp && e.image) {
     // Någon annans klibba: ljudet kommer från där den hamnade (tystare ju längre bort).
     if (e.nonce && pendingSlaps.has(e.nonce)) { confirmSlap(e.nonce, e.stamp, e.image); updateCount(); if (e.peel) peelLayer.confirm('tmp-' + e.nonce, e.peel); return; } // min egen, redan synlig
@@ -2803,7 +2809,8 @@ if (CITY_OUTSIDE && isKeptHouse(Number(params.get('full')))) {
 }
 function openHall() {
   controls.unlock?.(); closeChoice();
-  openTownHall({ toast, onChange: cityWheelChanged, makePack: () => openDoorPick(doorOpts()), deck: () => deckDesigns(), onDeck: () => { wheelKey = ''; } });
+  openTownHall({ toast, onChange: cityWheelChanged, makePack: () => openDoorPick(doorOpts()), deck: () => deckDesigns(), onDeck: () => { wheelKey = ''; },
+    city: THIS_CITY, by: () => state.artist || '', onRenamed: () => { refreshCity(); } }); // the city's name lives in the Town Hall (t864u)
   syncPaid();
 }
 // City-bus TEST bots when ?testbus=1. Lazy server seed (no CITYBUS_TEST env needed on Render).
@@ -2979,8 +2986,16 @@ escMenu = initEscMenu({
   onCreate: () => {},
   onStickers: () => menuActions.nametag(),
   onStickerPack: () => menuActions.stickerPack(),
-  // Create new city: reuse city-picker naming flow (POST /api/cities).
-  onCreateCity: () => openCityPick({ toast, start: 'name', go: (id) => { goRoom(id); } }),
+  // Create new city (Jens t864u): no naming step – the server gives it a fictional name; it can be changed
+  // once in the Town Hall.
+  onCreateCity: () => createCityNow(),
+  // DAY / NIGHT (Jens t864u): this player's own look of the city, remembered in this browser.
+  onDayNight: () => { const t = toggleCityTime(); room.setTime?.(t); toast(S.dayNightToast(t), 1600); return t; },
+  dayNight: () => cityTime(),
+  // CITY → Export city / Import city: the whole city as one file (cityfile.js, server/cityarchive.js).
+  onExportCity: () => exportCityFile(THIS_CITY, { toast, name: cityInfo?.name }),
+  onImportCity: () => importCityFile(THIS_CITY, { toast, here: cityInfo?.name || THIS_CITY, onDone: (d) => goRoom(d.city || THIS_CITY) }),
+  showButton: (key) => (key === 'daynight' ? CITY_OUTSIDE : key === 'exportcity' || key === 'importcity' ? IN_CITY && !DEMO : true),
   // Join existing: picking a row goes straight into that city.
   onPickCity: (c) => { if (c?.id) goRoom(c.id); },
   formatCity: (c) => {
@@ -2996,8 +3011,18 @@ escMenu = initEscMenu({
   showCatalog: (kind) => (kind === 'assets' ? !!(propsUi && propsUi.open()) : kind === 'nature' ? !DEMO : true),
   onCatalogPick: (kind, id) => pickFromCatalog(kind, id),
   helpHtml: () => (isTouch ? S.escHelpTouchHtml : S.escHelpDesktopHtml),
-  labels: { holding: S.escHolding, catEmpty: S.escCatEmpty },
+  labels: { holding: S.escHolding, catEmpty: S.escCatEmpty, day: S.escDay, night: S.escNight },
 });
+// A new city straight away (no name asked – Jens t864u): POST /api/cities without a name, then go in.
+async function createCityNow() {
+  toast(S.scEnterCity, 2500);
+  try {
+    const r = await fetch('/api/cities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ by: state.artist || '' }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.city) throw new Error(d.error || S.cpFailed);
+    goRoom(d.city.id);
+  } catch (e) { toast(e.message || S.cpFailed, 3000); }
+}
 escMenu.setJoinLabels({ loading: S.escCityLoading, none: S.escCityNone, failed: S.escCityFailed });
 
 
@@ -3948,6 +3973,9 @@ window.klibb = {
   enterCamView, exitCamView, camView: () => camView, viewCam, rec: () => rec, renderRecs,
   wheelUp, touchAim: () => (touchAim ? { ...touchAim } : null), touchPinch: () => (touchPinch ? { ...touchPinch } : null), hitAt: (x, y) => { const h = hitSurface(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)); return h ? { point: h.point.toArray(), surface: h.surface } : null; },
   surfTex: () => surfTex,
+  // day / night + the Town Hall (t864u), for the tests
+  cityLook: () => ({ time: room.time ? room.time() : null, sky: room.group.getObjectByName('tak')?.material?.color?.getHexString() || null, stored: cityTime() }),
+  openHall: () => openHall(), cityInfo: () => cityInfo,
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
   held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3), aimOff }, aimOff: () => aimOff, setAimOff, syncAimToggleBtn, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   // The wheels are gone (t793u): any wheel UI still on screen (should be none).
