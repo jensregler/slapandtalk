@@ -3487,7 +3487,7 @@ function stepOscHz() { // my Steps patch's oscillator pitch (its first osc layer
   try { const p = sound.patchFor('step', sound.mine).patch, l = p.layers.find((x) => x.kind === 'osc') || p.layers[0]; return l && l.freq > 0 ? l.freq : null; } catch { return null; }
 }
 function sightStep(step) {
-  if (myGait !== 'crouch') { if (sightOn) { sightOn = false; sightHz = null; sightline.reset(); } return step; }
+  if (myGait !== 'crouch' || !controls.crouching) { if (sightOn) { sightOn = false; sightHz = null; sightline.reset(); } return step; }
   sightOn = true;
   sightline.update(performance.now());
   const base = stepOscHz(); if (!base) return step;

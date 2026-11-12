@@ -97,6 +97,7 @@ const KEY = 'run-e2e-full-key';
     // ---------- Shift + W = running ----------
     // start each walk at the back of the room facing the long way (W = −z), so no wall stops it
     const place = () => A.evaluate(() => { const k = window.klibb, b = k.controls.bounds; k.camera.position.x = (b.min.x + b.max.x) / 2; k.camera.position.z = b.max.z - 0.4; k.controls.yaw = 0; k.controls.apply(); });
+    await place(); await A.waitForTimeout(200); // (run is 2× faster since t865u – start at the back so no wall stops it)
     await A.evaluate(() => { window.klibb.grooveObj().log.length = 0; });
     await A.keyboard.down('Shift'); await A.keyboard.down('KeyW'); await A.waitForTimeout(1500);
     const run = await A.evaluate(() => ({ m: window.klibb.runMode(), log: window.klibb.grooveObj().log.filter((e) => e.id === 'me').slice(-6) }));
@@ -135,7 +136,7 @@ const KEY = 'run-e2e-full-key';
       const p0 = await A.evaluate(() => [window.klibb.camera.position.x, window.klibb.camera.position.z, performance.now()]);
       await A.waitForTimeout(700);
       const p1 = await A.evaluate(() => [window.klibb.camera.position.x, window.klibb.camera.position.z, performance.now()]);
-      const m = await A.evaluate(() => ({ m: window.klibb.runMode(), log: window.klibb.grooveObj().log.filter((e) => e.id === 'me').slice(-4) }));
+      const m = await A.evaluate(() => ({ m: window.klibb.runMode(), s: window.klibb.sightline(), log: window.klibb.grooveObj().log.filter((e) => e.id === 'me').slice(-4) }));
       await A.keyboard.up('KeyW'); for (const k of mods) await A.keyboard.up(k);
       await A.waitForTimeout(300);
       return { v: Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) / ((p1[2] - p0[2]) / 1000), ...m };
@@ -143,7 +144,8 @@ const KEY = 'run-e2e-full-key';
     const hasCam = await A.evaluate(() => !!(window.klibb.camera && window.klibb.camera.position));
     await A.evaluate(() => { window.klibb.grooveObj().log.length = 0; });
     const cw = await speedOf(['Control']);
-    check('Ctrl + W: sneaking – gait crouch, my steps at 1:2 an octave down (crouch tempo/pitch)', cw.m.gait === 'crouch' && cw.m.crouching && !cw.m.running && Math.abs(cw.m.run?.rate - 0.5) < 1e-9 && Math.abs(cw.m.run?.tune - 0.5) < 1e-9 && cw.log.some((e) => e.run === 0.5), cw);
+    // t866u: while sneaking the pitch is Sightline's (aim distance), not the crouch pitch
+    check('Ctrl + W: sneaking – gait crouch, my steps at 1:2 (crouch tempo), pitch from Sightline', cw.m.gait === 'crouch' && cw.m.crouching && !cw.m.running && Math.abs(cw.m.run?.rate - 0.5) < 1e-9 && cw.s.on && Math.abs(cw.m.run?.tune - cw.s.hz / cw.s.base) < 1e-6 && cw.log.some((e) => e.run === 0.5), cw);
     if (hasCam) {
       const ww = await speedOf([]);
       check('…and slower than walking (sneak speed)', cw.v > 0.2 && cw.v < ww.v * 0.7, { sneak: cw.v, walk: ww.v });

@@ -100,13 +100,13 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     check('Esc from join list returns to CITY submenu', joinEsc.view === 'city', joinEsc);
     await P.keyboard.press('Escape'); await sleep(200);
 
-    // Create new city → name step
+    // Create new city → straight into a new city with a fictional name (t864u: no name step any more)
     await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); }); await sleep(200);
     await P.click('#esc-menu [data-esc="city"]'); await sleep(200);
-    await P.click('#esc-menu [data-esc="createcity"]'); await sleep(500);
-    const nameStep = await P.evaluate(() => window.klibb.city().pick);
-    check('Create new city opens the city name step', nameStep.open && nameStep.step === 'name', nameStep);
-    await P.evaluate(() => document.getElementById('cp-x')?.click()); await sleep(300);
+    await Promise.all([P.waitForNavigation({ timeout: 30000 }).catch(() => null), P.click('#esc-menu [data-esc="createcity"]')]);
+    await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 60000 });
+    const made = await P.evaluate(() => ({ url: location.search, pick: window.klibb.city().pick }));
+    check('Create new city goes straight into a new city (no name step)', /room=stad-[a-z0-9]+/.test(made.url) && !(made.pick && made.pick.open), made);
 
     // SOUND still works
     await P.evaluate(() => { window.klibb.escGate.unlockedAt = -1e9; window.klibb.escMenu().open(); }); await sleep(200);
