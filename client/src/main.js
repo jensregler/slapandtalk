@@ -58,6 +58,8 @@ import { SlapFx } from './slapfx.js';
 import { wheelOrder, applySwaps, WHEEL_START } from '../../shared/wheelorder.mjs';
 import { buildCityRoom, markDoors } from './city.js';
 import { cityTime, toggleCityTime } from './daynight.js';
+import { Sightline } from './sightline.js';
+import { sightFreq } from '../../shared/sightline.mjs';
 import { exportCity as exportCityFile, importCity as importCityFile } from './cityfile.js';
 import { slapHold } from '../../shared/dancehold.mjs';
 import { CITY, CITY_ROOM, roomBox, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
@@ -933,7 +935,7 @@ function hitSurface(ndc) {
   if (!hit) return null;
   const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
   if (normal.dot(raycaster.ray.direction) > 0) normal.negate();
-  return { point: hit.point, normal, surface: hit.object.name, dir: raycaster.ray.direction.clone() };
+  return { point: hit.point, normal, surface: hit.object.name, dir: raycaster.ray.direction.clone(), object: hit.object, distance: hit.distance };
 }
 
 let pendingJitter = 0;
@@ -3472,6 +3474,40 @@ addEventListener('beforeunload', (e) => { if (!isTouch && controls.ctrlHeld()) {
 var myGait = 'walk'; // eslint-disable-line no-var
 var myTempoNow = myPlayerTempo(loadRunMode().walkBpm, GROOVE.def, null); // eslint-disable-line no-var -- my { bpm, scale, rate, tune } (shared/playertempo.mjs)
 function liveRunMode() { try { return (soundUi && soundUi.runDraft && soundUi.runDraft()) || loadRunMode(); } catch { return loadRunMode(); } }
+// Sightline in sneak (Jens t866u, 12 Nov 2026): while I sneak (Ctrl), the distance from the aim to what I look at
+// (1 m … the city's width, 96 m, log) sets my Steps oscillator's pitch – near = high, far = low (SIGHTLINE in
+// shared/sightline.mjs), snapped to semitones. Only the sound changes: the Steps "Pitch" slider (my saved patch)
+// is never touched, so letting go of Ctrl brings my own step pitch (and the crouch pitch) straight back.
+// The raycast is the aim's own (hitSurface), 10 a second, smoothed.
+// Highline / Widthline (t867u): the same cast also says where on the aimed surface I look (0…1 up / across) –
+// not wired to any sound yet. Dev readout: ?sightline=1 (or klibb.sightlineHud(true)) shows all three, big.
+const sightline = new Sightline({ cast: () => hitSurface(CENTER) });
+var sightOn = false, sightHz = null; // eslint-disable-line no-var
+function stepOscHz() { // my Steps patch's oscillator pitch (its first osc layer; else its first layer)
+  try { const p = sound.patchFor('step', sound.mine).patch, l = p.layers.find((x) => x.kind === 'osc') || p.layers[0]; return l && l.freq > 0 ? l.freq : null; } catch { return null; }
+}
+function sightStep(step) {
+  if (myGait !== 'crouch') { if (sightOn) { sightOn = false; sightHz = null; sightline.reset(); } return step; }
+  sightOn = true;
+  sightline.update(performance.now());
+  const base = stepOscHz(); if (!base) return step;
+  sightHz = synthShared.snapFreq(sightFreq(sightline.value));
+  return { ...(step || { rate: 1, tune: 1 }), tune: sightHz / base }; // the osc lands on sightHz (instead of the crouch pitch)
+}
+let sightHudEl = null;
+let sightHudOn = new URLSearchParams(location.search).get('sightline') === '1' || (() => { try { return localStorage.getItem('klibb.sightlineHud') === '1'; } catch { return false; } })();
+function sightlineHud(on) {
+  if (on !== undefined) { sightHudOn = !!on; try { localStorage.setItem('klibb.sightlineHud', sightHudOn ? '1' : '0'); } catch { /* private mode */ } }
+  return sightHudOn;
+}
+function sightHudFrame() {
+  if (!sightHudOn) { if (sightHudEl) sightHudEl.style.display = 'none'; return; }
+  if (!sightOn) sightline.update(performance.now()); // sneaking already updates it in walkSounds
+  if (!sightHudEl) { sightHudEl = document.createElement('div'); sightHudEl.id = 'sightline-hud'; document.body.appendChild(sightHudEl); }
+  const pct = (v) => (v == null ? '–' : Math.round(v * 100) + ' %');
+  sightHudEl.style.display = '';
+  sightHudEl.textContent = `Sightline ${sightline.raw == null ? '–' : sightline.distance.toFixed(1) + ' m'} · Highline ${pct(sightline.highline)} · Widthline ${pct(sightline.widthline)}${sightOn && sightHz ? ' · ' + sightHz.toFixed(0) + ' Hz' : ''}`;
+}
 function walkSounds() {
   // onPeel: feet on backing paper on the floor = the muffled "paper" step (shared/peelstep.mjs)
   // dancing (Jens t814u): while the dance is on it counts as walking – the footsteps and the walk
@@ -3484,7 +3520,7 @@ function walkSounds() {
   // While Sound settings is open the draft is heard at once (the sliders are live, Save keeps them).
   const dancingMe = !camView && together.dancing();
   myGait = camView ? 'walk' : gaitOf({ moving: controls.moving && !dancingMe, dancing: dancingMe, shift: controls.shiftHeld(), ctrl: controls.ctrlHeld() });
-  const step = gaitStep(myGait, liveRunMode());
+  const step = sightStep(gaitStep(myGait, liveRunMode()));
   // My own tempo (Jens t846u: "ta bort den globala klockan … alla har sin egen bpm"): my Tempo (radio.walkBpm –
   // the Steps slider, live while Sound settings is open) drives my footsteps, sequencers + four voices
   // (radio.tick), the synced delay, my voice echo and my dance; the room gets it so they hear / see me at it.
@@ -3780,6 +3816,7 @@ function frame() {
   peelLayer.update();
   slapFx.update();
   walkSounds();
+  sightHudFrame();
   radio.tick();
   voice.update();
   updateCredit();
@@ -3976,6 +4013,7 @@ window.klibb = {
   // day / night + the Town Hall (t864u), for the tests
   cityLook: () => ({ time: room.time ? room.time() : null, sky: room.group.getObjectByName('tak')?.material?.color?.getHexString() || null, stored: cityTime() }),
   openHall: () => openHall(), cityInfo: () => cityInfo,
+  sightline: () => ({ on: sightOn, hz: sightHz, base: stepOscHz(), ...sightline.info() }), sightlineHud,
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
   held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3), aimOff }, aimOff: () => aimOff, setAimOff, syncAimToggleBtn, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   // The wheels are gone (t793u): any wheel UI still on screen (should be none).
