@@ -10,13 +10,17 @@
 import { SPEAKERS, NOISE_SPEAKERS, speakerGain, speakerTrackAt, inNoiseRoom } from '../../shared/noisespeakers.mjs';
 
 const BASE = '/noise-speakers/';
+// the lamps (t875u): ~30 updates a second; RMS ≥ full = brightest; min = the glow in silence (× the lamp's normal intensity)
+export const LAMP = Object.freeze({ everyMs: 33, full: 0.2, min: 0.35, max: 1.5, attack: 0.6, release: 0.12 });
+// ?noiseplaylist=test → the short test tones in /noise-speakers/test/ (tests: a track ends within seconds)
+const playlistBase = () => { try { return new URLSearchParams(location.search).get('noiseplaylist') === 'test' ? BASE + 'test/' : BASE; } catch { return BASE; } };
 
 export class NoiseSpeakers {
   // sound: the Sounds object (its AudioContext, mute and volume); now: () => server-corrected ms
-  constructor({ sound, now = () => Date.now(), manifestUrl = BASE + 'manifest.json' } = {}) {
-    this.sound = sound; this.now = now; this.manifestUrl = manifestUrl;
+  constructor({ sound, now = () => Date.now(), base = playlistBase(), lamps = null } = {}) {
+    this.sound = sound; this.now = now; this.lamps = lamps; this.lampAt = 0; this.lampsLit = false; this.base = base; this.manifestUrl = base + 'manifest.json';
     this.tracks = null; this.loading = null; this.inside = false;
-    this.players = SPEAKERS.map((s) => ({ ...s, el: null, node: null, gain: null, g: 0, want: null, file: null, plays: 0, started: [], blocked: false }));
+    this.players = SPEAKERS.map((s) => ({ ...s, el: null, node: null, gain: null, tap: null, buf: null, level: 0, rms: 0, g: 0, want: null, file: null, plays: 0, started: [], blocked: false }));
     this.log = []; // tests: { speaker, file, at }
     this.lastSync = 0;
     // A play() refused for lack of a user gesture (iOS) is tried again on the next tap / key.
@@ -38,7 +42,9 @@ export class NoiseSpeakers {
     el.addEventListener('ended', () => { const w = p.want; const wait = w ? Math.max(0, w.endMs - this.now()) : 0; setTimeout(() => this.sync(), Math.min(wait + 20, 3000)); });
     const node = ctx.createMediaElementSource(el), gain = ctx.createGain(); gain.gain.value = 0;
     node.connect(gain); gain.connect(ctx.destination);
-    Object.assign(p, { el, node, gain });
+    // the lamps' tap (Jens t875u): the speaker's own signal, BEFORE the position gain – a small analyser, read ~30×/s
+    const tap = ctx.createAnalyser(); tap.fftSize = 512; tap.smoothingTimeConstant = 0; node.connect(tap);
+    Object.assign(p, { el, node, gain, tap, buf: new Float32Array(tap.fftSize) });
     return true;
   }
   play(p) {
@@ -53,7 +59,7 @@ export class NoiseSpeakers {
       if (!this.wire(p)) return;
       const s = speakerTrackAt(this.tracks, p.id, t); if (!s) continue;
       p.want = s;
-      const url = BASE + s.track.file;
+      const url = this.base + s.track.file;
       if (p.file !== url + '@' + s.startMs) {
         p.file = url + '@' + s.startMs; p.plays++; p.started.push(s.track.file); if (p.started.length > 20) p.started.shift();
         this.log.push({ speaker: p.id, file: s.track.file, at: t }); if (this.log.length > 40) this.log.shift();
@@ -69,7 +75,27 @@ export class NoiseSpeakers {
       else if (!p.el.seeking && p.el.readyState >= 2 && Math.abs(p.el.currentTime - s.offsetSec) > NOISE_SPEAKERS.resyncSec) p.el.currentTime = s.offsetSec;
     }
   }
+  // The ceiling lamps follow the music (Jens t875u): west lamps ← A, east lamps ← B. Only the existing lights'
+  // intensity changes (no new lights). level = RMS ÷ LAMP.full, fast up / slow down; intensity = base × (min … max).
+  lampsTick(now) {
+    const L = this.lamps; if (!L || now - this.lampAt < LAMP.everyMs) return; this.lampAt = now;
+    for (const p of this.players) {
+      let rms = 0;
+      if (p.tap && p.el && !p.el.paused) { p.tap.getFloatTimeDomainData(p.buf); let s = 0; for (let i = 0; i < p.buf.length; i++) s += p.buf[i] * p.buf[i]; rms = Math.sqrt(s / p.buf.length); }
+      p.rms = rms;
+      const target = Math.min(1, rms / LAMP.full), k = target > p.level ? LAMP.attack : LAMP.release;
+      p.level += (target - p.level) * k;
+      const f = LAMP.min + (LAMP.max - LAMP.min) * p.level;
+      for (const lamp of L[p.id] || []) lamp.intensity = lamp.userData.base * f;
+    }
+    this.lampsLit = true;
+  }
+  lampsRest() { // out of the room: the lamps back to their normal light
+    if (!this.lamps || !this.lampsLit) return; this.lampsLit = false;
+    for (const p of this.players) { p.level = 0; p.rms = 0; for (const lamp of this.lamps[p.id] || []) lamp.intensity = lamp.userData.base; }
+  }
   stop() {
+    this.lampsRest();
     for (const p of this.players) if (p.el) { p.el.pause(); p.el.removeAttribute('src'); p.el.load(); p.file = null; p.g = 0; if (p.gain) p.gain.gain.value = 0; }
   }
   // Every frame with the listener's position.
@@ -83,6 +109,7 @@ export class NoiseSpeakers {
     if (!inside) return;
     const now = performance.now();
     if (now - this.lastSync > 1000) { this.lastSync = now; this.sync(); }
+    this.lampsTick(now);
     const s = this.sound, vol = s ? (s.muted ? 0 : (Number.isFinite(s.volume) ? s.volume : 1)) : 1;
     for (const p of this.players) {
       if (!p.gain) continue;
@@ -91,8 +118,8 @@ export class NoiseSpeakers {
     }
   }
   info() {
-    return { inside: this.inside, tracks: this.tracks ? this.tracks.length : null, log: this.log.slice(),
-      players: this.players.map((p) => ({ id: p.id, gain: +p.g.toFixed(4), zone: +(p.g / NOISE_SPEAKERS.master).toFixed(4), file: p.want ? p.want.track.file : null, plays: p.plays,
+    return { inside: this.inside, lamps: this.lamps ? Object.fromEntries(Object.entries(this.lamps).map(([k, v]) => [k, v.map((l) => ({ x: +l.position.x.toFixed(2), intensity: +l.intensity.toFixed(3), base: l.userData.base }))])) : null, tracks: this.tracks ? this.tracks.length : null, log: this.log.slice(),
+      players: this.players.map((p) => ({ id: p.id, rms: +p.rms.toFixed(4), level: +p.level.toFixed(3), gain: +p.g.toFixed(4), zone: +(p.g / NOISE_SPEAKERS.master).toFixed(4), file: p.want ? p.want.track.file : null, plays: p.plays,
         paused: p.el ? p.el.paused : true, time: p.el ? +p.el.currentTime.toFixed(2) : 0, ready: p.el ? p.el.readyState : 0, src: p.el ? p.el.getAttribute('src') : null, blocked: p.blocked })) };
   }
 }

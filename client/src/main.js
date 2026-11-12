@@ -2642,7 +2642,7 @@ var fullUi = initFullVersion({ // eslint-disable-line no-var
 // var: the WebSocket welcome can arrive before these lines have run.
 var groove = new GrooveSteps(sound); // eslint-disable-line no-var
 // The noise room's speakers A + B (Jens t872u): only in a city's outside; on the shared (server) clock.
-const noiseSpeakers = CITY_OUTSIDE ? new NoiseSpeakers({ sound, now: () => groove.now() }) : null;
+const noiseSpeakers = CITY_OUTSIDE ? new NoiseSpeakers({ sound, now: () => groove.now(), lamps: room.noiseLamps || null }) : null;
 const canGroove = () => !DEMO && (!!state.adminToken || !!entitlements.full.soundDesign);
 let chipTimer = null;
 const myGrooveScale = () => { const v = Number(personalGet('klibb.grooveScale')); return personalGet('klibb.grooveScale') != null && Number.isFinite(v) ? v : GROOVE.def; };

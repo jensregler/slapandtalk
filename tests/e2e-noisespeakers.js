@@ -18,7 +18,7 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await ctx.addInitScript(() => { localStorage.setItem('klibb.avatar', JSON.stringify({ name: 'Jens', look: { outfit: 'casual', hair: 'short', shirt: '#3a7bd5', pants: '#333333', hairColor: '#3b2a1a', skin: '#e0b48c', hat: false, hatColor: '#d33' } })); });
     const P = await ctx.newPage(); P.on('pageerror', (e) => errors.push(e.message));
     P.on('request', (r) => { if (/\/noise-speakers\/.+\.mp3/.test(r.url())) audioReqs.push(r.url()); });
-    await P.goto(`${S.base}/?room=stad-byggen`);
+    await P.goto(`${S.base}/?room=stad-byggen&noiseplaylist=test`);
     await P.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 90000 });
     await P.mouse.click(800, 500).catch(() => {}); await sleep(300);
     if (await P.evaluate(() => window.klibb.escMenu().info().open)) await P.keyboard.press('Escape');
@@ -26,7 +26,9 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     // the manifest + its caching
     const man = await (await fetch(S.base + '/noise-speakers/manifest.json')).json();
     const mp3 = await fetch(S.base + '/noise-speakers/' + man.tracks[0].file, { headers: { Range: 'bytes=0-1023' } });
-    check(`manifest: ${man.tracks.length} tracks; an mp3 streams with range requests (206) and is cached for good`, man.tracks.length >= 2 && mp3.status === 206 && /immutable/.test(mp3.headers.get('cache-control') || ''), { status: mp3.status, cc: mp3.headers.get('cache-control') });
+    check(`the real playlist: ${man.tracks.length} tracks (${(man.tracks.reduce((s, t) => s + t.duration, 0) / 60).toFixed(0)} min), no test tones; an mp3 streams with range requests (206) and is cached for good`, man.tracks.length >= 2 && !man.tracks.some((t) => t.placeholder) && mp3.status === 206 && /immutable/.test(mp3.headers.get('cache-control') || ''), { status: mp3.status, cc: mp3.headers.get('cache-control') });
+    const tman = await (await fetch(S.base + '/noise-speakers/test/manifest.json')).json();
+    check(`the test playlist (?noiseplaylist=test): ${tman.tracks.length} short tones`, tman.tracks.length === 3 && tman.tracks.every((t) => t.duration < 15));
 
     const models = await P.evaluate(() => window.klibb.noiseSpeakerModels());
     check('speaker A on the west wall, B on the east wall of plot 7, both labelled', models.every(Boolean) && models[0].at[0] < -7 && models[1].at[0] > 7 && models.every((m) => m.at[2] > 31 && m.at[2] < 33 && m.label && m.visible), models);
@@ -58,15 +60,32 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
         && (want[0] > 0.3 ? r.a > 0.01 : r.a < 0.003) && (want[1] > 0.3 ? r.b > 0.01 : r.b < 0.003), rows[rows.length - 1]);
     }
     fs.writeFileSync(path.join(SHOTS, 'zones.json'), JSON.stringify(rows, null, 2));
+    // the ceiling lamps (t875u): 2 west ← A, 2 east ← B; the existing lights' intensity follows each speaker's own level
+    {
+      await settle();
+      const reads = [];
+      for (let k = 0; k < 12; k++) { reads.push(await P.evaluate(() => window.klibb.noiseSpeakers())); await sleep(120); }
+      const L = reads[0].lamps, lights = await P.evaluate(() => window.klibb.pointLights ? window.klibb.pointLights() : null);
+      check(`lamps split by half: A ${L.A.length} west (x ${L.A.map((l) => l.x)}), B ${L.B.length} east (x ${L.B.map((l) => l.x)})`, L.A.length === 2 && L.B.length === 2 && L.A.every((l) => l.x < 0) && L.B.every((l) => l.x > 0), L);
+      const iA = reads.map((r) => r.lamps.A[0].intensity), iB = reads.map((r) => r.lamps.B[0].intensity), base = L.A[0].base;
+      const spread = (a) => Math.max(...a) - Math.min(...a);
+      check(`A lamps move with A (${Math.min(...iA).toFixed(2)} … ${Math.max(...iA).toFixed(2)} of base ${base}), B lamps with B (${Math.min(...iB).toFixed(2)} … ${Math.max(...iB).toFixed(2)}); never below the glow`,
+        spread(iA) > 0.02 * base && spread(iB) > 0.02 * base && [...iA, ...iB].every((v) => v >= base * 0.35 - 1e-6 && v <= base * 1.5 + 1e-6), { iA, iB });
+      check('a lamp = base × (min + (max − min) × that speaker\'s level), the level from its RMS (before the position gain)', reads.every((r) => r.players.every((p) => { const want = base * (0.35 + 1.15 * p.level); return r.lamps[p.id].every((l) => Math.abs(l.intensity - want) < 0.05 * base + 0.01); })) && reads.some((r) => r.players[1].rms > 0.01), reads.slice(-1)[0]);
+      await go(0, 38.6); await P.evaluate(() => window.klibb.look(0, 0.55)); await sleep(600);
+      await P.screenshot({ path: path.join(SHOTS, '04-lamps-follow-the-speakers.png') });
+    }
     check(`gains carry the master (${master})`, await P.evaluate((m) => { const i = window.klibb.noiseSpeakers(); return Math.abs(i.players[0].gain - i.players[0].zone * m) < 0.01; }, master));
     // same track for two players: a 2nd page in the room hears the same file at (about) the same second
-    const P2 = await ctx.newPage(); P2.on('pageerror', (e) => errors.push('P2: ' + e.message));
-    await P2.goto(`${S.base}/?room=stad-byggen`); await P2.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 90000 });
-    await P2.mouse.click(800, 500).catch(() => {}); if (await P2.evaluate(() => window.klibb.escMenu().info().open)) await P2.keyboard.press('Escape');
+    const ctx2 = await browser.newContext({ viewport: { width: 480, height: 320 } }); // a light 2nd player (swiftshader is slow)
+    await ctx2.addInitScript(() => { localStorage.setItem('klibb.avatar', JSON.stringify({ name: 'Ann', look: { outfit: 'casual', hair: 'short', shirt: '#d53a3a', pants: '#333333', hairColor: '#3b2a1a', skin: '#e0b48c', hat: false, hatColor: '#d33' } })); });
+    const P2 = await ctx2.newPage(); P2.on('pageerror', (e) => errors.push('P2: ' + e.message));
+    await P2.goto(`${S.base}/?room=stad-byggen&noiseplaylist=test`); await P2.waitForFunction(() => window.klibb && window.klibb.ready, null, { timeout: 90000 });
+    await P2.mouse.click(240, 160).catch(() => {}); if (await P2.evaluate(() => window.klibb.escMenu().info().open)) await P2.keyboard.press('Escape');
     await P2.evaluate(() => window.klibb.moveTo(0, 32)); await sleep(3000);
     // (read a few times: a read that falls on a track change, while one page is still loading the next file, doesn't count)
     let i1, i2, same = false;
-    for (let k = 0; k < 10 && !same; k++) {
+    for (let k = 0; k < 20 && !same; k++) {
       [i1, i2] = await Promise.all([P.evaluate(() => window.klibb.noiseSpeakers()), P2.evaluate(() => window.klibb.noiseSpeakers())]);
       same = i1.players.every((p, n) => p.file === i2.players[n].file && p.ready >= 3 && i2.players[n].ready >= 3 && Math.abs(p.time - i2.players[n].time) < 1.6);
       if (!same) await sleep(700);
@@ -76,7 +95,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     // the next track when one ends
     const before = await P.evaluate(() => window.klibb.noiseSpeakers());
     await sleep(14000);
-    const after = await P.evaluate(() => window.klibb.noiseSpeakers());
+    let after = await P.evaluate(() => window.klibb.noiseSpeakers());
+    for (let k = 0; k < 12 && after.players.some((p) => p.paused); k++) { await sleep(250); after = await P.evaluate(() => window.klibb.noiseSpeakers()); } // (a read right at a track change)
     check(`next random track after the end: A ${before.players[0].plays} → ${after.players[0].plays} plays, B ${before.players[1].plays} → ${after.players[1].plays}; still playing`,
       after.players.every((p, k) => p.plays > before.players[k].plays && !p.paused), { before: before.players, after: after.players, log: after.log });
     const seq = after.log.filter((l) => l.speaker === 'A').map((l) => l.file);
@@ -94,6 +114,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     const out = await P.evaluate(() => ({ i: window.klibb.noiseSpeakers(), a: window.__rms('A'), b: window.__rms('B') }));
     await sleep(3000);
     check('out through the opening: both paused, no src, gain 0, no sound, no further downloads', !out.i.inside && out.i.players.every((p) => p.paused && !p.src && p.gain === 0) && out.a < 0.001 && out.b < 0.001 && audioReqs.length === nReq, { out, n: [nReq, audioReqs.length] });
+    const rest = await P.evaluate(() => window.klibb.noiseSpeakers().lamps);
+    check('outside: the lamps back to their normal light', [...rest.A, ...rest.B].every((l) => Math.abs(l.intensity - l.base) < 0.01), rest);
     await go(-32, 0); // the reverb room: nothing either
     check('in another FX room (reverb, plot 4): silent', await P.evaluate(() => { const i = window.klibb.noiseSpeakers(); return !i.inside && i.players.every((p) => p.paused); }));
     check('no page errors', errors.length === 0, errors);

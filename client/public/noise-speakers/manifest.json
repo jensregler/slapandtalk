@@ -2,28 +2,127 @@
   "version": 1,
   "format": "mp3",
   "bitrate": "96k",
-  "made": "2026-11-12T21:17:52.180Z",
+  "made": "2026-11-12T21:38:41.778Z",
   "tracks": [
     {
-      "file": "test-tone-1-a-440-9800ba64.mp3",
-      "title": "Test tone 1 (A 440)",
-      "duration": 9.038,
-      "bytes": 108817,
-      "placeholder": true
+      "file": "2222-db6e8173.mp3",
+      "title": "2222",
+      "duration": 120.216,
+      "bytes": 1442943
     },
     {
-      "file": "test-tone-2-e-330-f10d24f1.mp3",
-      "title": "Test tone 2 (E 330)",
-      "duration": 12.042,
-      "bytes": 144866,
-      "placeholder": true
+      "file": "a4-loop-56020f2b.mp3",
+      "title": "a4 loop",
+      "duration": 230.452,
+      "bytes": 2765784
     },
     {
-      "file": "test-tone-3-c-523-74190444.mp3",
-      "title": "Test tone 3 (C 523)",
-      "duration": 7.027,
-      "bytes": 84680,
-      "placeholder": true
+      "file": "annannann-436afc2f.mp3",
+      "title": "annannann",
+      "duration": 286.903,
+      "bytes": 3443191
+    },
+    {
+      "file": "annannann2-63ed6463.mp3",
+      "title": "annannann2",
+      "duration": 309.629,
+      "bytes": 3715910
+    },
+    {
+      "file": "anndold-f8bd05f9.mp3",
+      "title": "annDold",
+      "duration": 296.908,
+      "bytes": 3563250
+    },
+    {
+      "file": "another-fb62c9f4.mp3",
+      "title": "another",
+      "duration": 653.505,
+      "bytes": 7842421
+    },
+    {
+      "file": "early-3-70-87544ca3.mp3",
+      "title": "early_3 70",
+      "duration": 358.635,
+      "bytes": 4303978
+    },
+    {
+      "file": "forsok-2-8424031d.mp3",
+      "title": "försök_2",
+      "duration": 198.452,
+      "bytes": 2381784
+    },
+    {
+      "file": "forsok-f65d96ca.mp3",
+      "title": "försök",
+      "duration": 201.221,
+      "bytes": 2415012
+    },
+    {
+      "file": "galenskap-2de4f413.mp3",
+      "title": "galenskap",
+      "duration": 795.011,
+      "bytes": 9540484
+    },
+    {
+      "file": "jammmm-59d69c39.mp3",
+      "title": "jammmm",
+      "duration": 568.059,
+      "bytes": 6817062
+    },
+    {
+      "file": "jmfm-4c94fbb5.mp3",
+      "title": "JMFM",
+      "duration": 609.411,
+      "bytes": 7313284
+    },
+    {
+      "file": "kanske-denna-med-79576f9e.mp3",
+      "title": "kanske denna med",
+      "duration": 452.258,
+      "bytes": 5427453
+    },
+    {
+      "file": "lyrasolo-79f4bf6c.mp3",
+      "title": "lyrasolo",
+      "duration": 437.734,
+      "bytes": 5253164
+    },
+    {
+      "file": "nyvind-dcd6ecbe.mp3",
+      "title": "nyvind",
+      "duration": 241.45,
+      "bytes": 2897755
+    },
+    {
+      "file": "rec123mix-7ce33832.mp3",
+      "title": "rec123mix",
+      "duration": 554.736,
+      "bytes": 6657193
+    },
+    {
+      "file": "strake2-cbb55e73.mp3",
+      "title": "stråke2",
+      "duration": 580.441,
+      "bytes": 6965647
+    },
+    {
+      "file": "surface2-280dd13c.mp3",
+      "title": "surface2",
+      "duration": 666.018,
+      "bytes": 7992573
+    },
+    {
+      "file": "tva-4-e068531c.mp3",
+      "title": "två_4",
+      "duration": 309.29,
+      "bytes": 3711835
+    },
+    {
+      "file": "vind-3-823be2ef.mp3",
+      "title": "vind 3",
+      "duration": 201.195,
+      "bytes": 2414698
     }
   ]
 }

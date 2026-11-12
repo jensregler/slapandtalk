@@ -132,6 +132,7 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time
   };
   // The noise room's speakers A (west wall) and B (east wall), facing each other (Jens t872u; shared/noisespeakers.mjs,
   // the music: client/src/noisespeakers.js). Built from boxes and canvas labels; not sticker surfaces.
+  const noiseLamps = { A: [], B: [] }; // the noise room's ceiling lamps, west half (A) / east half (B)
   const speakers = () => {
     const { w, h, d } = NOISE_SPEAKERS.size, y = NOISE_SPEAKERS.mountY;
     const body = new THREE.MeshStandardMaterial({ color: 0x1b1a1d, roughness: 0.7 });
@@ -179,6 +180,8 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time
       for (const { x, y, z, intensity, distance } of ceilingLights(rf.w, rf.y0 - p.house.y0, rf.d)) {
         const lamp = new THREE.PointLight(CEILING_LIGHT_COLOR, intensity, distance, CEILING_LIGHT_DECAY);
         lamp.name = `${tag}-ceiling-light`; lamp.position.set(rf.x + x, p.house.y0 + y, rf.z + z); lamp.userData.fxCeiling = p.n; group.add(lamp);
+        // the noise room (Jens t875u): the west half's lamps pulse with speaker A, the east half's with B (client/src/noisespeakers.js)
+        if (p.fx === 'noise') { lamp.userData.base = intensity; (rf.x + x < p.x ? noiseLamps.A : noiseLamps.B).push(lamp); }
       }
       // a sign over the opening: the plot's number and what the room does
       const word = { reverb: 'REVERB', delay: 'DELAY', noise: 'NOISE' }[p.fx];
@@ -301,7 +304,7 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time
   const margin = 0.35;
   const bounds = new THREE.Box3(new THREE.Vector3(-hw + margin, 0, -hd + margin), new THREE.Vector3(hw - margin, H, hd - margin));
   const spawn = new THREE.Vector3(CITY_SPAWN.x, 1.6 + groundAt(CITY_SPAWN.x, CITY_SPAWN.z), CITY_SPAWN.z);
-  return { group, surfaces, bounds, spawn, city: true, groundAt, pushOut, doorAt, doors, busStop, camFar: 260, setTime, time: () => cityTime };
+  return { group, surfaces, bounds, spawn, city: true, groundAt, pushOut, doorAt, doors, busStop, noiseLamps, camFar: 260, setTime, time: () => cityTime };
 }
 // Which houses are started (t479u: houses start in order): a started house's door is black (go in),
 // the next one to start is a warm yellow (start it), the ones after it are grey (not yet).
