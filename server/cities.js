@@ -8,6 +8,7 @@
 //    is empty it goes, houses and all (server/emptyrooms.js, the same grace logic as rooms).
 const CITY = require('../shared/city.mjs');
 const BUS = require('../shared/citybus.mjs');
+const NAMES = require('../shared/citynames.mjs');
 
 const cleanCityName = (v) => Array.from(String(v ?? '').normalize('NFC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '').replace(/\s+/g, ' ').trim()).slice(0, 32).join('').trim();
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -57,6 +58,8 @@ function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () =
       houses, next: CITY.nextHouse(houses), people: peopleIn(city), outside: occupancy(city) || 0, inHouses: people, max: maxPlayers,
       houseMax: Math.min(CITY.HOUSE_MAX, maxPlayers), space: Math.max(0, maxPlayers - (occupancy(city) || 0)), // the subway lists cities with space > 0
       stickers: stats.stickers, visitors: stats.visitors,
+      // The Town Hall's one rename (Jens, t864u): open until somebody uses it, then gone for good.
+      canRename: renamable(city, room), ...(room && room.renamedAt ? { renamedAt: room.renamedAt } : {}),
       ...(room && room.hallTint ? { hallTint: room.hallTint } : {}),
       ...(room && room.testBus ? { testBus: true } : {}),
     };
@@ -71,9 +74,17 @@ function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () =
     out.sort((a, b) => b.people - a.people || String(b.createdAt).localeCompare(String(a.createdAt)));
     return out;
   }
+  // A city's name can be changed once (the first one to do it in the Town Hall); not The City, not a test-bus city.
+  const renamable = (city, room) => !!room && city !== CITY.CITY_ROOM && !BUS.isTestBusCity(city) && !room.testBus && !room.nameLocked;
+  async function takenNames() {
+    const out = [];
+    for (const id of (await store.listRooms()).filter((x) => CITY.isCityOutside(x))) { const r = await store.peek(id).catch(() => null); if (r && r.name) out.push(r.name); }
+    return out;
+  }
+  // A new city (Jens, t864u, 12 Nov 2026): nobody names it on the way in – it is born with a fictional name
+  // (shared/citynames.mjs). A name in the request is still taken (old clients, scripts).
   async function create({ name, by = null } = {}) {
-    const n = cleanCityName(name);
-    if (!n) throw err(400, 'Give your city a name');
+    const n = cleanCityName(name) || NAMES.freshCityName(await takenNames().catch(() => []));
     for (let tries = 0; tries < 20; tries++) {
       const id = CITY.newCityId();
       if (id === CITY.BUILD_CITY) continue;
@@ -107,11 +118,30 @@ function createCities(store, { occupancy = () => 0, maxPlayers = 4, clock = () =
     catch (e) { if (e.code !== 'EXISTS') throw e; } // two at once: the other one made it – same house
     return { n: want, id, city: await info(city) };
   }
+  // The Town Hall's rename: once per city, first come first served. Answers the new info; 409 when it is used.
+  async function rename(city, { name, by = null } = {}) {
+    const n = cleanCityName(name);
+    if (!n) throw err(400, 'Give the city a name');
+    if (!CITY.isCityOutside(city)) throw err(404, 'That city is gone');
+    if (city === CITY.CITY_ROOM || BUS.isTestBusCity(city)) throw err(403, 'This city keeps its name');
+    const r = await store.editRoom(city, (room) => {
+      if (room.testBus) return { save: false, no: 403 };
+      if (room.nameLocked) return { save: false, no: 409 };
+      room.name = n; room.nameLocked = true; room.renamedAt = new Date(clock()).toISOString();
+      if (by) room.renamedBy = by;
+      return { ok: true };
+    });
+    if (r === 'notfound') throw err(404, 'That city is gone');
+    if (r.no === 403) throw err(403, 'This city keeps its name');
+    if (r.no === 409) throw err(409, 'The name is already set – it can only be changed once');
+    log.log?.(`[city] ${city} renamed "${n}"`);
+    return info(city);
+  }
     // The build city's outside as a room (with its name), made once (startup).
   async function ensureBuildCity() {
     try { await store.createRoom({ id: CITY.BUILD_CITY, type: 'stad', extra: { name: CITY.BUILD_CITY_NAME } }); return true; }
     catch (e) { if (e.code !== 'EXISTS') throw e; return false; }
   }
-  return { list, info, create, startHouse, started, peopleIn, cleanCityName, ensureBuildCity, FIRST_NAME };
+  return { list, info, create, rename, startHouse, started, peopleIn, cleanCityName, ensureBuildCity, FIRST_NAME };
 }
 module.exports = { createCities, cleanCityName };
