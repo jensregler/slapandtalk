@@ -37,6 +37,7 @@ export const RUN = Object.freeze({
   ratios: Object.freeze([[1, 3], [1, 2], [2, 3], [1, 1], [3, 2], [2, 1], [3, 1]]),
   lockDef: false,           // dormant: always off now (see the header)
   walkMin: 30, walkMax: 3000, walkDef: 90, // my Tempo, BPM (inclusive range)
+  walkStep: 5,              // …in steps of 5 BPM: 30, 35, 40 … 3000 (Jens t868u, 12 Nov 2026)
   key: 'klibb.runMode',     // sessionStorage (personal sound setting, like the groove scale)
 });
 export const RUN_DEFAULTS = Object.freeze({ tempo: RUN.tempoDef, pitch: RUN.pitchDef, lock: RUN.lockDef, walkBpm: RUN.walkDef, crouchTempo: RUN.crouchTempoDef, crouchPitch: RUN.crouchPitchDef });
@@ -47,11 +48,18 @@ export function cleanWalkBpm(b) {
   if (!isNum(b)) return RUN.walkDef;
   return Math.round(Math.min(RUN.walkMax, Math.max(RUN.walkMin, b)) * 10) / 10;
 }
+// My Tempo as set on the slider / saved (Jens t868u): the nearest 5 BPM (30, 35 … 3000). Old saved values snap
+// (475.5 → 475). cleanWalkBpm above stays the general clamp for tempi that are not a slider value.
+export function snapWalkBpm(b) {
+  const c = cleanWalkBpm(b);
+  return Math.min(RUN.walkMax, Math.max(RUN.walkMin, Math.round(c / RUN.walkStep) * RUN.walkStep));
+}
 const WL = Math.log(RUN.walkMin), WH = Math.log(RUN.walkMax);
-// The Tempo slider is logarithmic: knob 0 = 30 BPM, 1 = 3000 BPM (90 BPM ≈ 0.239).
+// The Tempo slider is logarithmic: knob 0 = 30 BPM, 1 = 3000 BPM (90 BPM ≈ 0.239), and lands on 5 BPM steps.
 export const walkBpmToKnob = (b) => (Math.log(cleanWalkBpm(b)) - WL) / (WH - WL);
-export const knobToWalkBpm = (k) => cleanWalkBpm(Math.exp(WL + Math.min(1, Math.max(0, isNum(k) ? k : 0)) * (WH - WL)));
-export const walkBpmLabel = (b) => { const c = cleanWalkBpm(b); return `${c < 200 ? c.toFixed(1) : Math.round(c)} BPM`; };
+export const knobToWalkBpm = (k) => snapWalkBpm(Math.exp(WL + Math.min(1, Math.max(0, isNum(k) ? k : 0)) * (WH - WL)));
+export const WALK_KNOB_STEPS = 10000; // the range input's resolution: fine enough that every 5 BPM step is reachable at the top
+export const walkBpmLabel = (b) => `${snapWalkBpm(b)} BPM`;
 
 export function cleanTempo(p, def = RUN.tempoDef) {
   if (!isNum(p)) return def;
@@ -65,7 +73,7 @@ export const cleanCrouchPitch = (i) => cleanPitch(i, RUN.crouchPitchDef);
 // lock is always false now (an old saved `lock: true` is dropped – it is what made the slider look dead).
 export function cleanRun(r) {
   if (!r || typeof r !== 'object') return { ...RUN_DEFAULTS };
-  return { tempo: cleanTempo(r.tempo), pitch: cleanPitch(r.pitch), lock: false, walkBpm: cleanWalkBpm(r.walkBpm), crouchTempo: cleanCrouchTempo(r.crouchTempo), crouchPitch: cleanCrouchPitch(r.crouchPitch) };
+  return { tempo: cleanTempo(r.tempo), pitch: cleanPitch(r.pitch), lock: false, walkBpm: snapWalkBpm(r.walkBpm), crouchTempo: cleanCrouchTempo(r.crouchTempo), crouchPitch: cleanCrouchPitch(r.crouchPitch) };
 }
 
 // Tempo slider % → raw step-rate factor (before lock-to-clock).

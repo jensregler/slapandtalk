@@ -14,7 +14,7 @@ import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseT
 import { loadSampleFile, clearSamples, pruneSamples, ensureSamples } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
-import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, cleanCrouchTempo, cleanCrouchPitch, pitchMin, pitchMax, runRate, crouchRate, pitchRatio, pitchLabel, tempoLabel, crouchTempoLabel, cleanWalkBpm, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../../shared/runmode.mjs';
+import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, cleanCrouchTempo, cleanCrouchPitch, pitchMin, pitchMax, runRate, crouchRate, pitchRatio, pitchLabel, tempoLabel, crouchTempoLabel, cleanWalkBpm, snapWalkBpm, WALK_KNOB_STEPS, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../../shared/runmode.mjs';
 
 // Visit-scoped (Jens, 6 Nov 2026): patches / FX / Music vol / groove / run / voice FX / Hear myself
 // follow you from a room out into the City. Entering a different room (or a fresh load into a room)
@@ -645,13 +645,23 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     // Save keeps it, Cancel undoes it. EVERYTHING musical of mine follows it – footsteps, all sequencers,
     // four voices, synced delay, voice echo, dance – and the others hear / see me at it. (Was "Walk tempo",
     // when only the walk-sound sequencer followed it.) The id stays 'walk-tempo'.
-    r.walkBpm = cleanWalkBpm(r.walkBpm);
-    const walkRow = row('walk-tempo', S.walkTempo || 'Tempo', S.walkTempoTitle || 'Your own tempo, 30–3000 BPM (default 90)',
-      0, 1000, 1, Math.round(walkBpmToKnob(r.walkBpm) * 1000),
+    // t868u: in steps of 5 BPM (30, 35 … 3000): the knob is fine-grained (WALK_KNOB_STEPS) and snaps to the nearest
+    // 5 BPM; the thumb jumps to that step; arrow keys = ±5 BPM, Page Up/Down = ±50, Home/End = 30 / 3000.
+    r.walkBpm = snapWalkBpm(r.walkBpm);
+    const knobOf = (b) => String(Math.round(walkBpmToKnob(b) * WALK_KNOB_STEPS));
+    const walkRow = row('walk-tempo', S.walkTempo || 'Tempo', S.walkTempoTitle || 'Your own tempo, 30–3000 BPM in steps of 5 (default 90)',
+      0, WALK_KNOB_STEPS, 1, knobOf(r.walkBpm),
       () => walkBpmLabel(r.walkBpm),
-      (v) => { r.walkBpm = knobToWalkBpm(v / 1000); if (radio) radio.setWalkBpm(r.walkBpm); });
+      (v) => { r.walkBpm = knobToWalkBpm(v / WALK_KNOB_STEPS); if (radio) radio.setWalkBpm(r.walkBpm); if (wIn) wIn.value = knobOf(r.walkBpm); });
     const wIn = walkRow.querySelector('input');
-    wIn.dataset.min = String(RUN.walkMin); wIn.dataset.max = String(RUN.walkMax);
+    wIn.dataset.min = String(RUN.walkMin); wIn.dataset.max = String(RUN.walkMax); wIn.dataset.step = String(RUN.walkStep);
+    wIn.addEventListener('keydown', (e) => {
+      const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 10, PageDown: -10 }[e.key];
+      const to = e.key === 'Home' ? RUN.walkMin : e.key === 'End' ? RUN.walkMax : d ? snapWalkBpm(r.walkBpm + d * RUN.walkStep) : null;
+      if (to == null) return;
+      e.preventDefault(); e.stopPropagation();
+      wIn.value = knobOf(to); wIn.dispatchEvent(new Event('input', { bubbles: true }));
+    });
     box.appendChild(walkRow);
     box.appendChild(row('run-tempo', S.runTempo, S.runTempoTitle, RUN.tempoMin, RUN.tempoMax, RUN.tempoStep, r.tempo, () => tempoLabel(r), (v) => { r.tempo = cleanTempo(v); }));
     box.appendChild(row('run-pitch', S.runPitch || 'Pitch correction', S.runPitchTitle, pitchMin, pitchMax, 1, r.pitch, () => pitchLabel(r.pitch), (v) => { r.pitch = cleanPitch(v); }));

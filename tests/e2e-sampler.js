@@ -203,7 +203,7 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(200);
     const walkUi = await A.evaluate(() => ({ walk: !!document.getElementById('walk-tempo'), run: !!document.getElementById('run-tempo'), pitch: !!document.getElementById('run-pitch'), lock: !!document.getElementById('run-lock') }));
     check('Steps tab: Tempo, Run tempo, Pitch correction (no lock UI)', walkUi.walk && walkUi.run && walkUi.pitch && !walkUi.lock, walkUi);
-    await A.$eval('#walk-tempo', (r) => { r.value = '1000'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+    await A.$eval('#walk-tempo', (r) => { r.value = '10000'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
     await sleep(400);
     const fast = await A.evaluate(() => ({ bpm: window.klibb.radio().walkBpm, out: document.getElementById('walk-tempo-val').textContent, room: window.klibb.radio().tempo().bpm }));
     check('Tempo to top: 3000 BPM – my sequencers / voices (radio.tempo()) follow it, no room clock left at 90', fast.bpm === 3000 && fast.out === '3000 BPM' && fast.room === 3000, fast);

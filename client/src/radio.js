@@ -11,7 +11,7 @@ import { cleanRadio, cleanPreset, FOUR_VOICES, RADIO, bpmToKnob, knobToBpm } fro
 import { playerTempo, loopSteps, barMsAt, barsAtTime } from '../../shared/clock.mjs';
 import { SOUNDS, retune } from '../../shared/synth.mjs';
 import { planWalkSeq, newWalkSeq } from '../../shared/walkseq.mjs';
-import { RUN, cleanWalkBpm } from '../../shared/runmode.mjs';
+import { RUN, cleanWalkBpm, snapWalkBpm } from '../../shared/runmode.mjs';
 import { Ambient } from './ambient.js';
 
 const OWNER_KEY = 'klibb.soundOwner';
@@ -47,7 +47,7 @@ export class Radio {
   // My Tempo, 30…3000 BPM (shared/runmode.mjs cleanWalkBpm). Every loop of mine reads it (tempo()).
   // (What is already planned – ≤ 150 ms ahead – plays out; the new grid takes over from there, no doubles.
   // main.js walkSounds reads walkBpm every frame for my footsteps, dance, voice echo, delay and the room.)
-  setWalkBpm(bpm) { this.walkBpm = cleanWalkBpm(bpm); return this.walkBpm; }
+  setWalkBpm(bpm) { this.walkBpm = snapWalkBpm(bpm); return this.walkBpm; } // 5 BPM steps (t868u)
   walkTempo() { return playerTempo(this.walkBpm); }
   // main.js walkSounds, every frame: until = wall ms I count as walking until (the footstep groove's
   // own walk detection, 0 = standing); run = { rate, tune } while Shift-running (groove.run) or null.

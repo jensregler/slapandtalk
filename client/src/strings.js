@@ -207,7 +207,7 @@ export const EN = {
   runModeHint: 'Hold Shift while you walk to run. These change how your footsteps sound while you run; let go of Shift and the walk sound is back on the next step.',
   stepsModeTitle: 'Walk, run & sneak',
   stepsModeHint: 'Tempo is yours alone (30–3000 BPM) – there is no shared clock: your footsteps, all your sequencers, the four voices, the synced delay, your voice echo and your dance follow it, and the others hear and see you at it. Other players keep their own. Hold Shift to run, hold Ctrl to sneak – then run or crouch tempo and pitch correction apply. Also while you dance (X): Shift = run tempo, Ctrl = crouch tempo. Changes are heard at once; Save keeps them.',
-  walkTempo: 'Tempo', walkTempoTitle: 'Your own tempo, 30–3000 BPM (default 90): your footsteps, sequencers, four voices, synced delay, voice echo and dance. Others hear and see you at it; they keep their own.',
+  walkTempo: 'Tempo', walkTempoTitle: 'Your own tempo, 30–3000 BPM in steps of 5 (default 90): your footsteps, sequencers, four voices, synced delay, voice echo and dance. Others hear and see you at it; they keep their own.',
   runTempo: 'Run tempo', runTempoTitle: 'Steps per second while running (Shift), compared with walking: −400 … +400 %. 0% = the same, +100% = twice as many (2:1), +400% = five times (5:1), −100% = half (1:2), −400% = a fifth (1:5)',
   crouchTempo: 'Crouch tempo', crouchTempoTitle: 'Steps per second while sneaking (hold Ctrl), compared with walking: −400 … +400 %. Default −50% (2:3)',
   crouchPitch: 'Crouch pitch correction', crouchPitchTitle: 'While sneaking: steps up or down a major-pentatonic scale, so sneaking stays in key. Default a fourth down',
