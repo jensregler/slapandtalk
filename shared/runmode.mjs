@@ -27,7 +27,7 @@
 // Pure maths – shared by the web app (client/src/groove.js, soundui.js) and the unit tests.
 
 export const RUN = Object.freeze({
-  speed: 1.8,               // movement speed while Shift is held (controls.js, as before)
+  speed: 3.6,               // movement speed while Shift / Caps Lock run is on (controls.js): × walk speed – doubled from 1.8 (Jens t865u, 12 Nov 2026)
   sneakSpeed: 0.45,         // movement speed while Ctrl is held (sneak / crouch)
   tempoMin: -400, tempoMax: 400, tempoStep: 12.5, tempoDef: 100,
   crouchTempoDef: -50, crouchPitchDef: -2, // sneak: 2:3 of the walk step rate, a fourth down

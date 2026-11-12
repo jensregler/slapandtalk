@@ -38,6 +38,7 @@ ok('crouch (sneak, Ctrl): own tempo −400…+400 % (default −50 % = 2:3) and 
   assert.equal(R.cleanRun({ crouchPitch: 99 }).crouchPitch, 8); assert.equal(R.cleanRun({ crouchPitch: 'x' }).crouchPitch, -2);
   assert.ok(near(R.crouchRate({ crouchTempo: 400 }).rate, 5)); assert.ok(near(R.crouchRate({ crouchTempo: -400 }).rate, 0.2));
   assert.ok(R.RUN.sneakSpeed > 0 && R.RUN.sneakSpeed < 1 && R.RUN.speed > 1);
+  assert.equal(R.RUN.speed, 3.6); // run movement doubled (Jens t865u, 12 Nov 2026: was 1.8)
   const r = { tempo: 25, pitch: 1, crouchTempo: -100, crouchPitch: -5 };
   assert.deepEqual(R.gaitStep('walk', r), null);
   const run = R.gaitStep('run', r); assert.ok(near(run.rate, 1.25) && near(run.tune, R.pitchRatio(1)));
