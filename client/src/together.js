@@ -8,6 +8,7 @@ import { initFabricUI, addRecent } from './fabricui.js';
 import { fabricStats } from './fabrics.js';
 import { has, credentials } from './entitlements.js';
 import { loadSoundLook } from './soundui.js';
+import { cleanSound } from '../../shared/synth.mjs';
 import { SHOW, showTurn } from './avatarview.js';
 import { cleanPlayerTempo, sameTempo, PLAYER_TEMPO } from '../../shared/playertempo.mjs';
 
@@ -27,7 +28,9 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   // (the server drops them otherwise). Other players' fabrics are always shown.
   // Sound: my seed (= my own variation of the default sounds) always; custom patches/FX only
   // with soundDesign (the server drops them otherwise).
-  const shownSound = () => { const s = loadSoundLook(); if (!has('soundDesign')) { delete s.patches; delete s.fx; } s.colour = mySlot; return s; };
+  // liveSound (t869u): the Sound settings draft while the panel is open – heard at once, not saved, never sent.
+  let liveSound = null;
+  const shownSound = () => { const s = loadSoundLook(); if (liveSound) { delete s.patches; delete s.fx; if (liveSound.patches) s.patches = liveSound.patches; if (liveSound.fx) s.fx = liveSound.fx; } if (!has('soundDesign')) { delete s.patches; delete s.fx; } s.colour = mySlot; return s; };
   // Personal sound (Jens, 2 Nov 2026): others get only my seed (the default sounds' variation), never
   // my settings; and everyone else's slaps / steps play for me with MY settings (+ their seed and colour).
   const sentSound = () => { const s = shownSound(); delete s.patches; delete s.fx; return s; };
@@ -403,6 +406,7 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     talking: () => [...talking],
     // Sound settings saved: tell everyone (they play my patches; no other network cost).
     soundChanged() { onSound(shownSound()); }, // personal: nothing is sent
+    setLiveSound(d) { liveSound = d && typeof d === 'object' ? (cleanSound({ seed: loadSoundLook().seed, patches: d.patches, fx: d.fx }, { custom: true }) || {}) : null; onSound(shownSound()); }, // t869u: the draft, heard live
     shownSound,
     // A key was added/forgotten in this tab ("I have a key"): tell the server before the next look.
     sendUnlock(unlock) { if (net.status === 'online') net.sendUnlock(unlock); },

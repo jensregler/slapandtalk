@@ -137,7 +137,8 @@ export class GrooveSteps {
     const eng = this.sound.engine;
     if (!eng || this.sound.muted) { this.stopBuzz(t); return; }
     const g = G.groove, bpm = G.bpm;
-    const key = `${g.scale}:${g.at}:${bpm}:${slot}:${voice?.seed || ''}:${voice?.patches?.step ? 'c' : ''}:${run ? run.rate + '/' + run.tune : ''}`;
+    // mineV (t869u): my Sound settings changed (live while editing, or saved) – everyone's steps use my patches
+    const key = `${g.scale}:${g.at}:${bpm}:${slot}:${voice?.seed || ''}:${voice?.patches?.step ? 'c' : ''}:${run ? run.rate + '/' + run.tune : ''}:${this.sound.mineV || 0}`;
     if (t.buzz && t.buzzKey === key) { if (w.at) t.buzz.setPos(w.at); return; }
     this.stopBuzz(t);
     const period = pulseMs(g.scale, slot, bpm) / (run ? run.rate : 1) / 1000;

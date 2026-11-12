@@ -86,9 +86,12 @@ export class Sounds {
   // a mic layer was made / switched on: ask for the mic (mic.js). → true when it is on
   async useMic() { this.ensure(); await this.ready; return this.engine ? this.engine.useMic() : false; }
   setMine(sound) {
-    this.mine = sound || null;
+    this.mine = sound || null; this.mineV = (this.mineV || 0) + 1; // mineV: groove.js rebuilds a running buzz on a change (t869u)
     if (sound?.patches && this.ensure()) ensureSamples(sound.patches, this.ctx); // (sampler layers' audio from this device)
     // Listener FX: apply MY fx locally to everything reaching my ears (t588u).
+    // (only when the fx really changed: live edits of a patch call this ~every frame while a slider moves, t869u)
+    const fxKey = sound && sound.fx ? JSON.stringify(sound.fx) : '';
+    if (this.engine && fxKey === this.fxKey) return; this.fxKey = fxKey;
     const apply = (eng) => { if (eng) eng.setListenerFx(sound && sound.fx ? cleanFx(sound.fx) : null); };
     if (this.engine) apply(this.engine); else if (this.ready) this.ready.then(apply);
   }
@@ -168,7 +171,7 @@ export class Sounds {
     if (paper) { gain *= paper.gain; entry.paper = paper; }
     if (kind === 'step') {
       this.steps++; if (paper) this.peelSteps++;
-      this.stepLog.push({ onPeel: !!paper, speed: +(+speed || 0).toFixed(2), cutoff: paper?.cutoff ?? null, drive: paper?.drive ?? null, remote, muted: this.muted });
+      this.stepLog.push({ onPeel: !!paper, speed: +(+speed || 0).toFixed(2), cutoff: paper?.cutoff ?? null, drive: paper?.drive ?? null, remote, muted: this.muted, fq: (patch?.layers || []).map((l) => +(+l.freq || 0).toFixed(2)), waves: (patch?.layers || []).map((l) => (l.kind === 'osc' ? l.wave : l.kind)), t: Date.now() }); // fq / waves: the patch played, per layer (tests, t869u)
       if (this.stepLog.length > 40) this.stepLog.shift();
     } else { this.log.push(entry); if (this.log.length > 50) this.log.shift(); }
     if (this.muted) return entry;

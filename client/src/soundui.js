@@ -193,7 +193,7 @@ const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Landing', 
 
 // musicVol: { get, set, def } – master volume (was Music vol header; now in Master section).
 // radioBlock: () => Master section (the one Volume). radio: Radio instance (my Tempo on Steps).
-export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, musicVol = null, radioBlock = null, radio = null }) {
+export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, onLive = () => {}, musicVol = null, radioBlock = null, radio = null }) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const st = { open: false, tab: 'slap', patches: {}, fx: null, rolls: 0 };
   const base = (k) => variant(DEFAULT_PATCHES[k], mySeed(), k); // my default (what free me sounds like)
@@ -212,6 +212,8 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   function close(saved = false) {
     if (!saved && st.volReset && musicVol && st.vol0 != null) { musicVol.set(st.vol0); st.volReset = false; }
     if (!saved && radio) radio.setWalkBpm(loadRunMode().walkBpm);
+    if (st.liveT) { clearTimeout(st.liveT); st.liveT = 0; }
+    if (!saved) onLive(null); // Cancel / ✕: back to my saved sound
     closeAsk(); closePop();
     st.open = false; $('sound-panel').hidden = true; onOpenChange(false);
   }
@@ -716,14 +718,28 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const clean = saveSoundLook({ patches, fx });
     if (Object.keys(patches).length && !clean.patches) { toast(S.soundTooBig || 'Too much sound data – remove a layer or two.', 3000); return; }
     const run = saveRunMode(st.run); if (radio) radio.setWalkBpm(run.walkBpm);
-    onSave(clean); st.volReset = false; close(true); toast(S.soundSaved || 'Sound settings saved', 1800);
+    onLive(null); onSave(clean); st.volReset = false; close(true); toast(S.soundSaved || 'Sound settings saved', 1800);
   }
 
+  // Live (Jens t869u, 12 Nov 2026): every change in the panel – osc pitch, waveform, envelope, filter, layers,
+  // sequencer, effects, Random / Reset – is heard at once on what is already playing (my footsteps, the walk
+  // sequencer, the dance's step loop), without Save and without restarting the dance. main.js puts the draft in
+  // as my sound for now (together.setLiveSound); Save keeps it, Cancel / ✕ goes back. Coalesced: one update per
+  // burst of input events (a slider drag = ~1 per frame).
+  function liveDraft() {
+    const patches = {}; for (const k of st.custom) patches[k] = st.patches[k];
+    return { patches, fx: st.fx };
+  }
+  function liveSoon() {
+    if (!st.open || st.liveT) return;
+    st.liveT = setTimeout(() => { st.liveT = 0; if (st.open) { st.liveN = (st.liveN || 0) + 1; onLive(liveDraft()); } }, 0);
+  }
+  for (const ev of ['input', 'change', 'click']) $('sound-panel').addEventListener(ev, liveSoon, true);
   $('snd-close').onclick = () => close(); $('snd-cancel').onclick = () => close();
   $('snd-preview').onclick = preview; $('snd-random').onclick = () => randomize(false); $('snd-wild').onclick = () => randomize(true);
   $('snd-reset').onclick = reset; $('snd-save').onclick = save;
   // runDraft: the run/walk/crouch settings being edited while the panel is open (main.js hears them live).
-  return { open, close, isOpen: () => st.open, state: () => st, runDraft: () => (st.open && st.run ? st.run : null), preview, render };
+  return { open, close, isOpen: () => st.open, state: () => st, runDraft: () => (st.open && st.run ? st.run : null), liveCount: () => st.liveN || 0, preview, render };
 }
 
 // The sample's waveform (min/max per pixel column) with start/end and loop markers.

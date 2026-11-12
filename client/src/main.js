@@ -2721,6 +2721,7 @@ const radioReady = DEMO ? Promise.resolve() : fetchRoomPreset(ROOM).then((p) => 
 const radioImg = () => (state.library || []).find((d) => d.id === '14ea2304625a5827')?.url || '';
 const elx = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const soundUi = initSoundUI({ $, sound, toast, musicVol, radio,
+  onLive: (d) => together.setLiveSound(d), // t869u: Sound settings heard live (dance step loop too), Cancel = back
   onSave: () => { together.soundChanged(); radio.set({ on: true, knob: 0.5 }, { save: false }); saveRoomPreset(); }, // hear what I saved: knob on 'Mine'
   radioBlock: () => radioBlock({ radio, imgUrl: radioImg(), el: elx, musicVol }),
   onOpenChange: (o) => { if (o) controls.unlock?.(); } });
