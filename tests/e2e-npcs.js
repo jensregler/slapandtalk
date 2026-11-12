@@ -43,7 +43,7 @@ const SHOTS = process.env.NPCS_SHOTS || '/workspace/dancing-npcs';
     const t2 = await A.evaluate(() => window.klibb.npcs().npcs.map((n) => n.danceTime));
     check('the dance moves on (dance time advances)', plaza.every((n, i) => t2[n0.npcs.indexOf(n)] !== t1[n0.npcs.indexOf(n)]), { t1, t2 });
     const bpms = new Set(n0.npcs.map((n) => n.walkBpm)), slots = new Set(n0.npcs.map((n) => n.slot)), freqs = new Set(n0.npcs.map((n) => n.step.find((l) => l.kind === 'osc')?.freq));
-    check(`randomized: Tempo ${[...bpms].join('/')} BPM (5 BPM grid), slots ${[...slots].join('/')}, step osc ${[...freqs].join('/')} Hz`, bpms.size >= 4 && freqs.size >= 4 && n0.npcs.every((n) => n.walkBpm % 5 === 0 && n.walkBpm >= 30 && n.walkBpm <= 3000), n0.npcs.map((n) => [n.walkBpm, n.slot, n.run]));
+    check(`randomized: Tempo ${[...bpms].join('/')} BPM (the 120-BPM grid, t881u), slots ${[...slots].join('/')}, step osc ${[...freqs].join('/')} Hz`, bpms.size >= 4 && freqs.size >= 4 && n0.npcs.every((n) => [75, 80, 90, 96, 100, 105, 120, 144, 150, 160, 180].includes(n.walkBpm)), n0.npcs.map((n) => [n.walkBpm, n.slot, n.run]));
     const pres = await A.evaluate(() => document.getElementById('presence-text').textContent);
     check(`not counted as players: "${pres}", players() = []`, /Just you/.test(pres) && (await A.evaluate(() => window.klibb.players().length)) === 0, pres);
     await A.screenshot({ path: path.join(SHOTS, '01-plaza-three-npcs.png') });

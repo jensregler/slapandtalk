@@ -86,11 +86,11 @@ ok('dance tempo = my Tempo × my run / crouch rate (Shift / Ctrl while dancing)'
   assert.equal(danceBpmOf(myPlayerTempo(90, 1, null)), 90);
   assert.equal(danceBpmOf(myPlayerTempo(120, 1, gaitStep('run', RUN_DEFAULTS))), 240, 'run +100 % = 2:1');
   assert.ok(near(danceBpmOf(myPlayerTempo(120, 1, gaitStep('crouch', RUN_DEFAULTS))), 80, 1e-3), 'crouch −50 % = 2:3');
-  assert.equal(danceBpmOf(myPlayerTempo(3000, 1, null)), 3000);
+  assert.equal(danceBpmOf(myPlayerTempo(3000, 1, null)), 2880, 'the 120-BPM grid tops out at 2880 · 24:1 (t881u)');
   // a fast Tempo folds by octaves into 60–180 so the moves stay human, but it is still my tempo's beat
   assert.ok(near(danceGrid(0, { bpm: 3000, phaseMs: 0 }).bpm, 93.75) && near(danceGrid(0, { bpm: 30, phaseMs: 0 }).bpm, 60));
 });
-ok('retime mid-dance (Tempo slider / Shift / Ctrl): the routine keeps its place, then runs at the new tempo', () => {
+ok('retime mid-dance (Tempo slider / Shift / Ctrl): the routine keeps its place (within half a beat – it re-anchors on the shared grid, t881u), then runs at the new tempo', () => {
   const at0 = 1793031959884, grid = danceGrid(at0, { bpm: 90, phaseMs: 0 });
   for (const [after, bpm, want] of [[5000, 135, 135], [12000, 60, 60], [26000, 3000, 93.75], [40000, 200, 100], [7300, 45, 90]]) {
     const cur = { at: at0, grid, loop: true }, now = at0 + after, B0 = beatsAt(cur, now);
@@ -98,10 +98,14 @@ ok('retime mid-dance (Tempo slider / Shift / Ctrl): the routine keeps its place,
     assert.ok(near(r.bpm, want, 1e-3), `${bpm} → ${r.bpm}`);
     const g2 = danceGrid(r.at, { bpm: r.bpm, phaseMs: r.phaseMs });
     assert.equal(g2.lead, 0, `${bpm}: no new lead-in after the server's rounding`);
+    assert.equal(r.phaseMs, 0, 'anchored on the shared grid');
+    const bm = 60000 / r.bpm, off = ((r.at % bm) + bm) % bm;
+    assert.ok(Math.min(off, bm - off) <= 0.5, `${bpm}: the new anchor is a grid beat of ${r.bpm} BPM (within the server's whole-ms rounding): ${off}`);
     const d2 = { at: r.at, grid: g2, loop: true };
-    assert.ok(near(beatsAt(d2, now), B0, 0.01), `${bpm} BPM at +${after} ms: ${B0} → ${beatsAt(d2, now)} beats (no jump)`);
+    const jump = Math.abs(((beatsAt(d2, now) - B0 + DANCE.beats / 2) % DANCE.beats + DANCE.beats) % DANCE.beats - DANCE.beats / 2);
+    assert.ok(jump <= 0.5 + 1e-3, `${bpm} BPM at +${after} ms: ${B0} → ${beatsAt(d2, now)} beats (≤ ½ beat to land on the grid)`);
     const dt = 500; // half a second later it has danced dt × new bpm / 60 more beats (mod one pass)
-    const moved = ((beatsAt(d2, now + dt) - B0) % DANCE.beats + DANCE.beats) % DANCE.beats;
+    const moved = ((beatsAt(d2, now + dt) - beatsAt(d2, now)) % DANCE.beats + DANCE.beats) % DANCE.beats;
     assert.ok(near(moved, dt / 1000 * want / 60, 0.01), `${bpm}: ${moved} beats in ${dt} ms`);
   }
 });

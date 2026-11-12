@@ -71,26 +71,26 @@ const KEY = 'run-e2e-full-key';
     const tLab = await A.evaluate(() => document.querySelector('#snd-run [data-param="walk-tempo"] span')?.textContent);
     check('the slider is labelled "Tempo" (t846u: it drives everything of mine, not just the walk sound)', tLab === 'Tempo', tLab);
     check('Steps tab: Tempo (~90 BPM), Run tempo (+100% · 2:1, −400…+400), Pitch correction (+75% fifth), Crouch tempo (−50% · 2:3, −400…+400) + crouch pitch; no lock UI',
-      ui.box && /90/.test(ui.walk || '') && ui.t === '+100% · 2:1' && ui.p === '+75% · +7 st (fifth up)' && !ui.lock && ui.tmin === '-400' && ui.tmax === '400' && ui.ct === '-50% · 2:3' && ui.cp === '-80% · -5 st (fourth down)' && ui.ctmin === '-400' && ui.ctmax === '400' && ui.tstep === '12.5' && ui.bpm === 90 && ui.wmin === '30' && ui.wmax === '3000', ui);
-    await A.evaluate(() => { const w = document.getElementById('walk-tempo'); w.value = '5000'; w.dispatchEvent(new Event('input', { bubbles: true })); });
+      ui.box && /90/.test(ui.walk || '') && ui.t === '+100% · 2:1' && ui.p === '+75% · +7 st (fifth up)' && !ui.lock && ui.tmin === '-400' && ui.tmax === '400' && ui.ct === '-50% · 2:3' && ui.cp === '-80% · -5 st (fourth down)' && ui.ctmin === '-400' && ui.ctmax === '400' && ui.tstep === '12.5' && ui.bpm === 90 && ui.wmin === '30' && ui.wmax === '2880', ui);
+    await A.evaluate(() => { const w = document.getElementById('walk-tempo'); w.value = String(Math.round(Number(w.max) / 2)); w.dispatchEvent(new Event('input', { bubbles: true })); });
     await A.waitForTimeout(150); // a frame or two: main.js walkSounds hands it to footsteps / delay / voice / the room
     const wt = await A.evaluate(() => ({ bpm: window.klibb.radio().walkBpm, mine: window.klibb.radio().tempo().bpm, my: window.klibb.myTempo(), out: document.getElementById('walk-tempo-val').textContent }));
-    check('Tempo slider: knob middle = 300 BPM – and there is no room clock: radio.tempo() (sequencers, voices), footsteps, dance and synced delay all follow it live',
-      wt.bpm === 300 && wt.out === '300 BPM' && wt.mine === wt.bpm && wt.my.bpm === wt.bpm && wt.my.grooveBpm === wt.bpm && wt.my.danceBpm === wt.bpm && (wt.my.syncBpm === null || wt.my.syncBpm === wt.bpm), wt);
-    for (const [k, want] of [['0', 30], ['10000', 3000]]) {
+    check('Tempo slider (120-BPM grid, t881u): the middle notch = 300 BPM · 5:2 – and there is no room clock: radio.tempo() (sequencers, voices), footsteps, dance and synced delay all follow it live',
+      wt.bpm === 300 && wt.out === '300 BPM · 5:2' && wt.mine === wt.bpm && wt.my.bpm === wt.bpm && wt.my.grooveBpm === wt.bpm && wt.my.danceBpm === wt.bpm && (wt.my.syncBpm === null || wt.my.syncBpm === wt.bpm), wt);
+    for (const [k, want] of [['0', 30], ['10000', 2880]]) {
       const b = await A.evaluate((k) => { const w = document.getElementById('walk-tempo'); w.value = k; w.dispatchEvent(new Event('input', { bubbles: true })); return window.klibb.radio().walkBpm; }, k);
       check(`Walk tempo slider end ${k} = ${want} BPM`, b === want, b);
     }
-    await A.evaluate(() => { const w = document.getElementById('walk-tempo'); w.value = '6000'; w.dispatchEvent(new Event('input', { bubbles: true })); const s = document.getElementById('run-tempo'); s.value = '50'; s.dispatchEvent(new Event('input', { bubbles: true })); const p = document.getElementById('run-pitch'); p.value = '-5'; p.dispatchEvent(new Event('input', { bubbles: true })); });
-    // t868u: arrow keys move the Tempo by 5 BPM, the thumb snaps to the step
+    await A.evaluate(() => { const w = document.getElementById('walk-tempo'); w.value = '32'; w.dispatchEvent(new Event('input', { bubbles: true })); const s = document.getElementById('run-tempo'); s.value = '50'; s.dispatchEvent(new Event('input', { bubbles: true })); const p = document.getElementById('run-pitch'); p.value = '-5'; p.dispatchEvent(new Event('input', { bubbles: true })); });
+    // t881u: arrow keys move the Tempo one notch of the 120-BPM grid (480 · 4:1 → 576 · 24:5, 420 · 7:2)
     const keys = await A.evaluate(() => { const w = document.getElementById('walk-tempo'); const fire = (key) => w.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })); const a = window.klibb.radio().walkBpm; fire('ArrowRight'); const b = window.klibb.radio().walkBpm; fire('ArrowLeft'); fire('ArrowLeft'); const c = window.klibb.radio().walkBpm; fire('ArrowRight'); return { a, b, c, out: document.getElementById('walk-tempo-val').textContent }; });
-    check(`Tempo moves in 5 BPM steps: arrows ${keys.a} → ${keys.b} → ${keys.c}`, keys.a % 5 === 0 && keys.b === keys.a + 5 && keys.c === keys.a - 5 && /^\d+ BPM$/.test(keys.out), keys);
+    check(`Tempo moves one grid notch per arrow: ${keys.a} → ${keys.b} → ${keys.c} (${keys.out})`, keys.a === 480 && keys.b === 576 && keys.c === 420 && keys.out === '480 BPM · 4:1', keys);
     const ui2 = await A.evaluate(() => ({ t: document.getElementById('run-tempo-val').textContent, p: document.getElementById('run-pitch-val').textContent }));
     check('the sliders show the mapping (+50% · 3:2, −200% octave down)', ui2.t === '+50% · 3:2' && ui2.p === '-200% · -12 st (octave down)', ui2);
     await A.evaluate(() => document.getElementById('snd-save').click());
     const saved = await A.evaluate(() => window.klibb.runMode());
     check('Save keeps it (personal, this visit)', saved.tempo === 50 && saved.pitch === -5 && saved.lock === false, saved);
-    const wantW = Math.round(30 * Math.pow(100, 0.6) / 5) * 5; // 475.5 → 475 (5 BPM steps, t868u)
+    const wantW = 480; // notch 32 of the 120-BPM grid (t881u)
     await B.waitForFunction(({ id, w }) => { const p = window.klibb.players().find((x) => x.id === id); return p && p.tempo && Math.abs(p.tempo.bpm - w) < 0.2; }, { id: aId, w: wantW }, { timeout: 4000 }).catch(() => {});
     const pp = { a: await A.evaluate(() => ({ run: window.klibb.runMode().walkBpm, radio: window.klibb.radio().walkBpm })) };
     pp.b = await B.evaluate((id) => ({ run: window.klibb.runMode().walkBpm, radio: window.klibb.radio().walkBpm, mine: window.klibb.radio().tempo().bpm, seesA: (window.klibb.players().find((x) => x.id === id) || {}).tempo }), aId);

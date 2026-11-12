@@ -2,6 +2,7 @@
 // building; musical randomized tempo / Steps / run-crouch; octave gait rates keep the dance BPM; the server
 // hands them out in the welcome (and not in houses, not with NPCS=0).
 import assert from 'node:assert/strict';
+import { isGridTempo } from '../shared/tempogrid.mjs';
 import { createRequire } from 'node:module';
 import http from 'node:http';
 import * as N from '../shared/npcs.mjs';
@@ -26,9 +27,9 @@ await ok('three on the plaza, an equilateral 12 m triangle, on the paving; nobod
   for (const x of p) assert.ok(Math.abs(x.x - PLAZA.x) < PLAZA.w / 2 - 1 && Math.abs(x.z - PLAZA.z) < PLAZA.d / 2 - 1);
   for (const x of l) { assert.equal(insideHouse(x.x, x.z, 0.8), null, x.id); assert.ok(Math.abs(x.x) < CITY.width / 2 - 2 && Math.abs(x.z) < CITY.depth / 2 - 2); }
 });
-await ok('randomized within musical bounds: Tempo on the 5 BPM grid (75–170), Groove ½/1/2, slot 0–4, octave run / crouch tempi', () => {
+await ok('randomized within musical bounds: Tempo on the 120-BPM grid (75–180, t881u), Groove ½/1/2, slot 0–4, octave run / crouch tempi', () => {
   for (const city of ['stad', 'stad-byggen', 'stad-abc123', 'stad-zzzz99']) for (const x of N.npcsFor(city)) {
-    assert.ok(x.walkBpm % 5 === 0 && x.walkBpm >= 75 && x.walkBpm <= 170, x.walkBpm);
+    assert.ok(isGridTempo(x.walkBpm) && N.NPC_BPMS.includes(x.walkBpm) && x.walkBpm >= 75 && x.walkBpm <= 180, x.walkBpm);
     assert.ok([0.5, 1, 2].includes(x.scale)); assert.ok(x.slot >= 0 && x.slot <= 4);
     assert.ok([100, 300].includes(x.run.tempo) && [-100, -300].includes(x.run.crouchTempo));
     assert.equal(x.danceBpm, danceGrid(0, { bpm: x.walkBpm }).bpm);

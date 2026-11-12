@@ -235,13 +235,13 @@ function client(base, room, hello = {}) {
     assert(joinB && joinB.player.tempo.bpm === 90 && joinB.player.tempo.scale === 1, 'tempo: no tempo in hello = the defaults (90 BPM, 1×) in join');
     tb.send({ t: 'tempo', bpm: 47.25, scale: 2, rate: 0.6667, tune: 0.749 });
     const tmsg = await ta.wait((m) => m.t === 'tempo');
-    assert(tmsg && tmsg.id === twb.id && tmsg.bpm === 47.3 && tmsg.scale === 2 && tmsg.rate === 0.6667 && tmsg.tune === 0.749 && !tb.msgs.some((m) => m.t === 'tempo'),
-      'tempo: relayed to the others (bpm at 0.1), no echo to the sender');
+    assert(tmsg && tmsg.id === twb.id && tmsg.bpm === 48 && tmsg.scale === 2 && tmsg.rate === 2 / 3 && tmsg.tune === 0.749 && !tb.msgs.some((m) => m.t === 'tempo'),
+      'tempo: relayed to the others (bpm snapped to the 120-BPM grid, rate to its exact ratio – t881u), no echo to the sender');
     tb.send({ t: 'tempo', bpm: 99999, scale: 1e-9, rate: 50, tune: -1 });
-    const tclamp = await ta.wait((m) => m.t === 'tempo' && m.bpm !== 47.3);
-    assert(tclamp && tclamp.bpm === 3000 && tclamp.scale === 0.01563 && tclamp.rate === 5 && tclamp.tune === 1, 'tempo: clamped like shared/playertempo.mjs (3000 BPM, 1/64, rate 5, bad tune = 1)');
+    const tclamp = await ta.wait((m) => m.t === 'tempo' && m.bpm !== 48);
+    assert(tclamp && tclamp.bpm === 2880 && tclamp.scale === 1 / 64 && tclamp.rate === 5 && tclamp.tune === 1, 'tempo: clamped like shared/playertempo.mjs (2880 BPM, 1/64, rate 5, bad tune = 1)');
     const tc = join('tempo1', { name: 'Sen' }); await tc.ready; const twc = await tc.wait((m) => m.t === 'welcome');
-    assert(twc.players.find((p) => p.id === twb.id).tempo.bpm === 3000, 'tempo: the latest one is kept for later joiners');
+    assert(twc.players.find((p) => p.id === twb.id).tempo.bpm === 2880, 'tempo: the latest one is kept for later joiners');
     // a dance retime (my tempo changed mid-dance): only while my dance is on
     const rAt = Date.now() - 3000;
     ta.send({ t: 'dance', at: rAt, bpm: 120, phaseMs: 0, loop: true, retime: true }); // not dancing yet: dropped

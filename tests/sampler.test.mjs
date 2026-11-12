@@ -150,7 +150,7 @@ ok('no master / room clock (t846u): 90 BPM 4/4 are only defaults; a tempo = the 
   assert.equal(MASTER.bpm, 90); assert.equal(MASTER.beatsPerBar, 4); assert.ok(near(barMsAt(90), 8000 / 3));
   assert.equal(CLOCK.roomTempo, undefined, 'no per-room tempo (the ±0.3 BPM nudge is gone)');
   assert.ok(!('maxNudgeBpm' in MASTER) && !('maxPhaseMs' in MASTER));
-  assert.deepEqual(playerTempo(90), { bpm: 90, phaseMs: 0 }); assert.deepEqual(playerTempo(5000), { bpm: 3000, phaseMs: 0 }); assert.deepEqual(playerTempo(10), { bpm: 30, phaseMs: 0 });
+  assert.deepEqual(playerTempo(90), { bpm: 90, phaseMs: 0 }); assert.deepEqual(playerTempo(5000), { bpm: 2880, phaseMs: 0 }); assert.deepEqual(playerTempo(10), { bpm: 30, phaseMs: 0 });
   assert.ok(near(voiceCycleMs(90), VOICE_CYCLE_MS) && near(voiceCycleMs(180), VOICE_CYCLE_MS / 2) && near(voiceCycleMs(NaN), VOICE_CYCLE_MS));
 });
 ok('polyrhythm: loops of 3/4/5/7 steps per bar all meet on beat 1 of every bar', () => {

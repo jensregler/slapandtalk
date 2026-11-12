@@ -88,21 +88,11 @@ const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
 const clampN = (n, a, b) => Math.min(b, Math.max(a, n));
 const round = (n) => Math.round(n * 1000) / 1000;
 const DANCE_MS = 19500; // the runway dance's longest length (shared/dance.mjs DANCE.maxMs) + a little slack
-// A player's own tempo (Jens t846u; same limits as shared/playertempo.mjs cleanPlayerTempo – tests/playertempo.test.mjs
-// checks they agree): bpm 30…3000 (0.1), Groove scale 1/64…8 (4 significant digits), step rate 1/5…5, pitch ratio 1/4…4.
-const TEMPO = { minBpm: 30, maxBpm: 3000, defBpm: 90, minScale: 1 / 64, maxScale: 8, minRate: 0.2, maxRate: 5, minTune: 0.25, maxTune: 4 };
-const sig6 = (v) => Number(v.toPrecision(6));
-function cleanTempoMsg(t) {
-  const o = t && typeof t === 'object' ? t : {};
-  const pos = (v) => isNum(v) && v > 0;
-  const scale = pos(o.scale) ? Math.min(TEMPO.maxScale, Math.max(TEMPO.minScale, Number(clampN(o.scale, TEMPO.minScale, TEMPO.maxScale).toPrecision(4)))) : 1;
-  return {
-    bpm: isNum(o.bpm) ? Math.round(clampN(o.bpm, TEMPO.minBpm, TEMPO.maxBpm) * 10) / 10 : TEMPO.defBpm,
-    scale,
-    rate: pos(o.rate) ? sig6(clampN(o.rate, TEMPO.minRate, TEMPO.maxRate)) : 1,
-    tune: pos(o.tune) ? sig6(clampN(o.tune, TEMPO.minTune, TEMPO.maxTune)) : 1,
-  };
-}
+// A player's own tempo (Jens t846u): bpm, Groove scale, step rate, pitch ratio.
+// t881u: the exact same cleaning as the client (shared/playertempo.mjs) – bpm snapped to the 120-BPM grid, Groove to
+// its scale grid, rate to the exact run / crouch ratio – so every peer gets a tempo that sits on the shared beat.
+const PT = require('../shared/playertempo.mjs');
+function cleanTempoMsg(t) { return PT.cleanPlayerTempo(t); }
 
 // Namn: inga kontroll- eller osynliga tecken (t.ex. tecken som vänder textriktningen), inga
 // dubbla mellanslag, högst 24 tecken (räknat i tecken, så en emoji inte klipps itu).

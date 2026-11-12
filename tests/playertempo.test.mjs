@@ -18,11 +18,12 @@ ok('defaults: 90 BPM, Groove 1×, walking (rate 1, no pitch)', () => {
   assert.deepEqual(cleanPlayerTempo(null), PLAYER_TEMPO_DEFAULTS); assert.deepEqual(cleanPlayerTempo('x'), PLAYER_TEMPO_DEFAULTS);
   assert.equal(PLAYER_TEMPO_DEFAULTS.bpm, RUN.walkDef); assert.equal(PLAYER_TEMPO_DEFAULTS.scale, GROOVE.def);
 });
-ok('clamped: bpm 30…3000 (the Tempo slider), Groove 1/64…8, rate 1/5…5 (±400 %), pitch ratio 1/4…4', () => {
-  assert.deepEqual(cleanPlayerTempo({ bpm: 1e6, scale: 99, rate: 99, tune: 99 }), { bpm: 3000, scale: 8, rate: 5, tune: 4 });
-  assert.deepEqual(cleanPlayerTempo({ bpm: 1, scale: 1e-9, rate: 1e-9, tune: 1e-9 }), { bpm: 30, scale: 0.01563, rate: 0.2, tune: 0.25 });
+ok('clamped: bpm 30…2880 (the Tempo slider, 120-BPM grid), Groove 1/64…8, rate 1/5…5 (±400 %), pitch ratio 1/4…4', () => {
+  assert.deepEqual(cleanPlayerTempo({ bpm: 1e6, scale: 99, rate: 99, tune: 99 }), { bpm: 2880, scale: 8, rate: 5, tune: 4 });
+  assert.deepEqual(cleanPlayerTempo({ bpm: 1, scale: 1e-9, rate: 1e-9, tune: 1e-9 }), { bpm: 30, scale: 1 / 64, rate: 0.2, tune: 0.25 });
   assert.deepEqual(cleanPlayerTempo({ bpm: 'fast', scale: -1, rate: 0, tune: NaN }), PLAYER_TEMPO_DEFAULTS);
-  assert.equal(cleanPlayerTempo({ bpm: 123.456 }).bpm, 123.5);
+  assert.equal(cleanPlayerTempo({ bpm: 123.456 }).bpm, 120, 'snapped to the 120-BPM grid (t881u)'); assert.equal(cleanPlayerTempo({ bpm: 92 }).bpm, 90);
+  assert.equal(cleanPlayerTempo({ rate: 0.727273 }).rate, 8 / 11, 'a relayed rate back to its exact ratio'); assert.equal(cleanPlayerTempo({ scale: 1.333 }).scale, 4 / 3);
   assert.equal(PLAYER_TEMPO.maxRate, 1 + RUN.tempoMax / 100); assert.equal(PLAYER_TEMPO.minRate, 1 / (1 + RUN.tempoMax / 100));
 });
 ok('the server cleans a tempo message exactly like the client (server/realtime.js cleanTempoMsg)', () => {
@@ -35,10 +36,10 @@ ok('the server cleans a tempo message exactly like the client (server/realtime.j
   assert.deepEqual(cleanTempoMsg(undefined), cleanPlayerTempo(undefined));
 });
 ok('my tempo message from my Tempo, Groove and gait; dance tempo = Tempo × run / crouch rate', () => {
-  assert.deepEqual(myPlayerTempo(140, 0.5, null), { bpm: 140, scale: 0.5, rate: 1, tune: 1 });
-  const run = myPlayerTempo(140, 1, gaitStep('run', RUN_DEFAULTS));
-  assert.equal(run.rate, 2); assert.ok(Math.abs(run.tune - 1.49831) < 1e-4); assert.equal(danceBpmOf(run), 280);
-  assert.ok(sameTempo({ bpm: 90 }, PLAYER_TEMPO_DEFAULTS) && !sameTempo({ bpm: 91 }, PLAYER_TEMPO_DEFAULTS));
+  assert.deepEqual(myPlayerTempo(144, 0.5, null), { bpm: 144, scale: 0.5, rate: 1, tune: 1 });
+  const run = myPlayerTempo(144, 1, gaitStep('run', RUN_DEFAULTS));
+  assert.equal(run.rate, 2); assert.ok(Math.abs(run.tune - 1.49831) < 1e-4); assert.equal(danceBpmOf(run), 288);
+  assert.ok(sameTempo({ bpm: 90 }, PLAYER_TEMPO_DEFAULTS) && sameTempo({ bpm: 91 }, PLAYER_TEMPO_DEFAULTS) && !sameTempo({ bpm: 96 }, PLAYER_TEMPO_DEFAULTS), '91 snaps to 90 (the grid)');
 });
 ok('no global clock left: no roomTempo, no room-clock tempo() in the radio, the dance clock is my tempo, peers get mine', () => {
   const src = ['shared/clock.mjs', 'shared/radio.mjs', 'client/src/radio.js', 'client/src/main.js', 'client/src/avatars.js', 'client/src/voice.js', 'client/src/groove.js', 'shared/dance.mjs', 'shared/walkseq.mjs']

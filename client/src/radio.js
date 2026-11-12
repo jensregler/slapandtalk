@@ -4,7 +4,7 @@
 // paths but have no UI; on+knob are forced to "my sound" by cleanRadio.
 // Tempo (Jens, 11 Nov 2026 t846u: "ta bort den globala klockan helt och hållet. alla har sin egen bpm"):
 // there is no room clock any more. tempo() = MY Tempo (the "Tempo" slider on Steps, shared/runmode.mjs
-// walkBpm, 30–3000 BPM) and every loop here – the walk sound's sequencer layers, all other sequencer
+// walkBpm, 30–2880 BPM, 120-BPM grid) and every loop here – the walk sound's sequencer layers, all other sequencer
 // layers and the four voices – runs on it. (Before: only the walk sequencer followed it and everything
 // else stayed on a hidden 90 BPM room clock, which is why "bpm funkar inte".)
 import { cleanRadio, cleanPreset, FOUR_VOICES, RADIO, bpmToKnob, knobToBpm } from '../../shared/radio.mjs';
@@ -44,10 +44,10 @@ export class Radio {
     this.walk = { until: 0, run: null }; this.walkSeq = new Map(); // key -> newWalkSeq()
     this.walkBpm = RUN.walkDef; // MY Tempo (per player; main.js / soundui.js set it from my run mode)
   }
-  // My Tempo, 30…3000 BPM (shared/runmode.mjs cleanWalkBpm). Every loop of mine reads it (tempo()).
+  // My Tempo, 30…2880 BPM on the 120-BPM grid (shared/runmode.mjs cleanWalkBpm). Every loop of mine reads it (tempo()).
   // (What is already planned – ≤ 150 ms ahead – plays out; the new grid takes over from there, no doubles.
   // main.js walkSounds reads walkBpm every frame for my footsteps, dance, voice echo, delay and the room.)
-  setWalkBpm(bpm) { this.walkBpm = snapWalkBpm(bpm); return this.walkBpm; } // 5 BPM steps (t868u)
+  setWalkBpm(bpm) { this.walkBpm = snapWalkBpm(bpm); return this.walkBpm; } // on the 120-BPM grid (t881u; was 5 BPM steps, t868u)
   walkTempo() { return playerTempo(this.walkBpm); }
   // main.js walkSounds, every frame: until = wall ms I count as walking until (the footstep groove's
   // own walk detection, 0 = standing); run = { rate, tune } while Shift-running (groove.run) or null.

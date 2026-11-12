@@ -14,6 +14,7 @@ const KEY = 'groove-e2e-full-key';
 
 (async () => {
   const G = await import('../shared/groove.mjs');
+  const TG = await import('../shared/tempogrid.mjs');
   const S = await startServer(8846, { DEMO_PROFILE: '0', DEV_UNLOCK: '0', ADMIN_TOKEN: 'groove-e2e-admin', FULL_ACCESS_KEYS: KEY });
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
   console.log(`Groove (${S.base})`);
@@ -78,14 +79,18 @@ const KEY = 'groove-e2e-full-key';
     a = await gA(); b = await gB();
     const aId = await A.evaluate(() => window.klibb.net.id), bId = await B.evaluate(() => window.klibb.net.id);
     const slotA = await A.evaluate(() => window.klibb.mySlot()), slotB = await B.evaluate(() => window.klibb.mySlot());
-    const onGrid = (e, g) => G.eventsBetween(g, e.slot, e.t - 0.5, e.t + 0.5).some((x) => x.tick === e.tick && Math.abs(x.t - e.t) < 0.2);
+    // t883u: the first step after starting to walk (entry: true) sits on the next beat of the walker's tempo × gait rate
+    // (shared/tempogrid.mjs entryUnitMs, from server time 0) – on the beat grid, not necessarily on the slot's pulse
+    const onGrid = (e, g) => (e.entry ? (() => { const u = TG.entryUnitMs(e.bpm, e.run || 1); return Math.abs(e.t - Math.round(e.t / u) * u) < 0.2; })()
+      : G.eventsBetween(g, e.slot, e.t - 0.5, e.t + 0.5, { bpm: e.bpm }).some((x) => x.tick === e.tick && Math.abs(x.t - e.t) < 0.2));
     const mineA = a.log.filter((e) => e.id === 'me' && e.t >= t0 - 200), mineB = b.log.filter((e) => e.id === 'me' && e.t >= t0 - 200);
     const aFromB = b.log.filter((e) => e.id === aId && e.t >= t0 - 200), bFromA = a.log.filter((e) => e.id === bId && e.t >= t0 - 200);
     const st = { scale: a.scale, at: a.at, phase: a.phase }, stB = { scale: b.scale, at: b.at, phase: b.phase };
     check(`A's own steps while walking land on the shared grid (${mineA.length} steps, slot ${slotA})`, mineA.length >= 3 && mineA.every((e) => onGrid(e, st) && e.slot === slotA), mineA.slice(0, 4));
     check(`B's own steps too, in its own slot (${mineB.length} steps, slot ${slotB})`, mineB.length >= 3 && slotA !== slotB && mineB.every((e) => onGrid(e, stB) && e.slot === slotB), mineB.slice(0, 4));
     const ticksA = new Set(mineA.map((e) => e.tick)), ticksB = new Set(mineB.map((e) => e.tick));
-    if (st.scale === stB.scale) check('they interlock: A and B never share a tick', [...ticksA].every((t) => !ticksB.has(t)), { A: [...ticksA], B: [...ticksB] });
+    // t881u: no more interlocking offsets – every slot starts on the downbeat, so the polyrhythms meet on the bar line
+    check('every slot\'s pattern includes the downbeat (tick 0): their polyrhythms meet on the bar line', [...ticksA, ...ticksB].filter((t) => t >= 0).every((t) => G.ticksOf(slotA).includes(t) || G.ticksOf(slotB).includes(t)) && G.ticksOf(slotA)[0] === 0 && G.ticksOf(slotB)[0] === 0, { A: [...ticksA], B: [...ticksB] });
     // t846u (no shared clock): I hear someone on THEIR grid – their Tempo + Groove (sent as 'tempo'), not mine
     check(`B hears A's steps on A's own grid (A's Groove ${st.scale}×, via A's tempo message), in A's slot (${aFromB.length})`, aFromB.length >= 2 && aFromB.every((e) => onGrid(e, st) && e.slot === slotA && e.scale === st.scale), { aFromB: aFromB.slice(0, 3), st });
     check('and A hears B on B\'s grid', bFromA.length >= 2 && bFromA.every((e) => onGrid(e, stB) && e.slot === slotB && e.scale === stB.scale), bFromA.slice(0, 3));

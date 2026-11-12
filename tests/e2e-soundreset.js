@@ -44,7 +44,7 @@ const CUSTOM = {
       top: [...document.querySelectorAll('#sound-panel .more-head input[type=range], #snd-radio input[type=range]')].filter((i) => /volume/i.test(i.getAttribute('aria-label') || i.parentElement.textContent)).length }));
     check('…Volume at 35 – the ONLY volume control at the top (no header Music vol duplicate; Jens 11 Nov 2026)', vol1.v === '35' && !vol1.header && vol1.top === 1, vol1);
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(150);
-    await A.$eval('#walk-tempo', (r) => { r.value = '8000'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+    await A.$eval('#walk-tempo', (r) => { r.value = String(Math.round(Number(r.max) * 0.8)); r.dispatchEvent(new Event('input', { bubbles: true })); });
     check('…Tempo tried out (live, not saved): ~1200 BPM', await A.evaluate(() => window.klibb.radio().walkBpm > 1000 && window.klibb.radio().walkBpm < 1500));
     await A.click('#snd-tabs [data-tab="slap"]'); await sleep(150);
     const fxBefore = await A.evaluate(() => { const st = window.klibb.soundUi().state(); return JSON.stringify(st.fx); });

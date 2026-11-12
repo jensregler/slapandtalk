@@ -3,7 +3,7 @@
 // Saved shape still carries the older fields so presets load:
 //   on, knob – forced to on + 0.5 ("my sound"); Blend / power UI removed
 //   bpm      – dormant (Jens, 11 Nov 2026): the tempo is per player now (shared/runmode.mjs walkBpm,
-//              30–3000 BPM, the "Tempo" slider on Steps); radio.tempo() = MY tempo, never this field –
+//              30–2880 BPM, 120-BPM grid, the "Tempo" slider on Steps); radio.tempo() = MY tempo, never this field –
 //              an old preset's bpm loads but drives nothing (no room clock comes back from it)
 //   (city – the old City sound dry/wet – was removed with the city place effects, Jens t857u 12 Nov 2026;
 //    an old preset's city field is dropped on load)

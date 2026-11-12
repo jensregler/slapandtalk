@@ -27,16 +27,14 @@ ok('each slot keeps its own polyrhythm: 4, 3, 5, 6, 7 pulses per bar, evenly spa
   });
   assert.equal(G.patternOf(5), G.PATTERNS[0], 'slots wrap like the sound colours'); assert.equal(G.patternOf(-1), G.PATTERNS[4]);
 });
-ok('interlocking: the five slots never share a tick (smallest gap 5 of 420 ticks), at any scale', () => {
-  const all = [0, 1, 2, 3, 4].flatMap(G.ticksOf).sort((a, b) => a - b);
-  assert.equal(new Set(all).size, all.length, 'no collisions');
-  assert.equal(all.length, 25);
-  let gap = Infinity; for (let i = 0; i < all.length; i++) gap = Math.min(gap, (all[(i + 1) % all.length] - all[i] + G.GROOVE.ticks) % G.GROOVE.ticks);
-  assert.equal(gap, 5);
-  for (const scale of [G.GROOVE.min, 0.1, 1, 3, G.GROOVE.max]) {
-    const g = { scale, at: T0, phase: 0.123 }, B = G.barMs(scale);
-    const times = [0, 1, 2, 3, 4].flatMap((s) => G.eventsBetween(g, s, T0, T0 + B * 3)).map((e) => e.t).sort((a, b) => a - b);
-    for (let i = 1; i < times.length; i++) assert.ok(times[i] - times[i - 1] >= B * 5 / 420 - 1e-3, `scale ${scale}: gap ${times[i] - times[i - 1]}`);
+ok('polyrhythm on a shared downbeat (t881u): all five slots start ON the bar line and meet there every bar, at any scale', () => {
+  for (const sl of [0, 1, 2, 3, 4]) assert.equal(G.ticksOf(sl)[0], 0, `slot ${sl} starts on the downbeat`);
+  for (const scale of [G.GROOVE.min, 0.25, 1, 4 / 3, G.GROOVE.max]) {
+    const g = { scale, at: 0, phase: 0 }, B = G.barMs(scale), t0 = Math.ceil(T0 / B) * B; // a bar line on the shared clock
+    for (const sl of [0, 1, 2, 3, 4]) {
+      const ev = G.eventsBetween(g, sl, t0 - 1e-3, t0 + B * 2 + 1e-3);
+      assert.ok(near(ev[0].t, t0, 1e-3) && ev.some((e) => near(e.t, t0 + B, 1e-3)) && ev.some((e) => near(e.t, t0 + 2 * B, 1e-3)), `scale ${scale} slot ${sl}`);
+    }
   }
 });
 ok('scale stretches the whole bar: every interval scales by the same factor, ratios intact', () => {
@@ -55,9 +53,9 @@ ok('changing the scale keeps the phase (no jump), and the new tempo runs from th
   assert.ok(near(G.phaseAt(h, now + G.barMs(0.5) / 4), (G.phaseAt(g, now) + 0.25) % 1, 1e-5), 'then twice as fast');
   assert.equal(h.scale, 0.5); assert.equal(h.at, now);
 });
-ok('clamp range 1/64 … 8, 4 significant digits; junk is rejected; the default is 1.0×', () => {
-  assert.equal(G.cleanScale(100), 8); assert.equal(G.cleanScale(0.0001), G.cleanScale(1 / 64)); assert.ok(G.cleanScale(1 / 64) >= 1 / 64);
-  assert.equal(G.cleanScale('2'), 2); assert.equal(G.cleanScale(1.234567), 1.235);
+ok('clamp range 1/64 … 8, snapped to the scale grid (120-BPM ratios × octaves, t881u); junk is rejected; the default is 1.0×', () => {
+  assert.equal(G.cleanScale(100), 8); assert.equal(G.cleanScale(0.0001), 1 / 64); assert.ok(G.cleanScale(1 / 64) >= 1 / 64);
+  assert.equal(G.cleanScale('2'), 2); assert.equal(G.cleanScale(1.234567), 1.25); assert.equal(G.cleanScale(1.333), 4 / 3); assert.equal(G.cleanScale(0.7), 2 / 3, 'the nearest grid value');
   for (const bad of [NaN, Infinity, -1, 0, null, undefined, 'x', {}, []]) assert.equal(G.cleanScale(bad), null, String(bad));
   assert.deepEqual(G.cleanGroove(null), { scale: 1, at: 0, phase: 0 }); assert.deepEqual(G.cleanGroove({ scale: 99, at: 'x', phase: 1.25 }), { scale: 8, at: 0, phase: 0.25 });
 });
@@ -66,11 +64,12 @@ ok('extremes: at 1/64 a 4-pulse walker steps every ~5 ms (a buzz); at 8 a 3-puls
   assert.ok(Math.abs(G.pulseMs(G.GROOVE.max, 1) - 32000 / 9) < 1e-6); assert.ok(!G.buzzes(1, 4) && !G.buzzes(G.GROOVE.max, 4));
   assert.ok(G.buzzes(0.1, 4) && !G.buzzes(0.2, 0), 'buzz threshold 40 ms');
 });
-ok('slider is log: 0 = 1/64, 1000 = 8, 1.0× in between; round trip; keys a quarter octave (Shift a whole one)', () => {
+ok('slider is log: 0 = 1/64, 1000 = 8, 1.0× in between; round trip (to the grid); keys one grid notch (Shift a whole octave)', () => {
   assert.equal(G.sliderToScale(0), G.cleanScale(1 / 64)); assert.equal(G.sliderToScale(1000), 8); assert.equal(G.scaleToSlider(1), 667);
-  for (const s of [0.02, 0.1, 0.5, 1, 2.5, 7]) assert.ok(Math.abs(G.sliderToScale(G.scaleToSlider(s)) / s - 1) < 0.01, `round trip ${s}`);
-  assert.ok(near(G.sliderToScale(500) / G.sliderToScale(400), G.sliderToScale(900) / G.sliderToScale(800), 1e-3), 'equal slider steps = equal ratios');
-  assert.equal(G.stepScale(1, 1, true), 2); assert.equal(G.stepScale(1, -1, true), 0.5); assert.equal(G.stepScale(1, 1), 1.189);
+  for (const s of [0.02, 0.1, 0.5, 1, 2.5, 7]) assert.ok(Math.abs(G.sliderToScale(G.scaleToSlider(s)) / s - 1) < 0.1, `round trip ${s}`);
+  for (const s of G.SCALE_GRID) assert.equal(G.sliderToScale(G.scaleToSlider(s)), s, `grid round trip ${s}`);
+  assert.ok(G.SCALE_GRID.includes(G.sliderToScale(437)), 'every slider position lands on the grid');
+  assert.equal(G.stepScale(1, 1, true), 2); assert.equal(G.stepScale(1, -1, true), 0.5); assert.equal(G.stepScale(1, 1), 1.2, 'one notch of the scale grid (6:5, t881u)'); assert.equal(G.stepScale(1, -1), 0.875);
   assert.equal(G.stepScale(8, 1), 8); assert.equal(G.stepScale(G.GROOVE.min, -1), G.cleanScale(G.GROOVE.min));
   assert.deepEqual(G.grooveLabel(1), { scale: '1.00×', bar: '1.3 s', beats: '2 beats' }); assert.equal(G.grooveLabel(1 / 64).bar, '21 ms'); assert.equal(G.grooveLabel(8).bar, '11 s');
   assert.equal(G.grooveLabel(0.5).beats, '1 beat'); assert.equal(G.grooveLabel(8).beats, '16 beats');
@@ -80,9 +79,9 @@ ok('per-player tempo: bar = 2 beats of the walker\'s bpm × Groove; 90 BPM is th
   assert.equal(G.GROOVE.beats, 2); assert.equal(G.GROOVE.bpm, 90);
   assert.ok(near(G.barMs(1, 90), G.barMs(1)) && near(G.barMs(1), 4000 / 3), 'default = 90 BPM = 1333 ms');
   assert.ok(near(G.barMs(1, 180), 2000 / 3) && near(G.barMs(1, 45), 8000 / 3) && near(G.barMs(0.5, 120), 500), '2 beats × scale');
-  assert.ok(near(G.barMs(1, 3000), 40) && near(G.barMs(1, 30), 4000), 'the Tempo range 30…3000 BPM');
-  assert.ok(near(G.barMs(1, 99999), 40) && near(G.barMs(1, 1), 4000) && near(G.barMs(1, NaN), 4000 / 3), 'clamped like the Tempo slider; junk = 90');
-  assert.ok(near(G.pulseMs(1, 0, 180), 2000 / 12) && G.buzzes(1, 4, 3000) && !G.buzzes(1, 4, 90), 'pulses / buzz at that tempo');
+  assert.ok(near(G.barMs(1, 2880), 125 / 3) && near(G.barMs(1, 30), 4000), 'the Tempo range 30…2880 BPM (t881u)');
+  assert.ok(near(G.barMs(1, 99999), 125 / 3) && near(G.barMs(1, 1), 4000) && near(G.barMs(1, NaN), 4000 / 3), 'clamped like the Tempo slider; junk = 90');
+  assert.ok(near(G.pulseMs(1, 0, 180), 2000 / 12) && G.buzzes(1, 4, 2880) && !G.buzzes(1, 4, 90), 'pulses / buzz at that tempo');
   // two walkers in the same room, same slot pattern, different tempi: each on its own grid (no shared clock)
   const g = { scale: 1, at: 0, phase: 0 };
   const a = G.eventsBetween(g, 0, T0, T0 + 4000, { bpm: 90 }), b = G.eventsBetween(g, 0, T0, T0 + 4000, { bpm: 135 });

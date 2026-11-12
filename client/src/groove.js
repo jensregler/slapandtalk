@@ -9,7 +9,8 @@
 // voice (one grain of their step sound per pulse) instead of a flood of one-shot voices.
 import { GROOVE, DEFAULT_GROOVE, cleanGroove, eventsBetween, runEventsBetween, pulseMs, barMs } from '../../shared/groove.mjs';
 import { cleanPlayerTempo } from '../../shared/playertempo.mjs';
-import { cleanWalkBpm } from '../../shared/runmode.mjs';
+import { snapWalkBpm } from '../../shared/runmode.mjs';
+import { entryMs } from '../../shared/tempogrid.mjs';
 import { patchLength, retune } from '../../shared/synth.mjs';
 
 const WALK = { speed: 0.35, holdMs: 140, jump: 0.8, jumpSpeed: 9, maxPerFrame: 48, buzzGain: 0.45, maxAheadMs: 400 };
@@ -40,15 +41,15 @@ export class GrooveSteps {
     const n = cleanGroove(g || DEFAULT_GROOVE);
     if (n.scale === this.groove.scale) return false;
     this.groove = { scale: n.scale, at: 0, phase: 0 };
-    const me = this.track.get('me'); if (me) { me.until = Math.min(me.until, this.now()); this.stopBuzz(me); } // re-plan mine from now
+    const me = this.track.get('me'); if (me) { me.until = Math.min(me.until, this.now()); me.reenter = true; this.stopBuzz(me); } // re-plan mine from now, entering on the beat (t883u)
     return true;
   }
   get scale() { return this.groove.scale; }
   // My Tempo changed (the Tempo slider; t846u): my bar gets the new length from now.
   setBpm(bpm) {
-    const b = cleanWalkBpm(bpm); if (b === this.bpm) return false;
+    const b = snapWalkBpm(bpm); if (b === this.bpm) return false;
     this.bpm = b;
-    const me = this.track.get('me'); if (me) { me.until = Math.min(me.until, this.now()); this.stopBuzz(me); }
+    const me = this.track.get('me'); if (me) { me.until = Math.min(me.until, this.now()); me.reenter = true; this.stopBuzz(me); }
     return true;
   }
   // A walker's grid: mine, or theirs from the tempo they sent (bpm, Groove scale, run / crouch rate + pitch).
@@ -65,7 +66,7 @@ export class GrooveSteps {
     const same = (!n && !this.run) || (n && this.run && n.rate === this.run.rate && n.tune === this.run.tune);
     if (same) return false;
     this.run = n;
-    const me = this.track.get('me'); if (me) { me.until = Math.min(me.until, this.now()); this.stopBuzz(me); }
+    const me = this.track.get('me'); if (me) { me.until = Math.min(me.until, this.now()); me.reenter = true; this.stopBuzz(me); }
     return true;
   }
 
@@ -102,25 +103,39 @@ export class GrooveSteps {
       const walking = nowMs < t.walkUntil;
       const voice = w.voice === undefined ? this.sound.mine : w.voice;
       const slot = voice && Number.isInteger(voice.colour) ? voice.colour : 0;
-      if (!walking) { t.until = nowMs; this.stopBuzz(t); continue; }
+      if (!walking) { t.until = nowMs; t.walking = false; t.enterAt = null; this.stopBuzz(t); continue; }
       const G = this.gridOf(w), run = G.run; // mine: my run / crouch; theirs: as they sent it
       // their tempo changed: re-plan them from now (mine re-plans in setBpm / setGroove / setRun)
       const gk = `${G.bpm}:${G.groove.scale}:${run ? run.rate + '/' + run.tune : ''}`;
-      if (w.id !== 'me' && t.gk !== undefined && t.gk !== gk) { t.until = Math.min(t.until, nowMs); this.stopBuzz(t); }
+      if (w.id !== 'me' && t.gk !== undefined && t.gk !== gk) { t.until = Math.min(t.until, nowMs); t.reenter = true; this.stopBuzz(t); }
       t.gk = gk;
       const rate = run ? run.rate : 1, period = pulseMs(G.groove.scale, slot, G.bpm) / rate;
-      if (period < GROOVE.buzzMs) { this.buzz(t, w, voice, slot, nowMs, run, G); t.until = horizon; continue; }
+      // Entering in time (Jens t883u): starting to walk / dance, or a new gait / tempo, does not start the steps at the
+      // key press: the first step waits for the next beat of my tempo × gait rate on the shared clock (shared/tempogrid.mjs
+      // entryMs: ≤ 0.5 s, a beat that went by ≤ 20 ms ago is taken at once). The avatar moves at once – only the sound
+      // is quantized. That first step sounds ON the beat even when my slot's polyrhythm has no pulse there; the
+      // pattern carries on from it (the gap guard below drops a pattern pulse that would come too soon after it).
+      const fresh = !t.walking;
+      if (fresh || t.reenter) { t.enterAt = entryMs(nowMs, G.bpm, rate); t.enterFrom = nowMs; t.fresh = fresh; t.walking = true; t.reenter = false; t.until = Math.max(t.until, nowMs); }
+      if (period < GROOVE.buzzMs) { t.enterAt = null; this.buzz(t, w, voice, slot, nowMs, run, G); t.until = horizon; continue; }
       this.stopBuzz(t);
-      const from = Math.max(t.until, nowMs);
+      const enter = t.enterAt != null ? t.enterAt : null;
+      const from = Math.max(t.until, nowMs, enter != null ? enter : -Infinity);
       if (horizon <= from) continue;
       const evs = run ? runEventsBetween(G.groove, slot, from, horizon, rate, { max: budget, bpm: G.bpm }) : eventsBetween(G.groove, slot, from, horizon, { max: budget, bpm: G.bpm });
+      if (enter != null) { // the entry step itself, on the beat
+        t.enterAt = null;
+        if (!(evs.length && Math.abs(evs[0].t - enter) < 1)) evs.unshift({ t: enter, n: 0, tick: -1, slot, entry: true });
+        else evs[0].entry = true;
+        if (t.fresh) t.last = null; // a fresh start: nothing to guard against (a gait / tempo switch keeps the guard)
+      }
       t.until = evs.length >= budget && evs.length ? evs[evs.length - 1].t + 0.001 : horizon;
       for (const e of evs) {
         if (t.last != null && e.t > t.last - 0.5 && e.t - t.last < period * 0.45) continue; // walk ↔ run switch: no doubled step
         t.last = e.t;
         budget--;
         this.events++;
-        this.log.push({ id: w.id, slot, t: Math.round(e.t * 10) / 10, tick: e.tick, n: e.n, scale: G.groove.scale, bpm: G.bpm, ...(run ? { run: +rate.toFixed(4), tune: +run.tune.toFixed(4) } : {}) });
+        this.log.push({ id: w.id, slot, t: Math.round(e.t * 10) / 10, tick: e.tick, n: e.n, scale: G.groove.scale, bpm: G.bpm, ...(e.entry ? { entry: true, from: Math.round(t.enterFrom * 10) / 10 } : {}), ...(run ? { run: +rate.toFixed(4), tune: +run.tune.toFixed(4) } : {}) });
         if (this.log.length > 200) this.log.splice(0, this.log.length - 200);
         const time = this.audioTime(e.t);
         if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up

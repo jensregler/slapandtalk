@@ -3,6 +3,7 @@
 // Pose numbers are bone turns in the avatar's own frame (same convention as SIT in avatars.js):
 //   x = avatar's right, y = up, z = forward. drop = how far the model is lowered (metres).
 // Pure maths – no Three.js – so unit tests can sample every phase without a GLB.
+import { exactBpm } from './tempogrid.mjs';
 
 export const DANCE = Object.freeze({
   bars: 4, beatsPerBar: 4, // the whole routine = 4 bars of 4/4 at the dancer's own tempo (16 beats)
@@ -45,6 +46,7 @@ export function danceGrid(nowMs, tempo) {
   let guard = 0;
   while (bpm > DANCE.maxBpm && guard++ < 40) bpm /= 2;
   while (bpm < DANCE.minBpm && guard++ < 80) bpm *= 2;
+  bpm = exactBpm(bpm); // t881u: a relayed (rounded) grid tempo × rate back to its exact value – on the shared beat
   const beatMs = 60000 / bpm, into = ((nowMs - (tempo.phaseMs || 0)) % beatMs + beatMs) % beatMs;
   // on the beat within DANCE.onBeatMs (a retimed dance's anchor is a beat; float / 0.001 ms rounding on
   // the way through the server must not turn that into a whole beat of lead-in)
@@ -82,14 +84,17 @@ export function danceRetime(nowMs, cur, tempo) {
   let guard = 0;
   while (bpm > DANCE.maxBpm && guard++ < 40) bpm /= 2;
   while (bpm < DANCE.minBpm && guard++ < 80) bpm *= 2;
-  bpm = Math.round(bpm * 1000) / 1000; // the server relays bpm at 0.001: the same grid everywhere
+  bpm = exactBpm(Math.round(bpm * 1000) / 1000); // the server relays bpm at 0.001: the same (exact, t881u) grid everywhere
   const now = Math.round(nowMs);
   if (!cur || !Number.isFinite(cur.at) || !Number.isFinite(nowMs)) return { at: now, bpm, phaseMs: Number.isFinite(tempo?.phaseMs) ? tempo.phaseMs : 0 };
   const raw = Math.max(0, (nowMs - cur.at) / 1000), t = cur.loop ? danceLoopTime(raw, cur.grid) : raw;
   const B = danceBeats(t, cur.grid);
   if (!(B >= 0)) return { at: now, bpm, phaseMs: Number.isFinite(tempo?.phaseMs) ? tempo.phaseMs : 0 };
-  const beatMs = 60000 / bpm, at = Math.round(now - B * beatMs);
-  return { at, bpm, phaseMs: Math.round((((at % beatMs) + beatMs) % beatMs) * 1000) / 1000 };
+  // t881u: the new anchor is the grid beat (server time 0 + k beats of the new tempo) nearest to where the routine
+  // would have started at the new tempo – so after a tempo change the dance is on everybody's shared beat again.
+  // The routine moves by at most half a beat (≤ 0.25 s at 120 BPM) at the change instead of not at all.
+  const beatMs = 60000 / bpm, at = Math.round(Math.round((now - B * beatMs) / beatMs) * beatMs);
+  return { at, bpm, phaseMs: 0 };
 }
 
 const clamp01 = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t);

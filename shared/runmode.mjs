@@ -19,12 +19,14 @@
 //   gait  – while dancing, Shift = run tempo and Ctrl = crouch tempo for the dance's footsteps / walk
 //           sequencer (gaitOf). Ctrl wins over Shift.
 //   walkBpm – MY Tempo (Jens, 11 Nov 2026; t846u: the global clock is gone, everyone has their own
-//           BPM): 30…3000 BPM, default 90, log slider ("Tempo" on Steps). Per player (this field, in my
+//           BPM): 30…2880 BPM, default 90, grid slider ("Tempo" on Steps). Per player (this field, in my
 //           personal run-mode settings) – there is no room / city / global clock. EVERYTHING musical of
 //           mine follows it: my footsteps (shared/groove.mjs), all my sequencer layers incl. the walk
 //           sound's, the four voices, the synced delay, my voice echo and my dance. Others hear / see me
 //           at it (shared/playertempo.mjs). Run / crouch tempo are % of it.
+//           Since t881u it is one of the 120-BPM grid tempi (shared/tempogrid.mjs), 30 … 2880.
 // Pure maths – shared by the web app (client/src/groove.js, soundui.js) and the unit tests.
+import { TEMPOS, snapTempo, tempoIndex, tempoInfo, stepTempo, RATE_GRID } from './tempogrid.mjs';
 
 export const RUN = Object.freeze({
   speed: 3.6,               // movement speed while Shift / Caps Lock run is on (controls.js): × walk speed – doubled from 1.8 (Jens t865u, 12 Nov 2026)
@@ -36,30 +38,31 @@ export const RUN = Object.freeze({
   pitchDef: 3,              // step index: +7 st (fifth)
   ratios: Object.freeze([[1, 3], [1, 2], [2, 3], [1, 1], [3, 2], [2, 1], [3, 1]]),
   lockDef: false,           // dormant: always off now (see the header)
-  walkMin: 30, walkMax: 3000, walkDef: 90, // my Tempo, BPM (inclusive range)
-  walkStep: 5,              // …in steps of 5 BPM: 30, 35, 40 … 3000 (Jens t868u, 12 Nov 2026)
+  walkMin: 30, walkMax: 2880, walkDef: 90, // my Tempo, BPM (inclusive range = the 120-BPM grid's ends, t881u; was 3000)
   key: 'klibb.runMode',     // sessionStorage (personal sound setting, like the groove scale)
 });
 export const RUN_DEFAULTS = Object.freeze({ tempo: RUN.tempoDef, pitch: RUN.pitchDef, lock: RUN.lockDef, walkBpm: RUN.walkDef, crouchTempo: RUN.crouchTempoDef, crouchPitch: RUN.crouchPitchDef });
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
-// Tempo (BPM): clamped to 30…3000 (both ends reachable), 0.1 BPM resolution.
+// Tempo (BPM): clamped to 30…2880 (the grid's ends), 0.1 BPM resolution – a general clamp; slider / saved values use snapWalkBpm.
 export function cleanWalkBpm(b) {
   if (!isNum(b)) return RUN.walkDef;
   return Math.round(Math.min(RUN.walkMax, Math.max(RUN.walkMin, b)) * 10) / 10;
 }
-// My Tempo as set on the slider / saved (Jens t868u): the nearest 5 BPM (30, 35 … 3000). Old saved values snap
-// (475.5 → 475). cleanWalkBpm above stays the general clamp for tempi that are not a slider value.
-export function snapWalkBpm(b) {
-  const c = cleanWalkBpm(b);
-  return Math.min(RUN.walkMax, Math.max(RUN.walkMin, Math.round(c / RUN.walkStep) * RUN.walkStep));
-}
-const WL = Math.log(RUN.walkMin), WH = Math.log(RUN.walkMax);
-// The Tempo slider is logarithmic: knob 0 = 30 BPM, 1 = 3000 BPM (90 BPM ≈ 0.239), and lands on 5 BPM steps.
-export const walkBpmToKnob = (b) => (Math.log(cleanWalkBpm(b)) - WL) / (WH - WL);
-export const knobToWalkBpm = (k) => snapWalkBpm(Math.exp(WL + Math.min(1, Math.max(0, isNum(k) ? k : 0)) * (WH - WL)));
-export const WALK_KNOB_STEPS = 10000; // the range input's resolution: fine enough that every 5 BPM step is reachable at the top
-export const walkBpmLabel = (b) => `${snapWalkBpm(b)} BPM`;
+// My Tempo as set on the slider / saved (Jens t881u, 12 Nov 2026 – was 5 BPM steps, t868u): the nearest tempo of
+// the 120-BPM grid (shared/tempogrid.mjs TEMPOS: 120 × small ratios – octaves, triplets, polyrhythms – 30 … 2880),
+// so everybody's beats meet on the shared clock. Old saved values snap (475 → 480 · 4:1, 92 → 90 · 3:4).
+// cleanWalkBpm above stays the general clamp for tempi that are not a slider value.
+export function snapWalkBpm(b) { return snapTempo(cleanWalkBpm(b)); }
+// The Tempo slider is one notch per grid tempo: knob 0 = 30 BPM, 1 = 2880 BPM (the list's ends), evenly spaced
+// by index (the list itself is roughly logarithmic). WALK_KNOB_STEPS = the range input's max (last index).
+export const WALK_KNOB_STEPS = TEMPOS.length - 1;
+export const walkBpmToKnob = (b) => tempoIndex(snapWalkBpm(b)) / WALK_KNOB_STEPS;
+export const knobToWalkBpm = (k) => TEMPOS[Math.round(Math.min(1, Math.max(0, isNum(k) ? k : 0)) * WALK_KNOB_STEPS)].bpm;
+export const walkBpmLabel = (b) => { const t = tempoInfo(snapWalkBpm(b)); return `${t.bpm} BPM · ${t.ratio}`; }; // '180 BPM · 3:2' (ratio to 120)
+// One notch up / down the grid (arrow keys; Page Up / Down = TEMPO_PAGE notches).
+export const stepWalkBpm = (b, d) => stepTempo(snapWalkBpm(b), d);
+export const TEMPO_PAGE = 8;
 
 export function cleanTempo(p, def = RUN.tempoDef) {
   if (!isNum(p)) return def;
@@ -76,6 +79,17 @@ export function cleanRun(r) {
   return { tempo: cleanTempo(r.tempo), pitch: cleanPitch(r.pitch), lock: false, walkBpm: snapWalkBpm(r.walkBpm), crouchTempo: cleanCrouchTempo(r.crouchTempo), crouchPitch: cleanCrouchPitch(r.crouchPitch) };
 }
 
+// Every rate a run / crouch tempo notch can give, as an exact fraction: (8 + k):8 and 8:(8 + k), k = 0 … 32 (t881u).
+// snapRate: the nearest of them (log space) – a peer's rate arrives rounded to 6 digits (8/11 → 0.727273); on a
+// grid anchored at server time 0 (~1.8e12 ms) that rounding alone would put their steps off the beat, so it is
+// snapped back to the exact ratio before it is used.
+export { RATE_GRID };
+export function snapRate(r) {
+  if (!isNum(r) || r <= 0) return 1;
+  const l = Math.log(r); let best = 1, bd = Infinity;
+  for (const v of RATE_GRID) { const e = Math.abs(Math.log(v) - l); if (e < bd - 1e-12) { bd = e; best = v; } }
+  return best;
+}
 // Tempo slider % → raw step-rate factor (before lock-to-clock).
 export function tempoRate(p) { const c = cleanTempo(p); return c >= 0 ? 1 + c / 100 : 1 / (1 + -c / 100); }
 // The exact ratio of a tempo % (every 12.5 % notch is (8 + k):8 or 8:(8 + k), reduced): +37.5 % = 11:8.

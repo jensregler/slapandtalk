@@ -206,7 +206,7 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     await A.$eval('#walk-tempo', (r) => { r.value = '10000'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
     await sleep(400);
     const fast = await A.evaluate(() => ({ bpm: window.klibb.radio().walkBpm, out: document.getElementById('walk-tempo-val').textContent, room: window.klibb.radio().tempo().bpm }));
-    check('Tempo to top: 3000 BPM – my sequencers / voices (radio.tempo()) follow it, no room clock left at 90', fast.bpm === 3000 && fast.out === '3000 BPM' && fast.room === 3000, fast);
+    check('Tempo to top: 2880 BPM · 24:1 (the 120-BPM grid, t881u) – my sequencers / voices (radio.tempo()) follow it, no room clock left at 90', fast.bpm === 2880 && fast.out === '2880 BPM · 24:1' && fast.room === 2880, fast);
     await A.evaluate(() => { window.klibb.radio().setWalkBpm(90); window.klibb.radio().set({ voices: { on: false } }); window.klibb.soundObj().setVolume(1); });
     // bird + wind still work via API (UI dormant)
     await A.evaluate(() => { window.klibb.radio().set({ bird: { on: true }, wind: { on: true } }); });

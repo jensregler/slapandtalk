@@ -11,7 +11,7 @@
 //   - Three stand on the plaza (torg) in a 12 m equilateral triangle, so walking between them you hear
 //     one fade out while the next fades in; four more stand in the streets around the city.
 //   - Each has its own randomized (seeded) Steps sound (a variation built on the default step: noise
-//     scuff + a tuned oscillator on a pentatonic note), Tempo (a musical BPM, 5 BPM steps), Groove scale,
+//     scuff + a tuned oscillator on a pentatonic note), Tempo (a tempo of the 120-BPM grid, t881u), Groove scale,
 //     groove slot (polyrhythm 3/4/5/6/7) and walk / run / crouch settings (run tempo, run pitch, crouch
 //     tempo, crouch pitch – the same settings real players have, shared/runmode.mjs).
 //   - Their gait changes on the clock: every NPC_TIME.segBeats beats of their own dance tempo they pick
@@ -24,6 +24,7 @@ import AV from './avatar.json' with { type: 'json' };
 import { PLAZA, isCityOutside, cityOf } from './city.mjs';
 import { cleanPatch, snapFreq } from './synth.mjs';
 import { RUN, snapWalkBpm, tempoRate, pitchRatio } from './runmode.mjs';
+import { TEMPO_BPMS } from './tempogrid.mjs';
 import { cleanPlayerTempo } from './playertempo.mjs';
 import { danceGrid } from './dance.mjs';
 
@@ -47,8 +48,12 @@ export const NPC_SPOTS = Object.freeze([
   Object.freeze({ x: 17, z: 30 }),   // south-east, between the noise room and house 8
 ]);
 const NAMES = ['Bop', 'Zuzu', 'Kiko', 'Moxie', 'Pim', 'Rumba', 'Tilly', 'Juno', 'Ozzy', 'Fizz', 'Lulu', 'Dex', 'Mira', 'Taro'];
-// Tempo: BPMs that groove (5 BPM steps, the Tempo slider's grid). Groove scale: mostly 1.
-const BPMS = [75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 140, 160, 170];
+// Tempo: only tempi of the 120-BPM grid (shared/tempogrid.mjs, Jens t881u) in a danceable band, so every NPC's
+// beat meets everybody's on the shared bar line: 75 · 5:8, 80 · 2:3, 90 · 3:4, 96 · 4:5, 100 · 5:6, 105 · 7:8,
+// 120 · 1:1, 144 · 6:5, 150 · 5:4, 160 · 4:3, 180 · 3:2 (120 twice: the base is the most common). Groove scale: mostly 1
+// (octaves only – on the scale grid).
+export const NPC_BPMS = Object.freeze(TEMPO_BPMS.filter((b) => b >= 75 && b <= 180 && b !== 192));
+const BPMS = [...NPC_BPMS, 120];
 const SCALES = [1, 1, 1, 2, 0.5];
 // Run / crouch tempo in % (shared/runmode.mjs): octaves only, so the steps stay on the dance's beat.
 const RUN_TEMPI = [100, 100, 300];       // ×2, ×2, ×4
@@ -139,5 +144,5 @@ export function cleanNpcs(list) {
   if (!Array.isArray(list)) return [];
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   return list.slice(0, 16).filter((n) => n && typeof n.id === 'string' && /^npc-[0-9]{1,2}$/.test(n.id) && isNum(n.x) && isNum(n.z) && isNum(n.walkBpm) && isNum(n.danceBpm) && n.danceBpm > 0 && n.sound && n.run)
-    .map((n) => ({ ...n, walkBpm: Math.min(RUN.walkMax, Math.max(RUN.walkMin, n.walkBpm)), label: String(n.label || n.name || 'NPC').slice(0, 24) }));
+    .map((n) => ({ ...n, walkBpm: snapWalkBpm(n.walkBpm), label: String(n.label || n.name || 'NPC').slice(0, 24) }));
 }

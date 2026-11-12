@@ -1070,6 +1070,12 @@ body.touch #props-panel { right: 8px; left: 8px; width: auto; top: 8px; transfor
 #sound-panel .snd-sl span { font-size: 15px; }
 #sound-panel .snd-sl output { font-size: 15px; color: #eee; }
 #sound-panel .snd-sl input[type=range] { height: 32px; }
+/* t881u: the Tempo slider on the 120 BPM grid – big and clear (Jens): name + value on top, a full-width slider, the meet line under */
+#sound-panel .snd-sl.tempo-grid { grid-template-columns: 1fr auto; grid-template-areas: 'name val' 'knob knob' 'meet meet'; row-gap: 6px; padding: 10px 0 14px; }
+#sound-panel .snd-sl.tempo-grid span { grid-area: name; font-size: 24px; font-weight: 700; }
+#sound-panel .snd-sl.tempo-grid output { grid-area: val; font-size: 32px; font-weight: 800; color: #ffe066; letter-spacing: 0.5px; }
+#sound-panel .snd-sl.tempo-grid input[type=range] { grid-area: knob; height: 48px; accent-color: #ffe066; }
+#sound-panel .snd-sl.tempo-grid .tempo-meet { grid-area: meet; font-size: 19px; color: #cfe8ff; }
 #sound-panel .snd-group small { font-size: 13px; color: #bbb; }
 #sound-panel .snd-layer legend { font-size: 17px; }
 #sound-panel button { min-height: 40px; font-size: 16px; }

@@ -19,6 +19,7 @@
 // every screen from just their { bpm, scale, rate }; retime() (a phase-continuous change) stays for tests
 // and the server's old room-groove endpoint, which nothing in the web app reads any more.
 import { cleanWalkBpm } from './runmode.mjs';
+import { TEMPO_CLASSES } from './tempogrid.mjs';
 
 export const GROOVE = {
   ticks: 420,       // lcm(3, 4, 5, 6, 7)
@@ -32,24 +33,40 @@ export const GROOVE = {
   lookAheadMs: 120, // how far ahead the web app schedules on the AudioContext clock
 };
 // Slot → polyrhythm. offset in ticks (picked so all five interlock without collisions).
+// t881u (12 Nov 2026, "vi måste få folks takter att matcha … polyrytm tänk"): every slot now starts ON the bar line
+// (offset 0; it was 0 / 17 / 31 / 10 / 25 ticks so that slots never met). With everyone's Tempo on the 120-BPM grid
+// (shared/tempogrid.mjs) and the grid anchored at server time 0, the 4 / 3 / 5 / 6 / 7 pulses are real polyrhythms
+// over a shared downbeat: they meet on the bar line (and 4 / 6 also on the half bar).
 export const PATTERNS = [
   { pulses: 4, offset: 0 },
-  { pulses: 3, offset: 17 },
-  { pulses: 5, offset: 31 },
-  { pulses: 6, offset: 10 },
-  { pulses: 7, offset: 25 },
+  { pulses: 3, offset: 0 },
+  { pulses: 5, offset: 0 },
+  { pulses: 6, offset: 0 },
+  { pulses: 7, offset: 0 },
 ];
 export const DEFAULT_GROOVE = Object.freeze({ scale: GROOVE.def, at: 0, phase: 0 });
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 export const patternOf = (slot) => PATTERNS[((Number(slot) | 0) % PATTERNS.length + PATTERNS.length) % PATTERNS.length];
 
-// A scale from anyone (slider, key, the network): clamped, 4 significant digits. null = not a number.
+// The Groove scales (t881u): the same musical ratios as the tempo grid (shared/tempogrid.mjs TEMPO_CLASSES:
+// 1, 6:5, 5:4, 4:3, 3:2, 8:5, 5:3, 7:4) × powers of two, 1/64 … 8 – so a bar of 2 × scale beats is an exact
+// fraction of beats and still meets everybody's bar line. Exact doubles (4/3, not 1.333), the same on every client.
+export const SCALE_GRID = Object.freeze((() => {
+  const out = new Set();
+  for (const [n, d] of TEMPO_CLASSES) for (let k = -7; k <= 3; k++) { const v = (n / d) * 2 ** k; if (v >= GROOVE.min - 1e-12 && v <= GROOVE.max + 1e-12) out.add(v); }
+  return [...out].sort((a, b) => a - b);
+})());
+const SCALE_LOGS = SCALE_GRID.map(Math.log);
+// A scale from anyone (slider, key, the network): clamped and snapped to the nearest SCALE_GRID value (log space;
+// was 4 significant digits). null = not a number.
 export function cleanScale(v) {
   const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
   if (!isNum(n) || n <= 0) return null;
-  const c = Math.min(GROOVE.max, Math.max(GROOVE.min, n));
-  return Math.min(GROOVE.max, Math.max(GROOVE.min, Number(c.toPrecision(4))));
+  const l = Math.log(Math.min(GROOVE.max, Math.max(GROOVE.min, n)));
+  let best = 0, bd = Infinity;
+  for (let i = 0; i < SCALE_LOGS.length; i++) { const e = Math.abs(SCALE_LOGS[i] - l); if (e < bd - 1e-12) { bd = e; best = i; } }
+  return SCALE_GRID[best];
 }
 export function cleanGroove(g) {
   if (!g || typeof g !== 'object') return { ...DEFAULT_GROOVE };
@@ -119,7 +136,12 @@ const LO = Math.log2(GROOVE.min), HI = Math.log2(GROOVE.max);
 export function scaleToSlider(scale) { const s = cleanScale(scale) ?? GROOVE.def; return Math.round(GROOVE.sliderSteps * (Math.log2(s) - LO) / (HI - LO)); }
 export function sliderToScale(x) { const k = Math.min(1, Math.max(0, Number(x) / GROOVE.sliderSteps || 0)); return cleanScale(Math.pow(2, LO + k * (HI - LO))); }
 // [ / ]: dir −1 = tighter (faster), +1 = looser (slower). big (Shift): a whole octave.
-export function stepScale(scale, dir, big = false) { return cleanScale((cleanScale(scale) ?? GROOVE.def) * Math.pow(big ? 2 : GROOVE.keyStep, Math.sign(dir))); }
+// t881u: one notch of SCALE_GRID (was a quarter octave); Shift = a whole octave (still on the grid).
+export function stepScale(scale, dir, big = false) {
+  const s = cleanScale(scale) ?? GROOVE.def, d = Math.sign(dir);
+  if (big) return cleanScale(s * Math.pow(2, d));
+  const i = SCALE_GRID.indexOf(s); return SCALE_GRID[Math.min(SCALE_GRID.length - 1, Math.max(0, i + d))];
+}
 // "1.00×", "0.016×", "8.00×" and the bar length at my tempo ("1.5 s", "23 ms") + in beats ("2 beats").
 export function grooveLabel(scale, bpm = GROOVE.bpm) {
   const s = cleanScale(scale) ?? GROOVE.def, b = barMs(s, bpm), beats = GROOVE.beats * s;

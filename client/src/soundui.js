@@ -14,7 +14,8 @@ import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseT
 import { loadSampleFile, clearSamples, pruneSamples, ensureSamples } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
-import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, cleanCrouchTempo, cleanCrouchPitch, pitchMin, pitchMax, runRate, crouchRate, pitchRatio, pitchLabel, tempoLabel, crouchTempoLabel, cleanWalkBpm, snapWalkBpm, WALK_KNOB_STEPS, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../../shared/runmode.mjs';
+import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, cleanCrouchTempo, cleanCrouchPitch, pitchMin, pitchMax, runRate, crouchRate, pitchRatio, pitchLabel, tempoLabel, crouchTempoLabel, cleanWalkBpm, snapWalkBpm, stepWalkBpm, TEMPO_PAGE, WALK_KNOB_STEPS, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../../shared/runmode.mjs';
+import { TEMPO_BPMS, meetBars } from '../../shared/tempogrid.mjs';
 
 // Visit-scoped (Jens, 6 Nov 2026): patches / FX / Music vol / groove / run / voice FX / Hear myself
 // follow you from a room out into the City. Entering a different room (or a fresh load into a room)
@@ -634,7 +635,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const r = st.run;
     const box = el('fieldset', 'snd-run'); box.id = 'snd-run';
     box.appendChild(el('legend', null, S.stepsModeTitle || 'Walk & run'));
-    box.appendChild(el('p', 'hint', S.stepsModeHint || 'Tempo is yours alone (30–3000 BPM): everything musical of yours follows it. Hold Shift to run – then run tempo and pitch apply.'));
+    box.appendChild(el('p', 'hint', S.stepsModeHint || 'Tempo is yours (30–2880 BPM, on the 120 BPM grid): everything musical of yours follows it. Hold Shift to run – then run tempo and pitch apply.'));
     const row = (id, label, title, min, max, step, value, show, onInput) => {
       const d = el('div', 'snd-sl'); d.dataset.param = id; d.title = title;
       const inp = el('input'); inp.type = 'range'; inp.id = id; inp.min = min; inp.max = max; inp.step = step; inp.value = value; inp.setAttribute('aria-label', label);
@@ -647,23 +648,31 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     // Save keeps it, Cancel undoes it. EVERYTHING musical of mine follows it – footsteps, all sequencers,
     // four voices, synced delay, voice echo, dance – and the others hear / see me at it. (Was "Walk tempo",
     // when only the walk-sound sequencer followed it.) The id stays 'walk-tempo'.
-    // t868u: in steps of 5 BPM (30, 35 … 3000): the knob is fine-grained (WALK_KNOB_STEPS) and snaps to the nearest
-    // 5 BPM; the thumb jumps to that step; arrow keys = ±5 BPM, Page Up/Down = ±50, Home/End = 30 / 3000.
+    // t881u (12 Nov 2026): the 120-BPM grid instead of 5 BPM steps – one notch per grid tempo (shared/tempogrid.mjs
+    // TEMPOS: 120 × octaves, triplets and polyrhythm ratios, 30 … 2880), labelled "180 BPM · 3:2" (the ratio to 120)
+    // plus where it meets 120 on the shared clock. Arrow keys = one notch, Page Up/Down = TEMPO_PAGE notches,
+    // Home/End = the ends. Big and clear (Jens): its own row class 'tempo-grid'.
     r.walkBpm = snapWalkBpm(r.walkBpm);
     const knobOf = (b) => String(Math.round(walkBpmToKnob(b) * WALK_KNOB_STEPS));
-    const walkRow = row('walk-tempo', S.walkTempo || 'Tempo', S.walkTempoTitle || 'Your own tempo, 30–3000 BPM in steps of 5 (default 90)',
+    const meetText = (b) => { const m = meetBars(b); return snapWalkBpm(b) === 120 ? (S.tempoMeetSame || 'The base tempo: everyone else lines up with you') : S.tempoMeet ? S.tempoMeet(m) : `Meets 120 BPM on the bar line every ${m === 1 ? 'bar' : m + ' bars'}`; };
+    const walkRow = row('walk-tempo', S.walkTempo || 'Tempo', S.walkTempoTitle || 'Your own tempo on the 120 BPM grid (default 90 · 3:4)',
       0, WALK_KNOB_STEPS, 1, knobOf(r.walkBpm),
       () => walkBpmLabel(r.walkBpm),
-      (v) => { r.walkBpm = knobToWalkBpm(v / WALK_KNOB_STEPS); if (radio) radio.setWalkBpm(r.walkBpm); if (wIn) wIn.value = knobOf(r.walkBpm); });
+      (v) => { r.walkBpm = knobToWalkBpm(v / WALK_KNOB_STEPS); if (radio) radio.setWalkBpm(r.walkBpm); if (wIn) wIn.value = knobOf(r.walkBpm); if (meet) meet.textContent = meetText(r.walkBpm); });
+    walkRow.classList.add('tempo-grid');
     const wIn = walkRow.querySelector('input');
-    wIn.dataset.min = String(RUN.walkMin); wIn.dataset.max = String(RUN.walkMax); wIn.dataset.step = String(RUN.walkStep);
+    wIn.dataset.min = String(TEMPO_BPMS[0]); wIn.dataset.max = String(TEMPO_BPMS[TEMPO_BPMS.length - 1]); wIn.dataset.grid = String(TEMPO_BPMS.length);
+    wIn.setAttribute('aria-valuetext', walkBpmLabel(r.walkBpm));
+    wIn.addEventListener('input', () => wIn.setAttribute('aria-valuetext', walkBpmLabel(r.walkBpm)));
     wIn.addEventListener('keydown', (e) => {
-      const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 10, PageDown: -10 }[e.key];
-      const to = e.key === 'Home' ? RUN.walkMin : e.key === 'End' ? RUN.walkMax : d ? snapWalkBpm(r.walkBpm + d * RUN.walkStep) : null;
+      const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: TEMPO_PAGE, PageDown: -TEMPO_PAGE }[e.key];
+      const to = e.key === 'Home' ? TEMPO_BPMS[0] : e.key === 'End' ? TEMPO_BPMS[TEMPO_BPMS.length - 1] : d ? stepWalkBpm(r.walkBpm, d) : null;
       if (to == null) return;
       e.preventDefault(); e.stopPropagation();
       wIn.value = knobOf(to); wIn.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    const meet = el('div', 'tempo-meet', meetText(r.walkBpm)); meet.id = 'walk-tempo-meet';
+    walkRow.appendChild(meet);
     box.appendChild(walkRow);
     box.appendChild(row('run-tempo', S.runTempo, S.runTempoTitle, RUN.tempoMin, RUN.tempoMax, RUN.tempoStep, r.tempo, () => tempoLabel(r), (v) => { r.tempo = cleanTempo(v); }));
     box.appendChild(row('run-pitch', S.runPitch || 'Pitch correction', S.runPitchTitle, pitchMin, pitchMax, 1, r.pitch, () => pitchLabel(r.pitch), (v) => { r.pitch = cleanPitch(v); }));
