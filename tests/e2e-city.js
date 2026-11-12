@@ -89,16 +89,18 @@ const EXIT = 'a03b0ba5768979e6';
     let pk = await P.evaluate(() => window.klibb.city().pick);
     check('"to city →" opens the city picker (no city yet: start one)', pk.open && pk.step === 'list' && pk.cities && pk.cities.length === 0, pk);
     await shot(P, '01-city-picker-empty.png');
-    await P.click('#cp-new'); await sleep(300);
-    await P.click('#cp-go'); await sleep(200);
-    const need = await P.textContent('#cp-msg');
-    await P.fill('#cp-name', 'Slapville'); await sleep(200);
+    // t864u: "start a city" goes straight in with a fictional name; the first visitor may rename it once (Town Hall)
     await shot(P, '02-name-your-city.png');
-    await Promise.all([P.waitForURL(/room=stad-[a-z0-9]{6}$/, { timeout: 20000 }), P.click('#cp-go')]);
-    await ready(P); await sleep(2500);
+    await Promise.all([P.waitForURL(/room=stad-[a-z0-9]{6}$/, { timeout: 20000 }), P.click('#cp-new')]);
+    await ready(P); await sleep(1500);
     const CID = await P.evaluate(() => window.klibb.room);
+    const born = await P.evaluate(() => window.klibb.cityInfo()?.name || '');
+    const ren = await (await fetch(`${S.base}/api/cities/${CID}/name`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Slapville', by: 'Jens' }) })).json();
+    await P.waitForFunction(() => document.getElementById('room-hud')?.textContent === 'Slapville', null, { timeout: 10000 }).catch(() => {});
+    await sleep(1000);
     let c = await P.evaluate(() => window.klibb.city());
-    check('a city needs a name; started → you walk into it (stad-<code>), its name in the HUD', /name/i.test(need) && c.outside && c.id === CID && c.info && c.info.name === 'Slapville' && (await P.textContent('#room-hud')) === 'Slapville', { need, c: { id: c.id, info: c.info } });
+    const need = born;
+    check(`a new city is born with a fictional name ("${need}"), renamed once to Slapville; you walk into it (stad-<code>), its name in the HUD`, !!need && need !== 'Slapville' && ren.city?.name === 'Slapville' && c.outside && c.id === CID && c.info && c.info.name === 'Slapville' && (await P.textContent('#room-hud')) === 'Slapville', { need, c: { id: c.id, info: c.info } });
     // Full sticker wheel in the city (same deck as the room); exit is Esc EXIT.
     check('city uses the full sticker deck (not reduced carried packs)', c.wheel.length > 20 && picked.every((id) => c.wheel.includes(id)) && !c.wheel.includes(EXIT) && !c.wheel.includes('city-pack'), c.wheel.slice(0, 12));
     check('rebuild: black doors on the kept houses 1/3/6/8 + the subway (no house started yet), no doors on 4/5/7', JSON.stringify(c.doorStates.filter((d) => d[0] !== 'hall')) === JSON.stringify([[1, 'open'], ['subway', null], [3, 'open'], [6, 'open'], [8, 'open']]), c.doorStates);
