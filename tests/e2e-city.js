@@ -117,10 +117,10 @@ const EXIT = 'a03b0ba5768979e6';
     await P.click('#menu-choice-list [data-id="back"]');
 
     // ---- the Town Hall = the pack shop
-    await P.evaluate(() => { const k = window.klibb; k.controls.ground = (x, z) => (Math.abs(x) <= 15.6 && Math.abs(z) <= 15.6 ? 0.5 : 0); k.camera.position.set(0, 2.1, 12); k.controls.yaw = 0; k.controls.pitch = 0; k.controls.apply(); });
-    await sleep(300); await P.evaluate(() => { window.klibb.camera.position.set(0, 2.1, 8.9); }); await sleep(900);
+    await P.evaluate(() => { const k = window.klibb; k.controls.ground = (x, z) => (Math.abs(x) <= 15.6 && Math.abs(z) <= 15.6 ? 0.5 : 0); k.camera.position.set(0, 2.1, -12); k.controls.yaw = Math.PI; k.controls.pitch = 0; k.controls.apply(); });
+    await sleep(300); await P.evaluate(() => { window.klibb.camera.position.set(0, 2.1, -8.9); }); await sleep(900);
     c = await P.evaluate(() => window.klibb.city());
-    check('walking up to the Town Hall door opens the shop', c.hall.open && c.atDoor === 'hall', c.hall);
+    check('walking up to the Town Hall\'s north entrance opens the shop', c.hall.open && c.atDoor === 'hall', c.hall);
     await P.waitForFunction(() => window.klibb.city().hall.packs !== null, null, { timeout: 10000 }); await sleep(1200);
     const cards = await ids(P, '#th-grid .th-pack');
     check('the shop shows every pack (one shop for all cities), each with picture, name, author, 3 stickers, description', cards.length === 3 && await P.evaluate(() => [...document.querySelectorAll('#th-grid .th-pack')].every((c) => c.querySelector('.th-pimg') && c.querySelector('.th-pname').textContent && c.querySelectorAll('.th-stk img').length === 3 && c.querySelector('.th-about'))), cards);

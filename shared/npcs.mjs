@@ -8,8 +8,8 @@
 // tempo grid (shared/groove.mjs) as a spatial sound, i.e. the normal remote-player falloff. No traffic
 // after the welcome: everything below is a pure function of the city id (the seed) and the server clock.
 //
-//   - Three stand on the plaza (torg) in a 12 m equilateral triangle, so walking between them you hear
-//     one fade out while the next fades in; four more stand in the streets around the city.
+//   - Three stand on the plaza (torg) in a tight conversation (~1.4 m apart), a few metres west of the
+//     mid-plaza spawn so they don't overlap new arrivals; four more stand in the streets around the city.
 //   - Each has its own randomized (seeded) Steps sound (a variation built on the default step: noise
 //     scuff + a tuned oscillator on a pentatonic note), Tempo (a tempo of the 120-BPM grid, t881u), Groove scale,
 //     groove slot (polyrhythm 3/4/5/6/7) and walk / run / crouch settings (run tempo, run pitch, crouch
@@ -33,14 +33,16 @@ export const NPC = Object.freeze({
   visibleM: 60,
   slowM: 25,      // beyond this the dance is animated every other frame
   maxHeard: 4,    // at most this many (the nearest) are scheduled at once   // beyond this the avatar is hidden and not animated (cheap; the city is 96 m across)
-  plazaSide: 12,  // the plaza triangle's side (m)
+  plazaSide: 1.4,  // conversation distance (m) – a tight triangle, as if in a talk (Jens t893u)
 });
-// The plaza triangle: two near the subway end, one towards the Town Hall (all on the paving, clear of the benches).
-const PZ = PLAZA.z, H = NPC.plazaSide * Math.sqrt(3) / 2;
+// The plaza conversation: a tight equilateral triangle a few metres west of the square's centre (the
+// spawn at PLAZA.x/z), on the paving and clear of the benches and the Town Hall wall.
+export const PLAZA_TALK = Object.freeze({ x: -4.5, z: PLAZA.z });
+const H = NPC.plazaSide * Math.sqrt(3) / 2;
 export const NPC_SPOTS = Object.freeze([
-  Object.freeze({ x: -NPC.plazaSide / 2, z: +(PZ - H / 3 - 1).toFixed(3), plaza: true }),
-  Object.freeze({ x: NPC.plazaSide / 2, z: +(PZ - H / 3 - 1).toFixed(3), plaza: true }),
-  Object.freeze({ x: 0, z: +(PZ + (2 * H) / 3 - 1).toFixed(3), plaza: true }),
+  Object.freeze({ x: +(PLAZA_TALK.x - NPC.plazaSide / 2).toFixed(3), z: +(PLAZA_TALK.z - H / 3).toFixed(3), plaza: true }),
+  Object.freeze({ x: +(PLAZA_TALK.x + NPC.plazaSide / 2).toFixed(3), z: +(PLAZA_TALK.z - H / 3).toFixed(3), plaza: true }),
+  Object.freeze({ x: +PLAZA_TALK.x.toFixed(3), z: +(PLAZA_TALK.z + (2 * H) / 3).toFixed(3), plaza: true }),
   // "here and there": the streets between the plots (open ground, not in a building)
   Object.freeze({ x: -16, z: 2 }),   // west of the Town Hall, by the reverb room
   Object.freeze({ x: 16.5, z: -3 }), // east of the Town Hall, by the delay room
@@ -111,9 +113,9 @@ export function npcsFor(roomId) {
     const any = (list) => pick(r, list);
     const look = { outfit: any(Object.keys(AV.outfits)), hair: any(Object.keys(AV.hair)), shirt: any(AV.colors.shirt), pants: any(AV.colors.pants),
       hairColor: any(AV.colors.hair), skin: any(AV.colors.skin), shoes: any(AV.colors.shoes || ['#222222']), hat: false, hatColor: any(AV.colors.hat) };
-    // face the middle of the plaza triangle (plaza ones) / the city's middle (the rest), a little off
-    const cx = spot.plaza ? 0 : 0, cz = spot.plaza ? PZ - 1 : 0;
-    const yaw = +(Math.atan2(-(cx - spot.x), -(cz - spot.z)) + between(r, -0.4, 0.4)).toFixed(3);
+    // plaza ones face the conversation's centre (a little off); the rest face the city's middle
+    const cx = spot.plaza ? PLAZA_TALK.x : 0, cz = spot.plaza ? PLAZA_TALK.z : 0;
+    const yaw = +(Math.atan2(-(cx - spot.x), -(cz - spot.z)) + between(r, spot.plaza ? -0.15 : -0.4, spot.plaza ? 0.15 : 0.4)).toFixed(3);
     const slot = Math.floor(r() * 5);
     const id = `npc-${k}`;
     return { id, npc: true, name, label: `${name} · NPC`, x: spot.x, z: spot.z, yaw, plaza: !!spot.plaza, slot, look,

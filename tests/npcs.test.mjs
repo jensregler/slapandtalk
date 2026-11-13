@@ -1,4 +1,4 @@
-// Dancing NPCs (Jens t873u): seeded per city, three on the plaza 12 m apart + four in the streets, none in a
+// Dancing NPCs (Jens t873u / t893u): seeded per city, three on the plaza in a tight conversation + four in the streets, none in a
 // building; musical randomized tempo / Steps / run-crouch; octave gait rates keep the dance BPM; the server
 // hands them out in the welcome (and not in houses, not with NPCS=0).
 import assert from 'node:assert/strict';
@@ -6,7 +6,7 @@ import { isGridTempo } from '../shared/tempogrid.mjs';
 import { createRequire } from 'node:module';
 import http from 'node:http';
 import * as N from '../shared/npcs.mjs';
-import { insideHouse, PLAZA, CITY } from '../shared/city.mjs';
+import { insideHouse, PLAZA, CITY, CITY_SPAWN } from '../shared/city.mjs';
 import { cleanPatch } from '../shared/synth.mjs';
 import { danceGrid } from '../shared/dance.mjs';
 const require = createRequire(import.meta.url);
@@ -20,11 +20,15 @@ await ok('deterministic per city (the same list every time), different cities di
   assert.deepEqual(N.npcsFor('stad'), N.npcsFor('stad'));
   assert.notDeepEqual(N.npcsFor('stad').map((x) => x.sound.patches), N.npcsFor('stad-byggen').map((x) => x.sound.patches));
 });
-await ok('three on the plaza, an equilateral 12 m triangle, on the paving; nobody in a wall / bench; all in the city', () => {
+await ok('three on the plaza, a tight conversation triangle, on the paving, clear of spawn; nobody in a wall / bench; all in the city', () => {
   const l = N.npcsFor('stad'), p = l.filter((x) => x.plaza);
   assert.equal(p.length, 3);
-  for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) assert.ok(Math.abs(Math.hypot(p[i].x - p[j].x, p[i].z - p[j].z) - 12) < 0.01);
-  for (const x of p) assert.ok(Math.abs(x.x - PLAZA.x) < PLAZA.w / 2 - 1 && Math.abs(x.z - PLAZA.z) < PLAZA.d / 2 - 1);
+  for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) assert.ok(Math.abs(Math.hypot(p[i].x - p[j].x, p[i].z - p[j].z) - N.NPC.plazaSide) < 0.01);
+  assert.ok(N.NPC.plazaSide >= 1 && N.NPC.plazaSide <= 1.5);
+  for (const x of p) {
+    assert.ok(Math.abs(x.x - PLAZA.x) < PLAZA.w / 2 - 1 && Math.abs(x.z - PLAZA.z) < PLAZA.d / 2 - 1);
+    assert.ok(Math.hypot(x.x - CITY_SPAWN.x, x.z - CITY_SPAWN.z) > 2.5, x.id); // not on top of the mid-plaza spawn
+  }
   for (const x of l) { assert.equal(insideHouse(x.x, x.z, 0.8), null, x.id); assert.ok(Math.abs(x.x) < CITY.width / 2 - 2 && Math.abs(x.z) < CITY.depth / 2 - 2); }
 });
 await ok('randomized within musical bounds: Tempo on the 120-BPM grid (75–180, t881u), Groove ½/1/2, slot 0–4, octave run / crouch tempi', () => {

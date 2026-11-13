@@ -60,11 +60,11 @@ async function seedPresets(dir) {
     await P.goto(`${S.base}/?room=${CID}`); await ready(P); await sleep(2500);
     await P.evaluate(() => window.klibb.setView('first', { quiet: true }));
     let c = await P.evaluate(() => window.klibb.city());
-    check('the rebuilt city: black doors on houses 1/3/6/8, the subway door, the Town Hall – none on 4/5/7', JSON.stringify(c.doorStates.map((d) => d[0])) === JSON.stringify([1, 'subway', 3, 'hall', 6, 8]) && [1, 3, 6, 8].every((n) => c.doorStates.find((d) => d[0] === n)[1] === 'open'), c.doorStates);
+    check('the rebuilt city: black doors on houses 1/3/6/8 and the subway – none on 4/5/7, no drawn Town Hall door', JSON.stringify(c.doorStates.map((d) => d[0])) === JSON.stringify([1, 'subway', 3, 6, 8]) && [1, 3, 6, 8].every((n) => c.doorStates.find((d) => d[0] === n)[1] === 'open') && !c.doorStates.some((d) => d[0] === 'hall'), c.doorStates);
     const names = await P.evaluate(() => { const g = window.klibb.scene.getObjectByName('city'); const n = []; g.traverse((o) => { if (o.name) n.push(o.name); }); return n; });
-    check('scene: subway station + T sign, FX walls and roofs on 4/5/7 with their signs, plaza benches; no house walls on plots 2/4/5/7',
-      ['subway-s', 'subway-t', 'subway-sign', 'fx4-roof', 'fx4-ceiling', 'fx5-roof', 'fx7-roof', 'fx-sign-4', 'fx-sign-5', 'fx-sign-7', 'plaza-bench', 'h0-s', 'h2-s', 'h6-s', 'h8-s'].every((x) => names.includes(x))
-      && !['h1-s', 'h3-s', 'h5-s', 'h7-s', 'door-4', 'door-5', 'door-7', 'door-2'].some((x) => names.includes(x)), names.filter((x) => /^(h\d|fx|subway|door)/.test(x)));
+    check('scene: subway station + T sign, FX walls and roofs on 4/5/7, reverb/delay signs, plaza benches; no house walls on plots 2/4/5/7, no noise-room sign, no Town Hall door',
+      ['subway-s', 'subway-t', 'subway-sign', 'fx4-roof', 'fx4-ceiling', 'fx5-roof', 'fx7-roof', 'fx-sign-4', 'fx-sign-5', 'plaza-bench', 'h0-s', 'h2-s', 'h6-s', 'h8-s'].every((x) => names.includes(x))
+      && !['h1-s', 'h3-s', 'h5-s', 'h7-s', 'door-4', 'door-5', 'door-7', 'door-2', 'door-hall', 'fx-sign-7'].some((x) => names.includes(x)), names.filter((x) => /^(h\d|fx|subway|door)/.test(x)));
 
     // The FX rooms' ceiling light (Jens, 11 Nov 2026, voice): each open room 4/5/7 has the same four ceiling
     // lamps as a house's ceiling (compared with house 1's lamps below: colour, intensity, reach, decay, layout).

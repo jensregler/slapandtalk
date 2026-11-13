@@ -8,8 +8,9 @@
 //   - The 8 outer houses were real rooms (<city>-1 … <city>-8). Since the rebuild (10 Nov 2026, below)
 //     only houses 1, 3, 6, 8 are rooms (black arched door, walk in = that room); plot 2 is the subway
 //     station, plots 4, 5, 7 are open FX rooms (walls + roof, no door).
-//   - The middle plot holds the Town Hall: three room blocks stacked (24 m high), green. Its door opens
-//     the hand-in / swap counter (packs, server/citypacks.js).
+//   - The middle plot holds the Town Hall: three room blocks stacked (24 m high), green. Its entrance
+//     is on the north side (facing the plaza) and opens the pack shop (server/citypacks.js) – no drawn door
+//     (Jens t893u).
 // Coordinates: the city is centred on 0 (x east, z south, y up), like every room.
 import ROOM from './room.json' with { type: 'json' };
 
@@ -118,8 +119,12 @@ export const PLOTS = Object.freeze(PLOT_NS.map((hn, k) => {
     walls = kind === 'fx' ? fxWalls(x, z, n === 4 ? 'w' : n === 5 ? 'e' : 's-door') : [house];
     if (kind === 'fx') roof = box(x, z, HOUSE.width, HOUSE.depth, 0.3, HOUSE.height);
   }
-  // every door faces south (+z) like in the sketch; the arch stands on the ground
-  if (kind !== 'fx') door = Object.freeze({ x: house.x, y0: PLOT_SLAB, z: house.z + house.d / 2, w: DOOR.width, h: DOOR.height, facing: [0, 0, 1] });
+  // Kept houses and the subway: the door faces south (+z), like the sketch. The Town Hall's entrance
+  // is on the north wall (facing the plaza); there is no drawn door (Jens t893u).
+  if (kind !== 'fx') {
+    const south = kind !== 'hall';
+    door = Object.freeze({ x: house.x, y0: PLOT_SLAB, z: house.z + (south ? 1 : -1) * house.d / 2, w: DOOR.width, h: DOOR.height, facing: south ? [0, 0, 1] : [0, 0, -1] });
+  }
   return Object.freeze({ k, i, j, x, z, n, kind, room, hall, subway: kind === 'subway', open: kind === 'fx', fx: kind === 'fx' ? FX_PLOTS[n] : null,
     house, walls: Object.freeze(walls), door, roof });
 }));
@@ -158,8 +163,14 @@ export function pushOut(x, z, margin = 0.35) {
   return [x, z];
 }
 // Standing at a door (in front of it, close): the plot, else null. Open rooms have no door.
+// South-facing doors (houses, subway): stand on the +z side. The Town Hall faces north (−z).
 export function doorAt(x, z, reach = 1.4) {
-  return PLOTS.find((p) => p.door && Math.abs(x - p.door.x) < p.door.w / 2 + 0.3 && z >= p.door.z - 0.01 && z < p.door.z + reach) || null;
+  return PLOTS.find((p) => {
+    if (!p.door) return false;
+    if (Math.abs(x - p.door.x) >= p.door.w / 2 + 0.3) return false;
+    const along = (z - p.door.z) * (p.door.facing[2] >= 0 ? 1 : -1);
+    return along >= -0.01 && along < reach;
+  }) || null;
 }
 
 // Where people may stand / hold cameras: the city box for the city, the room box elsewhere.
@@ -167,9 +178,11 @@ export const roomBox = (id) => (isCityOutside(id) ? CITY : ROOM);
 // How tall a nature sticker may be here (cm): the space's height – 24 m in the city's outside (ground and
 // sky; Jens, t482u), 8 m in a room or a house (shared/nature.mjs).
 export const natureMaxHeightCmIn = (id) => Math.round(roomBox(id).height * 100);
-// Where you come into the city: on the open square between the Town Hall and the south houses, looking
-// north at the Town Hall door (8 m ahead).
-export const CITY_SPAWN = Object.freeze({ x: 0, z: 17, yaw: 0 });
+// Where you come into the city: the middle of the plaza (torg) between the subway and the Town Hall,
+// looking south at the Town Hall's north entrance (Jens t893u). A fresh load always starts here (plus a
+// little jitter so two arrivals don't overlap); leaving a house still uses spawnOutside, and ?at=subway
+// / ?at=<house> keep their own spots. Walk position is not saved across reloads.
+export const CITY_SPAWN = Object.freeze({ x: PLAZA.x, z: PLAZA.z, yaw: Math.PI });
 // Leaving a house (back to the city): just outside its door.
 export function spawnOutside(id) {
   const p = plotOfRoom(id);
