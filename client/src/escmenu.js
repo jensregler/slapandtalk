@@ -8,6 +8,7 @@ const $ = (id) => document.getElementById(id);
 
 export function initEscMenu({
   onSound, onAvatar, onRoom, onCity, onExit, onCreate,
+  onLights = null, // LIGHTS (Jens t892u): the noise room's light settings
   onStickers, onStickerPack,
   onCreateCity, onPickCity,
   // DAY / NIGHT (Jens t864u): flips the city's look, returns the new time ('day' | 'night'); the menu stays open.
@@ -36,6 +37,7 @@ export function initEscMenu({
 
   const mainActions = {
     sound: onSound,
+    lights: onLights,
     avatar: onAvatar,
     room: onRoom,
     city: onCity, // unused when city opens submenu; kept for tests

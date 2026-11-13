@@ -177,11 +177,12 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time
       // The ceiling's light (Jens, 11 Nov 2026, voice): the same lamps as a house's ceiling (room.js
       // buildBoxRoom → ceilingLights) – four warm (CEILING_LIGHT_COLOR) point lights, a quarter in from each wall, 0.3 m
       // under the ceiling, same intensity / reach / decay 1.6 – so the open room is lit inside at night.
-      for (const { x, y, z, intensity, distance } of ceilingLights(rf.w, rf.y0 - p.house.y0, rf.d)) {
+      for (const [li, { x, y, z, intensity, distance }] of ceilingLights(rf.w, rf.y0 - p.house.y0, rf.d).entries()) {
         const lamp = new THREE.PointLight(CEILING_LIGHT_COLOR, intensity, distance, CEILING_LIGHT_DECAY);
         lamp.name = `${tag}-ceiling-light`; lamp.position.set(rf.x + x, p.house.y0 + y, rf.z + z); lamp.userData.fxCeiling = p.n; group.add(lamp);
         // the noise room (Jens t875u): the west half's lamps pulse with speaker A, the east half's with B (client/src/noisespeakers.js)
-        if (p.fx === 'noise') { lamp.userData.base = intensity; (rf.x + x < p.x ? noiseLamps.A : noiseLamps.B).push(lamp); }
+        // (t892u: each lamp has a name – NW NE SW SE – for its own settings, Esc → LIGHTS, client/src/noiselights.js)
+        if (p.fx === 'noise') { lamp.userData.base = intensity; lamp.userData.lampId = ['NW', 'NE', 'SW', 'SE'][li]; (rf.x + x < p.x ? noiseLamps.A : noiseLamps.B).push(lamp); }
       }
       // a sign over the opening: the plot's number and what the room does
       const word = { reverb: 'REVERB', delay: 'DELAY', noise: 'NOISE' }[p.fx];
