@@ -49,7 +49,7 @@ const CUSTOM = {
     await A.click('#snd-tabs [data-tab="slap"]'); await sleep(150);
     const fxBefore = await A.evaluate(() => { const st = window.klibb.soundUi().state(); return JSON.stringify(st.fx); });
     const tabLabels = await A.$$eval('#snd-tabs button', (b) => b.map((x) => x.textContent));
-    check('sound settings tabs: Slap, Peel, Steps, Landing (no Nope, Effects)', tabLabels.join() === 'Slap,Peel,Steps,Landing', tabLabels);
+    check('sound settings tabs: Steps, Slap, Peel, Landing (no Nope, Effects)', tabLabels.join() === 'Steps,Slap,Peel,Landing', tabLabels);
     await A.click('#snd-reset'); await sleep(500);
     const r = await A.evaluate(() => {
       const k = window.klibb, sh = k.synthShared(), st = k.soundUi().state(), seed = localStorage.getItem('klibb.soundSeed');
@@ -60,7 +60,7 @@ const CUSTOM = {
     });
     check('Reset: every sound (Slap, Peel, Steps, Duff) back to my default, no own effects, nothing custom', Object.values(r.tabs).every(Boolean) && r.custom.length === 0, r);
     check('…Effects data back to default (tab hidden; city drives fx – state still resets)', r.fx && r.fxJson !== fxBefore, { before: fxBefore, after: r.fxJson, fx: r.fx });
-    check('…visible tabs Slap/Peel/Steps/Landing', r.visible.join() === 'slap,peel,step,duff', r.visible);
+    check('…visible tabs Steps/Slap/Peel/Landing', r.visible.join() === 'step,slap,peel,duff', r.visible);
     check('…Volume back to 100 and the sound follows (volume 1)', r.mv === '100' && await A.evaluate(() => sessionStorage.getItem('klibb.musicVol')) === '1', r.mv);
     check('…Tempo back to 90 BPM', r.walkBpm === 90 && r.runWalk === 90, { walkBpm: r.walkBpm, runWalk: r.runWalk });
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(150);

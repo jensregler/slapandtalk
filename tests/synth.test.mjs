@@ -33,7 +33,7 @@ assert(many.layers.length === SYNTH.maxLayers && many.gain === 1.5 && cleanPatch
   `patch: at most ${SYNTH.maxLayers} layers, gain clamped, empty/garbage patches rejected`);
 for (const k of SOUNDS) { const p = DEFAULT_PATCHES[k]; if (!same(cleanPatch(p), p)) throw new Error('default patch not clean: ' + k); }
 assert(SOUNDS.join() === 'slap,peel,step,duff' && SOUNDS.every((k) => JSON.stringify(DEFAULT_PATCHES[k]).length < SYNTH.maxPatchBytes), 'the four default patches (slap, peel, step, duff) are valid, clean JSON');
-assert(SOUND_TABS.join() === 'slap,peel,step,duff' && SOUND_TABS.includes('duff'), 'sound-settings tabs: Slap, Peel, Steps, Landing/duff (Effects not a SOUND_TAB)');
+assert(SOUND_TABS.join() === 'step,slap,peel,duff' && SOUND_TABS.includes('duff'), 'sound-settings tabs: Steps, Slap, Peel, Landing/duff (Effects not a SOUND_TAB)');
 assert(!('nope' in DEFAULT_PATCHES) && !SOUNDS.includes('nope'), 'nope sound removed entirely');
 {
   const legacy = cleanSound({ seed: 'abcd1234', patches: { nope: { v: 1, gain: 1, layers: [{ kind: 'osc', wave: 'square', freq: 290, d: 0.1, level: 0.18 }] }, slap: DEFAULT_PATCHES.slap } }, { custom: true });
