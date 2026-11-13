@@ -1404,3 +1404,29 @@ body.touch #esc-menu .esc-cat-back { white-space: nowrap; padding: 6px 14px; min
 #sightline-hud { position: fixed; left: 50%; top: 56%; transform: translateX(-50%); z-index: 40; pointer-events: none;
   background: rgba(10, 14, 20, 0.82); color: #fff7c2; font: 700 22px/1.3 system-ui, sans-serif; padding: 10px 18px;
   border: 2px solid #f5d020; border-radius: 12px; white-space: nowrap; }
+
+/* The Steps sequencer (Jens t889u): one sequencer for the whole Steps sound + parameter locks. Big and high contrast (Jens's eyes). */
+#sound-panel .snd-stepseq { border: 3px solid #a27de8; border-radius: 14px; padding: 10px 12px 12px; margin: 10px 0 14px; background: rgba(162, 125, 232, 0.08); }
+#sound-panel .snd-stepseq legend { font-size: 22px; font-weight: 800; color: #e3d4ff; padding: 0 6px; }
+#sound-panel .snd-stepseq .hint { font-size: 15px; line-height: 1.35; }
+.ss-grid { display: grid; gap: 8px; margin: 10px 0; }
+.ss-cell { position: relative; display: flex; flex-direction: column; gap: 4px; border-radius: 12px; padding: 4px; border: 3px solid transparent; }
+.ss-cell.sel { border-color: #ffd23f; background: rgba(255, 210, 63, 0.18); box-shadow: 0 0 0 3px rgba(255, 210, 63, 0.35); }
+.ss-pad { min-height: 64px !important; font-size: 26px !important; font-weight: 800; border-radius: 10px; background: #222; border: 3px solid #666; color: #bbb; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.ss-cell.on .ss-pad { background: #a27de8; color: #000; border-color: #e3d4ff; }
+.ss-cell.sel .ss-pad { border-color: #ffd23f; }
+.ss-pick { font-size: 15px !important; font-weight: 700; padding: 6px 2px !important; border-radius: 8px; background: #2b2b2b; color: #ffe9a6; border: 2px solid #6b5a1e; }
+.ss-cell.sel .ss-pick { background: #ffd23f; color: #000; border-color: #fff2b8; }
+.ss-locks { position: absolute; top: -8px; right: -6px; background: #ff8a1f; color: #000; font: 800 14px/1 system-ui, sans-serif; padding: 4px 6px; border-radius: 10px; border: 2px solid #000; pointer-events: none; }
+.ss-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ss-editing { flex-basis: 100%; background: #ffd23f; color: #000; font-size: 19px; font-weight: 800; padding: 10px 12px; border-radius: 10px; }
+.ss-bar button { font-size: 16px !important; min-height: 44px; }
+.ss-bar button:disabled { opacity: 0.4; }
+#sound-panel .snd-sl.locked { background: rgba(255, 138, 31, 0.22); border-left: 6px solid #ff8a1f; border-radius: 8px; padding-left: 6px; }
+#sound-panel .snd-sl.locked span { color: #ffb36b; font-weight: 800; }
+#sound-panel .snd-sl.locked output { color: #ffb36b; font-weight: 800; }
+#sound-panel .snd-sl.locked input[type=range] { accent-color: #ff8a1f; }
+#sound-panel .snd-sl.has-locks { border-left: 4px dashed #ff8a1f; padding-left: 6px; }
+#sound-panel .snd-sl .lock-badge { grid-column: 1 / -1; justify-self: start; font-size: 14px !important; font-weight: 800; padding: 2px 10px !important; min-height: 0 !important; border-radius: 8px; background: #ff8a1f; color: #000; border: 2px solid #000; }
+#sound-panel .snd-sl .lock-badge:disabled { opacity: 0.75; cursor: default; background: #3a2a16; color: #ffb36b; border-color: #ff8a1f; }
+#sound-panel[data-stepsel] .snd-layer { outline: 2px dashed rgba(255, 210, 63, 0.5); }

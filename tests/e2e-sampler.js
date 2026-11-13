@@ -110,15 +110,15 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     check('audio-rate LFO (880 Hz = A5 tone) + 6 nested LFOs run per sample in ONE worklet node', wk && wk.worklet === true && wk.lfos === 6 && wk.outputs >= 1, wk);
     await A.evaluate(() => document.getElementById('snd-mods').scrollIntoView());
     await (await A.$('#sound-panel')).screenshot({ path: path.join(SHOTS, '03-nested-lfos.png') });
-    // ---------- sequencer layer ----------
+    // ---------- the Steps sequencer (t889u: ONE sequencer for the whole Steps sound, no per-layer seq on Steps) ----------
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(150);
-    await A.click('#snd-add-seq'); await sleep(150);
-    await A.evaluate(() => { const b = [...document.querySelectorAll('.snd-seq-quick button')].find((x) => x.textContent === '7'); b.click(); });
+    const noAdd = await A.evaluate(() => !document.getElementById('snd-add-seq') || document.getElementById('snd-add-seq').offsetParent === null);
+    await A.evaluate(() => { const b = [...document.querySelectorAll('#snd-stepseq .snd-seq-quick button')].find((x) => x.textContent === '7'); b.click(); });
     await sleep(150);
-    const sq = await A.evaluate(() => { const p = window.klibb.soundUi().state().patches.step; const l = p.layers[p.layers.length - 1]; return { seq: l.seq, cells: document.querySelectorAll('.snd-seq-grid .snd-step').length }; });
-    check('"+ Sequencer layer": a layer that starts as a sequencer; step count 7 (1–16, quick picks 3 4 5 6 7 8 12 16)', sq.seq && sq.seq.len === 7 && sq.cells === 7, sq);
-    await A.evaluate(() => [...document.querySelectorAll('.snd-seq-grid .snd-step')][2].click()); await sleep(100);
-    await A.evaluate(() => document.querySelector('.snd-seq').scrollIntoView());
+    const sq = await A.evaluate(() => { const p = window.klibb.soundUi().state().patches.step; return { seq: p.seq, layerSeqs: p.layers.filter((l) => l.seq).length, cells: document.querySelectorAll('#snd-stepseq .ss-cell').length }; });
+    check('Steps: one sequencer for the whole sound (no "+ Sequencer layer"); step count 7 (1–16, quick picks)', noAdd && sq.seq && sq.seq.len === 7 && sq.cells === 7 && sq.layerSeqs === 0, sq);
+    await A.evaluate(() => document.querySelectorAll('#snd-stepseq .ss-pad')[2].click()); await sleep(100);
+    await A.evaluate(() => document.getElementById('snd-stepseq').scrollIntoView());
     await (await A.$('#sound-panel')).screenshot({ path: path.join(SHOTS, '04-sequencer-layer.png') });
     // ---------- mic layer, envelope follower, voice effect ----------
     const gum0 = await A.evaluate(() => window.__gum);
@@ -152,7 +152,7 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     console.log('    (patch JSON bytes before save:', await A.evaluate(() => JSON.stringify(window.klibb.soundUi().state().patches).length), ')');
     await A.click('#snd-save'); await sleep(1500);
     const srv = await A.evaluate(async (R) => { const r = await fetch(`/api/rooms/${R}/sound`, { headers: { 'X-Sound-Owner': localStorage.getItem('klibb.soundOwner') } }); return (await r.json()).preset; }, R);
-    check('Save stores the preset for THIS room on the server (patches incl. sampler + LFOs + sequencer, master/radio)', srv && srv.patches && srv.patches.slap.layers.some((l) => l.kind === 'sampler') && srv.patches.slap.mods.length === 6 && srv.patches.step.layers.some((l) => l.seq && l.seq.len === 7) && srv.radio.on === true, srv && { keys: Object.keys(srv), pk: srv.patches && Object.keys(srv.patches), size: JSON.stringify(srv).length });
+    check('Save stores the preset for THIS room on the server (patches incl. sampler + LFOs + sequencer, master/radio)', srv && srv.patches && srv.patches.slap.layers.some((l) => l.kind === 'sampler') && srv.patches.slap.mods.length === 6 && srv.patches.step.seq && srv.patches.step.seq.len === 7 && srv.radio.on === true, srv && { keys: Object.keys(srv), pk: srv.patches && Object.keys(srv.patches), size: JSON.stringify(srv).length });
     const other = await B.evaluate(async (R) => { const r = await fetch(`/api/rooms/${R}/sound`, { headers: { 'X-Sound-Owner': localStorage.getItem('klibb.soundOwner') } }); return { preset: (await r.json()).preset, mine: window.klibb.soundMine(), sees: window.klibb.players()[0].look.sound }; }, R);
     check('per player: B in the same room has no preset, keeps the original sound, and only sees A\'s seed', other.preset === null && !other.mine.patches && other.sees && !other.sees.patches, other);
     const noKey = await (await fetch(`${S.base}/api/rooms/${R}/sound`)).status;
@@ -190,7 +190,7 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     const loops = await A.evaluate(() => { const r = window.klibb.radio(); return r.voiceLog.slice(-40); });
     const keys = new Set(loops.map((e) => e.key));
     // (t783u: a sequencer layer on the walk/Steps sound only runs while I walk – tests/e2e-walkseq.js)
-    check('Master on: the four voices run on the master clock; the Steps sequencer layer waits while I stand still', !keys.has('step' + 2) && ['v0', 'v1', 'v2', 'v3'].every((k) => keys.has(k)), [...keys]);
+    check('Master on: the four voices run on the master clock; the Steps sequencer waits while I stand still', ![...keys].some((k) => /^step/.test(k)) && ['v0', 'v1', 'v2', 'v3'].every((k) => keys.has(k)), [...keys]);
     // ---------- Master: volume + city sound; blend/knob forced; walk tempo on Steps ----------
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
     const forced = await A.evaluate(() => { window.klibb.radio().set({ knob: 0, on: false }); return window.klibb.radio().state; });

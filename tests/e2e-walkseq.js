@@ -1,27 +1,26 @@
-// E2E (Jens t783u, 10 Nov 2026): a sequencer layer on the walk (Steps) sound only runs while I walk
-// (standing = no steps, the clock doesn't roll), pauses in place, and follows run mode (Shift):
-// run tempo × the step rate, run pitch on every step. One page, own server (port WALKSEQ_E2E_PORT, 8863).
-// Reads radio.voiceLog (what radio.js scheduled), so it doesn't depend on hearing audio.
+// E2E (Jens t889u, 13 Nov 2026 – was t783u's per-layer walk sequencer): the Steps sound has ONE sequencer for the
+// whole sound, at the top of the Steps tab (under Walk, run & sneak). It IS the footsteps: it only runs while I walk
+// (standing = silent), the first step is step 1 on the beat, run mode (Shift) runs it at the run rate with the run
+// pitch. Slap / Peel / Landing keep their per-layer sequencers (they run on my Tempo while I stand), the four voices too.
+// One page, own server (port WALKSEQ_E2E_PORT, 8863). Reads the footstep log (groove.js) and the step log (sound.js).
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const { startServer, sleep } = require('./demo-helpers');
 const PORT = Number(process.env.WALKSEQ_E2E_PORT || 8863);
-const SHOTS = process.env.WALKSEQ_SHOTS || '/workspace/walk-seq-run-shots';
+const SHOTS = process.env.WALKSEQ_SHOTS || '/workspace/step-seq';
 
 let pass = 0, fail = 0;
 const check = (name, ok, extra) => { if (ok) { pass++; console.log('  ✓ ' + name); } else { fail++; console.log('  ✗ ' + name + (extra !== undefined ? ' — ' + JSON.stringify(extra).slice(0, 700) : '')); } };
 const KEY = 'walkseq-e2e-full-key';
-// my own Tempo (90 BPM default; no room nudge since t846u) – the log is in whole ms: 1 %
-const near = (g, want) => Math.abs(g - want) <= want * 0.01 + 1;
-// a gap of a whole number of steps: turning from W to S stops me for a moment (the footsteps pause too),
-// and the sequencer pauses in place – the next step is still the next one in the pattern, on the grid
+const near = (g, want) => Math.abs(g - want) <= want * 0.02 + 1.5;
 const onGrid = (g, per) => { const k = Math.round(g / per); return k >= 1 && near(g, k * per); };
+const PULSES = [4, 3, 5, 6, 7];
 
 (async () => {
   const S = await startServer(PORT, { DEMO_PROFILE: '0', DEV_UNLOCK: '0', ADMIN_TOKEN: 'walkseq-e2e-admin', FULL_ACCESS_KEYS: KEY });
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
-  console.log(`Walk-sound sequencer (${S.base})`);
+  console.log(`Steps sequencer – walk / run (${S.base})`);
   let A;
   try {
     const made = await (await fetch(`${S.base}/api/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
@@ -36,78 +35,85 @@ const onGrid = (g, per) => { const k = Math.round(g / per); return k >= 1 && nea
     await A.evaluate(() => window.klibb.setView('first'));
     await A.waitForFunction(() => window.klibb.soundObj().engine, null, { timeout: 20000 }).catch(() => {});
 
-    // a sequencer layer on the Steps sound (4 steps per bar, all on), saved
+    // ---------- the Steps tab: one sequencer for the whole sound, above the layers ----------
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(200);
-    await A.click('#snd-add-seq'); await sleep(150);
-    await A.evaluate(() => { const b = [...document.querySelectorAll('.snd-seq-quick button')].find((x) => x.textContent === '4'); b && b.click(); });
-    await sleep(150);
-    const seq = await A.evaluate(() => { const p = window.klibb.soundUi().state().patches.step; const i = p.layers.findIndex((l) => l.seq); return { i, len: i >= 0 ? p.layers[i].seq.len : 0 }; });
-    check('Steps tab: a 4-step sequencer layer added', seq.i >= 0 && seq.len === 4, seq);
+    const ui = await A.evaluate(() => {
+      const body = document.getElementById('snd-body'), kids = [...body.children];
+      const run = kids.findIndex((e) => e.id === 'snd-run'), seq = kids.findIndex((e) => e.id === 'snd-stepseq'), lay = kids.findIndex((e) => e.classList.contains('snd-layer'));
+      const pads = [...document.querySelectorAll('#snd-stepseq .ss-pad')].map((b) => b.getAttribute('aria-pressed'));
+      return { run, seq, lay, pads, layerSeqs: document.querySelectorAll('#snd-body .snd-layer .snd-seq-tog').length, addSeq: !!document.getElementById('snd-add-seq'), loop: document.querySelector('#snd-stepseq select[data-name="Loop"]')?.value, p: window.klibb.soundUi().state().patches.step.seq };
+    });
+    check('Steps tab: the sequencer sits under Walk, run & sneak and above the layers', ui.run >= 0 && ui.seq === ui.run + 1 && ui.lay > ui.seq, ui);
+    check('…default 4 steps a footstep: step 1 on, 2–4 off, loop 1 footstep', JSON.stringify(ui.pads) === '["true","false","false","false"]' && ui.loop === '1' && ui.p.len === 4, ui);
+    check('…no per-layer sequencer on Steps (no layer toggles, no "+ Sequencer layer")', ui.layerSeqs === 0 && !ui.addSeq, ui);
+    // step 3 on → an off-beat step halfway between footsteps; save
+    await A.click('#snd-stepseq .ss-pad[data-step="2"]'); await sleep(150);
+    const on3 = await A.evaluate(() => window.klibb.soundUi().state().patches.step.seq.steps.map((s) => s.on));
+    check('click step 3: on', JSON.stringify(on3) === '[true,false,true,false]', on3);
     await A.evaluate(() => document.getElementById('snd-save').click()); await sleep(300);
-    const key = 'step' + seq.i;
-    const stepLog = (since) => A.evaluate(({ key, since }) => window.klibb.radio().voiceLog.filter((e) => e.key === key && e.t >= since), { key, since });
+    const saved = await A.evaluate(() => window.klibb.soundObj().mine?.patches?.step?.seq);
+    check('saved with my sound (whole-sound seq in the Steps patch)', saved && saved.len === 4 && saved.steps[2].on, saved);
+
     const now = () => A.evaluate(() => window.klibb.grooveObj().now());
-
-    // ---------- standing still ----------
-    await sleep(600); let t0 = await now(); await sleep(2200);
-    let ev = await stepLog(t0);
-    check('standing still: the walk sequencer does not roll (no steps in 2.2 s)', ev.length === 0, ev);
-
-    // ---------- walking (W, then S back so I don't end up in a wall) ----------
+    const log = (since) => A.evaluate((since) => window.klibb.grooveObj().log.filter((e) => e.id === 'me' && e.t >= since), since);
     const walk = async (ms, { run = false } = {}) => {
       if (run) await A.keyboard.down('Shift');
       for (const k of ['KeyW', 'KeyS']) { await A.keyboard.down(k); await sleep(ms / 2); await A.keyboard.up(k); }
       if (run) await A.keyboard.up('Shift');
     };
+
+    // ---------- standing still ----------
+    await sleep(600); let t0 = await now(); await sleep(2200);
+    let ev = await log(t0);
+    check('standing still: the Steps sequencer does not roll (no steps in 2.2 s)', ev.length === 0, ev);
+
+    // ---------- walking ----------
+    t0 = await now(); await walk(3200);
+    ev = await log(t0);
+    const slot = ev.length ? ev[0].slot : 0, P = 4000 / 3 / PULSES[slot];
+    const gaps = ev.slice(1).map((e, k) => e.t - ev[k].t).filter((g) => g > 20);
+    check('walking: steps 1 and 3 only, the first one step 1 (the entry, on the beat)', ev.length >= 6 && ev[0].i === 0 && ev.some((e) => e.entry) && ev.every((e) => e.i === 0 || e.i === 2) && ev.some((e) => e.i === 2), { n: ev.length, ev: ev.slice(0, 8) });
+    check(`…on the footstep grid: step 3 halfway between footsteps (${(P / 2).toFixed(1)} ms)`, gaps.length > 3 && gaps.every((g) => onGrid(g, P / 2)) && gaps.filter((g) => near(g, P / 2)).length >= gaps.length / 2, { P, gaps });
+    const sl = await A.evaluate(() => window.klibb.soundObj().stepLog.slice(-12).map((e) => ({ step: e.step, vol: e.vol })));
+    check('…each step plays the whole Steps sound with its step index (sound.js step log)', sl.length && sl.every((e) => e.step === 0 || e.step === 2), sl);
+
+    // ---------- stop ----------
+    await sleep(400); const t2 = await now(); await sleep(1800);
+    check('stop: silent again', (await log(t2)).length === 0);
+
+    // ---------- run (Shift, default +100 % = 2:1, a fifth up) ----------
+    await sleep(300); t0 = await now(); await walk(2400, { run: true });
+    ev = (await log(t0)).filter((e) => e.run);
+    const rg = ev.slice(1).map((e, k) => e.t - ev[k].t).filter((g) => g > 10);
+    check('running: the same sequencer at 2× (step 3 every half run-footstep), run pitch', ev.length >= 8 && ev.every((e) => e.run === 2 && Math.abs(e.tune - 1.4983) < 1e-3 && (e.i === 0 || e.i === 2)) && rg.every((g) => onGrid(g, P / 4)) && rg.filter((g) => near(g, P / 4)).length >= rg.length / 2, { n: ev.length, rg: rg.slice(0, 10) });
+    await sleep(900); const t3 = await now(); await sleep(1500); // (run speed is 2×: the avatar glides a little longer)
+    { const l3 = await log(t3); check('…and silent after running', l3.length === 0, { t3, l3 }); }
+
+    // ---------- sneak (Ctrl): default −50 % = 2:3 ----------
     t0 = await now();
-    await walk(3200);
-    const t1 = await now();
-    ev = await stepLog(t0);
-    const walkGaps = ev.slice(1).map((e, k) => e.t - ev[k].t);
-    check('walking: the sequencer steps (≈ 3 steps/s at 90 BPM, 4 per bar)', ev.length >= 3 && ev.every((e) => e.walk && !e.run), { n: ev.length, ev: ev.slice(0, 8) });
-    check('…a quarter bar apart (667 ms), in pattern order', walkGaps.length && walkGaps.every((g) => onGrid(g, 666.7)) && walkGaps.filter((g) => near(g, 666.7)).length >= 1 && ev.every((e, k) => k === 0 || e.i === (ev[k - 1].i + 1) % 4), { walkGaps, i: ev.map((e) => e.i) });
+    await A.keyboard.down('Control'); for (const k of ['KeyW', 'KeyS']) { await A.keyboard.down(k); await sleep(1600); await A.keyboard.up(k); } await A.keyboard.up('Control');
+    ev = (await log(t0)).filter((e) => e.run);
+    const cg = ev.slice(1).map((e, k) => e.t - ev[k].t).filter((g) => g > 10);
+    check('sneaking (Ctrl): the same sequencer at the crouch rate (2:3)', ev.length >= 3 && ev.every((e) => Math.abs(e.run - 2 / 3) < 1e-3 && (e.i === 0 || e.i === 2)) && cg.every((g) => onGrid(g, P / 2 * 1.5)), { n: ev.length, cg, ev: ev.slice(0, 3) });
 
-    // ---------- stop again ----------
-    await sleep(400); const t2 = await now(); await sleep(2000);
-    const w1 = await stepLog(t0), lastI = w1.length ? w1[w1.length - 1].i : null; // (incl. the last lookahead step)
-    ev = await stepLog(t2);
-    check('stop: silent again (no steps after I stop)', ev.length === 0, { ev, stoppedAt: t1 });
-
-    // ---------- walk again: goes on from the next step ----------
-    t0 = await now(); await walk(1400);
-    ev = await stepLog(t0);
-    check('walk again: continues from the next step (pause, not back to step 1)', ev.length >= 1 && ev[0].i === (lastI + 1) % 4, { lastI, first: ev[0] });
-
-    // ---------- run mode: Shift + W ----------
-    const rm = await A.evaluate(() => window.klibb.runMode());
-    await sleep(500); t0 = await now();
-    await walk(2400, { run: true });
-    ev = (await stepLog(t0)).filter((e) => e.run);
-    const runGaps = ev.slice(1).map((e, k) => e.t - ev[k].t);
-    check('running (Shift, default +100 % = 2:1, a fifth up): steps at 2× rate with the run pitch', ev.length >= 6 && ev.every((e) => e.run === 2 && Math.abs(e.tune - 1.4983) < 1e-3) && runGaps.every((g) => onGrid(g, 333.3)) && runGaps.filter((g) => near(g, 333.3)).length >= runGaps.length / 2, { rm, n: ev.length, runGaps, ev: ev.slice(0, 4) });
-
-    // change the run sliders (−100 % = 1:2, octave down) and run again
+    // ---------- Slap keeps its per-layer sequencer (the "your sequencers" that follow Tempo) ----------
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
-    await A.click('#snd-tabs [data-tab="step"]'); await sleep(200);
-    await A.evaluate(() => { const s = document.getElementById('run-tempo'); s.value = '-100'; s.dispatchEvent(new Event('input', { bubbles: true })); const p = document.getElementById('run-pitch'); p.value = '-5'; p.dispatchEvent(new Event('input', { bubbles: true })); });
-    await A.evaluate(() => document.getElementById('snd-save').click()); await sleep(300);
-    await sleep(400); t0 = await now();
-    await walk(4200, { run: true });
-    ev = (await stepLog(t0)).filter((e) => e.run);
-    const slowGaps = ev.slice(1).map((e, k) => e.t - ev[k].t);
-    check('run tempo −100 % (1:2) + pitch octave down: half the step rate, tune 0.5', ev.length >= 2 && ev.every((e) => e.run === 0.5 && Math.abs(e.tune - 0.5) < 1e-6) && slowGaps.every((g) => onGrid(g, 1333.3)) && ev.every((e, k) => k === 0 || e.i === (ev[k - 1].i + 1) % 4), { n: ev.length, slowGaps, ev: ev.slice(0, 4) });
-    await sleep(400); const t3 = await now(); await sleep(1600);
-    check('…and silent again after running', (await stepLog(t3)).length === 0);
-    // the other sounds' sequencers are unchanged: still on the master clock (checked by e2e-sampler); the four voices still run
-    await A.evaluate(() => window.klibb.radio().set({ voices: { on: true } }, { save: false })); await sleep(1500);
+    await A.click('#snd-tabs [data-tab="slap"]'); await sleep(200);
+    const slapAdd = await A.evaluate(() => !!document.getElementById('snd-add-seq'));
+    check('Slap tab: "+ Sequencer layer" is still there', slapAdd);
+    await A.click('#snd-add-seq'); await sleep(150);
+    await A.evaluate(() => document.getElementById('snd-save').click()); await sleep(1500);
     const keys = await A.evaluate(() => [...new Set(window.klibb.radio().voiceLog.map((e) => e.key))]);
-    check('four voices still run on the master clock while I stand (unchanged)', ['v0', 'v1', 'v2', 'v3'].every((k) => keys.includes(k)) && !(await stepLog(t3 + 1700)).length, keys);
+    check('…a Slap sequencer layer runs on my Tempo while I stand (radio.js, unchanged)', keys.some((k) => /^slap\d$/.test(k)), keys);
+    await A.evaluate(() => window.klibb.radio().set({ voices: { on: true } }, { save: false })); await sleep(1500);
+    const keys2 = await A.evaluate(() => [...new Set(window.klibb.radio().voiceLog.map((e) => e.key))]);
+    check('four voices still run', ['v0', 'v1', 'v2', 'v3'].every((k) => keys2.includes(k)), keys2);
     await A.evaluate(() => window.klibb.radio().set({ voices: { on: false } }, { save: false }));
     fs.mkdirSync(SHOTS, { recursive: true });
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(200);
-    await (await A.$('#sound-panel')).screenshot({ path: path.join(SHOTS, 'steps-tab-seq-run.png') }).catch(() => {});
+    await (await A.$('#snd-stepseq')).screenshot({ path: path.join(SHOTS, 'walkseq-steps-1-3.png') }).catch(() => {});
     check('no page errors', !A.errors.length, A.errors);
   } catch (e) { fail++; console.log('  ✗ crashed: ' + (e && e.stack || e)); }
   finally { await browser.close(); S.child.kill(); }

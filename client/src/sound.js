@@ -10,7 +10,8 @@
 // Other people's sounds are spatial (HRTF panner, quieter with distance). The room's materials
 // add a subtle, automatic reverb (roomAcoustics). Mute is remembered ('klibb.muted').
 import { withHold } from '../../shared/dancehold.mjs';
-import { DEFAULT_PATCHES, variant, morphPatch, cleanPatch, cleanFx, duffScale, slapScale, sizeRate, retune, roomAcoustics, colourPatch } from '../../shared/synth.mjs';
+import { lockedPatch } from '../../shared/stepseq.mjs';
+import { DEFAULT_PATCHES, variant, morphPatch, cleanPatch, cleanFx, duffScale, slapScale, sizeRate, retune, roomAcoustics, colourPatch, migrateStepSeq } from '../../shared/synth.mjs';
 import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
 import { peelStepParams } from '../../shared/peelstep.mjs';
 import { ensureSamples } from './samples.js';
@@ -115,7 +116,7 @@ export class Sounds {
   }
   // The patch a player's sound uses: their custom one, else their variation of the default.
   patchFor(kind, sound) {
-    const custom = sound && sound.patches && cleanPatch(sound.patches[kind]);
+    const custom = sound && sound.patches && cleanPatch(kind === 'step' ? migrateStepSeq(sound.patches[kind]) : sound.patches[kind]); // (old per-layer Steps sequencers → the whole-sound one, t889u)
     // The radio (shared/radio.mjs, mine only): off = the original sounds; the knob morphs from the
     // original (that player's default variation, knob 0) to the custom patch (knob ½) and on past it
     // (knob 1 = the difference twice over: seek, morphPatch t = 2). Not a volume.
@@ -147,7 +148,9 @@ export class Sounds {
   // pool: the voice budget (synth.js; NPC footsteps: 'npc'), npc: the NPC's id (the step log, tests).
   // hold (s, slap): every layer's envelope hold for this one play (the dance-mode vector, shared/dancehold.mjs);
   // null/absent = the patch's own hold.
-  play(kind, at = null, { sound, area, size, volume = 1, time = null, tune = 1, onPeel = false, speed = 0, exact = false, hold = null, pool = null, npc = null } = {}) {
+  // seqStep (step only, groove.js): which step of the Steps sequencer this is (shared/stepseq.mjs, t889u) – its
+  // parameter locks are applied; the walking wobble below still rides on top.
+  play(kind, at = null, { sound, area, size, volume = 1, time = null, tune = 1, onPeel = false, speed = 0, exact = false, hold = null, pool = null, npc = null, seqStep = null } = {}) {
     const remote = !!at;
     const who = sound === undefined ? this.mine : sound;
     const wobble = exact ? 1 : kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06; // tiny per-play life
@@ -162,7 +165,8 @@ export class Sounds {
     const distance = remote ? Math.hypot(at[0] - this.listener.p[0], at[1] - this.listener.p[1], at[2] - this.listener.p[2]) : 0;
     // Same curve as the panner (inverse distance), so the log shows what you hear.
     const heard = remote ? 1.6 / (1.6 + Math.max(0, distance - 1.6)) : 1;
-    const { patch: base, custom } = this.patchFor(kind, who);
+    const { patch: base0, custom } = this.patchFor(kind, who);
+    const base = kind === 'step' && seqStep != null ? lockedPatch(base0, seqStep) : base0; // the step's locks (t889u)
     const patch = hold != null ? withHold(base, hold) : base;
     const entry = { kind, remote, distance: +distance.toFixed(2), gain: +heard.toFixed(3), level: +gain.toFixed(3), rate: +rate.toFixed(3),
       seed: who?.seed || null, colour: who && Number.isInteger(who.colour) ? who.colour : 0, custom, muted: this.muted, time: Date.now(), ...(hold != null ? { hold: +(+hold).toFixed(3) } : {}),
@@ -172,7 +176,7 @@ export class Sounds {
     if (paper) { gain *= paper.gain; entry.paper = paper; }
     if (kind === 'step') {
       this.steps++; if (paper) this.peelSteps++;
-      this.stepLog.push({ onPeel: !!paper, speed: +(+speed || 0).toFixed(2), cutoff: paper?.cutoff ?? null, drive: paper?.drive ?? null, remote, ...(remote ? { at: at.map((v) => +(+v).toFixed(2)), distance: +distance.toFixed(2), gain: +heard.toFixed(3) } : {}), ...(npc ? { npc } : {}), muted: this.muted, fq: (patch?.layers || []).map((l) => +(+l.freq || 0).toFixed(2)), waves: (patch?.layers || []).map((l) => (l.kind === 'osc' ? l.wave : l.kind)), t: Date.now() }); // fq / waves: the patch played, per layer (tests, t869u)
+      this.stepLog.push({ onPeel: !!paper, speed: +(+speed || 0).toFixed(2), cutoff: paper?.cutoff ?? null, drive: paper?.drive ?? null, remote, ...(remote ? { at: at.map((v) => +(+v).toFixed(2)), distance: +distance.toFixed(2), gain: +heard.toFixed(3) } : {}), ...(npc ? { npc } : {}), muted: this.muted, fq: (patch?.layers || []).map((l) => +(+l.freq || 0).toFixed(2)), waves: (patch?.layers || []).map((l) => (l.kind === 'osc' ? l.wave : l.kind)), ...(seqStep != null ? { step: seqStep, locked: base !== base0, cut: (patch?.layers || []).map((l) => +(+l.cutoff || 0).toFixed(1)), lv: (patch?.layers || []).map((l) => +(+l.level || 0).toFixed(3)), pg: +(+patch?.gain || 0).toFixed(3), vol: +(+volume).toFixed(3) } : {}), t: Date.now() }); // fq / waves: the patch played, per layer (tests, t869u); step / cut / lv / pg: the Steps sequencer step and its (locked) values (t889u)
       if (this.stepLog.length > 40) this.stepLog.shift();
       if (npc) { this.npcHeard ||= {}; const h = this.npcHeard[npc] ||= { n: 0 }; h.n++; h.gain = +heard.toFixed(3); h.distance = +distance.toFixed(2); h.t = Date.now(); } // (tests: the last step of each NPC)
     } else { this.log.push(entry); if (this.log.length > 50) this.log.shift(); }

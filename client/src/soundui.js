@@ -9,7 +9,8 @@
 // the same. Free players never see the panel; they get their own variation of the defaults from
 // 'klibb.soundSeed'.
 import { SOUNDS, SOUND_TABS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, DEFAULT_PATCHES, FX_DEFAULTS,
-  cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx, noteName, diffPatch, snapFreq, retune as retuneP } from '../../shared/synth.mjs';
+  cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx, noteName, diffPatch, snapFreq, retune as retuneP, defaultStepSeq } from '../../shared/synth.mjs';
+import { lockedPatch, setLock, getLock, clearLock, clearLocks, lockCount, stepsLocking, removeLayerLocks, resizeSeq, lockKey } from '../../shared/stepseq.mjs';
 import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseTarget, modOrder, snapRate, selfLoop, targetSpec, LAYER_TARGETS, PATCH_TARGETS, MOD_TARGETS } from '../../shared/lfo.mjs';
 import { loadSampleFile, clearSamples, pruneSamples, ensureSamples } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
@@ -196,12 +197,14 @@ const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Landing', 
 // radioBlock: () => Master section (the one Volume). radio: Radio instance (my Tempo on Steps).
 export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, onLive = () => {}, musicVol = null, radioBlock = null, radio = null }) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const st = { open: false, tab: 'slap', patches: {}, fx: null, rolls: 0 };
+  const st = { open: false, tab: 'slap', patches: {}, fx: null, rolls: 0, sel: null }; // sel: the Steps-sequencer step being locked (t889u), null = editing the base sound
   const base = (k) => variant(DEFAULT_PATCHES[k], mySeed(), k); // my default (what free me sounds like)
 
   function open() {
     const cur = loadSoundLook();
     st.patches = {}; for (const k of SOUNDS) st.patches[k] = cleanPatch(cur.patches?.[k]) || base(k);
+    if (!st.patches.step.seq) st.patches.step.seq = defaultStepSeq(); // one sequencer for the whole Steps sound (t889u)
+    st.sel = null;
     st.custom = new Set(Object.keys(cur.patches || {}));
     st.fx = cleanFx(cur.fx) || cleanFx(FX_DEFAULTS);
     st.vol0 = musicVol ? musicVol.get() : null; st.volReset = false;
@@ -215,7 +218,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     if (!saved && radio) radio.setWalkBpm(loadRunMode().walkBpm);
     if (st.liveT) { clearTimeout(st.liveT); st.liveT = 0; }
     if (!saved) onLive(null); // Cancel / ✕: back to my saved sound
-    closeAsk(); closePop();
+    closeAsk(); closePop(); st.sel = null;
     st.open = false; $('sound-panel').hidden = true; onOpenChange(false);
   }
 
@@ -408,11 +411,12 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   }
   function removeLayerBtn(p, i, k) {
     const rm = el('button', 'snd-rm', '✕'); rm.type = 'button'; rm.title = 'Remove layer';
-    rm.onclick = () => { p.layers.splice(i, 1); if (p.mods) { p.mods = removeLayerMods(p.mods, i); if (!p.mods.length) delete p.mods; } edited(k, true); };
+    rm.onclick = () => { p.layers.splice(i, 1); if (p.mods) { p.mods = removeLayerMods(p.mods, i); if (!p.mods.length) delete p.mods; } if (p.seq) removeLayerLocks(p.seq, i); edited(k, true); };
     return rm;
   }
   function layerSlider(p, i, k, key, after = null) {
     const l = p.layers[i];
+    if (k === 'step' && p.seq) return lockSlider(p, k, key, rangeOf(key), lockKey(i, key), () => l[key] ?? LAYER_DEF[key], (v) => { l[key] = v; if (after) after(v); });
     const ask = SLIDER_TO_LFO[key] ? { patch: p, layer: i, sound: k, param: key } : null;
     // lfoRate/lfoDepth: no simple ask (one layer LFO cannot modulate itself). Advanced mods still
     // offer nesting when those rows appear in the mods block (rate/depth there use mod targets).
@@ -423,6 +427,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   // The layer then RUNS on my own Tempo while the radio is on (radio.js), instead of on the trigger.
   function seqBlock(p, i, k) {
     const l = p.layers[i];
+    if (k === 'step') return el('span', 'snd-seq-none'); // Steps: one sequencer for the whole sound (stepSeqBlock, t889u)
     const box = el('div', 'snd-seq'); box.dataset.seq = l.seq ? 'on' : 'off';
     const tog = el('button', 'snd-seq-tog', l.seq ? '▦ Sequencer: on' : '▦ Run as sequencer'); tog.type = 'button'; tog.setAttribute('aria-pressed', String(!!l.seq));
     tog.onclick = () => { if (l.seq) delete l.seq; else l.seq = { len: 4, bars: 1, steps: Array.from({ length: 4 }, () => ({ on: true, vol: 100 })) }; edited(k, true); };
@@ -444,6 +449,91 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     });
     box.appendChild(grid);
     box.appendChild(el('p', 'hint', 'Runs on your Tempo (Steps) while Master is on. Give layers different step counts (3, 4, 5, 7 …) for a polyrhythm.'));
+    return box;
+  }
+  // ---------- The Steps sequencer (Jens t889u): ONE sequencer for the whole Steps sound + parameter locks ----------
+  // A slider on the Steps tab: editing the base sound, or – while a step is selected (st.sel) – that step's lock.
+  // Locked sliders are marked (orange, 🔒 step N); with no step selected a slider that some steps lock shows them.
+  function lockSlider(p, k, key, range, lk, getBase, setBase) {
+    const sel = st.sel != null && p.seq.steps[st.sel] ? st.sel : null;
+    const locked = sel != null ? getLock(p.seq, sel, lk) : undefined;
+    const ask = sel == null && SLIDER_TO_LFO[key] && lk !== 'G.gain' ? { patch: p, layer: +lk.slice(1, lk.indexOf('.')), sound: k, param: key } : null;
+    const row = slider(key, range, locked !== undefined ? locked : getBase(), (v) => {
+      if (sel != null) { if (setLock(p.seq, sel, lk, v)) markLock(row, p, lk); else toast(`At most ${SYNTH.maxLocksPerStep} locks on one step`, 1800); }
+      else setBase(v);
+      edited(k);
+    }, sel == null ? { patch: p, to: lk, sound: k } : null, ask);
+    row.dataset.lock = lk;
+    markLock(row, p, lk);
+    return row;
+  }
+  function markLock(row, p, lk) {
+    const steps = stepsLocking(p.seq, lk), sel = st.sel;
+    const here = sel != null && steps.includes(sel);
+    row.classList.toggle('locked', here);
+    row.classList.toggle('has-locks', !here && steps.length > 0);
+    row.dataset.lockSteps = steps.map((j) => j + 1).join(',');
+    let b = row.querySelector('.lock-badge');
+    if (!steps.length && !here) { if (b) b.remove(); return; }
+    if (!b) {
+      b = el('button', 'lock-badge'); b.type = 'button';
+      b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if (st.sel == null || !stepsLocking(p.seq, lk).includes(st.sel)) return; clearLock(p.seq, st.sel, lk); edited('step', true); };
+      row.appendChild(b);
+    }
+    b.textContent = here ? `🔒 step ${sel + 1} ✕` : `🔒 ${steps.map((j) => j + 1).join(', ')}`;
+    b.title = here ? `Locked on step ${sel + 1} – click to clear this lock` : `Locked on step${steps.length > 1 ? 's' : ''} ${steps.map((j) => j + 1).join(', ')}`;
+    b.disabled = !here;
+  }
+  const loopLabel = (v) => `${v === 0.25 ? '¼' : v === 0.5 ? '½' : v} footstep${v === 1 || v < 1 ? '' : 's'}`;
+  function selectStep(j) { st.sel = st.sel === j ? null : j; render(); }
+  function stepSeqBlock(p, k) {
+    const q = p.seq;
+    const box = el('fieldset', 'snd-stepseq'); box.id = 'snd-stepseq';
+    box.dataset.sel = st.sel == null ? '' : String(st.sel);
+    box.appendChild(el('legend', null, '▦ Sequencer – the whole Steps sound'));
+    box.appendChild(el('p', 'hint', 'One sequencer plays every layer. Walk, run, sneak and dance run it at their own tempo; step 1 is the footstep. Click a number to turn a step on or off. Press ✎ (or hold the number) to pick a step – then every slider you move is locked to that step only.'));
+    const row = el('div', 'snd-sel');
+    const lens = Array.from({ length: SYNTH.seqMax }, (_, n) => String(n + 1));
+    row.append(el('span', 'snd-seq-lab', 'Steps'), select('Steps', lens, String(q.len), (v) => { resizeSeq(q, Number(v)); if (st.sel != null && st.sel >= q.len) st.sel = null; edited(k, true); }));
+    const quick = el('span', 'snd-seq-quick');
+    for (const n of SYNTH.seqLens) { const b = el('button', n === q.len ? 'sel' : null, String(n)); b.type = 'button'; b.onclick = () => { resizeSeq(q, n); if (st.sel != null && st.sel >= q.len) st.sel = null; edited(k, true); }; quick.appendChild(b); }
+    row.append(quick);
+    row.append(el('span', 'snd-seq-lab', 'Loop'), select('Loop', SYNTH.stepLoops.map(String), String(q.loop), (v) => { q.loop = Number(v); edited(k, true); }, Object.fromEntries(SYNTH.stepLoops.map((b) => [String(b), loopLabel(b)]))));
+    box.appendChild(row);
+    const grid = el('div', 'ss-grid'); grid.style.gridTemplateColumns = `repeat(${Math.min(8, q.len)}, 1fr)`;
+    q.steps.forEach((stp, j) => {
+      const cell = el('div', 'ss-cell' + (stp.on ? ' on' : '') + (st.sel === j ? ' sel' : '') + (stp.locks ? ' has-locks' : '')); cell.dataset.step = j;
+      const pad = el('button', 'ss-pad', String(j + 1)); pad.type = 'button'; pad.dataset.step = j; pad.setAttribute('aria-pressed', String(stp.on));
+      pad.setAttribute('aria-label', `Step ${j + 1} ${stp.on ? 'on' : 'off'}`);
+      let lp = 0, long = false;
+      pad.addEventListener('pointerdown', () => { long = false; clearTimeout(lp); lp = setTimeout(() => { long = true; selectStep(j); }, 450); });
+      for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) pad.addEventListener(ev, () => clearTimeout(lp));
+      pad.addEventListener('contextmenu', (e) => e.preventDefault());
+      pad.onclick = () => { if (long) { long = false; return; } stp.on = !stp.on; edited(k, true); };
+      const pick = el('button', 'ss-pick', st.sel === j ? '✓ editing' : '✎ lock'); pick.type = 'button'; pick.dataset.step = j;
+      pick.setAttribute('aria-pressed', String(st.sel === j)); pick.setAttribute('aria-label', st.sel === j ? `Stop editing step ${j + 1}` : `Edit locks of step ${j + 1}`);
+      pick.onclick = () => selectStep(j);
+      cell.append(pad, pick);
+      const n = lockCount(q, j);
+      if (n) { const lb = el('span', 'ss-locks', `🔒 ${n}`); lb.title = `${n} lock${n === 1 ? '' : 's'} on step ${j + 1}`; cell.appendChild(lb); }
+      grid.appendChild(cell);
+    });
+    box.appendChild(grid);
+    const bar = el('div', 'ss-bar');
+    if (st.sel != null) {
+      const ed = el('div', 'ss-editing'); ed.id = 'ss-editing';
+      ed.textContent = `✎ Editing step ${st.sel + 1}${q.steps[st.sel].on ? '' : ' (off – turn it on to hear it)'} – the sliders below now lock to this step`;
+      bar.appendChild(ed);
+      const pv = el('button', 'snd-add', `▶ Hear step ${st.sel + 1}`); pv.type = 'button'; pv.id = 'ss-hear'; pv.onclick = () => sound.preview(cleanPatch(lockedPatch(cleanPatch(p) || p, st.sel)) || p, p.fx ? null : st.fx);
+      const cl = el('button', 'snd-add ss-clear', `✕ Clear step ${st.sel + 1} locks`); cl.type = 'button'; cl.id = 'ss-clear-step'; cl.disabled = !lockCount(q, st.sel);
+      cl.onclick = () => { clearLocks(q, st.sel); edited(k, true); };
+      const done = el('button', 'primary ss-done', '✓ Done – edit the base sound'); done.type = 'button'; done.id = 'ss-done'; done.onclick = () => { st.sel = null; render(); };
+      bar.append(pv, cl, done);
+    }
+    const all = el('button', 'snd-add ss-clear', '✕ Clear all locks'); all.type = 'button'; all.id = 'ss-clear-all'; all.disabled = !lockCount(q);
+    all.onclick = () => { clearLocks(q, null); edited(k, true); };
+    bar.appendChild(all);
+    box.appendChild(bar);
     return box;
   }
   // ---------- The sampler layer ----------
@@ -605,9 +695,13 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const k = st.tab, p = st.patches[k];
     const changed = diffPatch(base(k), p).length;
     body.appendChild(el('p', 'snd-diff', changed ? `${changed} setting${changed === 1 ? '' : 's'} changed from the original – the Blend slider morphs between them (and past them: Further)` : 'The original sound (nothing changed yet)'));
-    body.appendChild(slider('level', SYNTH.gain, p.gain, (v) => { p.gain = v; edited(k); }, { patch: p, to: 'G.gain', sound: k }));
+    if (k === 'step' && p.seq) body.appendChild(lockSlider(p, k, 'level', SYNTH.gain, 'G.gain', () => p.gain, (v) => { p.gain = v; }));
+    else body.appendChild(slider('level', SYNTH.gain, p.gain, (v) => { p.gain = v; edited(k); }, { patch: p, to: 'G.gain', sound: k }));
     body.lastChild.querySelector('span').textContent = 'Volume';
     if (k === 'step') body.appendChild(runBlock());
+    if (k === 'step') { if (!p.seq) p.seq = defaultStepSeq(); body.appendChild(stepSeqBlock(p, k)); }
+    if (k !== 'step' && st.sel != null) st.sel = null;
+    $('sound-panel').toggleAttribute('data-stepsel', k === 'step' && st.sel != null);
     p.layers.forEach((_, i) => body.appendChild(layerBlock(p, i, k)));
     if (p.layers.length < SYNTH.maxLayers) {
       const adds = el('div', 'snd-adds');
@@ -621,7 +715,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       addQ.onclick = () => { p.layers.push(cleanPatch({ layers: [{ kind: 'osc', wave: 'triangle', freq: 220, d: 0.15, level: 0.25, seq: { len: 5, bars: 1, steps: Array.from({ length: 5 }, () => ({ on: true, vol: 100 })) } }] }).layers[0]); edited(k, true); };
       const addM = el('button', 'snd-add snd-add-mic', '+ Mic layer'); addM.type = 'button'; addM.id = 'snd-add-mic';
       addM.onclick = () => { p.layers.push(cleanPatch({ layers: [{ kind: 'mic', ...MIC_LAYER }] }).layers[0]); edited(k, true); micOn(); };
-      adds.append(add, addS, addQ, addM); body.appendChild(adds);
+      adds.append(add, addS, ...(k === 'step' ? [] : [addQ]), addM); body.appendChild(adds); // Steps: the whole sound is sequenced (t889u)
     }
     body.appendChild(modsBlock(p, k));
     const own = el('label', 'check snd-own'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!p.fx;
@@ -693,17 +787,27 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const fx = p.fx ? cleanFx(p.fx) : cleanFx(st.fx);
     const bar = 120 / cleanWalkBpm(st.run.walkBpm), walkPulse = bar / 4, crouch = gait === 'crouch', rr = crouch ? crouchRate(st.run) : runRate(st.run), tune = pitchRatio(crouch ? cleanCrouchPitch(st.run.crouchPitch) : st.run.pitch);
     const t0 = ctx.currentTime + 0.08;
-    for (let i = 0; i < 4; i++) eng.play(retuneP(p, i % 2 ? 0.97 : 1.02), { gain: 1, fx, time: t0 + i * walkPulse, pool: 'step' });
-    const runPulse = walkPulse / rr.rate, n = Math.max(1, Math.min(24, Math.round(bar / runPulse))); // 5:1 = 20 steps, 1:5 = 1
-    for (let i = 0; i < n; i++) eng.play(retuneP(p, (i % 2 ? 0.97 : 1.02) * tune), { gain: 1, fx, time: t0 + bar + i * runPulse, pool: 'step' });
+    // the Steps sequencer (t889u): len steps per `loop` footsteps, each step with its locks
+    const q = p.seq || defaultStepSeq(), per = q.len / q.loop;
+    const run = (start, pulse, tn) => {
+      const sp = pulse / per;
+      for (let m = 0, played = 0; m * sp < bar - 1e-6 && played < 48; m++) {
+        const i = m % q.len, stp = q.steps[i]; if (!stp || !stp.on || !(stp.vol > 0)) continue;
+        played++; const foot = Math.floor(m / per + 1e-9);
+        eng.play(retuneP(lockedPatch(p, i), (foot % 2 ? 0.97 : 1.02) * tn), { gain: stp.vol / 100, fx, time: start + m * sp, pool: 'step' });
+      }
+    };
+    run(t0, walkPulse, 1);
+    run(t0 + bar, walkPulse / rr.rate, tune);
   }
   function preview() {
     const k = st.tab === 'fx' ? 'slap' : st.tab;
-    const p = cleanPatch(st.patches[k]);
+    let p = cleanPatch(st.patches[k]);
+    if (k === 'step' && st.sel != null && p) p = cleanPatch(lockedPatch(p, st.sel)) || p; // the selected step, with its locks (t889u)
     return sound.preview(p, p.fx ? null : st.fx);
   }
   function randomize(wild) {
-    st.rolls++;
+    st.rolls++; st.sel = null;
     const seed = `${mySeed()}:${Date.now()}:${st.rolls}`;
     if (st.tab === 'fx') st.fx = randomFx(seed, { wild });
     else { st.patches[st.tab] = randomPatch(seed + st.tab, { wild }); st.custom.add(st.tab); }
@@ -712,6 +816,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   // Reset = everything back to the defaults (Jens, 2 Nov 2026): every SOUNDS patch, Effects data,
   // Volume, and run mode incl. my Tempo (90).
   function reset() {
+    st.sel = null;
     for (const k of SOUNDS) st.patches[k] = base(k);
     st.custom = new Set();
     st.fx = cleanFx(FX_DEFAULTS);

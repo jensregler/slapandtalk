@@ -31,6 +31,12 @@ import { cleanSeq, visibleSteps } from './autoslap.mjs';
 //   [{ on, vol 0–100 }] } (the step schema of the old auto-slap sequencer, shared/autoslap.mjs). A
 //   layer with seq does not play on the one-shot trigger: it RUNS on my own Tempo (shared/runmode.mjs
 //   walkBpm, default 90 BPM; no shared clock since t846u) while my radio is on – layers with different lengths make the polyrhythm.
+// Steps sequencer (Jens t889u, 13 Nov 2026): the Steps (walk) sound has ONE sequencer for the whole sound –
+//   patch.seq: { len 1–16, loop (footsteps per loop), steps: [{ on, vol 0–100, locks? }] } (step patches only;
+//   shared/stepseq.mjs plays it, client/src/groove.js schedules it on the footstep grid). Default: 4 steps per
+//   footstep, step 1 on – exactly the old one-hit-per-footstep. locks = parameter locks for that step
+//   ({ 'L0.cutoff': 800, 'G.gain': 0.7 } – the LFO target names, clamped to the same ranges). Old Steps patches
+//   with per-layer seq are migrated (migrateStepSeq) – the per-layer sequencer stays for Slap/Peel/Landing.
 // Pitch grid: the pitch controls (osc Pitch, sampler Note/Root) move in equal-tempered semitones
 //   (A4 = 440 Hz); a morph lands on the grid too (snapFreq). LFOs and the per-play wobble still bend
 //   between grid points (vibrato stays natural). Saved values are never moved by loading.
@@ -51,6 +57,8 @@ export const SYNTH = {
   maxSoundBytes: 40000,  // (was 20000 before sampler/LFO/follower layers) all of a player's patches + fx as JSON (kept on this device; others only get the seed)
   bpm: 90,               // default tempo for the delay "sync" values – live they are beats of MY Tempo (client/src/synth.js setSyncBpm, t846u)
   seqLens: [3, 4, 5, 6, 7, 8, 12, 16], seqMax: 16, seqBars: [0.25, 0.5, 1, 2, 4],
+  stepLoops: [0.25, 0.5, 1, 2, 4, 8, 16], // the Steps sequencer's loop, in footsteps (1 = one loop per footstep)
+  maxLocksPerStep: 24,                     // parameter locks per Steps-sequencer step
   // [min, max, step]
   layer: {
     freq: [20, 8000, 0.01], detune: [-1200, 1200, 1], unison: [1, 5, 1], spread: [0, 100, 1], sub: [0, 1, 0.01],
@@ -152,8 +160,68 @@ export function cleanPatch(p) {
   const out = { v: 1, gain: clampTo(p.gain, SYNTH.gain, 1), layers };
   if (p.fx) { const fx = cleanFx(p.fx); if (fx) out.fx = fx; } // this sound's own effects (else the player's)
   if (p.mods) { const mods = cleanMods(p.mods, layers); if (mods.length) out.mods = mods; } // LFOs (shared/lfo.mjs)
+  if (p.seq && typeof p.seq === 'object') out.seq = cleanStepSeq(p.seq, layers); // the Steps sequencer (t889u)
+  if (JSON.stringify(out).length > SYNTH.maxPatchBytes && out.seq) out.seq = { ...out.seq, steps: out.seq.steps.map(({ on, vol }) => ({ on, vol })) }; // too big: the locks go, the sound stays
   return JSON.stringify(out).length <= SYNTH.maxPatchBytes ? out : null;
 }
+// ---------- The Steps sequencer (Jens t889u): one sequencer for the WHOLE Steps sound ----------
+export const STEP_SEQ_DEFAULT = Object.freeze({ len: 4, loop: 1, steps: Object.freeze([{ on: true, vol: 100 }, { on: false, vol: 100 }, { on: false, vol: 100 }, { on: false, vol: 100 }].map(Object.freeze)) });
+export const defaultStepSeq = () => ({ len: STEP_SEQ_DEFAULT.len, loop: STEP_SEQ_DEFAULT.loop, steps: STEP_SEQ_DEFAULT.steps.map((x) => ({ ...x })) });
+// What a lock key may point at: 'G.gain' or 'L<i>.<numeric layer param>' with that param's range.
+export function lockRange(key, layers) {
+  if (key === 'G.gain') return SYNTH.gain;
+  const m = /^L(\d)\.([a-zA-Z]+)$/.exec(String(key)); if (!m) return null;
+  const l = layers && layers[+m[1]]; if (!l) return null;
+  const k = m[2];
+  if (SYNTH.layer[k]) return SYNTH.layer[k];
+  if (k === 'decim') return SYNTH.decim;
+  if (k === 'crush') return SYNTH.crush;
+  if (l.kind === 'sampler' && SYNTH.sampler[k] && k !== 'len') return SYNTH.sampler[k];
+  return null;
+}
+export function cleanLocks(locks, layers) {
+  if (!locks || typeof locks !== 'object' || Array.isArray(locks)) return null;
+  const out = {}; let n = 0;
+  for (const [k, v] of Object.entries(locks)) {
+    if (n >= SYNTH.maxLocksPerStep) break;
+    const r = lockRange(k, layers); if (!r || !isNum(v)) continue;
+    out[k] = clampTo(v, r, r[0]); n++;
+  }
+  return n ? out : null;
+}
+// { len, loop, steps: [{ on, vol, locks? }] × len }. layers: the patch's layers (locks on a missing layer drop).
+export function cleanStepSeq(q, layers = null) {
+  if (!q || typeof q !== 'object') return defaultStepSeq();
+  const len = Math.min(SYNTH.seqMax, Math.max(1, Math.round(isNum(q.len) ? q.len : STEP_SEQ_DEFAULT.len)));
+  const loop = SYNTH.stepLoops.includes(q.loop) ? q.loop : 1;
+  const src = Array.isArray(q.steps) ? q.steps : [];
+  const steps = Array.from({ length: len }, (_, i) => {
+    const x = src[i] && typeof src[i] === 'object' ? src[i] : null;
+    const st = { on: x ? x.on === true : i === 0, vol: x && isNum(x.vol) ? Math.round(Math.min(100, Math.max(0, x.vol))) : 100 };
+    const lk = x && layers ? cleanLocks(x.locks, layers) : null;
+    if (lk) st.locks = lk;
+    return st;
+  });
+  return { len, loop, steps };
+}
+// Old saves (before t889u): a Steps patch whose layers carried their own sequencer. The whole sound now has one:
+// the FIRST layer with a sequencer gives its steps (len, on/off, vol); its loop of `bars` bars of my Tempo
+// (4 beats; a footstep at Groove 1× is half a beat → 8 footsteps a bar) becomes the nearest footstep loop, so
+// the step rate stays about what it was. Every layer's own seq is dropped (they all follow the one sequencer).
+// A patch without any seq gets nothing (= the default sequencer). Never throws; returns a new object.
+export function migrateStepSeq(p) {
+  if (!p || typeof p !== 'object' || !Array.isArray(p.layers)) return p;
+  const first = p.layers.find((l) => l && typeof l === 'object' && l.seq && typeof l.seq === 'object');
+  if (!first) return p;
+  const layers = p.layers.map((l) => { if (!l || typeof l !== 'object' || !l.seq) return l; const { seq, ...rest } = l; return rest; });
+  if (p.seq && typeof p.seq === 'object') return { ...p, layers }; // already has the whole-sound one
+  const old = cleanLayerSeq(first.seq), want = old.bars * 8;
+  let loop = SYNTH.stepLoops[0];
+  for (const v of SYNTH.stepLoops) if (Math.abs(Math.log(v / want)) < Math.abs(Math.log(loop / want)) - 1e-9) loop = v;
+  return { ...p, layers, seq: { len: old.len, loop, steps: old.steps.map((x) => ({ on: !!x.on, vol: x.vol })) } };
+}
+// The Steps sequencer a patch plays (the default when it has none).
+export const stepSeqOf = (p) => (p && p.seq && Array.isArray(p.seq.steps) && p.seq.steps.length ? p.seq : STEP_SEQ_DEFAULT);
 export function cleanFx(fx) {
   if (!fx || typeof fx !== 'object' || Array.isArray(fx)) return null;
   const out = {};
@@ -176,7 +244,7 @@ export function cleanSound(s, { custom = false } = {}) {
   if (typeof s.seed === 'string' && /^[A-Za-z0-9_-]{4,24}$/.test(s.seed)) out.seed = s.seed;
   if (custom) {
     const patches = {};
-    if (s.patches && typeof s.patches === 'object') for (const k of SOUNDS) { const p = cleanPatch(s.patches[k]); if (p) patches[k] = p; }
+    if (s.patches && typeof s.patches === 'object') for (const k of SOUNDS) { const p = cleanPatch(k === 'step' ? migrateStepSeq(s.patches[k]) : s.patches[k]); if (p) patches[k] = p; }
     if (Object.keys(patches).length) out.patches = patches;
     const fx = cleanFx(s.fx); if (fx) out.fx = fx;
     if (JSON.stringify(out).length > SYNTH.maxSoundBytes) { delete out.patches; delete out.fx; }
@@ -205,7 +273,7 @@ export const DEFAULT_PATCHES = {
   step: { v: 1, gain: 1, layers: [
     L({ kind: 'noise', noise: 'pink', filter: 'lowpass', cutoff: 520, q: 0.7, fEnv: -1, fTime: 0.05, a: 0.002, d: 0.055, level: 0.16 }),
     L({ kind: 'osc', wave: 'sine', freq: 85, pitchAmt: 7, pitchTime: 0.04, a: 0.002, d: 0.05, level: 0.12 }),
-  ] },
+  ], seq: defaultStepSeq() }, // one sequencer for the whole sound (t889u): 4 steps a footstep, step 1 on = one hit per footstep
   // duff: the backing paper landing flat – a soft papery thud (scaled by area, see duffScale)
   duff: { v: 1, gain: 1, layers: [
     L({ kind: 'noise', noise: 'pink', filter: 'lowpass', cutoff: 900, q: 0.8, fEnv: -1.5, fTime: 0.12, a: 0.004, d: 0.13, level: 0.32 }),
@@ -419,6 +487,7 @@ export function morphPatch(a0, b0, t) {
   const fxOf = (p) => p.fx || cleanFx(FX_DEFAULTS);
   const out = { v: 1, gain: a.gain + (b.gain - a.gain) * tl, layers };
   if (a.fx || b.fx) out.fx = morphObj(fxOf(a), fxOf(b), t);
+  if (a.seq || b.seq) out.seq = (t < 0.5 ? a.seq : b.seq) || a.seq || b.seq; // the Steps sequencer flips at the middle (t889u)
   const am = a.mods || [], bm = b.mods || [];
   if (am.length || bm.length) {
     const mods = [];
@@ -448,6 +517,7 @@ export function diffPatch(a0, b0) {
     if (!a.layers[i]) out.push(`L${i} (added)`); else if (!b.layers[i]) out.push(`L${i} (removed)`); else walk(a.layers[i], b.layers[i], `L${i}.`);
   }
   if (a.fx || b.fx) walk(a.fx || cleanFx(FX_DEFAULTS), b.fx || cleanFx(FX_DEFAULTS), 'fx.');
+  if ((a.seq || b.seq) && JSON.stringify(a.seq || null) !== JSON.stringify(b.seq || null)) out.push('seq'); // the Steps sequencer (t889u)
   const am = a.mods || [], bm = b.mods || [];
   for (const m of bm) { const o = am.find((x) => x.id === m.id); if (!o) out.push(`${m.id} (added)`); else walk(o, m, `${m.id}.`); }
   for (const m of am) if (!bm.some((x) => x.id === m.id)) out.push(`${m.id} (removed)`);

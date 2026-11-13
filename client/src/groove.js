@@ -12,6 +12,7 @@ import { cleanPlayerTempo } from '../../shared/playertempo.mjs';
 import { snapWalkBpm } from '../../shared/runmode.mjs';
 import { entryMs } from '../../shared/tempogrid.mjs';
 import { patchLength, retune } from '../../shared/synth.mjs';
+import { stepSeqBetween, stepSeqOf, STEP_SEQ } from '../../shared/stepseq.mjs';
 
 const WALK = { speed: 0.35, holdMs: 140, jump: 0.8, jumpSpeed: 9, maxPerFrame: 48, buzzGain: 0.45, maxAheadMs: 400 };
 
@@ -24,6 +25,7 @@ export class GrooveSteps {
     this.anchor = null;       // { wall, audio }: wall-clock ms ↔ AudioContext seconds
     this.log = [];            // the last step events (tests, curious people): { id, slot, t, tick, n, scale }
     this.events = 0; this.buzzing = 0;
+    this.seqCache = new WeakMap(); this.nullVoice = {}; // look.sound → its Steps sequencer (seqOf)
     // Run mode (shared/runmode.mjs, Jens t544u): while I hold Shift and move, MY steps use
     // { rate (× the walk pulse rate, on the same grid), tune (pitch ratio) }; null = walking.
     this.run = null;
@@ -70,6 +72,15 @@ export class GrooveSteps {
     return true;
   }
 
+  // The Steps sequencer a walker's sound plays (t889u): from their Steps patch (mine: my custom / live one; theirs:
+  // their default variation – the default sequencer). Cached per look.sound object (a new object on every change).
+  seqOf(voice) {
+    const knob = this.sound.radio ? this.sound.radio.knob : null;
+    const key = voice && typeof voice === 'object' ? voice : this.nullVoice;
+    const hit = this.seqCache.get(key); if (hit && hit.knob === knob) return hit.seq;
+    const seq = stepSeqOf(this.sound.patchFor('step', voice).patch);
+    this.seqCache.set(key, { knob, seq }); return seq;
+  }
   // Wall-clock ms → AudioContext seconds (null: no audio yet).
   audioTime(ms) {
     const ctx = this.sound.ctx; if (!ctx || ctx.state !== 'running') return null;
@@ -110,11 +121,17 @@ export class GrooveSteps {
       if (w.id !== 'me' && t.gk !== undefined && t.gk !== gk) { t.until = Math.min(t.until, nowMs); t.reenter = true; this.stopBuzz(t); }
       t.gk = gk;
       const rate = run ? run.rate : 1, period = pulseMs(G.groove.scale, slot, G.bpm) / rate;
+      // The Steps sequencer (Jens t889u, shared/stepseq.mjs): ONE sequencer plays the whole Steps sound on this
+      // footstep grid – len steps per `loop` footsteps (default 4 steps a footstep, step 1 on = one hit per footstep,
+      // as before). Each step may carry parameter locks. Too fast to schedule step by step → footsteps only.
+      const seq = this.seqOf(voice), per = seq.len / seq.loop, seqPeriod = period / per;
+      const useSeq = seqPeriod >= STEP_SEQ.minStepMs;
       // Entering in time (Jens t883u): starting to walk / dance, or a new gait / tempo, does not start the steps at the
       // key press: the first step waits for the next beat of my tempo × gait rate on the shared clock (shared/tempogrid.mjs
       // entryMs: ≤ 0.5 s, a beat that went by ≤ 20 ms ago is taken at once). The avatar moves at once – only the sound
       // is quantized. That first step sounds ON the beat even when my slot's polyrhythm has no pulse there; the
       // pattern carries on from it (the gap guard below drops a pattern pulse that would come too soon after it).
+      // With the Steps sequencer the entry step is always step 1 (t889u: "triggar på 1").
       const fresh = !t.walking;
       if (fresh || t.reenter) { t.enterAt = entryMs(nowMs, G.bpm, rate); t.enterFrom = nowMs; t.fresh = fresh; t.walking = true; t.reenter = false; t.until = Math.max(t.until, nowMs); }
       if (period < GROOVE.buzzMs) { t.enterAt = null; this.buzz(t, w, voice, slot, nowMs, run, G); t.until = horizon; continue; }
@@ -122,25 +139,31 @@ export class GrooveSteps {
       const enter = t.enterAt != null ? t.enterAt : null;
       const from = Math.max(t.until, nowMs, enter != null ? enter : -Infinity);
       if (horizon <= from) continue;
-      const evs = run ? runEventsBetween(G.groove, slot, from, horizon, rate, { max: budget, bpm: G.bpm }) : eventsBetween(G.groove, slot, from, horizon, { max: budget, bpm: G.bpm });
-      if (enter != null) { // the entry step itself, on the beat
+      const MAXEV = 512;
+      const evs = useSeq ? stepSeqBetween(G.groove, slot, from, horizon, { rate, bpm: G.bpm, seq, max: MAXEV })
+        : (run ? runEventsBetween(G.groove, slot, from, horizon, rate, { max: MAXEV, bpm: G.bpm }) : eventsBetween(G.groove, slot, from, horizon, { max: MAXEV, bpm: G.bpm })).map((e) => ({ ...e, m: e.n, i: 0, foot: true }));
+      if (enter != null) { // the entry step itself, on the beat – step 1 of the sequencer
         t.enterAt = null;
-        if (!(evs.length && Math.abs(evs[0].t - enter) < 1)) evs.unshift({ t: enter, n: 0, tick: -1, slot, entry: true });
-        else evs[0].entry = true;
+        if (!(evs.length && Math.abs(evs[0].t - enter) < 1)) evs.unshift({ t: enter, n: 0, m: 0, i: 0, foot: true, tick: -1, slot, entry: true });
+        else { const e0 = evs[0]; e0.entry = true; if (!e0.foot) e0.tick = -1; e0.i = 0; e0.foot = true; } // on a sub-step: off the footstep pattern (tick −1), as before
         if (t.fresh) t.last = null; // a fresh start: nothing to guard against (a gait / tempo switch keeps the guard)
       }
-      t.until = evs.length >= budget && evs.length ? evs[evs.length - 1].t + 0.001 : horizon;
+      t.until = evs.length >= MAXEV && evs.length ? evs[evs.length - 1].t + 0.001 : horizon;
       for (const e of evs) {
-        if (t.last != null && e.t > t.last - 0.5 && e.t - t.last < period * 0.45) continue; // walk ↔ run switch: no doubled step
+        const st = seq.steps[e.i] || seq.steps[0];
+        if (useSeq && !(st && st.on && st.vol > 0)) continue; // an empty step
+        // walk ↔ run switch: no doubled step (footsteps: within 0.45 of a footstep; sub-steps: of a sequencer step)
+        if (t.last != null && e.t > t.last - 0.5 && e.t - t.last < (e.foot ? period : seqPeriod) * 0.45) continue;
+        if (budget <= 0) { t.until = Math.min(t.until, e.t - 0.001); break; }
         t.last = e.t;
         budget--;
         this.events++;
-        this.log.push({ id: w.id, slot, t: Math.round(e.t * 10) / 10, tick: e.tick, n: e.n, scale: G.groove.scale, bpm: G.bpm, ...(e.entry ? { entry: true, from: Math.round(t.enterFrom * 10) / 10 } : {}), ...(run ? { run: +rate.toFixed(4), tune: +run.tune.toFixed(4) } : {}) });
+        this.log.push({ id: w.id, slot, t: Math.round(e.t * 10) / 10, tick: e.tick, n: e.n, i: e.i, scale: G.groove.scale, bpm: G.bpm, ...(seq.len !== 4 || seq.loop !== 1 ? { m: e.m, foot: e.foot } : {}), ...(e.entry ? { entry: true, from: Math.round(t.enterFrom * 10) / 10 } : {}), ...(run ? { run: +rate.toFixed(4), tune: +run.tune.toFixed(4) } : {}) });
         if (this.log.length > 200) this.log.splice(0, this.log.length - 200);
         const time = this.audioTime(e.t);
         if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up
-        // left/right foot: a hair lower on every other pulse
-        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: (e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v });
+        // left/right foot: a hair lower on every other footstep (the walking randomness stays – sound.js adds the wobble)
+        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: (e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v, seqStep: useSeq ? e.i : 0, volume: useSeq && st ? st.vol / 100 : 1 });
       }
       if (budget <= 0) break;
     }

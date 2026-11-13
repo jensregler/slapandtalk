@@ -41,22 +41,19 @@ const near = (g, want) => Math.abs(g - want) <= want * 0.01 + 1;
     await A.evaluate(() => window.klibb.setView('first'));
     await A.waitForFunction(() => window.klibb.soundObj().engine, null, { timeout: 20000 }).catch(() => {});
 
-    // a 4-step sequencer layer on the Steps (walk) sound, saved (as e2e-walkseq)
+    // the Steps sound's sequencer (t889u: one for the whole sound, it IS the footsteps): step 3 on as well, saved
     await A.evaluate(() => window.klibb.soundUi().open()); await sleep(300);
     await A.click('#snd-tabs [data-tab="step"]'); await sleep(200);
-    await A.click('#snd-add-seq'); await sleep(150);
-    await A.evaluate(() => { const b = [...document.querySelectorAll('.snd-seq-quick button')].find((x) => x.textContent === '4'); b && b.click(); });
-    await sleep(150);
-    const seq = await A.evaluate(() => { const p = window.klibb.soundUi().state().patches.step; const i = p.layers.findIndex((l) => l.seq); return { i, len: i >= 0 ? p.layers[i].seq.len : 0 }; });
-    check('Steps tab: a 4-step sequencer layer added', seq.i >= 0 && seq.len === 4, seq);
+    await A.click('#snd-stepseq .ss-pad[data-step="2"]'); await sleep(150);
+    const seq = await A.evaluate(() => window.klibb.soundUi().state().patches.step.seq);
+    check('Steps tab: the Steps sequencer, 4 steps, 1 + 3 on', seq && seq.len === 4 && seq.steps[0].on && seq.steps[2].on && !seq.steps[1].on, seq);
     await A.evaluate(() => document.getElementById('snd-save').click()); await sleep(300);
     await A.evaluate(() => window.klibb.soundUi().close?.()); await sleep(200);
     await A.evaluate(() => window.klibb.setView('first'));
-    const key = 'step' + seq.i;
-    const seqLog = (since) => A.evaluate(({ key, since }) => window.klibb.radio().voiceLog.filter((e) => e.key === key && e.t >= since), { key, since });
-    const myFeet = (since) => A.evaluate((since) => window.klibb.grooveObj().log.filter((e) => e.id === 'me' && e.t >= since && e.n >= 0), since);
+    const seqLog = (since) => A.evaluate((since) => window.klibb.grooveObj().log.filter((e) => e.id === 'me' && e.t >= since), since);
+    const myFeet = (since) => A.evaluate((since) => window.klibb.grooveObj().log.filter((e) => e.id === 'me' && e.t >= since && e.n >= 0 && e.i === 0), since);
     const now = () => A.evaluate(() => window.klibb.grooveObj().now());
-    // voiceLog keeps the last 64 entries: sample it every second and merge
+    // the groove log keeps the last 200 entries: sample it every second and merge
     const collect = async (ms) => { const seen = new Map(); const t0 = await now(); const end = Date.now() + ms; while (Date.now() < end) { for (const e of await seqLog(t0)) seen.set(e.t + ':' + e.i, e); await sleep(900); } for (const e of await seqLog(t0)) seen.set(e.t + ':' + e.i, e); return [...seen.values()].sort((a, b) => a.t - b.t); };
 
     // ---------- standing: nothing ----------
@@ -81,10 +78,11 @@ const near = (g, want) => Math.abs(g - want) <= want * 0.01 + 1;
     check('still dancing after more than one 4-bar pass (it loops, not one-shot)', s.d && s.me.danceLoops >= 1 && s.me.dancePhase && s.me.dancePhase !== 'done', { d: s.d, loops: s.me.danceLoops, phase: s.me.dancePhase, t: s.me.danceTime });
     // a step can only be skipped by a frame that took longer than the 150 ms lookahead (the same as when
     // really walking – e2e-walkseq allows whole-step gaps): on a fast machine every gap is one step
-    const gaps = ev.slice(1).map((e, k) => e.t - ev[k].t), onGrid = (g) => { const k = Math.round(g / 666.7); return k >= 1 && near(g, k * 666.7); };
-    const skipped = gaps.filter((g) => !near(g, 666.7)).length;
-    check('dancing counts as walking: the walk sequencer stepped the whole time (≈ 1.5 steps/s, a quarter bar apart, in order, no pause)',
-      ev.length >= 12 && ev.every((e) => e.walk) && gaps.every(onGrid) && ev.slice(1).every((e, k) => e.i === (ev[k].i + 1) % 4) && skipped <= frames.long, { n: ev.length, gaps: gaps.filter((g) => !near(g, 666.7)), frames });
+    const half = 4000 / 3 / [4, 3, 5, 6, 7][ev.length ? ev[0].slot : 0] / 2; // step 3 sits halfway between two footsteps
+    const gaps = ev.slice(1).map((e, k) => e.t - ev[k].t).filter((g) => g > 20), onGrid = (g) => { const k = Math.round(g / half); return k >= 1 && near(g, k * half); };
+    const skipped = gaps.filter((g) => !near(g, half)).length;
+    check('dancing counts as walking: the Steps sequencer stepped the whole time (steps 1 and 3, half a footstep apart, in order, no pause)',
+      ev.length >= 24 && gaps.every(onGrid) && ev.every((e) => e.i === 0 || e.i === 2) && skipped <= frames.long + 2, { n: ev.length, half, gaps: gaps.filter((g) => !near(g, half)), frames });
     console.log(`    (walk sequencer: ${ev.length} steps in 12.5 s, ${skipped} skipped; frames: ${frames.n}, longest ${Math.round(frames.max)} ms, ${frames.long} over 170 ms)`);
     const feet = await myFeet(tDance);
     check('…and my footsteps (walk sound) kept going while dancing', feet.length >= 10 && feet[feet.length - 1].t > s.now - 1500, { n: feet.length, last: feet.length && feet[feet.length - 1].t, now: s.now });

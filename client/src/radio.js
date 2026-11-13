@@ -112,6 +112,9 @@ export class Radio {
     this.next = ahead;
     return fired;
   }
+  // (t889u: the Steps sound now has ONE whole-sound sequencer, played by the footstep groove – client/src/groove.js,
+  // shared/stepseq.mjs – and old per-layer Steps sequencers are migrated on load, so this path is normally idle;
+  // it stays for any Steps patch that still carries a layer seq.)
   // A sequencer layer on the walk (Steps) sound: only while I walk (pause in place when I stop,
   // go on from the next step when I walk again), at run.rate × and run.tune while running.
   walkLoop(lp, { now, ahead, tempo, barS, at, walk }) {
