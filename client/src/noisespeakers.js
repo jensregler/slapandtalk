@@ -8,17 +8,30 @@
 // clock (groove.now()) and the manifest (public/noise-speakers/manifest.json, written by
 // scripts/noise-speakers.mjs).
 import { SPEAKERS, NOISE_SPEAKERS, speakerGain, speakerTrackAt, inNoiseRoom, noiseActive, doorDistance } from '../../shared/noisespeakers.mjs';
+import { LAMP_IDS, loadLights, cleanLights, envTarget, envStep, lampLevel, lampFactor, restFactor, bandFilter } from './noiselights.js';
 
 const BASE = '/noise-speakers/';
 // the lamps (t875u): ~30 updates a second; RMS ≥ full = brightest; min = the glow in silence (× the lamp's normal intensity)
+// (t892u: these are now the defaults of the player's own settings – noiselights.js, Esc → LIGHTS)
 export const LAMP = Object.freeze({ everyMs: 33, full: 0.2, min: 0.35, max: 1.5, attack: 0.6, release: 0.12 });
 // ?noiseplaylist=test → the short test tones in /noise-speakers/test/ (tests: a track ends within seconds)
 const playlistBase = () => { try { return new URLSearchParams(location.search).get('noiseplaylist') === 'test' ? BASE + 'test/' : BASE; } catch { return BASE; } };
 
 export class NoiseSpeakers {
   // sound: the Sounds object (its AudioContext, mute and volume); now: () => server-corrected ms
-  constructor({ sound, now = () => Date.now(), base = playlistBase(), lamps = null } = {}) {
+  constructor({ sound, now = () => Date.now(), base = playlistBase(), lamps = null, lights = null } = {}) {
     this.sound = sound; this.now = now; this.lamps = lamps; this.lampAt = 0; this.lampsLit = false; this.base = base; this.manifestUrl = base + 'manifest.json';
+    // the four lamps by name (NW NE SW SE, from where they hang) + my light settings (Jens t892u)
+    this.lampById = {}; this.lights = cleanLights(lights || loadLights());
+    if (lamps) {
+      const all = [...(lamps.A || []), ...(lamps.B || [])], cx = all.reduce((s, l) => s + l.position.x, 0) / (all.length || 1), cz = all.reduce((s, l) => s + l.position.z, 0) / (all.length || 1);
+      for (const l of all) {
+        const id = l.userData.lampId || (l.position.z < cz ? 'N' : 'S') + (l.position.x < cx ? 'W' : 'E');
+        l.userData.lampId = id; l.userData.home = l.userData.home || l.position.clone(); l.userData.distance0 = l.userData.distance0 ?? l.distance;
+        l.userData.color0 = l.userData.color0 || '#' + l.color.getHexString(); if (!this.lampById[id]) this.lampById[id] = l;
+      }
+      this.applyLights();
+    }
     this.tracks = null; this.loading = null; this.inside = false;
     this.players = SPEAKERS.map((s) => ({ ...s, el: null, node: null, gain: null, tap: null, buf: null, level: 0, rms: 0, g: 0, want: null, file: null, plays: 0, started: [], blocked: false }));
     this.log = []; // tests: { speaker, file, at }
@@ -43,9 +56,34 @@ export class NoiseSpeakers {
     const node = ctx.createMediaElementSource(el), gain = ctx.createGain(); gain.gain.value = 0;
     node.connect(gain); gain.connect(ctx.destination);
     // the lamps' tap (Jens t875u): the speaker's own signal, BEFORE the position gain – a small analyser, read ~30×/s
-    const tap = ctx.createAnalyser(); tap.fftSize = 512; tap.smoothingTimeConstant = 0; node.connect(tap);
-    Object.assign(p, { el, node, gain, tap, buf: new Float32Array(tap.fftSize) });
+    // (t892u) through a filter, so the lamps can listen to the bass / a band / the treble only (allpass = all of it)
+    const tap = ctx.createAnalyser(); tap.fftSize = this.lights.env.window; tap.smoothingTimeConstant = 0;
+    const band = ctx.createBiquadFilter(); node.connect(band); band.connect(tap);
+    Object.assign(p, { el, node, gain, tap, band, buf: new Float32Array(tap.fftSize) });
+    this.applyTap(p);
     return true;
+  }
+  applyTap(p) {
+    if (!p.tap) return;
+    const env = this.lights.env, f = bandFilter(env);
+    if (p.band) { p.band.type = f.type; p.band.frequency.value = f.frequency; p.band.Q.value = f.Q; }
+    if (p.tap.fftSize !== env.window) { p.tap.fftSize = env.window; p.buf = new Float32Array(env.window); }
+  }
+  // My light settings (Esc → LIGHTS): the lamps' colour / reach / fall-off / place now, the rest on the next tick.
+  setLights(s) {
+    this.lights = cleanLights(s);
+    for (const p of this.players) this.applyTap(p);
+    this.applyLights();
+  }
+  applyLights() {
+    const L = this.lights;
+    for (const id of LAMP_IDS) {
+      const l = this.lampById[id], c = L.lamps[id]; if (!l) continue;
+      l.color.set(c.color); l.userData.colorNow = c.color;
+      l.distance = l.userData.distance0 * c.reach; l.decay = c.decay;
+      l.position.set(l.userData.home.x + c.dx, l.userData.home.y + c.dy, l.userData.home.z + c.dz);
+      if (!this.lampsLit) l.intensity = l.userData.base * restFactor(c, L.env);
+    }
   }
   play(p) {
     const pr = p.el.play();
@@ -77,22 +115,31 @@ export class NoiseSpeakers {
   }
   // The ceiling lamps follow the music (Jens t875u): west lamps ← A, east lamps ← B. Only the existing lights'
   // intensity changes (no new lights). level = RMS ÷ LAMP.full, fast up / slow down; intensity = base × (min … max).
+  // t892u: every number is the player's own setting (noiselights.js; defaults = the t875u look), each lamp
+  // picks its source (A, B, the louder of both, none) and can change colour with the level.
   lampsTick(now) {
-    const L = this.lamps; if (!L || now - this.lampAt < LAMP.everyMs) return; this.lampAt = now;
+    const L = this.lamps, S = this.lights, env = S.env; if (!L || now - this.lampAt < env.updateMs) return;
+    const dt = this.lampAt ? Math.min(250, now - this.lampAt) : env.updateMs; this.lampAt = now;
+    const levels = {};
     for (const p of this.players) {
       let rms = 0;
       if (p.tap && p.el && !p.el.paused) { p.tap.getFloatTimeDomainData(p.buf); let s = 0; for (let i = 0; i < p.buf.length; i++) s += p.buf[i] * p.buf[i]; rms = Math.sqrt(s / p.buf.length); }
       p.rms = rms;
-      const target = Math.min(1, rms / LAMP.full), k = target > p.level ? LAMP.attack : LAMP.release;
-      p.level += (target - p.level) * k;
-      const f = LAMP.min + (LAMP.max - LAMP.min) * p.level;
-      for (const lamp of L[p.id] || []) lamp.intensity = lamp.userData.base * f;
+      p.env = p.env || { level: 0, out: 0, holdUntil: 0 };
+      p.env.level = p.level; levels[p.id] = p.shown = envStep(p.env, envTarget(rms, env), dt, now, env); p.level = p.env.level;
+    }
+    for (const id of LAMP_IDS) {
+      const l = this.lampById[id], c = S.lamps[id]; if (!l) continue;
+      const lv = lampLevel(c, levels); l.userData.level = lv;
+      l.intensity = l.userData.base * lampFactor(c, lv, env);
+      if (c.hue) { l.color.set(c.color).offsetHSL(c.hue / 360 * lv, 0, 0); l.userData.colorNow = '#' + l.color.getHexString(); }
     }
     this.lampsLit = true;
   }
-  lampsRest() { // out of the room: the lamps back to their normal light
-    if (!this.lamps || !this.lampsLit) return; this.lampsLit = false;
-    for (const p of this.players) { p.level = 0; p.rms = 0; for (const lamp of this.lamps[p.id] || []) lamp.intensity = lamp.userData.base; }
+  lampsRest() { // out of the room: the lamps back to their normal light (× my "outside the room" brightness)
+    if (!this.lamps || !this.lampsLit) return; this.lampsLit = false; this.lampAt = 0;
+    for (const p of this.players) { p.level = 0; p.rms = 0; p.shown = 0; p.env = null; }
+    for (const id of LAMP_IDS) { const l = this.lampById[id], c = this.lights.lamps[id]; if (!l) continue; l.intensity = l.userData.base * restFactor(c, this.lights.env); l.color.set(c.color); l.userData.colorNow = c.color; l.userData.level = 0; }
   }
   stop() {
     this.lampsRest();
@@ -119,8 +166,9 @@ export class NoiseSpeakers {
     }
   }
   info() {
-    return { inside: this.inside, inRoom: !!this.inRoom, door: Number.isFinite(this.doorD) ? +this.doorD.toFixed(2) : null, lamps: this.lamps ? Object.fromEntries(Object.entries(this.lamps).map(([k, v]) => [k, v.map((l) => ({ x: +l.position.x.toFixed(2), intensity: +l.intensity.toFixed(3), base: l.userData.base }))])) : null, tracks: this.tracks ? this.tracks.length : null, log: this.log.slice(),
-      players: this.players.map((p) => ({ id: p.id, rms: +p.rms.toFixed(4), level: +p.level.toFixed(3), gain: +p.g.toFixed(4), zone: +(p.g / NOISE_SPEAKERS.master).toFixed(4), file: p.want ? p.want.track.file : null, plays: p.plays,
+    return { inside: this.inside, inRoom: !!this.inRoom, door: Number.isFinite(this.doorD) ? +this.doorD.toFixed(2) : null, lamps: this.lamps ? Object.fromEntries(Object.entries(this.lamps).map(([k, v]) => [k, v.map((l) => ({ id: l.userData.lampId, x: +l.position.x.toFixed(2), intensity: +l.intensity.toFixed(3), base: l.userData.base }))])) : null,
+      lights: this.lampById ? Object.fromEntries(Object.entries(this.lampById).map(([id, l]) => [id, { intensity: +l.intensity.toFixed(3), base: l.userData.base, color: '#' + l.color.getHexString(), distance: +l.distance.toFixed(2), decay: l.decay, level: +(l.userData.level || 0).toFixed(3), pos: [+l.position.x.toFixed(2), +l.position.y.toFixed(2), +l.position.z.toFixed(2)] }])) : null, tracks: this.tracks ? this.tracks.length : null, log: this.log.slice(),
+      players: this.players.map((p) => ({ id: p.id, rms: +p.rms.toFixed(4), level: +p.level.toFixed(3), shown: +(p.shown ?? p.level).toFixed(3), gain: +p.g.toFixed(4), zone: +(p.g / NOISE_SPEAKERS.master).toFixed(4), file: p.want ? p.want.track.file : null, plays: p.plays,
         paused: p.el ? p.el.paused : true, time: p.el ? +p.el.currentTime.toFixed(2) : 0, ready: p.el ? p.el.readyState : 0, src: p.el ? p.el.getAttribute('src') : null, blocked: p.blocked })) };
   }
 }

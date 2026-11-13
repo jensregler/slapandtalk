@@ -61,6 +61,7 @@ import { buildCityRoom, markDoors } from './city.js';
 import { cityTime, toggleCityTime } from './daynight.js';
 import { Sightline } from './sightline.js';
 import { NoiseSpeakers } from './noisespeakers.js';
+import { initNoiseLightsUI } from './noiselightsui.js';
 import { sightFreq } from '../../shared/sightline.mjs';
 import { exportCity as exportCityFile, importCity as importCityFile } from './cityfile.js';
 import { slapHold } from '../../shared/dancehold.mjs';
@@ -1864,6 +1865,7 @@ function escTopPanel() {
   if (camView) return () => exitCamView();
   if (fullUi?.isOpen()) return () => fullUi.close();
   if (!$('sound-panel').hidden) return () => soundUi.close();
+  if (lightsUi?.isOpen()) return () => lightsUi.close();
   if (!$('avatar-panel').hidden) return () => $('av-cancel').click();
   if (!$('room-panel').hidden) return () => closeRoomPanel();
   if (sp.open) return () => closeStylePanel(true);
@@ -2645,6 +2647,8 @@ var fullUi = initFullVersion({ // eslint-disable-line no-var
 var groove = new GrooveSteps(sound); // eslint-disable-line no-var
 // The noise room's speakers A + B (Jens t872u): only in a city's outside; on the shared (server) clock.
 const noiseSpeakers = CITY_OUTSIDE ? new NoiseSpeakers({ sound, now: () => groove.now(), lamps: room.noiseLamps || null }) : null;
+// Esc → LIGHTS (Jens t892u): my own settings for the noise room's lights (noiselightsui.js); only with the lamps
+var lightsUi = noiseSpeakers && room.noiseLamps ? initNoiseLightsUI({ noiseSpeakers, toast }) : null; // eslint-disable-line no-var -- escTopPanel reads it
 // Dancing NPCs (Jens t873u, client/src/npcs.js + shared/npcs.mjs): the welcome's list, seen and heard like players.
 var npcs = npcs || new Npcs(scene); // eslint-disable-line no-var
 const canGroove = () => !DEMO && (!!state.adminToken || !!entitlements.full.soundDesign);
@@ -2992,6 +2996,7 @@ escMenu = initEscMenu({
   isTouch,
   // CREATE / STICKERS / STICKER PACK available in the city again (same as the room).
   onSound: () => menuActions.radio(),
+  onLights: () => lightsUi?.open(),
   onAvatar: () => menuActions.character(),
   onRoom: () => menuActions.room(),
   // CITY opens Create new city / Join existing submenu (handled inside escmenu.js).
@@ -3010,7 +3015,7 @@ escMenu = initEscMenu({
   // CITY → Export city / Import city: the whole city as one file (cityfile.js, server/cityarchive.js).
   onExportCity: () => exportCityFile(THIS_CITY, { toast, name: cityInfo?.name }),
   onImportCity: () => importCityFile(THIS_CITY, { toast, here: cityInfo?.name || THIS_CITY, onDone: (d) => goRoom(d.city || THIS_CITY) }),
-  showButton: (key) => (key === 'daynight' ? CITY_OUTSIDE : key === 'exportcity' || key === 'importcity' ? IN_CITY && !DEMO : true),
+  showButton: (key) => (key === 'lights' ? !!lightsUi : key === 'daynight' ? CITY_OUTSIDE : key === 'exportcity' || key === 'importcity' ? IN_CITY && !DEMO : true),
   // Join existing: picking a row goes straight into that city.
   onPickCity: (c) => { if (c?.id) goRoom(c.id); },
   formatCity: (c) => {
@@ -4058,7 +4063,7 @@ window.klibb = {
   // day / night + the Town Hall (t864u), for the tests
   cityLook: () => ({ time: room.time ? room.time() : null, sky: room.group.getObjectByName('tak')?.material?.color?.getHexString() || null, stored: cityTime() }),
   openHall: () => openHall(), cityInfo: () => cityInfo,
-  noiseSpeakers: () => (noiseSpeakers ? noiseSpeakers.info() : null), noiseSpeakersObj: () => noiseSpeakers,
+  noiseSpeakers: () => (noiseSpeakers ? noiseSpeakers.info() : null), noiseSpeakersObj: () => noiseSpeakers, lightsUi: () => lightsUi,
   noiseSpeakerModels: () => ['A', 'B'].map((id) => { const g = room.group.getObjectByName(`noise-speaker-${id}`); if (!g) return null; const p = new THREE.Vector3(); g.getWorldPosition(p); const v = p.clone().project(camera); return { id, visible: g.visible, at: p.toArray().map((n) => +n.toFixed(2)), screen: [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(3)], label: !!g.getObjectByName(`noise-speaker-label-${id}`) }; }),
   sightline: () => ({ on: sightOn, hz: sightHz, base: stepOscHz(), ...sightline.info() }), sightlineHud,
   sightlineObj: () => sightline, // (tests: swap .cast to aim at the sky)
