@@ -46,11 +46,15 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     await A.click('#sound-design-btn');
     await A.waitForSelector('#sound-panel', { state: 'visible' });
     const tabs = await A.$$eval('#snd-tabs button', (b) => b.map((x) => x.textContent));
+    const openTab = await A.evaluate(() => document.querySelector('#snd-tabs button.sel')?.dataset.tab);
+    assert(tabs.join() === 'Steps,Slap,Peel,Landing' && openTab === 'step',
+      `synth panel tabs (${tabs.join(', ')}): Steps, Slap, Peel, Landing, and it opens on Steps`);
+    await A.click('#snd-tabs button[data-tab="slap"]');
     const panel = await A.evaluate(() => ({ layers: document.querySelectorAll('#snd-body .snd-layer').length, sliders: [...document.querySelectorAll('#snd-body .snd-sl')].map((r) => r.dataset.param),
       selects: [...document.querySelectorAll('#snd-body select')].map((s) => s.dataset.name) }));
-    assert(tabs.join() === 'Slap,Peel,Steps,Landing' && panel.layers === 3 && ['cutoff', 'q', 'a', 'd', 's', 'r', 'freq', 'pitchAmt', 'level', 'drive'].every((k) => panel.sliders.includes(k))
+    assert(panel.layers === 3 && ['cutoff', 'q', 'a', 'd', 's', 'r', 'freq', 'pitchAmt', 'level', 'drive'].every((k) => panel.sliders.includes(k))
       && ['Source', 'Wave', 'Filter'].every((k) => panel.selects.includes(k)),
-      `synth panel per sound (${tabs.join(', ')}): Slap/Peel/Steps/Landing; slap has its 3 layers with source/wave/filter and ${panel.sliders.length} sliders`);
+      `slap has its 3 layers with source/wave/filter and ${panel.sliders.length} sliders`);
     // Tweak: slap layer 1 cutoff + layer-2 pitch LFO via the LFO? ask button (t600u)
     await A.$eval('#snd-body .snd-layer[data-layer="0"] .snd-sl[data-param="cutoff"] input', (r) => { r.value = '700'; r.dispatchEvent(new Event('input', { bubbles: true })); });
     await A.$eval('#snd-body .snd-layer[data-layer="1"] .snd-sl[data-param="freq"] input', (r) => {

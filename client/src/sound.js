@@ -187,7 +187,8 @@ export class Sounds {
     if (this.muted) return entry;
     if (!this.ensure()) return entry;
     // FX is on the listener chain (setMine → setListenerFx), not per voice.
-    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, pos: remote ? at : null, time, pool: pool || (kind === 'step' ? 'step' : 'main'), paper })) { entry.skipped = true; if (kind === 'step') this.stepsSkipped = (this.stepsSkipped || 0) + 1; } };
+    const lfoId = kind === 'step' ? (npc ? 'npc:' + npc : (remote ? 'p:' + (who?.seed || 'r') : 'me')) : null;
+    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, pos: remote ? at : null, time, pool: pool || (kind === 'step' ? 'step' : 'main'), paper, ...(lfoId ? { lfoId } : {}) })) { entry.skipped = true; if (kind === 'step') this.stepsSkipped = (this.stepsSkipped || 0) + 1; } };
     if (this.engine) go(this.engine);
     else if (time == null) { const t = Date.now(); this.ready.then((eng) => { if (Date.now() - t < 400) go(eng); }); } // the very first sound waits for Tone.js
     return entry;

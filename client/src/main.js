@@ -65,7 +65,7 @@ import { sightFreq } from '../../shared/sightline.mjs';
 import { exportCity as exportCityFile, importCity as importCityFile } from './cityfile.js';
 import { slapHold } from '../../shared/dancehold.mjs';
 import { stepLines, DANCE_LINES } from '../../shared/dancelines.mjs';
-import { CITY, CITY_ROOM, roomBox, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
+import { CITY, CITY_ROOM, CITY_SPAWN, HALL, roomBox, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, PACK_DESIGN_ID, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
 import { initProps } from './propsmode.js';
@@ -148,7 +148,7 @@ const cityAt = CITY_OUTSIDE && params.get('at') === 'subway' ? { ...SUBWAY_SPAWN
 if (cityAt) camera.position.set(cityAt.x + (Math.random() - 0.5) * 1.5, 1.6 + room.groundAt(cityAt.x, cityAt.z), cityAt.z);
 
 const controls = new FirstPersonControls(camera, canvas, room.bounds);
-if (room.city) { controls.ground = room.groundAt; controls.collide = room.pushOut; controls.yaw = cityAt ? cityAt.yaw : 0; controls.apply?.(); }
+if (room.city) { controls.ground = room.groundAt; controls.collide = room.pushOut; controls.yaw = cityAt ? cityAt.yaw : CITY_SPAWN.yaw; controls.apply?.(); }
 // Our own unlocks (a menu, the chat, a camera view …) are told apart from the player's Esc: auto-slap
 // pauses for the first and turns off for the second (see onLockChange).
 var softUnlockAt = 0; // eslint-disable-line no-var
@@ -2859,8 +2859,13 @@ function cityPackAction() {
   if (CITY_OUTSIDE) { walkToHall(); return; }
   openChoice('city-pack', [{ id: 'to-city', text: S.cityBackToCity, go: () => { goRoom(THIS_CITY, '&at=' + ROOM); } }, { id: 'back', text: S.choiceBack }]);
 }
-// (from the pack button: straight in front of the Town Hall's door, then in)
-function walkToHall() { camera.position.set(0, 1.6 + (room.groundAt?.(0, 9.6) || 0), 9.6); controls.yaw = 0; controls.apply?.(); openHall(); }
+// (from the pack button: straight in front of the Town Hall's north entrance, then in)
+function walkToHall() {
+  const d = HALL.door, along = d.facing[2] >= 0 ? 1.6 : -1.6;
+  const x = d.x, z = d.z + along;
+  camera.position.set(x, 1.6 + (room.groundAt?.(x, z) || 0), z);
+  controls.yaw = d.facing[2] >= 0 ? 0 : Math.PI; controls.apply?.(); openHall();
+}
 function walkToDoor(n) { const s = spawnOutside(houseId(THIS_CITY, n)); camera.position.set(s.x, 1.6 + (room.groundAt?.(s.x, s.z) || 0), s.z + 1); controls.yaw = 0; controls.apply?.(); atDoor = null; }
 // The door's pick: "to city →" = the city picker (start a city and name it, or go into one that is
 // alive); in a city already, the new pack is simply what I carry now. Leaving my room for a city is

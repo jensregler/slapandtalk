@@ -1,5 +1,5 @@
-// Sound settings (full version, entitlements.full.soundDesign): synth panels for slap, peel,
-// steps and Landing/duff (SOUND_TABS). Effects data (st.fx) stays (the listener FX) – the Effects tab
+// Sound settings (full version, entitlements.full.soundDesign): synth panels for steps, slap,
+// peel and Landing/duff (SOUND_TABS, t900u: Steps first). Effects data (st.fx) stays (the listener FX) – the Effects tab
 // is kept in code but not shown.
 // Personal (Jens, 2 Nov 2026 / session model 6 Nov 2026): my sound settings are mine only –
 // sessionStorage 'klibb.sound' (and voice FX / Hear myself / Music vol / groove / run / mic). They
@@ -197,7 +197,7 @@ const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Landing', 
 // radioBlock: () => Master section (the one Volume). radio: Radio instance (my Tempo on Steps).
 export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, onLive = () => {}, musicVol = null, radioBlock = null, radio = null }) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const st = { open: false, tab: 'slap', patches: {}, fx: null, rolls: 0, sel: null }; // sel: the Steps-sequencer step being locked (t889u), null = editing the base sound
+  const st = { open: false, tab: 'step', patches: {}, fx: null, rolls: 0, sel: null }; // opens on Steps (t900u); sel: the Steps-sequencer step being locked (t889u), null = editing the base sound
   const base = (k) => variant(DEFAULT_PATCHES[k], mySeed(), k); // my default (what free me sounds like)
 
   function open() {
@@ -680,9 +680,9 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const body = $('snd-body'); body.innerHTML = '';
     const rb = $('snd-radio'); if (rb) { rb.innerHTML = ''; if (radioBlock) rb.appendChild(radioBlock()); }
     const tabs = $('snd-tabs'); tabs.innerHTML = '';
-    // Slap / Peel / Steps / Landing (duff). Effects stay in state (city drives fx); tab button not shown.
+    // Steps / Slap / Peel / Landing (duff) (t900u). Effects stay in state (city drives fx); tab button not shown.
     // Effects render branch below stays for programmatic/city use.
-    if (st.tab !== 'fx' && !SOUND_TABS.includes(st.tab)) st.tab = 'slap';
+    if (st.tab !== 'fx' && !SOUND_TABS.includes(st.tab)) st.tab = SOUND_TABS[0];
     for (const t of SOUND_TABS) {
       const b = el('button', null, TAB_NAMES[t]); b.type = 'button'; b.dataset.tab = t; b.setAttribute('aria-pressed', String(st.tab === t));
       if (st.tab === t) b.classList.add('sel'); b.onclick = () => { st.tab = t; render(); }; tabs.appendChild(b);
@@ -794,7 +794,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       for (let m = 0, played = 0; m * sp < bar - 1e-6 && played < 48; m++) {
         const i = m % q.len, stp = q.steps[i]; if (!stp || !stp.on || !(stp.vol > 0)) continue;
         played++; const foot = Math.floor(m / per + 1e-9);
-        eng.play(retuneP(lockedPatch(p, i), (foot % 2 ? 0.97 : 1.02) * tn), { gain: stp.vol / 100, fx, time: start + m * sp, pool: 'step' });
+        eng.play(retuneP(lockedPatch(p, i), (foot % 2 ? 0.97 : 1.02) * tn), { gain: stp.vol / 100, fx, time: start + m * sp, pool: 'step', lfoId: 'me' });
       }
     };
     run(t0, walkPulse, 1);

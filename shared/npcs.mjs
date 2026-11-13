@@ -8,8 +8,8 @@
 // tempo grid (shared/groove.mjs) as a spatial sound, i.e. the normal remote-player falloff. No traffic
 // after the welcome: everything below is a pure function of the city id (the seed) and the server clock.
 //
-//   - Three stand on the plaza (torg) in a 12 m equilateral triangle, so walking between them you hear
-//     one fade out while the next fades in; four more stand in the streets around the city.
+//   - Three stand on the plaza (torg) in a tight conversation (~1.4 m apart), a few metres west of the
+//     mid-plaza spawn so they don't overlap new arrivals; four more stand in the streets around the city.
 //   - Each has its own randomized (seeded) Steps sound (a variation built on the default step: noise
 //     scuff + a tuned oscillator on a pentatonic note), Tempo (a tempo of the 120-BPM grid, t881u), Groove scale,
 //     groove slot (polyrhythm 3/4/5/6/7) and walk / run / crouch settings (run tempo, run pitch, crouch
@@ -18,11 +18,16 @@
 //     walk, run or crouch again (seeded by the segment number), so all screens agree. Run / crouch rates are
 //     octaves (×2, ×4, ×½, ×¼): the dance keeps its walk tempo (it never jumps) and the steps stay on its
 //     beat – double or half time.
+//   - Now and then they "press Wild" in the Steps sound menu (Jens t894u): the same randomPatch(..., { wild: true })
+//     as the Wild button (client/src/soundui.js). Each NPC has its own seeded period in NPC_WILD.minMs…maxMs and
+//     a seeded phase, so they change out of sync; the patch is a pure function of the seed + the server clock,
+//     so every client hears the same thing with no extra network traffic. Tempo / gait are untouched. Loudness
+//     is whatever Wild already clamps (cleanPatch).
 //   - Not players: they are not in "N here", voice chat, slots, room limits or the recording.
 // Pure maths (no DOM / Three.js) – the server, the web app and tests/npcs.test.mjs share it.
 import AV from './avatar.json' with { type: 'json' };
 import { PLAZA, isCityOutside, cityOf } from './city.mjs';
-import { cleanPatch, snapFreq } from './synth.mjs';
+import { cleanPatch, snapFreq, randomPatch } from './synth.mjs';
 import { RUN, snapWalkBpm, tempoRate, pitchRatio } from './runmode.mjs';
 import { TEMPO_BPMS } from './tempogrid.mjs';
 import { cleanPlayerTempo } from './playertempo.mjs';
@@ -33,14 +38,16 @@ export const NPC = Object.freeze({
   visibleM: 60,
   slowM: 25,      // beyond this the dance is animated every other frame
   maxHeard: 4,    // at most this many (the nearest) are scheduled at once   // beyond this the avatar is hidden and not animated (cheap; the city is 96 m across)
-  plazaSide: 12,  // the plaza triangle's side (m)
+  plazaSide: 1.4,  // conversation distance (m) – a tight triangle, as if in a talk (Jens t893u)
 });
-// The plaza triangle: two near the subway end, one towards the Town Hall (all on the paving, clear of the benches).
-const PZ = PLAZA.z, H = NPC.plazaSide * Math.sqrt(3) / 2;
+// The plaza conversation: a tight equilateral triangle a few metres west of the square's centre (the
+// spawn at PLAZA.x/z), on the paving and clear of the benches and the Town Hall wall.
+export const PLAZA_TALK = Object.freeze({ x: -4.5, z: PLAZA.z });
+const H = NPC.plazaSide * Math.sqrt(3) / 2;
 export const NPC_SPOTS = Object.freeze([
-  Object.freeze({ x: -NPC.plazaSide / 2, z: +(PZ - H / 3 - 1).toFixed(3), plaza: true }),
-  Object.freeze({ x: NPC.plazaSide / 2, z: +(PZ - H / 3 - 1).toFixed(3), plaza: true }),
-  Object.freeze({ x: 0, z: +(PZ + (2 * H) / 3 - 1).toFixed(3), plaza: true }),
+  Object.freeze({ x: +(PLAZA_TALK.x - NPC.plazaSide / 2).toFixed(3), z: +(PLAZA_TALK.z - H / 3).toFixed(3), plaza: true }),
+  Object.freeze({ x: +(PLAZA_TALK.x + NPC.plazaSide / 2).toFixed(3), z: +(PLAZA_TALK.z - H / 3).toFixed(3), plaza: true }),
+  Object.freeze({ x: +PLAZA_TALK.x.toFixed(3), z: +(PLAZA_TALK.z + (2 * H) / 3).toFixed(3), plaza: true }),
   // "here and there": the streets between the plots (open ground, not in a building)
   Object.freeze({ x: -16, z: 2 }),   // west of the Town Hall, by the reverb room
   Object.freeze({ x: 16.5, z: -3 }), // east of the Town Hall, by the delay room
@@ -64,6 +71,8 @@ const NOTES = [];
 for (let o = 0; o < 3; o++) for (const s of PENTA) NOTES.push(snapFreq(55 * Math.pow(2, o + s / 12)));
 NOTES.push(440);
 export const NPC_TIME = Object.freeze({ segBeats: 32, gaits: ['walk', 'walk', 'run', 'crouch'] });
+// How often an NPC presses Wild on its Steps sound (Jens t894u). Tune these two.
+export const NPC_WILD = Object.freeze({ minMs: 20_000, maxMs: 60_000 });
 
 export function npcHash(str) { // FNV-1a → uint32
   let h = 0x811c9dc5 >>> 0; const s = String(str);
@@ -111,9 +120,9 @@ export function npcsFor(roomId) {
     const any = (list) => pick(r, list);
     const look = { outfit: any(Object.keys(AV.outfits)), hair: any(Object.keys(AV.hair)), shirt: any(AV.colors.shirt), pants: any(AV.colors.pants),
       hairColor: any(AV.colors.hair), skin: any(AV.colors.skin), shoes: any(AV.colors.shoes || ['#222222']), hat: false, hatColor: any(AV.colors.hat) };
-    // face the middle of the plaza triangle (plaza ones) / the city's middle (the rest), a little off
-    const cx = spot.plaza ? 0 : 0, cz = spot.plaza ? PZ - 1 : 0;
-    const yaw = +(Math.atan2(-(cx - spot.x), -(cz - spot.z)) + between(r, -0.4, 0.4)).toFixed(3);
+    // plaza ones face the conversation's centre (a little off); the rest face the city's middle
+    const cx = spot.plaza ? PLAZA_TALK.x : 0, cz = spot.plaza ? PLAZA_TALK.z : 0;
+    const yaw = +(Math.atan2(-(cx - spot.x), -(cz - spot.z)) + between(r, spot.plaza ? -0.15 : -0.4, spot.plaza ? 0.15 : 0.4)).toFixed(3);
     const slot = Math.floor(r() * 5);
     const id = `npc-${k}`;
     return { id, npc: true, name, label: `${name} · NPC`, x: spot.x, z: spot.z, yaw, plaza: !!spot.plaza, slot, look,
@@ -139,6 +148,32 @@ export function npcTempoAt(npc, nowMs) {
   const tune = g === 'run' ? pitchRatio(R.pitch) : g === 'crouch' ? pitchRatio(R.crouchPitch) : 1;
   return cleanPlayerTempo({ bpm: npc.walkBpm, scale: npc.scale, rate, tune });
 }
+// Each NPC's Wild period (ms) and phase (ms into the period): seeded, in NPC_WILD.minMs…maxMs, so
+// the seven of them do not all press at once. Period is constant per NPC (the interval is "about
+// 20–60 s", different for each); the patch itself is a new Wild roll every period.
+export function npcWildPeriod(npc) {
+  const r = npcRng('npc-wild-period:' + npc.sound.seed);
+  const ms = Math.round(NPC_WILD.minMs + r() * (NPC_WILD.maxMs - NPC_WILD.minMs));
+  return Math.max(NPC_WILD.minMs, Math.min(NPC_WILD.maxMs, ms));
+}
+export function npcWildPhase(npc) {
+  return Math.floor(npcRng('npc-wild-phase:' + npc.sound.seed)() * npcWildPeriod(npc));
+}
+// Which Wild press is in effect at server time nowMs (the same clock as npcGaitAt).
+export function npcWildIndex(npc, nowMs) {
+  const period = npcWildPeriod(npc), phase = npcWildPhase(npc);
+  return Math.floor((Math.floor(nowMs) - phase) / period);
+}
+// The Wild button on the Steps tab (soundui.js randomize(true) → randomPatch(seed + 'step', { wild: true })).
+export function npcWildPatch(npc, index) {
+  return randomPatch(`npc-wild:${npc.sound.seed}:${index}:step`, { wild: true });
+}
+// The Steps patch heard at nowMs. The welcome still carries the original npcStepPatch (no extra
+// traffic); clients compute this locally from the seed + the server clock.
+export function npcStepPatchAt(npc, nowMs) {
+  return npcWildPatch(npc, npcWildIndex(npc, nowMs));
+}
+
 // A received list (welcome.npcs) checked: at most 16, the fields the client needs, sane numbers. Bad → [].
 export function cleanNpcs(list) {
   if (!Array.isArray(list)) return [];

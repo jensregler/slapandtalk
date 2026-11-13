@@ -44,7 +44,7 @@ import { cleanSeq, visibleSteps } from './autoslap.mjs';
 // A patch may also carry mods (shared/lfo.mjs: up to 16 nested LFOs) and morph (0–1, see morphPatch).
 
 export const SOUNDS = ['slap', 'peel', 'step', 'duff']; // duff = peel landing thud (+ four voices Low)
-export const SOUND_TABS = ['slap', 'peel', 'step', 'duff']; // sound-settings UI (Landing = duff = peel landing thud; Effects still city-driven, not a tab)
+export const SOUND_TABS = ['step', 'slap', 'peel', 'duff']; // sound-settings UI (Jens t900u: Steps first, then Slap, Peel, Landing/duff; Effects still city-driven, not a tab)
 export const WAVES = ['sine', 'square', 'sawtooth', 'triangle'];
 export const NOISES = ['white', 'pink'];
 export const FILTERS = ['lowpass', 'highpass', 'bandpass'];

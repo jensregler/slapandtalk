@@ -131,7 +131,8 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time
     outlineBox(x, y0, z, w, h, d);
   };
   // The noise room's speakers A (west wall) and B (east wall), facing each other (Jens t872u; shared/noisespeakers.mjs,
-  // the music: client/src/noisespeakers.js). Built from boxes and canvas labels; not sticker surfaces.
+  // the music: client/src/noisespeakers.js). Built from boxes; not sticker surfaces. (The A/B labels
+  // over the speakers were taken off, Jens t893u.)
   const noiseLamps = { A: [], B: [] }; // the noise room's ceiling lamps, west half (A) / east half (B)
   const speakers = () => {
     const { w, h, d } = NOISE_SPEAKERS.size, y = NOISE_SPEAKERS.mountY;
@@ -147,8 +148,6 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time
         const dust = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.35, r * 0.35, 0.08, 24), cap); dust.rotation.x = Math.PI / 2; dust.position.set(0, cy, d / 2 + 0.04); g.add(dust);
       }
       const bracket = new THREE.Mesh(new THREE.BoxGeometry(w * 0.5, 0.18, d + 0.02), body); bracket.position.set(0, -h / 2 - 0.09, -0.01); g.add(bracket);
-      const tag = label(s.id, 1.0, 1.0, { bg: '#ffd400', fg: '#15130f', font: '900 110px Arial Black, Arial, sans-serif', cw: 128, ch: 128 }); // big and clear
-      tag.name = `noise-speaker-label-${s.id}`; tag.position.set(0, h / 2 + 0.7, -d / 2 + 0.05); g.add(tag);
       group.add(g);
     }
   };
@@ -183,15 +182,17 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time
         // the noise room (Jens t875u): the west half's lamps pulse with speaker A, the east half's with B (client/src/noisespeakers.js)
         if (p.fx === 'noise') { lamp.userData.base = intensity; (rf.x + x < p.x ? noiseLamps.A : noiseLamps.B).push(lamp); }
       }
-      // a sign over the opening: the plot's number and what the room does
-      const word = { reverb: 'REVERB', delay: 'DELAY', noise: 'NOISE' }[p.fx];
-      const sign = label(`${p.n} · ${word}`, 4.2, 1.05, { font: '900 88px Arial Black, Arial, sans-serif', cw: 512, ch: 128 });
-      sign.name = `fx-sign-${p.n}`;
-      const hw = HOUSE.width / 2;
-      if (p.n === 4) { sign.position.set(p.x - hw - 0.05, HOUSE.height - 1.2, p.z); sign.rotation.y = -Math.PI / 2; }
-      else if (p.n === 5) { sign.position.set(p.x + hw + 0.05, HOUSE.height - 1.2, p.z); sign.rotation.y = Math.PI / 2; }
-      else sign.position.set(p.x, HOUSE.height - 1.2, p.z + HOUSE.depth / 2 + 0.05);
-      group.add(sign);
+      // a sign over the opening: the plot's number and what the room does (the noise room's word was
+      // taken off, Jens t893u; reverb and delay keep theirs)
+      if (p.fx !== 'noise') {
+        const word = { reverb: 'REVERB', delay: 'DELAY' }[p.fx];
+        const sign = label(`${p.n} · ${word}`, 4.2, 1.05, { font: '900 88px Arial Black, Arial, sans-serif', cw: 512, ch: 128 });
+        sign.name = `fx-sign-${p.n}`;
+        const hw = HOUSE.width / 2;
+        if (p.n === 4) { sign.position.set(p.x - hw - 0.05, HOUSE.height - 1.2, p.z); sign.rotation.y = -Math.PI / 2; }
+        else if (p.n === 5) { sign.position.set(p.x + hw + 0.05, HOUSE.height - 1.2, p.z); sign.rotation.y = Math.PI / 2; }
+        group.add(sign);
+      }
       if (p.fx === 'noise') speakers();
       continue;
     }
@@ -229,8 +230,8 @@ export function buildCityRoom({ hallColor = null, busStop: wantBus = false, time
         }
       }
     }
-    arch(p);
-    if (!p.hall) { // the house's number over its door, big
+    if (!p.hall) { // houses keep their black arched door and number; the Town Hall has no drawn door (Jens t893u)
+      arch(p);
       const num = label(String(p.n), 1.6, 0.8);
       num.position.set(p.door.x, p.door.y0 + p.door.h + 0.75, p.door.z + 0.04); group.add(num);
     }

@@ -33,16 +33,21 @@ ok('ids: many cities – stad-<code> outside, stad-<code>-<n> its houses; the fi
   assert.equal(C.nextHouse([1, 3]), 6); assert.equal(C.nextHouse([1, 3, 6, 8]), 0); // (rebuild: only 1, 3, 6, 8 are houses)
   assert.equal(C.plotOfRoom('stad-ab12cd-2').z, -32); assert.deepEqual({ ...C.roomBox('stad-ab12cd') }, { ...C.CITY }); assert.equal(C.roomBox('stad-ab12cd-2').width, 16);
 });
-ok('walking: the ground is ONE flat piece (no ditches, t481u), houses push you out, doors are in front of the south wall', () => {
+ok('walking: the ground is ONE flat piece (no ditches, t481u), houses push you out, house doors face south, the Town Hall entrance faces north', () => {
   assert.equal(C.PLOT_SLAB, 0); assert.equal(C.CITY_GEO, 'city-2');
   for (const [x, z] of [[0, 20], [16, 20], [-40, -40], [32, 16.2], [47, 0]]) assert.equal(C.groundAt(x, z), 0, `${x},${z}`); // (x = 16: the street between two plots)
-  assert.deepEqual(C.pushOut(0, 7.9), [0, 8.35]);
+  assert.deepEqual(C.pushOut(0, 7.9), [0, 8.35]); // Town Hall south is still a solid wall
+  assert.deepEqual(C.pushOut(0, -7.9), [0, -8.35]); // …and so is the north
   assert.deepEqual(C.pushOut(-32 + 7.9, -32), [-32 + 8.35, -32]);
-  assert.equal(C.doorAt(0, 8.5).hall, true); assert.equal(C.doorAt(-32, 8.5 - 32).room, 'stad-1'); assert.equal(C.doorAt(4, 8.5), null);
+  assert.equal(C.doorAt(0, 8.5), null); // the old south entrance is gone
+  assert.equal(C.doorAt(0, -8.5).hall, true); assert.equal(C.doorAt(4, -8.5), null);
+  assert.equal(C.doorAt(-32, 8.5 - 32).room, 'stad-1');
   assert.equal(C.doorAt(0, C.SUBWAY.z + C.SUBWAY.d / 2 + 0.5).subway, true); // the subway station's door (plot 2)
+  assert.equal(C.CITY_SPAWN.x, C.PLAZA.x); assert.equal(C.CITY_SPAWN.z, C.PLAZA.z); assert.equal(C.CITY_SPAWN.yaw, Math.PI);
   assert.ok(!C.insideHouse(C.CITY_SPAWN.x, C.CITY_SPAWN.z));
   for (const id of C.PLOT_ROOMS) { const s = C.spawnOutside(id); assert.ok(!C.insideHouse(s.x, s.z), id); }
   assert.deepEqual({ ...C.roomBox('stad') }, { ...C.CITY }); assert.equal(C.roomBox('stad-1').width, 16);
+  assert.deepEqual([...C.HALL.door.facing], [0, 0, -1]); assert.equal(C.HALL.door.z, C.HALL.house.z - C.HALL.house.d / 2);
 });
 
 ok('rebuild (Jens, 10 Nov 2026): kept houses 1/3/6/8 with presets, subway on plot 2, open FX rooms 4/5/7, a plaza', () => {

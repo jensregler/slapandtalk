@@ -1,4 +1,4 @@
-// Dancing NPCs (Jens t873u): seeded per city, three on the plaza 12 m apart + four in the streets, none in a
+// Dancing NPCs (Jens t873u / t893u): seeded per city, three on the plaza in a tight conversation + four in the streets, none in a
 // building; musical randomized tempo / Steps / run-crouch; octave gait rates keep the dance BPM; the server
 // hands them out in the welcome (and not in houses, not with NPCS=0).
 import assert from 'node:assert/strict';
@@ -6,8 +6,8 @@ import { isGridTempo } from '../shared/tempogrid.mjs';
 import { createRequire } from 'node:module';
 import http from 'node:http';
 import * as N from '../shared/npcs.mjs';
-import { insideHouse, PLAZA, CITY } from '../shared/city.mjs';
-import { cleanPatch } from '../shared/synth.mjs';
+import { insideHouse, PLAZA, CITY, CITY_SPAWN } from '../shared/city.mjs';
+import { cleanPatch, randomPatch } from '../shared/synth.mjs';
 import { danceGrid } from '../shared/dance.mjs';
 const require = createRequire(import.meta.url);
 let n = 0; const ok = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); };
@@ -20,11 +20,15 @@ await ok('deterministic per city (the same list every time), different cities di
   assert.deepEqual(N.npcsFor('stad'), N.npcsFor('stad'));
   assert.notDeepEqual(N.npcsFor('stad').map((x) => x.sound.patches), N.npcsFor('stad-byggen').map((x) => x.sound.patches));
 });
-await ok('three on the plaza, an equilateral 12 m triangle, on the paving; nobody in a wall / bench; all in the city', () => {
+await ok('three on the plaza, a tight conversation triangle, on the paving, clear of spawn; nobody in a wall / bench; all in the city', () => {
   const l = N.npcsFor('stad'), p = l.filter((x) => x.plaza);
   assert.equal(p.length, 3);
-  for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) assert.ok(Math.abs(Math.hypot(p[i].x - p[j].x, p[i].z - p[j].z) - 12) < 0.01);
-  for (const x of p) assert.ok(Math.abs(x.x - PLAZA.x) < PLAZA.w / 2 - 1 && Math.abs(x.z - PLAZA.z) < PLAZA.d / 2 - 1);
+  for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) assert.ok(Math.abs(Math.hypot(p[i].x - p[j].x, p[i].z - p[j].z) - N.NPC.plazaSide) < 0.01);
+  assert.ok(N.NPC.plazaSide >= 1 && N.NPC.plazaSide <= 1.5);
+  for (const x of p) {
+    assert.ok(Math.abs(x.x - PLAZA.x) < PLAZA.w / 2 - 1 && Math.abs(x.z - PLAZA.z) < PLAZA.d / 2 - 1);
+    assert.ok(Math.hypot(x.x - CITY_SPAWN.x, x.z - CITY_SPAWN.z) > 2.5, x.id); // not on top of the mid-plaza spawn
+  }
   for (const x of l) { assert.equal(insideHouse(x.x, x.z, 0.8), null, x.id); assert.ok(Math.abs(x.x) < CITY.width / 2 - 2 && Math.abs(x.z) < CITY.depth / 2 - 2); }
 });
 await ok('randomized within musical bounds: Tempo on the 120-BPM grid (75–180, t881u), Groove ½/1/2, slot 0–4, octave run / crouch tempi', () => {
@@ -56,6 +60,42 @@ await ok('gait changes on the clock (walk / run / crouch per 32-beat segment), t
   }
   assert.deepEqual([...seen].sort(), ['crouch', 'run', 'walk']);
   assert.deepEqual(N.npcDance(x), { at: 0, bpm: x.danceBpm, phaseMs: 0, loop: true });
+});
+await ok('Wild (t894u): each NPC presses the Steps Wild button on a seeded 20–60 s period, desynchronised; the same clock → the same patch everywhere', () => {
+  const now = 1794500000000;
+  const list = N.npcsFor('stad');
+  assert.ok(N.NPC_WILD.minMs === 20_000 && N.NPC_WILD.maxMs === 60_000);
+  const periods = new Set(), phases = new Set();
+  for (const x of list) {
+    const period = N.npcWildPeriod(x), phase = N.npcWildPhase(x);
+    assert.equal(period, N.npcWildPeriod(x)); // deterministic
+    assert.ok(period >= N.NPC_WILD.minMs && period <= N.NPC_WILD.maxMs, period);
+    assert.ok(phase >= 0 && phase < period, phase);
+    periods.add(period); phases.add(phase);
+    const i = N.npcWildIndex(x, now);
+    const t0 = i * period + phase; // this press starts here
+    assert.equal(N.npcWildIndex(x, now), i);
+    assert.equal(N.npcWildIndex(x, t0), i);
+    assert.equal(N.npcWildIndex(x, t0 + period - 1), i); // constant until the next press
+    assert.equal(N.npcWildIndex(x, t0 + period), i + 1);
+    const p = N.npcStepPatchAt(x, now);
+    assert.deepEqual(p, N.npcStepPatchAt(x, now));
+    assert.deepEqual(p, N.npcWildPatch(x, i));
+    assert.deepEqual(p, randomPatch(`npc-wild:${x.sound.seed}:${i}:step`, { wild: true })); // the same function as the Wild button
+    assert.deepEqual(cleanPatch(p), p);
+    assert.ok(p.gain <= 1.5 && p.layers.length >= 1 && p.layers.length <= 5);
+    assert.ok(p.layers.every((l) => l.level <= 1 && l.level >= 0 && (l.drive || 0) <= 1));
+    assert.notDeepEqual(p, x.sound.patches.step); // a Wild roll, not the welcome footstep
+    assert.notDeepEqual(N.npcStepPatchAt(x, now + period), p); // the next press is a new roll
+    // tempo / gait are independent of Wild (same clock → same tempo; Wild does not retune the grid)
+    assert.deepEqual(N.npcTempoAt(x, now), N.npcTempoAt(x, now));
+    assert.equal(x.walkBpm, N.npcTempoAt(x, now).bpm);
+    assert.equal(x.danceBpm, N.npcDance(x).bpm);
+  }
+  assert.ok(periods.size >= 2 && phases.size >= 2, { periods: [...periods], phases: [...phases] }); // not all in lockstep
+  // two cities at the same clock: different sounds (the seed includes the city)
+  const a = N.npcsFor('stad')[0], b = N.npcsFor('stad-byggen')[0];
+  assert.notDeepEqual(N.npcStepPatchAt(a, now), N.npcStepPatchAt(b, now));
 });
 await ok('cleanNpcs: drops junk, keeps the server list as is', () => {
   const l = N.npcsFor('stad'); assert.equal(N.cleanNpcs(l).length, 7);

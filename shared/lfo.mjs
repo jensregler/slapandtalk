@@ -337,3 +337,53 @@ export function modRunner(prog, sampleRate) {
   }
   return { step, out, f, phases: ph, env };
 }
+
+// ---------- Free-running LFO phase (Jens t899u) ----------
+// Step-sound voices are short and were starting every LFO at phase 0, so the sequencer retriggered
+// the LFO on each step. These helpers give each new voice a start phase that continues a clock
+// that just runs. Rate changes (p-locks, retune) do not jump the phase: the previous rate is
+// integrated over the elapsed time, then the new rate is stored for next time.
+export function wrapPhase(p) {
+  if (!Number.isFinite(p)) return 0;
+  return p - Math.floor(p);
+}
+// Advance a free-running LFO to `time` (seconds) at `rate` (Hz). `state` is the previous
+// { t, phase, rate }, or null on first use. First use: phase = (time * rate + offset) mod 1
+// (offset is the patch's own start phase, used only then). Returns { t, phase, rate } with
+// phase in [0, 1).
+export function advanceLfoPhase(state, rate, time, offset = 0) {
+  const r = Number.isFinite(rate) && rate > 0 ? rate : 0;
+  const t = Number.isFinite(time) ? time : 0;
+  const off = Number.isFinite(offset) ? offset : 0;
+  if (!state || !Number.isFinite(state.t) || !Number.isFinite(state.phase)) {
+    return { t, phase: wrapPhase(t * r + off), rate: r };
+  }
+  const prevRate = Number.isFinite(state.rate) && state.rate > 0 ? state.rate : 0;
+  return { t, phase: wrapPhase(state.phase + prevRate * (t - state.t)), rate: r };
+}
+// Start phases for one voice of `patch` at `time`. `acc` is a Map<string, {t,phase,rate}>
+// persisted across voices (mutated). `id` prefixes keys so walkers do not share an accumulator.
+// `rate` is the voice's pitch ratio (retune already baked into the patch is typically 1 here).
+// Followers and the radio's gate keep their own phase (not free-run LFOs).
+// Returns { layers: number[] (index = layer), mods: (number|null)[] (same order as patch.mods) }.
+export function voiceLfoPhases(patch, time, acc, id = '', { rate = 1 } = {}) {
+  const prefix = id ? id + ':' : '';
+  const map = acc instanceof Map ? acc : (acc || new Map());
+  const layers = [], mods = [];
+  const ratio = Number.isFinite(rate) ? rate : 1;
+  for (let i = 0; i < (patch?.layers || []).length; i++) {
+    const l = patch.layers[i] || {};
+    const key = prefix + 'L' + i;
+    const st = advanceLfoPhase(map.get(key), (l.lfoRate || 0) * ratio, time, l.lfoPhase || 0);
+    map.set(key, st);
+    layers[i] = st.phase;
+  }
+  for (const m of patch?.mods || []) {
+    if (!m || m.wave === 'follow' || m.wave === 'gate') { mods.push(null); continue; }
+    const key = prefix + (m.id || 'm');
+    const st = advanceLfoPhase(map.get(key), m.rate, time, m.phase || 0);
+    map.set(key, st);
+    mods.push(st.phase);
+  }
+  return { layers, mods };
+}

@@ -1,4 +1,4 @@
-// E2E (Jens t873u, 12 Nov 2026): dancing NPCs in the city. Three on the plaza (12 m apart) + four in the streets,
+// E2E (Jens t873u, 12 Nov 2026): dancing NPCs in the city. Three on the plaza in a tight conversation + four in the streets,
 // the same for everyone (server welcome, seeded by the city), dancing the X loop on the server clock, their own
 // Steps sound + tempo + walk/run/crouch, heard like a remote player (spatial, quieter with distance), not counted
 // in "N here". Own LOCAL_MODE server (port 8967). Screenshots → NPCS_SHOTS (default /workspace/dancing-npcs).
@@ -29,14 +29,14 @@ const SHOTS = process.env.NPCS_SHOTS || '/workspace/dancing-npcs';
     };
     const A = await open('Jens');
     await A.waitForFunction(() => window.klibb.npcs().count > 0 && window.klibb.npcs().npcs.every((n) => n.built), null, { timeout: 30000 });
-    // stand south of the plaza, looking north over it: all three in view
-    await A.evaluate(() => { window.klibb.moveTo(0, -7.2); window.klibb.look(0, -0.12); });
+    // stand a little south of mid-plaza, looking north-west at the tight conversation
+    await A.evaluate(() => { window.klibb.moveTo(0, -16); window.klibb.look(0.35, -0.08); });
     await sleep(2500);
     const n0 = await A.evaluate(() => window.klibb.npcs());
     const plaza = n0.npcs.filter((n) => n.plaza);
     const d = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
     check(`7 NPCs from the server, 3 on the plaza (${plaza.map((n) => n.label).join(', ')})`, n0.count === 7 && plaza.length === 3, n0.npcs.map((n) => [n.id, n.x, n.z, n.plaza]));
-    check(`plaza NPCs ${d(plaza[0], plaza[1]).toFixed(1)} / ${d(plaza[1], plaza[2]).toFixed(1)} / ${d(plaza[0], plaza[2]).toFixed(1)} m apart`, [d(plaza[0], plaza[1]), d(plaza[1], plaza[2]), d(plaza[0], plaza[2])].every((x) => x > 10 && x < 14));
+    check(`plaza NPCs ${d(plaza[0], plaza[1]).toFixed(1)} / ${d(plaza[1], plaza[2]).toFixed(1)} / ${d(plaza[0], plaza[2]).toFixed(1)} m apart`, [d(plaza[0], plaza[1]), d(plaza[1], plaza[2]), d(plaza[0], plaza[2])].every((x) => x > 1 && x < 1.6));
     check('labelled as NPCs (name tag "<name> · NPC")', n0.npcs.every((n) => /· NPC$/.test(n.tag || '')), n0.npcs.map((n) => n.tag));
     check('plaza NPCs visible and dancing (looping X dance)', plaza.every((n) => n.visible && n.dancing && n.danceBpm >= 60 && n.danceBpm <= 180), plaza);
     const t1 = await A.evaluate(() => window.klibb.npcs().npcs.map((n) => n.danceTime)); await sleep(700);
@@ -48,14 +48,14 @@ const SHOTS = process.env.NPCS_SHOTS || '/workspace/dancing-npcs';
     check(`not counted as players: "${pres}", players() = []`, /Just you/.test(pres) && (await A.evaluate(() => window.klibb.players().length)) === 0, pres);
     await A.screenshot({ path: path.join(SHOTS, '01-plaza-three-npcs.png') });
     // a closer, higher look (the third-person camera behind me)
-    await A.evaluate(() => { window.klibb.moveTo(0, -10.5); window.klibb.look(0, -0.22); window.klibb.setView('third'); });
+    await A.evaluate(() => { window.klibb.moveTo(0, -16); window.klibb.look(0.35, -0.12); window.klibb.setView('third'); });
     await sleep(1800);
     await A.screenshot({ path: path.join(SHOTS, '02-plaza-three-npcs-third-person.png') });
     await A.evaluate(() => window.klibb.setView('first'));
     // a second player sees the same NPCs at the same beat, in the same gait
     const B = await open('Guest');
     await B.waitForFunction(() => window.klibb.npcs().count > 0 && window.klibb.npcs().npcs.every((n) => n.built), null, { timeout: 30000 });
-    await B.evaluate(() => { window.klibb.moveTo(0, -7.2); window.klibb.look(0, -0.12); }); await sleep(1200);
+    await B.evaluate(() => { window.klibb.moveTo(0, -16); window.klibb.look(0.35, -0.08); }); await sleep(1200);
     const [ia, ib] = await Promise.all([A, B].map((P) => P.evaluate(() => ({ n: window.klibb.npcs(), off: window.klibb.groove().offset, gaits: [0, 1, 2, 3, 4, 5].map((k) => window.klibb.npcsObj().gaitsAt(1794500000000 + k * 7777)) }))));
     const sameList = JSON.stringify(ia.n.npcs.map((n) => [n.id, n.label, n.x, n.z, n.walkBpm, n.scale, n.slot, n.run, n.step])) === JSON.stringify(ib.n.npcs.map((n) => [n.id, n.label, n.x, n.z, n.walkBpm, n.scale, n.slot, n.run, n.step]));
     const sameDance = ia.n.npcs.every((n, i) => n.danceAt === 0 && ib.n.npcs[i].danceAt === 0 && n.danceBpm === ib.n.npcs[i].danceBpm);
