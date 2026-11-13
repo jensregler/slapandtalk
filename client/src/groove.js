@@ -163,7 +163,7 @@ export class GrooveSteps {
         const time = this.audioTime(e.t);
         if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up
         // left/right foot: a hair lower on every other footstep (the walking randomness stays – sound.js adds the wobble)
-        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: (e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v, seqStep: useSeq ? e.i : 0, volume: useSeq && st ? st.vol / 100 : 1 });
+        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: (e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v, seqStep: useSeq ? e.i : 0, volume: useSeq && st ? st.vol / 100 : 1, lines: w.id === 'me' }); // lines: the dance lines' hold / drive on MY steps (t888u), on top of the step's locks
       }
       if (budget <= 0) break;
     }

@@ -64,6 +64,7 @@ import { NoiseSpeakers } from './noisespeakers.js';
 import { sightFreq } from '../../shared/sightline.mjs';
 import { exportCity as exportCityFile, importCity as importCityFile } from './cityfile.js';
 import { slapHold } from '../../shared/dancehold.mjs';
+import { stepLines, DANCE_LINES } from '../../shared/dancelines.mjs';
 import { CITY, CITY_ROOM, roomBox, isCityRoom, isCityOutside, cityOf, houseNumber, houseId, plotOfHouse, spawnOutside, natureMaxHeightCmIn, CITY_BUILD_PHASE, BUILD_CITY, isBuildCity, isKeptHouse, KEPT_HOUSES, HOUSE_MAX, SUBWAY_SPAWN } from '../../shared/city.mjs';
 import { cityWheel, isPackDesign, PACK_DESIGN_ID, refreshPackPicture, openTownHall, townHallOpen, townHallState, takenPacks, readKept, DECK_MAX, openCityPick, cityPickOpen, cityPickState, cityApi } from './citymode.js';
 import { enterCity, leaveCity } from './cityleave.js';
@@ -3487,7 +3488,7 @@ function liveRunMode() { try { return (soundUi && soundUi.runDraft && soundUi.ru
 // is never touched, so letting go of Ctrl brings my own step pitch (and the crouch pitch) straight back.
 // The raycast is the aim's own (hitSurface), 10 a second, smoothed.
 // Highline / Widthline (t867u): the same cast also says where on the aimed surface I look (0…1 up / across) –
-// not wired to any sound yet. Dev readout: ?sightline=1 (or klibb.sightlineHud(true)) shows all three, big.
+// wired in dance mode only (t888u, dance lines below). Dev readout: ?sightline=1 (or klibb.sightlineHud(true)) shows all three, big.
 const sightline = new Sightline({ cast: () => hitSurface(CENTER) });
 var sightOn = false, sightHz = null; // eslint-disable-line no-var
 function stepOscHz() { // my Steps patch's oscillator pitch (its first osc layer; else its first layer)
@@ -3515,6 +3516,33 @@ function sightHudFrame() {
   sightHudEl.style.display = '';
   sightHudEl.textContent = `Sightline ${sightline.raw == null ? '–' : sightline.distance.toFixed(1) + ' m'} · Highline ${pct(sightline.highline)} · Widthline ${pct(sightline.widthline)}${sightOn && sightHz ? ' · ' + sightHz.toFixed(0) + ' Hz' : ''}`;
 }
+// Dance lines (Jens t888u, 13 Nov 2026): while I dance, WHERE on the aimed surface I look drives my Steps sound –
+// Highline (up/down on that surface, 0…1) → the hold of every layer (0 … 3 s), Widthline (left/right, 0…1) → the
+// drive of every layer (0 … 1), linear, smoothed (shared/dancelines.mjs). The same Sightline cast (10 a second).
+// Sky / nothing hit: the last values stay. Only the sound changes – my saved Steps patch is never written, so the
+// dance ending (X, W/A/S/D) gives my own hold + drive straight back. Heard at once on my dance steps (each step,
+// groove.js → sound.play lines) and on my Steps sequencer layers (radio.js walkLoop). Personal sound (2 Nov
+// 2026): the others never get my patches, so they hear my steps in THEIR sound – they don't hear this; only my
+// Tempo travels. Big readout on screen while dancing (#dance-lines-hud, Jens's eyes).
+let danceLines = null, danceLinesT = null, danceLinesHudEl = null, danceLinesText = '';
+function danceLinesStep(dancingMe) {
+  if (!dancingMe) {
+    if (danceLines || sound.stepMod) { danceLines = null; danceLinesT = null; sound.stepMod = null; }
+    if (danceLinesHudEl && danceLinesHudEl.style.display !== 'none') danceLinesHudEl.style.display = 'none';
+    return;
+  }
+  const now = performance.now();
+  sightline.update(now); // (throttled: one cast per SIGHTLINE.intervalMs, however often it is called)
+  const dt = danceLinesT == null ? 0 : now - danceLinesT; danceLinesT = now;
+  danceLines = stepLines(danceLines, { highline: sightline.highline, widthline: sightline.widthline }, dt);
+  sound.stepMod = danceLines.hold == null && danceLines.drive == null ? null : { hold: danceLines.hold, drive: danceLines.drive };
+  if (!danceLinesHudEl) { danceLinesHudEl = document.createElement('div'); danceLinesHudEl.id = 'dance-lines-hud'; danceLinesHudEl.setAttribute('aria-live', 'off'); document.body.appendChild(danceLinesHudEl); }
+  const f = (v) => (v == null ? '–' : v.toFixed(2));
+  const sky = sightline.raw == null && danceLines.hold != null ? '  (sky: kept)' : '';
+  const text = `Highline ${f(danceLines.highline)} → hold ${danceLines.hold == null ? '–' : danceLines.hold.toFixed(2) + ' s'}\nWidthline ${f(danceLines.widthline)} → drive ${f(danceLines.drive)}${sky}`;
+  if (text !== danceLinesText) { danceLinesText = text; danceLinesHudEl.textContent = text; }
+  if (danceLinesHudEl.style.display === 'none' || !danceLinesHudEl.style.display) danceLinesHudEl.style.display = 'block';
+}
 function walkSounds() {
   // onPeel: feet on backing paper on the floor = the muffled "paper" step (shared/peelstep.mjs)
   // dancing (Jens t814u): while the dance is on it counts as walking – the footsteps and the walk
@@ -3529,6 +3557,7 @@ function walkSounds() {
   const dancingMe = !camView && together.dancing();
   myGait = camView ? 'walk' : gaitOf({ moving: controls.moving && !dancingMe, dancing: dancingMe, shift: controls.shiftHeld(), ctrl: controls.ctrlHeld() });
   const step = sightStep(gaitStep(myGait, liveRunMode()));
+  danceLinesStep(dancingMe); // t888u: Highline → hold, Widthline → drive on my Steps while I dance
   // My own tempo (Jens t846u: "ta bort den globala klockan … alla har sin egen bpm"): my Tempo (radio.walkBpm –
   // the Steps slider, live while Sound settings is open) drives my footsteps, sequencers + four voices
   // (radio.tick), the synced delay, my voice echo and my dance; the room gets it so they hear / see me at it.
@@ -4027,6 +4056,8 @@ window.klibb = {
   noiseSpeakers: () => (noiseSpeakers ? noiseSpeakers.info() : null), noiseSpeakersObj: () => noiseSpeakers,
   noiseSpeakerModels: () => ['A', 'B'].map((id) => { const g = room.group.getObjectByName(`noise-speaker-${id}`); if (!g) return null; const p = new THREE.Vector3(); g.getWorldPosition(p); const v = p.clone().project(camera); return { id, visible: g.visible, at: p.toArray().map((n) => +n.toFixed(2)), screen: [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(3)], label: !!g.getObjectByName(`noise-speaker-label-${id}`) }; }),
   sightline: () => ({ on: sightOn, hz: sightHz, base: stepOscHz(), ...sightline.info() }), sightlineHud,
+  sightlineObj: () => sightline, // (tests: swap .cast to aim at the sky)
+  danceLines: () => ({ on: !!danceLines, ...(danceLines ? { highline: danceLines.highline, widthline: danceLines.widthline, target: { ...danceLines.target }, hold: danceLines.hold, drive: danceLines.drive } : {}), mod: sound.stepMod ? { ...sound.stepMod } : null, ranges: DANCE_LINES, hud: danceLinesHudEl && danceLinesHudEl.style.display !== 'none' ? danceLinesHudEl.textContent : '', raw: sightline.raw, savedStep: (() => { const p = sound.patchFor('step', sound.mine).patch; return p ? p.layers.map((l) => ({ hold: l.hold, drive: l.drive })) : null; })() }),
   savePreset, bakePresetUrls, preset: () => ({ room: presetRoom, ...presetLayer.info() }), presetLayer: () => presetLayer,
   held: () => stackMenu?.info() ?? null, holdSharp: (on = true) => { holdSharpForTests = !!on; }, deskHeld: () => deskHeld && { ...deskHeld.info(performance.now()), previewVisible: preview.mesh.visible, previewOpacity: +preview.mat.opacity.toFixed(3), aimOff }, aimOff: () => aimOff, setAimOff, syncAimToggleBtn, stackMenu: () => stackMenu, heldRec: () => ({ ...heldTx }),
   // The wheels are gone (t793u): any wheel UI still on screen (should be none).

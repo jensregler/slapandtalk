@@ -33,7 +33,7 @@ export const sightSmooth = (cur, target, dtMs, smoothMs = SIGHTLINE.smoothMs) =>
 // 0 = its left … 1 = its right, as seen from where you stand. "The surface" = the mesh that was hit (its world
 // bounding box: a facade, a wall, a door, the ground, a prop). Walls (|normal.y| < 0.7): up = world up and right =
 // your right along the wall. Floors / ceilings / roofs (no "up" on them): Highline runs AWAY from you (near edge 0
-// … far edge 1, like up on the screen) and Widthline left → right. Not wired to any sound yet (Jens decides).
+// … far edge 1, like up on the screen) and Widthline left → right. Wired in dance mode (t888u, shared/dancelines.mjs): Highline → Steps hold, Widthline → Steps drive.
 //   surfaceLines(point, normal, min, max, viewDir) → { highline, widthline }   (all [x, y, z] arrays)
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];

@@ -11,6 +11,7 @@ import { cleanRadio, cleanPreset, FOUR_VOICES, RADIO, bpmToKnob, knobToBpm } fro
 import { playerTempo, loopSteps, barMsAt, barsAtTime } from '../../shared/clock.mjs';
 import { SOUNDS, retune } from '../../shared/synth.mjs';
 import { planWalkSeq, newWalkSeq } from '../../shared/walkseq.mjs';
+import { withLines } from '../../shared/dancelines.mjs';
 import { RUN, cleanWalkBpm, snapWalkBpm } from '../../shared/runmode.mjs';
 import { Ambient } from './ambient.js';
 
@@ -120,7 +121,8 @@ export class Radio {
   walkLoop(lp, { now, ahead, tempo, barS, at, walk }) {
     let st = this.walkSeq.get(lp.key); if (!st) { st = newWalkSeq(); this.walkSeq.set(lp.key, st); }
     const run = walk.run, rate = run ? run.rate : 1, tune = run ? run.tune : 1;
-    const pf = tune !== 1 ? retune(lp.pf, tune) : lp.pf;
+    const lpf = this.sound.stepMod ? withLines(lp.pf, this.sound.stepMod) : lp.pf; // the dance lines' hold / drive (t888u, main.js)
+    const pf = tune !== 1 ? retune(lpf, tune) : lpf;
     if (!(Math.min(ahead, walk.until) > now)) { this.toneUntil.delete(lp.key); return 0; } // standing: silent, position kept
     if (lp.steps * rate / (lp.bars * barS) <= RADIO.fastSteps) {
       this.toneUntil.delete(lp.key);

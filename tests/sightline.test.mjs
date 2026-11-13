@@ -31,7 +31,7 @@ ok('wired into sneak only, the Steps patch is never written (only the played tun
   const m = fs.readFileSync(new URL('../client/src/main.js', import.meta.url), 'utf8');
   assert.match(m, /const step = sightStep\(gaitStep\(myGait, liveRunMode\(\)\)\);/);
   assert.match(m, /if \(myGait !== 'crouch' \|\| !controls\.crouching\) \{ if \(sightOn\) \{ sightOn = false; sightHz = null; sightline\.reset\(\); \} return step; \}/);
-  const fn = m.slice(m.indexOf('function sightStep('), m.indexOf('function walkSounds('));
+  const fn = m.slice(m.indexOf('function sightStep('), m.indexOf('// Dance lines (Jens t888u'));
   assert.doesNotMatch(fn, /\.freq\s*=|patches\.step\s*=|setPatch|save/);
   const c = fs.readFileSync(new URL('../client/src/sightline.js', import.meta.url), 'utf8');
   assert.match(c, /export class Sightline/); assert.match(c, /intervalMs/);
@@ -56,9 +56,9 @@ ok('…nothing hit → null; a zero-size axis → ½', () => {
   assert.deepEqual(L.surfaceLines(null, [0, 0, 1], null, null, null), { highline: null, widthline: null });
   assert.equal(L.surfaceLines([0, 1, 0], [0, 0, 1], [0, 0, 0], [0, 2, 0], [0, 0, -1]).widthline, 0.5);
 });
-ok('Highline / Widthline are measured, not wired to any sound', () => {
+ok('Highline / Widthline are not used by sneak (sightStep) – only by the dance lines (t888u)', () => {
   const m = fs.readFileSync(new URL('../client/src/main.js', import.meta.url), 'utf8');
-  const fn = m.slice(m.indexOf('function sightStep('), m.indexOf('function walkSounds('));
+  const fn = m.slice(m.indexOf('function sightStep('), m.indexOf('// Dance lines (Jens t888u'));
   assert.doesNotMatch(fn.slice(0, fn.indexOf('let sightHudEl')), /highline|widthline/);
 });
 console.log(`sightline: ${n} checks ok`);
