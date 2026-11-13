@@ -11,7 +11,7 @@
 //     Applied once, locally, to everything I hear (synths, samples, voice monitor, other voices).
 //     No per-source FX, no extra network messages. Voices are short-lived; MAX_VOICES caps polyphony.
 import { cleanPatch, cleanFx, delaySeconds, patchLength, samplerRate, FX_DEFAULTS, SYNTH } from '../../shared/synth.mjs';
-import { evalMods, compileMods, MOD } from '../../shared/lfo.mjs';
+import { evalMods, compileMods, MOD, wrapPhase, waveAt, voiceLfoPhases } from '../../shared/lfo.mjs';
 import { ensureDecimator, makeDecimator, makeMods } from './decimator.js';
 import { getMic, micStream } from './mic.js';
 import { peelCurve } from '../../shared/peelstep.mjs';
@@ -185,11 +185,22 @@ export class SynthEngine {
   // they plug into the Tone FX chain / room bus and disconnect themselves when done.
   // gate: { pattern: [0…1 per step], rate (loops/s), phase, decay } – the fast sequencer (radio.js): an
   //   internal per-sample gate on the patch volume, so steps faster than the scheduler become a tone.
-  play(patch, { gain = 1, rate = 1, fx = null, pos = null, time = null, keep = false, pool = 'main', paper = null, gate = null, length = null, layer = null } = {}) {
+  play(patch, { gain = 1, rate = 1, fx = null, pos = null, time = null, keep = false, pool = 'main', paper = null, gate = null, length = null, layer = null, lfoFree = null, lfoId = null } = {}) {
     const p = cleanPatch(patch); if (!p) return false;
     const ctx = this.raw, t0 = Math.max(time ?? 0, ctx.currentTime) + 0.005, len = length ?? patchLength(p);
     if (gate) p.mods = [...(p.mods || []), { id: 'gate', to: 'G.gain', wave: 'gate', rate: gate.rate, depth: 1, phase: gate.phase || 0, pattern: gate.pattern, decay: gate.decay || 0 }];
     const step = pool === 'step', npc = pool === 'npc', key = step ? 'stepVoices' : npc ? 'npcVoices' : pool === 'seq' ? 'seqVoices' : 'voices';
+    // Steps / NPC footsteps (Jens t899u): LFOs are free-running – no retrig with the sequencer.
+    // Start phase continues a per-walker clock (voiceLfoPhases). Slap / peel / duff / radio keep retrig.
+    const freeLfo = lfoFree != null ? !!lfoFree : (step || npc);
+    let layerPhases = null;
+    if (freeLfo) {
+      this.lfoAcc ||= new Map();
+      const phases = voiceLfoPhases(p, t0, this.lfoAcc, lfoId || pool, { rate });
+      layerPhases = phases.layers;
+      if (p.mods && p.mods.length) p.mods = p.mods.map((m, i) => phases.mods[i] == null ? m : { ...m, phase: phases.mods[i] });
+      this.lastLfo = { t0, id: lfoId || pool, layers: phases.layers, mods: phases.mods }; // (unit tests)
+    }
     this[key] = (this[key] || []).filter((end) => end > ctx.currentTime);
     // (scheduled-ahead voices count from when they are scheduled: a cap on what is queued, too)
     if (this[key].length >= (step ? MAX_STEP_VOICES : npc ? MAX_NPC_VOICES : pool === 'seq' ? MAX_SEQ_VOICES : MAX_VOICES)) return false;
@@ -209,7 +220,7 @@ export class SynthEngine {
     let last = null; const made = [];
     this.modTargets = new Set((p.mods || []).map((m) => m.to)); // (a layer whose decim/pan an LFO drives needs its node)
     // sequencer layers (l.seq) run on my own Tempo (radio.js plays them one by one with `layer`), not on the trigger
-    for (const [i, l] of p.layers.entries()) { if (layer == null ? !!l.seq : i !== layer) { made.push(null); continue; } const r = this.layer(ctx, l, vgain, t0 + l.delay, rate, i); made.push(r); if (!r) continue; nodes.push(...r.nodes); if (!last || r.end > last.end) last = r; }
+    for (const [i, l] of p.layers.entries()) { if (layer == null ? !!l.seq : i !== layer) { made.push(null); continue; } const r = this.layer(ctx, l, vgain, t0 + l.delay, rate, i, layerPhases ? layerPhases[i] : null); made.push(r); if (!r) continue; nodes.push(...r.nodes); if (!last || r.end > last.end) last = r; }
     if (p.mods && p.mods.length) { const mn = this.modulate(ctx, p, made, vgain, p.gain * gain, t0, len); if (mn) nodes.push(mn); }
     if (!last) { for (const n of nodes) { try { n.disconnect(); } catch { /* ok */ } } return true; } // (only an empty sampler)
     if (!keep) last.src.onended = () => { for (const n of nodes) { try { n.disconnect(); } catch { /* ok */ } } };
@@ -345,8 +356,30 @@ export class SynthEngine {
     this.curves.set(k, c); return c;
   }
 
+  // Layer LFO: retrig (OscillatorNode, phase 0 at start) vs free-running (looping buffer at a clock phase).
+  trigLfo(ctx, wave, freq) {
+    const lfo = ctx.createOscillator(); lfo.type = wave || 'sine'; lfo.frequency.value = Math.max(0.01, freq); return lfo;
+  }
+  freeLfo(ctx, wave, freq, phase) {
+    const buf = this.lfoBuffer(ctx, wave), src = ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const f = Math.max(0.01, freq);
+    src.playbackRate.value = f * buf.duration;
+    src.__offset = wrapPhase(phase) * buf.duration;
+    return src;
+  }
+  lfoBuffer(ctx, wave) {
+    this.lfoBufs ||= new Map();
+    const key = wave || 'sine';
+    const hit = this.lfoBufs.get(key); if (hit && hit.ctx === ctx) return hit.buf;
+    const N = 4096, buf = ctx.createBuffer(1, N, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < N; i++) d[i] = waveAt(key, i / N);
+    this.lfoBufs.set(key, { ctx, buf });
+    return buf;
+  }
+
   // One layer = source(s) → [drive] → filter → amp envelope → [tremolo] → level → out.
-  layer(ctx, l, out, t, rate, idx = -1) {
+  layer(ctx, l, out, t, rate, idx = -1, lfoPhase = null) {
     const modOn = (k) => !!this.modTargets?.has(`L${idx}.${k}`);
     const nodes = [], srcs = [];
     const freq = Math.min(8000, l.freq * rate), cutoff = Math.min(18000, l.cutoff * rate);
@@ -422,7 +455,8 @@ export class SynthEngine {
     filter.connect(env); nodes.push(env);
     const level = ctx.createGain(); level.gain.value = l.level; nodes.push(level);
     if (l.lfo !== 'none' && l.lfoDepth > 0) {
-      const lfo = ctx.createOscillator(); lfo.type = l.lfoWave; lfo.frequency.value = l.lfoRate * rate;
+      const freq = l.lfoRate * rate;
+      const lfo = lfoPhase == null ? this.trigLfo(ctx, l.lfoWave, freq) : this.freeLfo(ctx, l.lfoWave, freq, lfoPhase);
       const depth = ctx.createGain(); lfo.connect(depth); nodes.push(depth);
       if (l.lfo === 'amp') { // tremolo between 1 - depth and 1
         const trem = ctx.createGain(); trem.gain.value = 1 - l.lfoDepth / 2; depth.gain.value = l.lfoDepth / 2;
@@ -433,7 +467,7 @@ export class SynthEngine {
         if (l.lfo === 'cutoff') depth.connect(filter.detune);
         else for (const s of srcs) if (s.node.detune) depth.connect(s.node.detune);
       }
-      srcs.push({ node: lfo });
+      srcs.push({ node: lfo, offset: lfo.__offset });
     } else env.connect(level);
     let panner = null;
     if (l.kind === 'sampler' && (l.pan || modOn('pan')) && ctx.createStereoPanner) { panner = ctx.createStereoPanner(); panner.pan.value = l.pan; level.connect(panner); panner.connect(out); nodes.push(panner); }

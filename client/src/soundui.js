@@ -794,7 +794,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       for (let m = 0, played = 0; m * sp < bar - 1e-6 && played < 48; m++) {
         const i = m % q.len, stp = q.steps[i]; if (!stp || !stp.on || !(stp.vol > 0)) continue;
         played++; const foot = Math.floor(m / per + 1e-9);
-        eng.play(retuneP(lockedPatch(p, i), (foot % 2 ? 0.97 : 1.02) * tn), { gain: stp.vol / 100, fx, time: start + m * sp, pool: 'step' });
+        eng.play(retuneP(lockedPatch(p, i), (foot % 2 ? 0.97 : 1.02) * tn), { gain: stp.vol / 100, fx, time: start + m * sp, pool: 'step', lfoId: 'me' });
       }
     };
     run(t0, walkPulse, 1);
