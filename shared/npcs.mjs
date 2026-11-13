@@ -18,11 +18,16 @@
 //     walk, run or crouch again (seeded by the segment number), so all screens agree. Run / crouch rates are
 //     octaves (×2, ×4, ×½, ×¼): the dance keeps its walk tempo (it never jumps) and the steps stay on its
 //     beat – double or half time.
+//   - Now and then they "press Wild" in the Steps sound menu (Jens t894u): the same randomPatch(..., { wild: true })
+//     as the Wild button (client/src/soundui.js). Each NPC has its own seeded period in NPC_WILD.minMs…maxMs and
+//     a seeded phase, so they change out of sync; the patch is a pure function of the seed + the server clock,
+//     so every client hears the same thing with no extra network traffic. Tempo / gait are untouched. Loudness
+//     is whatever Wild already clamps (cleanPatch).
 //   - Not players: they are not in "N here", voice chat, slots, room limits or the recording.
 // Pure maths (no DOM / Three.js) – the server, the web app and tests/npcs.test.mjs share it.
 import AV from './avatar.json' with { type: 'json' };
 import { PLAZA, isCityOutside, cityOf } from './city.mjs';
-import { cleanPatch, snapFreq } from './synth.mjs';
+import { cleanPatch, snapFreq, randomPatch } from './synth.mjs';
 import { RUN, snapWalkBpm, tempoRate, pitchRatio } from './runmode.mjs';
 import { TEMPO_BPMS } from './tempogrid.mjs';
 import { cleanPlayerTempo } from './playertempo.mjs';
@@ -66,6 +71,8 @@ const NOTES = [];
 for (let o = 0; o < 3; o++) for (const s of PENTA) NOTES.push(snapFreq(55 * Math.pow(2, o + s / 12)));
 NOTES.push(440);
 export const NPC_TIME = Object.freeze({ segBeats: 32, gaits: ['walk', 'walk', 'run', 'crouch'] });
+// How often an NPC presses Wild on its Steps sound (Jens t894u). Tune these two.
+export const NPC_WILD = Object.freeze({ minMs: 20_000, maxMs: 60_000 });
 
 export function npcHash(str) { // FNV-1a → uint32
   let h = 0x811c9dc5 >>> 0; const s = String(str);
@@ -141,6 +148,32 @@ export function npcTempoAt(npc, nowMs) {
   const tune = g === 'run' ? pitchRatio(R.pitch) : g === 'crouch' ? pitchRatio(R.crouchPitch) : 1;
   return cleanPlayerTempo({ bpm: npc.walkBpm, scale: npc.scale, rate, tune });
 }
+// Each NPC's Wild period (ms) and phase (ms into the period): seeded, in NPC_WILD.minMs…maxMs, so
+// the seven of them do not all press at once. Period is constant per NPC (the interval is "about
+// 20–60 s", different for each); the patch itself is a new Wild roll every period.
+export function npcWildPeriod(npc) {
+  const r = npcRng('npc-wild-period:' + npc.sound.seed);
+  const ms = Math.round(NPC_WILD.minMs + r() * (NPC_WILD.maxMs - NPC_WILD.minMs));
+  return Math.max(NPC_WILD.minMs, Math.min(NPC_WILD.maxMs, ms));
+}
+export function npcWildPhase(npc) {
+  return Math.floor(npcRng('npc-wild-phase:' + npc.sound.seed)() * npcWildPeriod(npc));
+}
+// Which Wild press is in effect at server time nowMs (the same clock as npcGaitAt).
+export function npcWildIndex(npc, nowMs) {
+  const period = npcWildPeriod(npc), phase = npcWildPhase(npc);
+  return Math.floor((Math.floor(nowMs) - phase) / period);
+}
+// The Wild button on the Steps tab (soundui.js randomize(true) → randomPatch(seed + 'step', { wild: true })).
+export function npcWildPatch(npc, index) {
+  return randomPatch(`npc-wild:${npc.sound.seed}:${index}:step`, { wild: true });
+}
+// The Steps patch heard at nowMs. The welcome still carries the original npcStepPatch (no extra
+// traffic); clients compute this locally from the seed + the server clock.
+export function npcStepPatchAt(npc, nowMs) {
+  return npcWildPatch(npc, npcWildIndex(npc, nowMs));
+}
+
 // A received list (welcome.npcs) checked: at most 16, the fields the client needs, sane numbers. Bad → [].
 export function cleanNpcs(list) {
   if (!Array.isArray(list)) return [];

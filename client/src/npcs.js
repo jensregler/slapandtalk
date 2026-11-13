@@ -9,7 +9,7 @@
 // scheduled at all (the groove drops its track, so no voice or buzz runs for it).
 import * as THREE from 'three';
 import { Players } from './avatars.js';
-import { NPC, cleanNpcs, npcDance, npcTempoAt, npcGaitAt } from '../../shared/npcs.mjs';
+import { NPC, cleanNpcs, npcDance, npcTempoAt, npcGaitAt, npcStepPatchAt, npcWildIndex } from '../../shared/npcs.mjs';
 
 // The NPC name tag: bigger than a player's and yellow, so they read as NPCs from across the plaza.
 const NPC_TAG = Object.freeze({ opts: { size: 52, bg: 'rgba(255,200,0,.92)', color: '#111', font: 800, pad: 20 }, mpp: 0.0032 });
@@ -17,7 +17,7 @@ const NPC_TAG = Object.freeze({ opts: { size: 52, bg: 'rgba(255,200,0,.92)', col
 export class Npcs {
   constructor(scene) {
     this.scene = scene; this.players = new Players(scene); this.list = [];
-    this.shown = 0; this.animated = 0; this.heard = 0; this.frames = 0;
+    this.shown = 0; this.animated = 0; this.heard = 0; this.frames = 0; this.nowMs = 0;
     this.frustum = new THREE.Frustum(); this.pm = new THREE.Matrix4(); this.sphere = new THREE.Sphere(new THREE.Vector3(), 1.3);
   }
   // The welcome's list (any room: [] outside the city).
@@ -36,7 +36,7 @@ export class Npcs {
   // does not draw them either); far ones (> NPC.slowM) are animated every other frame.
   update(dt, eye, nowMs, cam = null) {
     const t0 = performance.now();
-    this.frames++; let shown = 0, animated = 0;
+    this.frames++; this.nowMs = nowMs; let shown = 0, animated = 0;
     if (cam) { cam.updateMatrixWorld(); this.pm.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); this.frustum.setFromProjectionMatrix(this.pm); }
     for (const pl of this.players.map.values()) {
       const n = pl.npc; if (!n) continue;
@@ -60,13 +60,17 @@ export class Npcs {
   }
   // For groove.update: the NPCs close enough to hear, as walkers (dancing = walking, Jens t814u).
   // ear = [x, y, z] (the audio listener: my eyes, or the camera I look through).
-  walkers(ear = null) {
+  walkers(ear = null, nowMs = this.nowMs) {
     const out = [];
+    const t = nowMs || this.nowMs || Date.now();
     for (const pl of this.players.map.values()) {
       const n = pl.npc; if (!n) continue;
       pl.ear = ear ? Math.hypot(n.x - ear[0], n.z - ear[2]) : pl.dist;
       if (!(pl.ear < NPC.audibleM)) continue;
-      out.push({ id: n.id, x: n.x, z: n.z, at: [n.x, 0.05, n.z], voice: n.sound, onPeel: false, dancing: true, tempo: pl.tempo, npc: true, ear: pl.ear });
+      const wildK = npcWildIndex(n, t);
+      if (pl.wildK !== wildK) { pl.wildK = wildK; pl.wildStep = npcStepPatchAt(n, t); }
+      const voice = { ...n.sound, patches: { ...n.sound.patches, step: pl.wildStep } };
+      out.push({ id: n.id, x: n.x, z: n.z, at: [n.x, 0.05, n.z], voice, onPeel: false, dancing: true, tempo: pl.tempo, npc: true, ear: pl.ear, wildK });
     }
     // the nearest first, at most NPC.maxHeard (the far ones would be ~5 % loud anyway)
     out.sort((a, b) => a.ear - b.ear); out.length = Math.min(out.length, NPC.maxHeard);
@@ -78,7 +82,9 @@ export class Npcs {
       npcs: [...this.players.map.values()].map((pl) => ({ id: pl.id, name: pl.npc?.name, label: pl.name, tag: pl.avatar?.name || null, x: pl.npc?.x, z: pl.npc?.z, plaza: !!pl.npc?.plaza,
         built: !!pl.avatar, danceAt: pl.avatar?.danceAt ?? null, visible: !!pl.avatar?.root.visible, dancing: !!pl.avatar?.dancing, danceTime: pl.avatar ? +pl.avatar.danceTime.toFixed(2) : 0, danceBpm: pl.avatar?.danceGrid?.bpm ?? null,
         dist: Number.isFinite(pl.dist) ? +pl.dist.toFixed(2) : null, ear: Number.isFinite(pl.ear) ? +pl.ear.toFixed(2) : null, audible: pl.ear < NPC.audibleM, gait: pl.gait || null, tempo: pl.tempo ? { ...pl.tempo } : null, walkBpm: pl.npc?.walkBpm, scale: pl.npc?.scale, slot: pl.npc?.slot, run: pl.npc?.run,
-        step: pl.npc?.sound?.patches?.step?.layers?.map((l) => ({ kind: l.kind, wave: l.kind === 'osc' ? l.wave : l.noise, freq: l.freq, cutoff: l.cutoff, d: l.d, level: l.level })) })) };
+        step: pl.npc?.sound?.patches?.step?.layers?.map((l) => ({ kind: l.kind, wave: l.kind === 'osc' ? l.wave : l.noise, freq: l.freq, cutoff: l.cutoff, d: l.d, level: l.level })),
+        wildK: pl.wildK ?? (pl.npc && this.nowMs ? npcWildIndex(pl.npc, this.nowMs) : null),
+        wildStep: (pl.wildStep || (pl.npc && this.nowMs ? npcStepPatchAt(pl.npc, this.nowMs) : null))?.layers?.map((l) => ({ kind: l.kind, wave: l.kind === 'osc' ? l.wave : l.noise, freq: l.freq, cutoff: l.cutoff, d: l.d, level: l.level })) || null })) };
   }
   // Every NPC's gait at one server time (tests: two screens agree).
   gaitsAt(nowMs) { return this.list.map((n) => npcGaitAt(n, nowMs)); }

@@ -117,7 +117,7 @@ export class GrooveSteps {
       if (!walking) { t.until = nowMs; t.walking = false; t.enterAt = null; this.stopBuzz(t); continue; }
       const G = this.gridOf(w), run = G.run; // mine: my run / crouch; theirs: as they sent it
       // their tempo changed: re-plan them from now (mine re-plans in setBpm / setGroove / setRun)
-      const gk = `${G.bpm}:${G.groove.scale}:${run ? run.rate + '/' + run.tune : ''}`;
+      const gk = `${G.bpm}:${G.groove.scale}:${run ? run.rate + '/' + run.tune : ''}:${w.wildK ?? ''}`; // wildK: an NPC pressed Wild (t894u) – re-plan on the next beat, like a tempo change
       if (w.id !== 'me' && t.gk !== undefined && t.gk !== gk) { t.until = Math.min(t.until, nowMs); t.reenter = true; this.stopBuzz(t); }
       t.gk = gk;
       const rate = run ? run.rate : 1, period = pulseMs(G.groove.scale, slot, G.bpm) / rate;

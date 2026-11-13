@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import http from 'node:http';
 import * as N from '../shared/npcs.mjs';
 import { insideHouse, PLAZA, CITY, CITY_SPAWN } from '../shared/city.mjs';
-import { cleanPatch } from '../shared/synth.mjs';
+import { cleanPatch, randomPatch } from '../shared/synth.mjs';
 import { danceGrid } from '../shared/dance.mjs';
 const require = createRequire(import.meta.url);
 let n = 0; const ok = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); };
@@ -60,6 +60,42 @@ await ok('gait changes on the clock (walk / run / crouch per 32-beat segment), t
   }
   assert.deepEqual([...seen].sort(), ['crouch', 'run', 'walk']);
   assert.deepEqual(N.npcDance(x), { at: 0, bpm: x.danceBpm, phaseMs: 0, loop: true });
+});
+await ok('Wild (t894u): each NPC presses the Steps Wild button on a seeded 20–60 s period, desynchronised; the same clock → the same patch everywhere', () => {
+  const now = 1794500000000;
+  const list = N.npcsFor('stad');
+  assert.ok(N.NPC_WILD.minMs === 20_000 && N.NPC_WILD.maxMs === 60_000);
+  const periods = new Set(), phases = new Set();
+  for (const x of list) {
+    const period = N.npcWildPeriod(x), phase = N.npcWildPhase(x);
+    assert.equal(period, N.npcWildPeriod(x)); // deterministic
+    assert.ok(period >= N.NPC_WILD.minMs && period <= N.NPC_WILD.maxMs, period);
+    assert.ok(phase >= 0 && phase < period, phase);
+    periods.add(period); phases.add(phase);
+    const i = N.npcWildIndex(x, now);
+    const t0 = i * period + phase; // this press starts here
+    assert.equal(N.npcWildIndex(x, now), i);
+    assert.equal(N.npcWildIndex(x, t0), i);
+    assert.equal(N.npcWildIndex(x, t0 + period - 1), i); // constant until the next press
+    assert.equal(N.npcWildIndex(x, t0 + period), i + 1);
+    const p = N.npcStepPatchAt(x, now);
+    assert.deepEqual(p, N.npcStepPatchAt(x, now));
+    assert.deepEqual(p, N.npcWildPatch(x, i));
+    assert.deepEqual(p, randomPatch(`npc-wild:${x.sound.seed}:${i}:step`, { wild: true })); // the same function as the Wild button
+    assert.deepEqual(cleanPatch(p), p);
+    assert.ok(p.gain <= 1.5 && p.layers.length >= 1 && p.layers.length <= 5);
+    assert.ok(p.layers.every((l) => l.level <= 1 && l.level >= 0 && (l.drive || 0) <= 1));
+    assert.notDeepEqual(p, x.sound.patches.step); // a Wild roll, not the welcome footstep
+    assert.notDeepEqual(N.npcStepPatchAt(x, now + period), p); // the next press is a new roll
+    // tempo / gait are independent of Wild (same clock → same tempo; Wild does not retune the grid)
+    assert.deepEqual(N.npcTempoAt(x, now), N.npcTempoAt(x, now));
+    assert.equal(x.walkBpm, N.npcTempoAt(x, now).bpm);
+    assert.equal(x.danceBpm, N.npcDance(x).bpm);
+  }
+  assert.ok(periods.size >= 2 && phases.size >= 2, { periods: [...periods], phases: [...phases] }); // not all in lockstep
+  // two cities at the same clock: different sounds (the seed includes the city)
+  const a = N.npcsFor('stad')[0], b = N.npcsFor('stad-byggen')[0];
+  assert.notDeepEqual(N.npcStepPatchAt(a, now), N.npcStepPatchAt(b, now));
 });
 await ok('cleanNpcs: drops junk, keeps the server list as is', () => {
   const l = N.npcsFor('stad'); assert.equal(N.cleanNpcs(l).length, 7);
