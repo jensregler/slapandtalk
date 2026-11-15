@@ -14,6 +14,11 @@
 //         pentatonic – no semitone clashes).
 //       · Off: NPC "Wild" presses (NPC_WILD), the Wild button in Sound settings, the dance lines (Highline → hold,
 //         Widthline → drive).
+//       · Others too (conformRemote): other players' and NPCs' tempi as I hear them go through the same rules
+//         (tempo → 60…180, gait → an allowed tempo, no pitch correction, Groove on octaves), and every step I hear
+//         gets the fixed pentatonic pitch.
+// The theme is the ROOM's (Jens, 15 Nov 2026: "alla har samma tema"): one per room / city, kept by the server
+// (server/app.js PUT /api/rooms/:room/soundtheme, room.soundTheme), the same for everybody in it.
 // Pure maths – the web app (client/src/soundtheme.js keeps my choice) and the tests share it.
 import { TEMPO_GRID } from './tempogrid.mjs';
 import { snapWalkBpm } from './runmode.mjs';
@@ -27,7 +32,7 @@ export const THEMES = T({
     npcWild: true, wildButton: true, slotPulses: null, octaveScale: false, stepPitch: null }),
   B: T({ id: 'B', label: 'Theme B', blurb: 'Tight: 60 · 90 · 120 · 180 BPM, 4/4 and 3/4, one fixed pitch per step (A minor pentatonic), no wobble.',
     tempi: T([60, 90, 120, 180]), gaitSnap: true, gaitTune: false, wobble: false, footTune: false, sightPitch: false, danceLines: false,
-    npcWild: false, wildButton: false, slotPulses: T([4, 3]), octaveScale: true, stepPitch: 'pentatonic' }),
+    npcWild: false, wildButton: false, slotPulses: T([4, 3]), octaveScale: true, stepPitch: 'pentatonic', conformRemote: true }),
 });
 export const THEME_IDS = Object.freeze(Object.keys(THEMES));
 export const cleanThemeId = (id) => (typeof id === 'string' && THEMES[id] ? id : THEME.def);
@@ -101,6 +106,18 @@ export function themeStepPatch(patch, theme) {
   const out = { ...patch, layers };
   delete out.mods;
   return out;
+}
+// Someone else's tempo ({ bpm, scale, rate, tune }, shared/playertempo.mjs) as I hear it (conformRemote themes):
+// the same rules as my own – bpm on the theme's tempi, the gait rate onto an allowed tempo, no pitch correction where
+// the theme has none, Groove on octaves. (With one theme per room their own client already sends it like this; this
+// keeps NPCs – seeded on the server – and a stale client in line too.) A: the same object.
+export function themeRemoteTempo(t, theme) {
+  const th = themeOf(theme);
+  if (!th.conformRemote || !t) return t;
+  const bpm = th.tempi ? nearestLog(t.bpm, th.tempi) : t.bpm;
+  let rate = t.rate;
+  if (th.gaitSnap && th.tempi) rate = exactRatio(nearestLog(bpm * rate, th.tempi), bpm);
+  return { ...t, bpm, rate, tune: th.gaitTune ? t.tune : 1, scale: th.octaveScale ? themeScale(t.scale, th) : t.scale };
 }
 // The tempo choices a theme offers on the Tempo slider (null = the whole grid, shared/tempogrid.mjs TEMPOS).
 export const themeTempi = (theme) => themeOf(theme).tempi;

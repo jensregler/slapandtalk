@@ -2,7 +2,7 @@
 // Theme B = tight pitch and timing (shared/soundtheme.mjs). Run: node tests/soundtheme.test.mjs (in npm test)
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { THEMES, THEME, THEME_IDS, cleanThemeId, themeWalkBpm, themeGaitStep, themeSlot, themeScale, themeWobble, themeFootTune, themeStepPatch, quantizeHz, PENTATONIC, THEME_RATES } from '../shared/soundtheme.mjs';
+import { THEMES, THEME, THEME_IDS, cleanThemeId, themeWalkBpm, themeGaitStep, themeSlot, themeScale, themeWobble, themeFootTune, themeStepPatch, quantizeHz, PENTATONIC, THEME_RATES, themeRemoteTempo } from '../shared/soundtheme.mjs';
 import { TEMPO_BPMS, RATE_GRID } from '../shared/tempogrid.mjs';
 import { snapWalkBpm, snapRate, gaitStep, RUN_DEFAULTS, RUN } from '../shared/runmode.mjs';
 import { cleanPlayerTempo } from '../shared/playertempo.mjs';
@@ -73,6 +73,25 @@ ok('Theme B pitch: no wobble, no left/right foot, A minor pentatonic, no sweep /
 });
 ok('Theme B: dance lines, Sightline pitch, NPC Wild and the Wild button are off', () => {
   for (const k of ['gaitTune', 'wobble', 'footTune', 'sightPitch', 'danceLines', 'npcWild', 'wildButton']) assert.equal(B[k], false, k);
+});
+ok('Theme A: others\' tempo untouched; Theme B: others / NPCs on the same rules as me', () => {
+  for (const b of TEMPO_BPMS) for (const r of [1 / 5, 2 / 3, 1, 11 / 8, 2, 5]) {
+    const t = cleanPlayerTempo({ bpm: b, scale: 4 / 3, rate: r, tune: 1.5 });
+    assert.equal(themeRemoteTempo(t, A), t);
+    const q = themeRemoteTempo(t, B);
+    assert.ok(B.tempi.includes(q.bpm)); assert.ok(B.tempi.includes(Math.round(q.bpm * q.rate * 1e9) / 1e9), `${b} ${r}`);
+    assert.equal(q.tune, 1); assert.equal(q.scale, 1);
+  }
+  assert.equal(B.conformRemote, true); assert.ok(!A.conformRemote);
+});
+ok('one theme per room: server route, store field, room event; no personal localStorage choice', () => {
+  const app = read('server/app.js'), store = read('server/store.js'), main = read('client/src/main.js'), ct = read('client/src/soundtheme.js');
+  assert.match(app, /app\.put\('\/api\/rooms\/:room\/soundtheme'/); assert.match(app, /broadcast\(id, \{ type: 'room:soundtheme', theme: r/);
+  assert.match(app, /soundThemeOf\(r\) !== 'A' \? \{ soundTheme: soundThemeOf\(r\) \} : \{\}/); // Theme A rooms: the room JSON as before
+  assert.match(store, /async function setSoundTheme\(/); assert.match(store, /if \(theme === 'A'\) delete room\.soundTheme; else room\.soundTheme = theme;/);
+  assert.match(main, /e\.type === 'room:soundtheme'\) setSoundTheme\(e\.theme/); assert.match(main, /setSoundTheme\(info\?\.soundTheme/);
+  assert.match(main, /onTheme: \(id\) => requestSoundTheme\(id\)/);
+  assert.doesNotMatch(ct, /localStorage\.setItem/);
 });
 ok('wiring: the engine reads the theme (sound, groove, radio, npcs, main, escmenu, soundui)', () => {
   assert.match(read('client/src/sound.js'), /themeWobble\(this\.theme/); assert.match(read('client/src/sound.js'), /themeStepPatch\(retune\(patch, rate\), this\.theme\)/);

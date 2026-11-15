@@ -17,6 +17,8 @@
 //   peels = [{ id, imageId, w, h, seed, start, x, z, yaw, order, createdAt }] (högst maxPerRoom, de äldsta försvinner).
 //     Peelar man klibban från väggen ligger pappret kvar. Saknas i äldre rum (= inga).
 //   groove = { scale, at, phase } the footstep groove (shared/groove.mjs); missing = the default 1.0×.
+//   soundTheme = 'B' | 'C' … the room's sound theme (shared/soundtheme.mjs, Jens 15 Nov 2026: everyone in the room has
+//     the same); missing = Theme A (the sound as it always was).
 //
 // Bilder (designs) sparas EN gång och stämplarna pekar på dem med imageId.
 //   "images/<id>.json"  metadata  { id, url, width, height, artist, createdAt }
@@ -290,6 +292,20 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
       room.groove = g;
       await saveRoom(room);
       return g;
+    });
+  }
+  // The room's sound theme (shared/soundtheme.mjs): theme = a clean id ('A' = the default, stored as no field).
+  // Cities' rooms are made on first use (like the City). Answer: the theme, 'notfound' or 'forbidden'.
+  async function setSoundTheme(id, theme, canEdit = () => true, { isCity = () => false } = {}) {
+    return withLock(id, async () => {
+      let room = await loadRoom(id);
+      if (!room && (autoRoom(id) || isCity(id))) room = normalize(id, { createdAt: iso() });
+      if (!room) return 'notfound';
+      if (!canEdit(room)) return 'forbidden';
+      if ((room.soundTheme || 'A') === theme) return theme;
+      if (theme === 'A') delete room.soundTheme; else room.soundTheme = theme;
+      await saveRoom(room);
+      return theme;
     });
   }
   // Ta bort allt baksidespapper på golvet. Svar: antal, 'notfound' eller 'forbidden'.
@@ -636,7 +652,7 @@ function createStore(adapter, { clock = () => Date.now(), writeDelayMs = 200, re
 
   return {
     adapter, clock, emptyRoom: (id) => normalize(id, null), getRoom, editRoom, replaceRoom, peek, roomOrEmpty, createRoom, setRoomStyle, editCameras, touchRoom, addStamp, addStamps, deleteStamp, peelStamps, resetStamps, clearMine, noteVisitor, listRooms, deleteRoom, lastActivity,
-    deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, setGroove, addPeel, peelState, expirePeels, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
+    deleteStampsWithImage, cleanupRooms, setPeelsOn, clearPeels, setGroove, setSoundTheme, addPeel, peelState, expirePeels, getImage, addImage, deleteImage, putImageFile, getImageFile, hasImageFile,
     deleteImageFile, markRemoved, isRemoved, clearRemoved, migrate, flush, pendingWrites, evictIdle, getSoundPreset, putSoundPreset,
   };
 }

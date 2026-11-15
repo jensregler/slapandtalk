@@ -9,8 +9,8 @@ const $ = (id) => document.getElementById(id);
 export function initEscMenu({
   onSound, onAvatar, onRoom, onCity, onExit, onCreate,
   onLights = null, // LIGHTS (Jens t892u): the noise room's light settings
-  // THEME (Jens, 15 Nov 2026): the sound theme – THEME → THEME A / THEME B (shared/soundtheme.mjs). theme() = the
-  // current id, onTheme(id) picks one (the menu stays open on the THEME page so you see the tick move).
+  // THEME (Jens, 15 Nov 2026): the room's sound theme – THEME → THEME A / THEME B (shared/soundtheme.mjs). theme() = the
+  // current id, onTheme(id) asks for one (the menu stays open on the THEME page; refreshTheme() moves the tick).
   onTheme = null, theme = () => 'A',
   onStickers, onStickerPack,
   onCreateCity, onPickCity,
@@ -300,6 +300,7 @@ export function initEscMenu({
     openCatalog: (kind) => { if (!open) setOpen(true); return openCatalog(kind); },
     openHelp: () => { if (!open) setOpen(true); openHelp(); },
     refreshCatalog: () => { if (open && view === 'catalog') renderCatalog(); },
+    refreshTheme: () => paintTheme(), // the room's theme changed (mine or someone else's pick)
     catalogOpen: () => open && view === 'catalog',
     scrollingUi: () => open && (view === 'catalog' || view === 'help' || view === 'cityjoin'),
     setJoinLabels: ({ loading, none, failed } = {}) => {

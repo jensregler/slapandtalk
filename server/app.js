@@ -355,6 +355,7 @@ const roomPublic = (r) => ({ id: r.id, type: r.type, owner: r.owner || null, cre
   ...(r.name ? { name: r.name } : {}), visitors: Array.isArray(r.visitors) ? r.visitors.length : 0, stickers: (Array.isArray(r.stamps) ? r.stamps.length : 0) + ((r.surfaceTex && r.surfaceTex.count) || 0),
   ...(r.surfaceTex && r.surfaceTex.count ? { painted: r.surfaceTex.count } : {}),
   ...(r.groove ? { groove: r.groove } : {}), ...(r.preset && r.preset.faces ? { preset: r.preset } : {}),
+  ...(soundThemeOf(r) !== 'A' ? { soundTheme: soundThemeOf(r) } : {}), // the room's sound theme (missing = Theme A)
   quickTtlHours: r.type === 'quick' ? quickTtlHours : null, ...(r.demo && r.demo.expiresAt ? { expiresAt: r.demo.expiresAt } : {}) });
 
 // Skapa ett nytt snabbrum (inget konto behövs). Svarar med en kort kod, t.ex. "k7m2qx".
@@ -1147,6 +1148,26 @@ app.put('/api/rooms/:room/groove', rateLimit(600), wrap(async (req, res) => {
   if (r === 'forbidden') return res.status(403).json({ error: 'Only the room’s creator can change this' });
   broadcast(id, { type: 'room:groove', groove: r });
   res.json({ ok: true, groove: r });
+}));
+// The room's sound theme (Jens, 15 Nov 2026: "alla har samma tema"; shared/soundtheme.mjs): ONE theme per room / city
+// for everybody in it – Theme A (default, the sound as it always was), B, C… Esc → THEME sends { theme } here; it is
+// saved with the room, broadcast (room:soundtheme) and every new visitor gets it with the room (info.soundTheme).
+// Who: ANYONE in the room – it is a shared listening mode, not part of the room's build (no creator key needed, the
+// City and every city included, like the chat), rate-limited. Not in the demo (demoBlocks), as the other room controls.
+const soundThemeMod = import('../shared/soundtheme.mjs');
+let soundThemeIds = null; soundThemeMod.then((m) => { soundThemeIds = m.THEME_IDS; }).catch(() => {});
+function soundThemeOf(r) { const t = r && r.soundTheme; return typeof t === 'string' && (!soundThemeIds || soundThemeIds.includes(t)) ? t : 'A'; }
+app.put('/api/rooms/:room/soundtheme', rateLimit(20), wrap(async (req, res) => {
+  if (demoBlocks(req, res)) return;
+  const id = roomParam(req, res); if (!id) return;
+  const T = await soundThemeMod;
+  const want = req.body && req.body.theme;
+  if (typeof want !== 'string' || !T.THEMES[want]) return res.status(400).json({ error: 'Unknown sound theme' });
+  const by = cleanName(req.body.by || '').slice(0, 24);
+  const r = await store.setSoundTheme(id, want, () => true, { isCity: (x) => CITY.isCityRoom(x) });
+  if (r === 'notfound') return res.status(404).json({ error: 'That room does not exist' });
+  broadcast(id, { type: 'room:soundtheme', theme: r, ...(by ? { by } : {}) });
+  res.json({ ok: true, theme: r });
 }));
 // My sound preset for THIS room (Jens, 5 Nov 2026, shared/radio.mjs): my patches + effects + my radio
 // (on/off, the knob = morph original ↔ mine, bird, wind, four voices). Per player: the header

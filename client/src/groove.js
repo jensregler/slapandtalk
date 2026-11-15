@@ -13,7 +13,7 @@ import { snapWalkBpm } from '../../shared/runmode.mjs';
 import { entryMs } from '../../shared/tempogrid.mjs';
 import { patchLength, retune } from '../../shared/synth.mjs';
 import { stepSeqBetween, stepSeqOf, STEP_SEQ } from '../../shared/stepseq.mjs';
-import { THEMES, themeSlot, themeScale, themeFootTune, themeStepPatch } from '../../shared/soundtheme.mjs';
+import { THEMES, themeSlot, themeScale, themeFootTune, themeStepPatch, themeRemoteTempo } from '../../shared/soundtheme.mjs';
 
 const WALK = { speed: 0.35, holdMs: 140, jump: 0.8, jumpSpeed: 9, maxPerFrame: 48, buzzGain: 0.45, maxAheadMs: 400 };
 
@@ -68,7 +68,7 @@ export class GrooveSteps {
   // A walker's grid: mine, or theirs from the tempo they sent (bpm, Groove scale, run / crouch rate + pitch).
   gridOf(w) {
     if (w.id === 'me') return { groove: this.theme.octaveScale ? { ...this.groove, scale: themeScale(this.groove.scale, this.theme) } : this.groove, bpm: this.bpm, run: this.run }; // (Theme B: my Groove on octaves)
-    const t = cleanPlayerTempo(w.tempo);
+    const t = this.theme.conformRemote ? themeRemoteTempo(cleanPlayerTempo(w.tempo), this.theme) : cleanPlayerTempo(w.tempo); // (Theme B: others / NPCs on the same rules as me)
     const run = t.rate !== 1 || t.tune !== 1 ? { rate: t.rate, tune: t.tune } : null;
     return { groove: { scale: t.scale, at: 0, phase: 0 }, bpm: t.bpm, run };
   }

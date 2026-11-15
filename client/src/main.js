@@ -2480,6 +2480,7 @@ async function loadRoom() {
     const texReady = surfTex ? surfTex.setManifest(surfaceTex, { on: surfaceTexOn, idleMs: surfaceTexIdleMs }).catch((e) => console.warn('[surfacetex]', e)) : null;
     window.klibb.propsReady = true;
     showRoomInfo(info); roomInfoKnown();
+    setSoundTheme(info?.soundTheme, { quiet: !info?.soundTheme }); // the room's sound theme (missing = A)
     applyGroove(info?.groove);
     peelLayer.setOn(!!info?.peels);
     for (const p of peels || []) peelLayer.add(p, images[p.imageId]);
@@ -2551,6 +2552,7 @@ function onRoomEvent(e) {
     else { peelLayer.setOn(false); updatePeelUi(); }
   } else if (e.type === 'peels:clear') peelLayer.clear();
   else if (e.type === 'peels:expire' && Array.isArray(e.ids)) peelLayer.remove(e.ids);
+  else if (e.type === 'room:soundtheme') setSoundTheme(e.theme, { by: e.by });
   else if (e.type === 'room:groove') { /* the groove is personal now (Jens, 2 Nov 2026): a room's change is ignored */ }
   else if (e.type === 'room:style' && e.style) {
     currentStyle = normalizeStyle(e.style); updateStyleUi();
@@ -2576,6 +2578,7 @@ async function resyncRoom() {
     if (surfTex) await surfTex.setManifest(surfaceTex, { on: surfaceTexOn, idleMs: surfaceTexIdleMs }).catch(() => {}); // before the stickers: the painted-in ones are no longer in the list
     cams.set(cameras || []); renderCams();
     syncPeels(info, peels, images);
+    setSoundTheme(info?.soundTheme); // (a change missed while the connection was down)
     applyGroove(info?.groove);
     const alive = new Set(list.map((s) => s.id));
     for (const id of [...stamps.meshes.keys()]) if (!alive.has(id) && !id.startsWith('tmp-')) stamps.remove(id); // väntande klibbor får vara kvar
@@ -2719,14 +2722,28 @@ function saveRoomPreset() {
 const radio = new Radio({ sound, room: ROOM, clock: () => (groove ? groove.now() : Date.now()), onChange: () => { filmLog?.add('radio', { what: 'dial' }); saveRoomPreset(); } });
 radio.setWalkBpm(loadRunMode().walkBpm); // MY Tempo (per player, run mode; not the room preset – no room clock, t846u)
 // Sound theme (Jens, 15 Nov 2026; shared/soundtheme.mjs): Theme A = the sound as it always was, Theme B = tight pitch
-// and timing. Esc → THEME picks it (per player, this browser). It only changes how things are PLAYED – my saved
-// patches and run mode are never rewritten – so switching back to A gives exactly the old sound.
+// and timing. ONE theme per room / city for everybody ("alla har samma tema"): Esc → THEME asks the server
+// (requestSoundTheme), which saves it on the room and tells everyone (room:soundtheme); the room load brings it to
+// new visitors. It only changes how things are PLAYED – saved patches and run mode are never rewritten – so the
+// room going back to A gives exactly the old sound.
 function applySoundTheme(th = soundTheme()) {
   sound.theme = th; if (groove) groove.setTheme(th); radio.setTheme(th); radio.setWalkBpm(liveRunMode().walkBpm); if (npcs) npcs.theme = th;
   try { soundUi?.themeChanged?.(th); } catch { /* the panel is not up */ }
 }
 applySoundTheme();
-onSoundTheme((th) => { applySoundTheme(th); toast(`🎚 ${th.label}`, 1600); });
+onSoundTheme((th, meta = {}) => {
+  applySoundTheme(th);
+  try { escMenu?.refreshTheme?.(); } catch { /* the menu is not up yet */ }
+  if (meta.quiet) return;
+  const who = meta.by && meta.by !== together.net.id ? together.players.map.get(meta.by)?.name : null;
+  toast(`🎚 ${th.label} for everyone here${who ? ` – picked by ${who}` : ''}`, 2200);
+});
+// Esc → THEME → a theme: the room's, for everybody (the server answers with the theme; the broadcast comes too).
+function requestSoundTheme(id) {
+  return api.setSoundTheme(ROOM, id, together.net.id || null)
+    .then((r) => { setSoundTheme(r.theme, { by: together.net.id }); return r.theme; })
+    .catch((e) => { toast(`Could not change the theme: ${e.message}`, 2600); return soundTheme().id; });
+}
 // meWalking (e2e hook only, Jens t814u): really moving = groove track 'me'.moveUntil. Dancing counts as walking
 // for the steps and the walk sequencers (walkUntil) but not as moving.
 const meWalking = () => { const me = groove?.track?.get('me'); return !!(me && !camView && (me.moveUntil || 0) > groove.now()); };
@@ -3008,7 +3025,7 @@ escMenu = initEscMenu({
   // CREATE / STICKERS / STICKER PACK available in the city again (same as the room).
   onSound: () => menuActions.radio(),
   onLights: () => lightsUi?.open(),
-  onTheme: (id) => setSoundTheme(id), // THEME → THEME A / THEME B (shared/soundtheme.mjs)
+  onTheme: (id) => requestSoundTheme(id), // THEME → THEME A / THEME B: the room's theme, for everyone (shared/soundtheme.mjs)
   theme: () => soundTheme().id,
   onAvatar: () => menuActions.character(),
   onRoom: () => menuActions.room(),
@@ -3994,7 +4011,7 @@ window.klibb = {
   soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
   groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), moving: (t.moveUntil || 0) > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
   setGrooveScale, grooveObj: () => groove,
-  autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundTheme: (id) => (id ? setSoundTheme(id) : soundTheme()).id, soundMine: () => sound.mine, prepareSoundForPlace, resetPersonalSound, voiceOf: (id) => together.voiceOf(id),
+  autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundTheme: (id) => (id ? requestSoundTheme(id) : soundTheme().id), soundMine: () => sound.mine, prepareSoundForPlace, resetPersonalSound, voiceOf: (id) => together.voiceOf(id),
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
