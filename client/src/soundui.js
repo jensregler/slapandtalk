@@ -1,6 +1,6 @@
 // Sound settings (full version, entitlements.full.soundDesign): synth panels for steps, slap,
-// peel and Landing/duff (SOUND_TABS, t900u: Steps first). Effects data (st.fx) stays (the listener FX) – the Effects tab
-// is kept in code but not shown.
+// peel and Landing/duff (SOUND_TABS, t900u: Steps first). Effects tab is back (Jens t954u): the listener FX
+// (reverb, delay, crush, distortion, filter) can be switched on again. City place-FX were removed in t857u.
 // Personal (Jens, 2 Nov 2026 / session model 6 Nov 2026): my sound settings are mine only –
 // sessionStorage 'klibb.sound' (and voice FX / Hear myself / Music vol / groove / run / mic). They
 // come along from a room out into the City (and around inside the city), never sent to anyone.
@@ -10,9 +10,9 @@
 // 'klibb.soundSeed'.
 import { SOUNDS, SOUND_TABS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, DEFAULT_PATCHES, FX_DEFAULTS,
   cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx, noteName, diffPatch, snapFreq, retune as retuneP, defaultStepSeq } from '../../shared/synth.mjs';
-import { lockedPatch, setLock, getLock, clearLock, clearLocks, lockCount, stepsLocking, removeLayerLocks, resizeSeq, lockKey } from '../../shared/stepseq.mjs';
+import { lockedPatch, setLock, getLock, clearLock, clearLocks, lockCount, stepsLocking, removeLayerLocks, resizeSeq, lockKey, cleanCond, cleanRatchet, nextRatchet, stepTriggers, STEP_RATCHET } from '../../shared/stepseq.mjs';
 import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseTarget, modOrder, snapRate, selfLoop, targetSpec, LAYER_TARGETS, PATCH_TARGETS, MOD_TARGETS } from '../../shared/lfo.mjs';
-import { loadSampleFile, clearSamples, pruneSamples, ensureSamples } from './samples.js';
+import { loadSampleFile, clearSamples, pruneSamples, ensureSamples, loadBuiltinSample, BUILTIN_SAMPLES } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
 import { soundTheme } from './soundtheme.js';
@@ -193,7 +193,7 @@ export function lfoSliderFor(l, target) {
   return null;
 }
 const FX_UNITS = [['reverb', 'Reverb'], ['delay', 'Delay'], ['filter', 'Filter'], ['crush', 'Bitcrush'], ['dist', 'Distortion']];
-const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Landing', fx: 'Effects' }; // Landing = peel landing thud (duff); fx kept for city code paths, not listed in SOUND_TABS
+const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Landing', fx: 'Effects' }; // Landing = peel landing thud (duff); Effects is a SOUND_TAB again (t954u)
 
 // musicVol: { get, set, def } – master volume (was Music vol header; now in Master section).
 // radioBlock: () => Master section (the one Volume). radio: Radio instance (my Tempo on Steps).
@@ -345,13 +345,29 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     }
     return box;
   }
+  const SOURCE_KINDS = ['osc', 'noise', 'sampler', 'mic'];
+  const SOURCE_LABELS = { osc: 'Oscillator', noise: 'Noise', sampler: '🎵 Sampler', mic: '🎙 Live mic' };
+  function setLayerKind(l, v) {
+    const src = { ...l, kind: v };
+    if (v === 'mic') Object.assign(src, MIC_LAYER, { level: Math.min(l.level ?? MIC_LAYER.level, MIC_LAYER.level) });
+    if (v === 'sampler' && l.kind !== 'sampler') src.freq = SYNTH.samplerRef; // play at the recorded pitch (note = root)
+    const next = cleanPatch({ layers: [src] });
+    const cleaned = next && next.layers[0];
+    if (!cleaned) { l.kind = v; return; }
+    for (const key of Object.keys(l)) delete l[key];
+    Object.assign(l, cleaned);
+  }
+  function sourceSelect(l, k) {
+    return select('Source', SOURCE_KINDS, l.kind, (v) => { setLayerKind(l, v); if (v === 'mic') micOn(); edited(k, true); }, SOURCE_LABELS);
+  }
   function layerBlock(p, i, k) {
+
     const l = p.layers[i];
     if (l.kind === 'sampler') return samplerBlock(p, i, k);
     const box = el('fieldset', 'snd-layer'); box.dataset.layer = i;
     const head = el('legend', null, `Layer ${i + 1}`); box.appendChild(head);
     const sel = el('div', 'snd-sel');
-    sel.append(select('Source', ['osc', 'noise', 'mic'], l.kind, (v) => { l.kind = v; if (v === 'mic') { Object.assign(l, MIC_LAYER, { level: Math.min(l.level, MIC_LAYER.level) }); micOn(); } edited(k, true); }, { osc: 'Oscillator', noise: 'Noise', mic: '🎙 Live mic' }));
+    sel.append(sourceSelect(l, k));
     if (l.kind === 'mic') { /* no wave/noise colour */ } else if (l.kind === 'osc') sel.append(select('Wave', WAVES, l.wave, (v) => { l.wave = v; edited(k); }, { sawtooth: 'saw' }));
     else sel.append(select('Noise', NOISES, l.noise, (v) => { l.noise = v; edited(k); }));
     sel.append(select('Filter', FILTERS, l.filter, (v) => { l.filter = v; edited(k); }));
@@ -486,6 +502,37 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     b.title = here ? `Locked on step ${sel + 1} – click to clear this lock` : `Locked on step${steps.length > 1 ? 's' : ''} ${steps.map((j) => j + 1).join(', ')}`;
     b.disabled = !here;
   }
+  function ratchetPop(btn, stp, k) {
+    closePop();
+    pop = el('div', 'ss-ratchet-pop'); pop.id = 'ss-ratchet-pop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'Ratchet repeats');
+    pop.appendChild(el('strong', null, 'Ratchet'));
+    pop.appendChild(el('span', 'ss-ratchet-pop-lab', 'How many times this step repeats, evenly in its duration. 1 is off.'));
+    const common = el('div', 'ss-ratchet-common');
+    for (const n of STEP_RATCHET.common) {
+      const b = el('button', n === cleanRatchet(stp.ratchet) ? 'sel' : null, n === 1 ? 'Off' : `${n}×`); b.type = 'button';
+      b.onclick = () => { if (n <= 1) delete stp.ratchet; else stp.ratchet = n; closePop(); edited(k, true); };
+      common.appendChild(b);
+    }
+    pop.appendChild(common);
+    const sl = el('div', 'ss-ratchet-slider');
+    const lab = el('label'); lab.textContent = 'Any value 1–128';
+    const inp = el('input'); inp.type = 'range'; inp.min = '1'; inp.max = '128'; inp.step = '1'; inp.value = String(cleanRatchet(stp.ratchet)); inp.setAttribute('aria-label', 'Ratchet repeats');
+    const out = el('output'); out.textContent = inp.value === '1' ? 'Off' : `${inp.value}×`;
+    inp.oninput = () => { const n = Number(inp.value); out.textContent = n <= 1 ? 'Off' : `${n}×`; if (n <= 1) delete stp.ratchet; else stp.ratchet = n; edited(k, false); };
+    inp.onchange = () => { closePop(); edited(k, true); };
+    sl.append(lab, inp, out); pop.appendChild(sl);
+    const close = el('button', 'ss-ratchet-done', '✓ Done'); close.type = 'button'; close.onclick = () => { closePop(); edited(k, true); };
+    pop.appendChild(close);
+    document.body.appendChild(pop);
+    const br = btn.getBoundingClientRect();
+    const w = Math.min(420, window.innerWidth - 16);
+    pop.style.position = 'fixed';
+    pop.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, br.left + br.width / 2 - w / 2))}px`;
+    pop.style.top = `${Math.max(8, Math.min(window.innerHeight - 280, br.bottom + 6))}px`;
+    pop.style.width = `${w}px`;
+    const outside = (e) => { if (pop && !pop.contains(e.target) && e.target !== btn) { document.removeEventListener('pointerdown', outside, true); closePop(); } };
+    setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+  }
   const loopLabel = (v) => `${v === 0.25 ? '¼' : v === 0.5 ? '½' : v} footstep${v === 1 || v < 1 ? '' : 's'}`;
   function selectStep(j) { st.sel = st.sel === j ? null : j; render(); }
   function stepSeqBlock(p, k) {
@@ -493,12 +540,13 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const box = el('fieldset', 'snd-stepseq'); box.id = 'snd-stepseq';
     box.dataset.sel = st.sel == null ? '' : String(st.sel);
     box.appendChild(el('legend', null, '▦ Sequencer – the whole Steps sound'));
-    box.appendChild(el('p', 'hint', 'One sequencer plays every layer. Walk, run, sneak and dance run it at their own tempo; step 1 is the footstep. Click a number to turn a step on or off. Press ✎ (or hold the number) to pick a step – then every slider you move is locked to that step only.'));
+    box.appendChild(el('p', 'hint', 'One sequencer plays every layer. Walk, run, sneak and dance run it at their own tempo; step 1 is the footstep. Click a number to turn a step on or off. Press ✎ (or hold the number) to pick a step – then every slider you move is locked to that step only. Under the lock: Condition (1:N = once every N loops) and Ratchet (repeats inside the step).'));
     const row = el('div', 'snd-sel');
-    const lens = Array.from({ length: SYNTH.seqMax }, (_, n) => String(n + 1));
-    row.append(el('span', 'snd-seq-lab', 'Steps'), select('Steps', lens, String(q.len), (v) => { resizeSeq(q, Number(v)); if (st.sel != null && st.sel >= q.len) st.sel = null; edited(k, true); }));
+    // The old "Steps" dropdown (1–16) is gone (Jens t952u crossed it out): the number buttons already pick the length.
+    row.append(el('span', 'snd-seq-lab', 'Steps'));
     const quick = el('span', 'snd-seq-quick');
-    for (const n of SYNTH.seqLens) { const b = el('button', n === q.len ? 'sel' : null, String(n)); b.type = 'button'; b.onclick = () => { resizeSeq(q, n); if (st.sel != null && st.sel >= q.len) st.sel = null; edited(k, true); }; quick.appendChild(b); }
+    const lens = SYNTH.seqLens.includes(q.len) ? SYNTH.seqLens : [q.len, ...SYNTH.seqLens];
+    for (const n of lens) { const b = el('button', n === q.len ? 'sel' : null, String(n)); b.type = 'button'; b.onclick = () => { resizeSeq(q, n); if (st.sel != null && st.sel >= q.len) st.sel = null; edited(k, true); }; quick.appendChild(b); }
     row.append(quick);
     row.append(el('span', 'snd-seq-lab', 'Loop'), select('Loop', SYNTH.stepLoops.map(String), String(q.loop), (v) => { q.loop = Number(v); edited(k, true); }, Object.fromEntries(SYNTH.stepLoops.map((b) => [String(b), loopLabel(b)]))));
     box.appendChild(row);
@@ -515,7 +563,22 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       const pick = el('button', 'ss-pick', st.sel === j ? '✓ editing' : '✎ lock'); pick.type = 'button'; pick.dataset.step = j;
       pick.setAttribute('aria-pressed', String(st.sel === j)); pick.setAttribute('aria-label', st.sel === j ? `Stop editing step ${j + 1}` : `Edit locks of step ${j + 1}`);
       pick.onclick = () => selectStep(j);
-      cell.append(pad, pick);
+      const c = cleanCond(stp.cond);
+      const cond = el('button', 'ss-cond' + (c > 1 ? ' on' : ''), `1:${c}`); cond.type = 'button'; cond.dataset.step = j; cond.dataset.cond = String(c);
+      cond.setAttribute('aria-label', c === 1 ? `Step ${j + 1} condition: always` : `Step ${j + 1} condition: once every ${c} loops`);
+      cond.title = c === 1 ? 'Condition: always (1:1). Click to play once every N loops.' : `Condition: once every ${c} loops. Click to change.`;
+      cond.onclick = () => { const n = (cleanCond(stp.cond) % 8) + 1; if (n <= 1) delete stp.cond; else stp.cond = n; edited(k, true); };
+      const r = cleanRatchet(stp.ratchet);
+      const rat = el('button', 'ss-ratchet' + (r > 1 ? ' on' : ''), r > 1 ? `${r}×` : '1×'); rat.type = 'button'; rat.dataset.step = j; rat.dataset.ratchet = String(r);
+      rat.setAttribute('aria-label', r <= 1 ? `Step ${j + 1} ratchet off` : `Step ${j + 1} ratchet: ${r} repeats`);
+      rat.title = r <= 1 ? 'Ratchet off. Click for repeats, scroll or hold for 2–128.' : `Ratchet: ${r} repeats in this step. Click, scroll or hold to change.`;
+      let rp = 0, rheld = false;
+      rat.addEventListener('pointerdown', () => { rheld = false; clearTimeout(rp); rp = setTimeout(() => { rheld = true; ratchetPop(rat, stp, k); }, 450); });
+      for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) rat.addEventListener(ev, () => clearTimeout(rp));
+      rat.addEventListener('wheel', (e) => { e.preventDefault(); e.stopPropagation(); const dir = e.deltaY > 0 || e.deltaX > 0 ? -1 : 1; const n = Math.min(128, Math.max(1, cleanRatchet(stp.ratchet) + dir)); if (n <= 1) delete stp.ratchet; else stp.ratchet = n; edited(k, true); }, { passive: false });
+      rat.addEventListener('contextmenu', (e) => e.preventDefault());
+      rat.onclick = () => { if (rheld) { rheld = false; return; } const n = nextRatchet(stp.ratchet); if (n <= 1) delete stp.ratchet; else stp.ratchet = n; edited(k, true); };
+      cell.append(pad, pick, cond, rat);
       const n = lockCount(q, j);
       if (n) { const lb = el('span', 'ss-locks', `🔒 ${n}`); lb.title = `${n} lock${n === 1 ? '' : 's'} on step ${j + 1}`; cell.appendChild(lb); }
       grid.appendChild(cell);
@@ -544,6 +607,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const box = el('fieldset', 'snd-layer snd-sampler'); box.dataset.layer = i; box.dataset.kind = 'sampler';
     box.appendChild(el('legend', null, `Layer ${i + 1} · 🎵 Sampler`));
     const sel = el('div', 'snd-sel');
+    sel.append(sourceSelect(l, k));
     sel.append(select('Filter', FILTERS, l.filter, (v) => { l.filter = v; edited(k); }));
     if (p.layers.length > 1) sel.appendChild(removeLayerBtn(p, i, k));
     box.appendChild(sel);
@@ -572,7 +636,23 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     drop.addEventListener('dragover', (e) => { stop(e); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; drop.classList.add('over'); });
     drop.addEventListener('dragleave', (e) => { stop(e); drop.classList.remove('over'); });
     drop.addEventListener('drop', (e) => { stop(e); drop.classList.remove('over'); load(e.dataTransfer?.files?.[0]); });
-    drop.append(el('div', 'smp-drop-text', '⬇ Drop an audio file here'), pick, file, info);
+    const builtins = el('div', 'smp-builtins');
+    for (const s of BUILTIN_SAMPLES) {
+      const b = el('button', 'smp-builtin' + (l.name === s.name && l.sample ? ' sel' : ''), s.name); b.type = 'button'; b.dataset.builtin = s.id;
+      b.onclick = async () => {
+        info.textContent = 'Loading …';
+        try {
+          const ctx = sound.ensure();
+          const r = await loadBuiltinSample(s.id, ctx);
+          Object.assign(l, { sample: r.hash, name: r.name, len: r.len, start: 0, end: 1, loopStart: 0, loopEnd: 1 });
+          edited(k, true);
+          toast(`Loaded ${r.name}`, 1600);
+          preview();
+        } catch (e) { info.textContent = e.message || 'Could not load that sample'; toast(e.message || 'Could not load that sample', 2600); }
+      };
+      builtins.appendChild(b);
+    }
+    drop.append(el('div', 'smp-drop-text', '⬇ Drop an audio file here'), pick, file, builtins, info);
     box.appendChild(drop);
     // waveform with the start/end (green/red) and loop (yellow) points
     const cv = el('canvas', 'smp-wave'); cv.width = 960; cv.height = 200;
@@ -682,16 +762,15 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const body = $('snd-body'); body.innerHTML = '';
     const rb = $('snd-radio'); if (rb) { rb.innerHTML = ''; if (radioBlock) rb.appendChild(radioBlock()); }
     const tabs = $('snd-tabs'); tabs.innerHTML = '';
-    // Steps / Slap / Peel / Landing (duff) (t900u). Effects stay in state (city drives fx); tab button not shown.
-    // Effects render branch below stays for programmatic/city use.
-    if (st.tab !== 'fx' && !SOUND_TABS.includes(st.tab)) st.tab = SOUND_TABS[0];
+    // Steps / Slap / Peel / Landing (duff) (t900u), then Effects (t954u).
+    if (!SOUND_TABS.includes(st.tab)) st.tab = SOUND_TABS[0];
     for (const t of SOUND_TABS) {
       const b = el('button', null, TAB_NAMES[t]); b.type = 'button'; b.dataset.tab = t; b.setAttribute('aria-pressed', String(st.tab === t));
       if (st.tab === t) b.classList.add('sel'); b.onclick = () => { st.tab = t; render(); }; tabs.appendChild(b);
     }
     if (st.tab === 'fx') {
-      body.appendChild(el('p', 'hint', 'Effects on all your sounds (everyone hears them).'));
-      body.appendChild(fxBlock(st.fx, () => {}));
+      body.appendChild(el('p', 'hint', 'Effects on everything you hear: your steps, slaps, other people, and voice. Drag Wet above 0 to switch one on. They stay on this device – others have their own effects.'));
+      body.appendChild(fxBlock(st.fx, () => { /* sliders write st.fx; liveSoon (the panel input listener) applies them at once */ }));
       return;
     }
     const k = st.tab, p = st.patches[k];
@@ -810,9 +889,13 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const run = (start, pulse, tn) => {
       const sp = pulse / per;
       for (let m = 0, played = 0; m * sp < bar - 1e-6 && played < 48; m++) {
-        const i = m % q.len, stp = q.steps[i]; if (!stp || !stp.on || !(stp.vol > 0)) continue;
-        played++; const foot = Math.floor(m / per + 1e-9);
-        eng.play(retuneP(lockedPatch(p, i), (foot % 2 ? 0.97 : 1.02) * tn), { gain: stp.vol / 100, fx, time: start + m * sp, pool: 'step', lfoId: 'me' });
+        const i = m % q.len, stp = q.steps[i];
+        const hits = stepTriggers(stp, { t: start + m * sp, m, len: q.len, stepMs: sp * 1000 });
+        for (const ht of hits) {
+          if (played >= 48) break;
+          played++; const foot = Math.floor(m / per + 1e-9);
+          eng.play(retuneP(lockedPatch(p, i), (foot % 2 ? 0.97 : 1.02) * tn), { gain: stp.vol / 100, fx, time: ht, pool: 'step', lfoId: 'me' });
+        }
       }
     };
     run(t0, walkPulse, 1);

@@ -47,8 +47,8 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     await A.waitForSelector('#sound-panel', { state: 'visible' });
     const tabs = await A.$$eval('#snd-tabs button', (b) => b.map((x) => x.textContent));
     const openTab = await A.evaluate(() => document.querySelector('#snd-tabs button.sel')?.dataset.tab);
-    assert(tabs.join() === 'Steps,Slap,Peel,Landing' && openTab === 'step',
-      `synth panel tabs (${tabs.join(', ')}): Steps, Slap, Peel, Landing, and it opens on Steps`);
+    assert(tabs.join() === 'Steps,Slap,Peel,Landing,Effects' && openTab === 'step',
+      `synth panel tabs (${tabs.join(', ')}): Steps, Slap, Peel, Landing, Effects, and it opens on Steps`);
     await A.click('#snd-tabs button[data-tab="slap"]');
     const panel = await A.evaluate(() => ({ layers: document.querySelectorAll('#snd-body .snd-layer').length, sliders: [...document.querySelectorAll('#snd-body .snd-sl')].map((r) => r.dataset.param),
       selects: [...document.querySelectorAll('#snd-body select')].map((s) => s.dataset.name) }));
@@ -71,7 +71,7 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     assert(pv === true, '▶ Preview plays the edited patch');
     await A.waitForTimeout(300);
     await A.screenshot({ path: path.join(OUT, 'synth-panel.png') });
-    // Effects tab is hidden (city drives fx). Set fx on state, then randomize/reset on Steps.
+    // Effects tab is available again (t954u). Set fx on state, then randomize/reset on Steps.
     await A.evaluate(() => {
       const st = window.klibb.soundUi().state(), sh = window.klibb.synthShared();
       st.fx = sh.cleanFx({ reverb: { wet: 0.25 }, delay: { wet: 0.2, sync: '1/8' } });
@@ -83,7 +83,7 @@ async function synthE2E({ browser, BASE, assert, waitReady, testPng }) {
     await A.click('#snd-reset');
     const step2 = await A.evaluate(() => JSON.stringify(window.klibb.soundUi().state().patches.step));
     assert(step1 !== step0 && step2 === step0, '🎲 Randomize rolls a new patch, ↺ Reset brings back my default');
-    // After reset: restore slap LFO + fx (Effects tab hidden), wild on Peel, then Save
+    // After reset: restore slap LFO + fx, wild on Peel, then Save
     await A.click('#snd-tabs button[data-tab="slap"]');
     await A.$eval('#snd-body .snd-layer[data-layer="1"] .snd-sl[data-param="freq"] input', (r) => {
       r.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));

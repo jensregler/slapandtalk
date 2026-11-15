@@ -1,7 +1,8 @@
 // Sampler layer, morph, LFOs (topological per-sample program, cycles, limits), sequencer layers,
 // master clock + room offsets, radio presets, decimation, bird – the shared maths (Jens, 5 Nov 2026).
 import assert from 'assert/strict';
-import { SYNTH, DEFAULT_PATCHES, SOUNDS, cleanPatch, cleanLayer, samplerRate, samplerGate, patchLength, morphPatch, diffPatch, snapFreq, noteName, retune, variant } from '../shared/synth.mjs';
+import { SYNTH, SOUND_TABS, FX_DEFAULTS, DEFAULT_PATCHES, SOUNDS, cleanPatch, cleanLayer, samplerRate, samplerGate, patchLength, morphPatch, diffPatch, snapFreq, noteName, retune, variant, cleanFx } from '../shared/synth.mjs';
+import { gaitStep, RUN_DEFAULTS, pitchRatio } from '../shared/runmode.mjs';
 import { newFollower, selfLoop, MOD as MOD2 } from '../shared/lfo.mjs';
 import { MOD, cleanMods, modOrder, canAddMod, newMod, removeMod, removeLayerMods, evalMods, compileMods, modRunner, snapRate, parseTarget } from '../shared/lfo.mjs';
 import { MASTER, playerTempo, loopSteps, barMsAt, barsAtTime } from '../shared/clock.mjs';
@@ -245,6 +246,34 @@ ok('voice effect settings: off by default (dry), kinds incl. chorus/pitch/harmon
   const m = cleanMonitor(null); assert.equal(m.on, false); assert.equal(m.vol, VOICE_FX.monVolDef); assert.equal(m.raw, false);
   assert.equal(cleanVoiceFx({ kind: 'echo', div: '1/4' }).div, '1/4');
   assert.equal(cleanVoiceFx({ kind: 'harmony', harm: 'octave' }).harm, 'octave');
+});
+
+ok('run / crouch pitch correction retunes a sampler layer the same as an oscillator (playbackRate follows tune)', () => {
+  const samp = cleanPatch({ layers: [{ kind: 'sampler', note: 67, root: 60 }] });
+  const osc = cleanPatch({ layers: [{ kind: 'osc', freq: 440 }] });
+  const base = samplerRate(samp.layers[0]);
+  const run = gaitStep('run', { ...RUN_DEFAULTS, pitch: 4 });
+  const crouch = gaitStep('crouch', RUN_DEFAULTS); // default sneak pitch
+  const rs = retune(samp, run.tune).layers[0];
+  const ro = retune(osc, run.tune).layers[0];
+  assert.ok(near(samplerRate(rs) / base, run.tune, 1e-6), 'run tune reaches samplerRate');
+  assert.ok(near(ro.freq / 440, run.tune, 1e-6), 'and the oscillator freq by the same ratio');
+  const cs = retune(samp, crouch.tune).layers[0];
+  assert.ok(near(samplerRate(cs) / base, crouch.tune, 1e-6), 'crouch / sneak tune reaches samplerRate');
+  assert.ok(near(crouch.tune, pitchRatio(RUN_DEFAULTS.crouchPitch), 1e-9));
+  // the live path: cleanPatch after retune must not reset freq to 440
+  const live = cleanPatch(retune(samp, run.tune));
+  assert.ok(near(samplerRate(live.layers[0]) / base, run.tune, 1e-4), 'cleanPatch keeps the retuned freq (0.01 Hz clamp)');
+  // a sampler with a missing freq still follows (used to become NaN and snap back to 440)
+  const bare = { kind: 'sampler', note: 60, root: 60, sample: 'a'.repeat(64), name: 'x', len: 0.2, whole: true, start: 0, end: 1, loop: false, loopStart: 0, loopEnd: 1, reverse: false, xfade: 0, pan: 0, poly: 4, cutoff: 8000 };
+  const fixed = retune({ layers: [bare], gain: 1 }, 1.5).layers[0];
+  assert.ok(near(samplerRate(fixed), 1.5, 1e-6), 'missing freq still gets the tune');
+});
+ok('SOUND_TABS lists the Effects tab again (t954u): reverb, delay, crush, dist and filter can be switched on', () => {
+  assert.deepEqual(SOUND_TABS, ['step', 'slap', 'peel', 'duff', 'fx']);
+  const fx = cleanFx({ reverb: { wet: 0.4 }, delay: { wet: 0.2, sync: '1/8' }, crush: { bits: 4, wet: 0.5 }, dist: { amount: 0.6, wet: 0.3 }, filter: { wet: 0.2, cutoff: 800 } });
+  assert.ok(fx.reverb.wet === 0.4 && fx.delay.wet === 0.2 && fx.crush.wet === 0.5 && fx.dist.wet === 0.3 && fx.filter.wet === 0.2);
+  assert.equal(FX_DEFAULTS.reverb.wet, 0); // Wet 0 = off, as the tab says
 });
 void variant;
 console.log(`sampler/LFO/radio: ${n} checks ok`);

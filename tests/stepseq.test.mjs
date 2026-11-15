@@ -3,7 +3,7 @@
 // Pure maths + GrooveSteps / Sounds with fakes (no browser). Run: node tests/stepseq.test.mjs (in npm test)
 import assert from 'node:assert/strict';
 import { DEFAULT_PATCHES, SYNTH, cleanPatch, cleanSound, migrateStepSeq, cleanStepSeq, STEP_SEQ_DEFAULT, stepSeqOf, morphPatch, variant, colourPatch, diffPatch, retune } from '../shared/synth.mjs';
-import { stepSeqBetween, lockedPatch, setLock, getLock, clearLock, clearLocks, lockCount, stepsLocking, removeLayerLocks, resizeSeq, stepsPerFoot } from '../shared/stepseq.mjs';
+import { stepSeqBetween, lockedPatch, setLock, getLock, clearLock, clearLocks, lockCount, stepsLocking, removeLayerLocks, resizeSeq, stepsPerFoot, cleanCond, cleanRatchet, stepPass, stepFires, ratchetCount, stepTriggers, nextRatchet, STEP_SEQ, STEP_RATCHET } from '../shared/stepseq.mjs';
 import { eventsBetween, runEventsBetween, pulseMs } from '../shared/groove.mjs';
 import { GrooveSteps } from '../client/src/groove.js';
 
@@ -186,4 +186,44 @@ if (Sounds) {
     assert.ok(pf.layers.every((l) => !l.seq) && pf.seq && pf.seq.len === 4);
   });
 }
+
+await ok('condition 1:N: a step fires once every N loops; 1 = always; saved with the sound; bad values clamped', () => {
+  assert.equal(cleanCond(undefined), 1); assert.equal(cleanCond(1), 1); assert.equal(cleanCond(3), 3);
+  assert.equal(cleanCond(8), 8); assert.equal(cleanCond(99), 8); assert.equal(cleanCond(0), 1); assert.equal(cleanCond('x'), 1);
+  assert.equal(stepPass(0, 4), 0); assert.equal(stepPass(3, 4), 0); assert.equal(stepPass(4, 4), 1); assert.equal(stepPass(11, 4), 2);
+  const st = { on: true, vol: 100, cond: 3 };
+  assert.equal(stepFires({ on: true, vol: 100 }, 0), true);
+  assert.equal(stepFires(st, 0), true); assert.equal(stepFires(st, 1), false); assert.equal(stepFires(st, 2), false); assert.equal(stepFires(st, 3), true);
+  const p = step(); p.seq.steps[0].cond = 2; p.seq.steps[2].on = true; p.seq.steps[2].cond = 3;
+  const c = cleanPatch(p);
+  assert.equal(c.seq.steps[0].cond, 2); assert.equal(c.seq.steps[1].cond, undefined); assert.equal(c.seq.steps[2].cond, 3);
+  const s = cleanSound({ seed: 'abcd', patches: { step: c } }, { custom: true });
+  assert.equal(s.patches.step.seq.steps[0].cond, 2);
+  const evs = stepTriggers(c.seq.steps[0], { t: 0, m: 0, len: 4, stepMs: 100 });
+  assert.deepEqual(evs, [0]); // pass 0 fires
+  assert.deepEqual(stepTriggers(c.seq.steps[0], { t: 400, m: 4, len: 4, stepMs: 100 }), [], 'pass 1 of 1:2 is silent');
+  assert.deepEqual(stepTriggers(c.seq.steps[0], { t: 800, m: 8, len: 4, stepMs: 100 }), [800]);
+});
+
+await ok('ratchet 2–128: repeats subdivide the step evenly; 1 = off; capped so each hit is at least 12 ms; kept when a too-big patch drops locks', () => {
+  assert.equal(cleanRatchet(undefined), 1); assert.equal(cleanRatchet(4), 4); assert.equal(cleanRatchet(128), 128);
+  assert.equal(cleanRatchet(200), 128); assert.equal(cleanRatchet(0), 1);
+  assert.equal(nextRatchet(1), 2); assert.equal(nextRatchet(4), 6); assert.equal(nextRatchet(128), 1); assert.equal(nextRatchet(5), 6);
+  const st = { on: true, vol: 100, ratchet: 4 };
+  assert.deepEqual(stepTriggers(st, { t: 1000, m: 0, len: 4, stepMs: 400 }), [1000, 1100, 1200, 1300]);
+  // 128 repeats in a 200 ms step: cap at floor(200/12)=16
+  assert.equal(ratchetCount({ ratchet: 128 }, 200), Math.floor(200 / STEP_SEQ.minStepMs));
+  assert.equal(stepTriggers({ on: true, vol: 100, ratchet: 128 }, { t: 0, m: 0, len: 4, stepMs: 200 }).length, Math.floor(200 / STEP_SEQ.minStepMs));
+  // condition miss → no ratchets either
+  assert.deepEqual(stepTriggers({ on: true, vol: 100, cond: 2, ratchet: 8 }, { t: 0, m: 4, len: 4, stepMs: 400 }), []);
+  const p = step(); p.seq.steps[0].ratchet = 8; p.seq.steps[1].ratchet = 1;
+  const c = cleanPatch(p);
+  assert.equal(c.seq.steps[0].ratchet, 8); assert.equal(c.seq.steps[1].ratchet, undefined);
+  resizeSeq(c.seq, 6); assert.equal(c.seq.steps[0].ratchet, 8); assert.deepEqual(c.seq.steps[5], { on: false, vol: 100 });
+  // too big: locks go, condition + ratchet stay
+  const big = { v: 1, gain: 1, layers: [0, 1, 2, 3].map(() => ({ kind: 'osc' })), seq: { len: 16, loop: 1, steps: Array.from({ length: 16 }, () => ({ on: true, vol: 100, cond: 3, ratchet: 8, locks: Object.fromEntries(Object.keys(SYNTH.layer).slice(0, 24).map((k, j) => [`L${j % 4}.${k}`, SYNTH.layer[k][0]])) })) } };
+  const d = cleanPatch(big);
+  assert.ok(d, 'the patch survives'); assert.ok(d.seq.steps.every((x) => !x.locks && x.cond === 3 && x.ratchet === 8));
+});
+
 console.log(`stepseq: ${n} checks ok`);

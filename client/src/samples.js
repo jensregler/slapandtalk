@@ -66,8 +66,10 @@ export async function ensureSamples(patches, ctx) {
   for (const p of Object.values(patches || {})) for (const l of p?.layers || []) if (l.kind === 'sampler' && l.sample && !SAMPLE_BUFFERS.has(l.sample)) want.add(l.sample);
   if (!want.size || !ctx) return;
   await Promise.all([...want].map(async (hash) => {
-    const rec = await tx('readonly', (s) => s.get(hash)); if (!rec?.wav) return;
-    try { SAMPLE_BUFFERS.set(hash, await decode(ctx, rec.wav.slice(0))); } catch { /* broken: stays silent */ }
+    const rec = await tx('readonly', (s) => s.get(hash));
+    if (rec?.wav) { try { SAMPLE_BUFFERS.set(hash, await decode(ctx, rec.wav.slice(0))); } catch { /* broken: stays silent */ } return; }
+    // not on this device: maybe it is one of the built-in one-shots (same hash every time)
+    await ensureBuiltinSamples(ctx);
   }));
 }
 export async function clearSamples() { SAMPLE_BUFFERS.clear(); await tx('readwrite', (s) => s.clear()); }
@@ -77,4 +79,63 @@ export async function pruneSamples(patches) {
   const all = (await tx('readonly', (s) => s.getAll())) || [];
   const old = all.filter((r) => !keep.has(r.hash) && Date.now() - r.at > 2 * 864e5);
   if (old.length) await tx('readwrite', (s) => { for (const r of old) s.delete(r.hash); });
+}
+
+// Built-in short one-shots (Jens t952u): Kick, Hat, Click, Blip – generated, hashed, and stored
+// like a loaded file, so a patch that points at one survives a reload on this device.
+export const BUILTIN_SAMPLES = Object.freeze([
+  Object.freeze({ id: 'kick', name: 'Kick' }),
+  Object.freeze({ id: 'hat', name: 'Hat' }),
+  Object.freeze({ id: 'click', name: 'Click' }),
+  Object.freeze({ id: 'blip', name: 'Blip' }),
+]);
+const builtinCache = new Map(); // id → { hash, name, len, wav, mono, rate }
+
+function renderBuiltin(id, rate) {
+  const sec = id === 'kick' ? 0.32 : id === 'hat' ? 0.1 : id === 'click' ? 0.03 : 0.14;
+  const n = Math.max(16, Math.round(sec * rate));
+  const mono = new Float32Array(n);
+  if (id === 'kick') {
+    for (let i = 0; i < n; i++) {
+      const t = i / rate, env = Math.exp(-t * 18);
+      const f = 140 * Math.pow(40 / 140, Math.min(1, t / 0.12));
+      mono[i] = env * Math.sin(2 * Math.PI * f * t);
+    }
+  } else if (id === 'hat') {
+    let s = 1; for (let i = 0; i < n; i++) { s = (s * 1103515245 + 12345) >>> 0; const w = ((s / 0xffffffff) * 2 - 1); const t = i / rate; const env = Math.exp(-t * 55); const prev = i ? mono[i - 1] : 0; mono[i] = env * (w - prev) * 0.9; }
+  } else if (id === 'click') {
+    for (let i = 0; i < n; i++) { const t = i / rate; mono[i] = Math.exp(-t * 220) * (i === 0 ? 0.9 : (i < 8 ? 0.5 * Math.sin(2 * Math.PI * 2000 * t) : 0)); }
+  } else { // blip
+    for (let i = 0; i < n; i++) { const t = i / rate; mono[i] = Math.exp(-t * 22) * Math.sin(2 * Math.PI * 880 * t) * 0.7; }
+  }
+  return { mono, rate };
+}
+
+async function materializeBuiltin(id) {
+  if (builtinCache.has(id)) return builtinCache.get(id);
+  const spec = BUILTIN_SAMPLES.find((s) => s.id === id); if (!spec) return null;
+  const { mono, rate } = renderBuiltin(id, 44100);
+  const wav = encodeWav(mono, rate), hash = await sha256(wav);
+  const rec = { hash, name: spec.name, len: +(mono.length / rate).toFixed(3), wav, mono, rate, id };
+  builtinCache.set(id, rec);
+  return rec;
+}
+
+// Load a built-in sample into IndexedDB + SAMPLE_BUFFERS, same shape as loadSampleFile.
+export async function loadBuiltinSample(id, ctx) {
+  const rec = await materializeBuiltin(id); if (!rec) throw new Error('Unknown built-in sample');
+  if (!ctx) throw new Error('Sound is not available in this browser');
+  await tx('readwrite', (s) => s.put({ hash: rec.hash, name: rec.name, wav: rec.wav, at: Date.now() }));
+  const buf = ctx.createBuffer(1, rec.mono.length, rec.rate); buf.getChannelData(0).set(rec.mono);
+  SAMPLE_BUFFERS.set(rec.hash, buf);
+  return { hash: rec.hash, name: rec.name, len: rec.len, truncated: false, builtin: rec.id };
+}
+
+// If a patch refers to a built-in sample that is not in IndexedDB yet (new device / cleared cache),
+// regenerate the four built-ins and register any whose hash matches.
+export async function ensureBuiltinSamples(ctx) {
+  if (!ctx) return;
+  for (const s of BUILTIN_SAMPLES) {
+    try { await loadBuiltinSample(s.id, ctx); } catch { /* ok */ }
+  }
 }

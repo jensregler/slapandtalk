@@ -91,3 +91,49 @@ export function resizeSeq(seq, len) {
   seq.steps = Array.from({ length: n }, (_, j) => seq.steps[j] || { on: false, vol: 100 });
   seq.len = n; return seq;
 }
+
+// Condition (Jens t952u): a step fires once every N loops of the pattern. 1 = always (default), 2–8 = 1:2 … 1:8.
+// Ratchet: on a trigger, repeat the step 2–128 times, evenly subdividing that step's duration. 1 = off (default).
+export const STEP_COND = Object.freeze({ min: 1, max: 8 });
+export const STEP_RATCHET = Object.freeze({ min: 1, max: 128, common: Object.freeze([1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 64, 128]) });
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+export function cleanCond(v) {
+  if (!isNum(v)) return 1;
+  return Math.min(STEP_COND.max, Math.max(STEP_COND.min, Math.round(v)));
+}
+export function cleanRatchet(v) {
+  if (!isNum(v)) return 1;
+  return Math.min(STEP_RATCHET.max, Math.max(STEP_RATCHET.min, Math.round(v)));
+}
+// How many times the pattern has fully looped when absolute step m (0-based) plays. Pass 0 is the first loop.
+export const stepPass = (m, len) => Math.floor((Number.isFinite(+m) ? +m : 0) / Math.max(1, len || 1));
+export function stepFires(st, pass) {
+  const c = cleanCond(st && st.cond);
+  return c <= 1 || mod(Math.trunc(pass) || 0, c) === 0;
+}
+// How many ratchets to actually schedule for this step, capped so each repeat is at least STEP_SEQ.minStepMs.
+// stepMs is the duration of one sequencer step, in milliseconds (same unit as minStepMs).
+export function ratchetCount(st, stepMs) {
+  const r = cleanRatchet(st && st.ratchet);
+  if (r <= 1) return 1;
+  const ms = Number.isFinite(+stepMs) && +stepMs > 0 ? +stepMs : Infinity;
+  const cap = Number.isFinite(ms) ? Math.max(1, Math.floor(ms / STEP_SEQ.minStepMs)) : r;
+  return Math.min(r, cap);
+}
+// Times at which this step should sound (empty if it is off, silent, or its condition misses this pass).
+// t and stepMs are in the same unit; each ratchet is spaced by stepMs / count.
+export function stepTriggers(st, { t, m, len, stepMs } = {}) {
+  if (!st || st.on !== true || !(st.vol > 0)) return [];
+  if (!stepFires(st, stepPass(m, len))) return [];
+  const n = ratchetCount(st, stepMs);
+  if (n <= 1) return [t];
+  const dt = stepMs / n;
+  return Array.from({ length: n }, (_, k) => t + k * dt);
+}
+// Cycle through the common ratchet values (1 = off, then 2–128). A value not on the list jumps to the next greater one.
+export function nextRatchet(cur) {
+  const r = cleanRatchet(cur);
+  const list = STEP_RATCHET.common;
+  const i = list.findIndex((x) => x > r);
+  return i < 0 ? 1 : list[i];
+}

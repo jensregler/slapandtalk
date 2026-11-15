@@ -50,7 +50,7 @@ function wav(file, { f = 261.63, secs = 1.2, rate = 44100 } = {}) {
     // ---------- sampler layer ----------
     await A.click('#snd-add-sampler'); await sleep(200);
     const sl = await A.evaluate(() => ({ n: document.querySelectorAll('#snd-body .snd-sampler').length, src: [...document.querySelectorAll('#snd-body select[data-name="Source"]')].map((s) => [...s.options].map((o) => o.value).join('/')) }));
-    check('"+ Sampler layer" adds a new layer TYPE (the osc/noise Source choices are unchanged; + the live mic)', sl.n === 1 && sl.src.every((x) => x === 'osc/noise/mic'), sl);
+    check('"+ Sampler layer" adds a new layer TYPE; Source lists Oscillator / Noise / Sampler / Live mic', sl.n === 1 && sl.src.every((x) => x === 'osc/noise/sampler/mic'), sl);
     await A.setInputFiles('#snd-body .snd-sampler .smp-file', SAMPLE); await sleep(1500);
     const ld = await A.evaluate(() => { const st = window.klibb.soundUi().state(), l = st.patches.slap.layers.find((x) => x.kind === 'sampler'); return { l, info: document.querySelector('.smp-info').textContent }; });
     check('file picker: the sample is decoded, stored (sha-256) and shown with its length', /^[a-f0-9]{64}$/.test(ld.l.sample) && Math.abs(ld.l.len - 1.2) < 0.01 && /klibb-pluck-C4 · 1\.20 s/.test(ld.info), ld);

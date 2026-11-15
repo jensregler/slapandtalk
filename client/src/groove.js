@@ -12,7 +12,7 @@ import { cleanPlayerTempo } from '../../shared/playertempo.mjs';
 import { snapWalkBpm } from '../../shared/runmode.mjs';
 import { entryMs } from '../../shared/tempogrid.mjs';
 import { patchLength, retune } from '../../shared/synth.mjs';
-import { stepSeqBetween, stepSeqOf, STEP_SEQ } from '../../shared/stepseq.mjs';
+import { stepSeqBetween, stepSeqOf, STEP_SEQ, stepTriggers, stepFires, stepPass } from '../../shared/stepseq.mjs';
 import { THEMES, themeSlot, themeScale, themeFootTune, themeStepPatch, themeRemoteTempo } from '../../shared/soundtheme.mjs';
 
 const WALK = { speed: 0.35, holdMs: 140, jump: 0.8, jumpSpeed: 9, maxPerFrame: 48, buzzGain: 0.45, maxAheadMs: 400 };
@@ -163,18 +163,26 @@ export class GrooveSteps {
       for (const e of evs) {
         const st = seq.steps[e.i] || seq.steps[0];
         if (useSeq && !(st && st.on && st.vol > 0)) continue; // an empty step
-        // walk ↔ run switch: no doubled step (footsteps: within 0.45 of a footstep; sub-steps: of a sequencer step)
+        // Condition (1:N) + ratchet (repeats inside the step). The gap guard applies to the step itself,
+        // not to the repeats – otherwise a 3× ratchet would swallow hits 2 and 3.
+        const hits = useSeq
+          ? stepTriggers(st, { t: e.t, m: e.m, len: seq.len, stepMs: seqPeriod })
+          : ((st && st.on && st.vol > 0 && stepFires(st, stepPass(e.m, seq.len))) ? [e.t] : []);
+        if (!hits.length) continue;
         if (t.last != null && e.t > t.last - 0.5 && e.t - t.last < (e.foot ? period : seqPeriod) * 0.45) continue;
-        if (budget <= 0) { t.until = Math.min(t.until, e.t - 0.001); break; }
-        t.last = e.t;
-        budget--;
-        this.events++;
-        this.log.push({ id: w.id, slot, t: Math.round(e.t * 10) / 10, tick: e.tick, n: e.n, i: e.i, scale: G.groove.scale, bpm: G.bpm, ...(seq.len !== 4 || seq.loop !== 1 ? { m: e.m, foot: e.foot } : {}), ...(e.entry ? { entry: true, from: Math.round(t.enterFrom * 10) / 10 } : {}), ...(run ? { run: +rate.toFixed(4), tune: +run.tune.toFixed(4) } : {}) });
-        if (this.log.length > 200) this.log.splice(0, this.log.length - 200);
-        const time = this.audioTime(e.t);
-        if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up
-        // left/right foot: a hair lower on every other footstep (the walking randomness stays – sound.js adds the wobble)
-        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: themeFootTune(this.theme, e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v, seqStep: useSeq ? e.i : 0, volume: useSeq && st ? st.vol / 100 : 1, lines: w.id === 'me' }); // lines: the dance lines' hold / drive on MY steps (t888u), on top of the step's locks
+        for (let h = 0; h < hits.length; h++) {
+          const ht = hits[h];
+          if (budget <= 0) { t.until = Math.min(t.until, ht - 0.001); break; }
+          t.last = ht;
+          budget--;
+          this.events++;
+          this.log.push({ id: w.id, slot, t: Math.round(ht * 10) / 10, tick: e.tick, n: e.n, i: e.i, scale: G.groove.scale, bpm: G.bpm, ...(seq.len !== 4 || seq.loop !== 1 ? { m: e.m, foot: e.foot } : {}), ...(e.entry ? { entry: true, from: Math.round(t.enterFrom * 10) / 10 } : {}), ...(run ? { run: +rate.toFixed(4), tune: +run.tune.toFixed(4) } : {}), ...(h ? { ratchet: h + 1, ratchets: hits.length } : (hits.length > 1 ? { ratchets: hits.length } : {})), ...(st && st.cond > 1 ? { cond: st.cond } : {}) });
+          if (this.log.length > 200) this.log.splice(0, this.log.length - 200);
+          const time = this.audioTime(ht);
+          if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up
+          // left/right foot: a hair lower on every other footstep (the walking randomness stays – sound.js adds the wobble)
+          this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: themeFootTune(this.theme, e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v, seqStep: useSeq ? e.i : 0, volume: useSeq && st ? st.vol / 100 : 1, lines: w.id === 'me' }); // lines: the dance lines' hold / drive on MY steps (t888u), on top of the step's locks
+        }
       }
       if (budget <= 0) break;
     }

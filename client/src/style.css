@@ -1431,6 +1431,27 @@ body.touch #esc-menu .esc-cat-back { white-space: nowrap; padding: 6px 14px; min
 #sound-panel .snd-sl .lock-badge:disabled { opacity: 0.75; cursor: default; background: #3a2a16; color: #ffb36b; border-color: #ff8a1f; }
 #sound-panel[data-stepsel] .snd-layer { outline: 2px dashed rgba(255, 210, 63, 0.5); }
 
+/* Condition + ratchet under each step's lock (Jens t952u). Big and high contrast (Jens's eyes). */
+.ss-cond, .ss-ratchet { font-size: 16px !important; font-weight: 800; min-height: 44px !important; padding: 4px 2px !important; border-radius: 8px; border: 2px solid #555; background: #1c1c22; color: #c8c8d0; }
+.ss-cond.on { background: #1a4a4a; color: #9ffff4; border-color: #7ee6dc; }
+.ss-ratchet.on { background: #4a1a28; color: #ffd0dc; border-color: #ff8aaa; }
+.ss-ratchet-pop { z-index: 30; background: #14141a; color: #fff; border: 3px solid #ff8aaa; border-radius: 14px; padding: 14px 16px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.7); font: 20px/1.3 system-ui, Arial, sans-serif; }
+.ss-ratchet-pop strong { display: block; font-size: 26px; font-weight: 900; margin-bottom: 4px; color: #ffd0dc; }
+.ss-ratchet-pop-lab { display: block; font-size: 16px; color: #ddd; margin-bottom: 10px; }
+.ss-ratchet-common { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.ss-ratchet-common button { min-width: 56px; min-height: 48px; font-size: 18px !important; font-weight: 800; border-radius: 10px; background: #2a2a32; color: #fff; border: 2px solid #666; }
+.ss-ratchet-common button.sel { background: #ff8aaa; color: #000; border-color: #ffd0dc; }
+.ss-ratchet-slider { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; margin-bottom: 12px; }
+.ss-ratchet-slider label { grid-column: 1 / -1; font-size: 16px; font-weight: 700; }
+.ss-ratchet-slider input[type=range] { width: 100%; height: 28px; accent-color: #ff8aaa; }
+.ss-ratchet-slider output { font-size: 22px; font-weight: 900; min-width: 4ch; color: #ffd0dc; }
+.ss-ratchet-done { width: 100%; min-height: 48px; font-size: 20px !important; font-weight: 800; border-radius: 10px; background: #ffd23f; color: #000; border: 2px solid #fff2b8; }
+
+/* Built-in sampler one-shots */
+.smp-builtins { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.smp-builtin { min-height: 48px; min-width: 72px; font-size: 18px !important; font-weight: 800; padding: 6px 14px !important; border-radius: 10px; background: #2a2a32; color: #fff; border: 2px solid #666; }
+.smp-builtin.sel { background: #a27de8; color: #000; border-color: #e3d4ff; }
+
 /* Dance lines readout (Jens t888u): while dancing – Highline → hold, Widthline → drive. Big, high contrast (Jens's eyes). */
 #dance-lines-hud { display: none; position: fixed; left: 20px; top: 50%; transform: translateY(-50%); z-index: 41; pointer-events: none;
   background: rgba(8, 10, 16, 0.88); color: #fff36b; font: 900 clamp(26px, 3.4vw, 40px)/1.35 system-ui, "Arial Black", Arial, sans-serif;

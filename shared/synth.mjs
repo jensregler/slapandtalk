@@ -32,10 +32,10 @@ import { cleanSeq, visibleSteps } from './autoslap.mjs';
 //   layer with seq does not play on the one-shot trigger: it RUNS on my own Tempo (shared/runmode.mjs
 //   walkBpm, default 90 BPM; no shared clock since t846u) while my radio is on – layers with different lengths make the polyrhythm.
 // Steps sequencer (Jens t889u, 13 Nov 2026): the Steps (walk) sound has ONE sequencer for the whole sound –
-//   patch.seq: { len 1–16, loop (footsteps per loop), steps: [{ on, vol 0–100, locks? }] } (step patches only;
+//   patch.seq: { len 1–16, loop (footsteps per loop), steps: [{ on, vol 0–100, locks?, cond?, ratchet? }] } (step patches only;
 //   shared/stepseq.mjs plays it, client/src/groove.js schedules it on the footstep grid). Default: 4 steps per
 //   footstep, step 1 on – exactly the old one-hit-per-footstep. locks = parameter locks for that step
-//   ({ 'L0.cutoff': 800, 'G.gain': 0.7 } – the LFO target names, clamped to the same ranges). Old Steps patches
+//   ({ 'L0.cutoff': 800, 'G.gain': 0.7 } – the LFO target names, clamped to the same ranges). cond 2–8 = fire once every N loops (1:N); ratchet 2–128 = that many evenly spaced repeats inside the step (t952u). Old Steps patches
 //   with per-layer seq are migrated (migrateStepSeq) – the per-layer sequencer stays for Slap/Peel/Landing.
 // Pitch grid: the pitch controls (osc Pitch, sampler Note/Root) move in equal-tempered semitones
 //   (A4 = 440 Hz); a morph lands on the grid too (snapFreq). LFOs and the per-play wobble still bend
@@ -44,7 +44,7 @@ import { cleanSeq, visibleSteps } from './autoslap.mjs';
 // A patch may also carry mods (shared/lfo.mjs: up to 16 nested LFOs) and morph (0–1, see morphPatch).
 
 export const SOUNDS = ['slap', 'peel', 'step', 'duff']; // duff = peel landing thud (+ four voices Low)
-export const SOUND_TABS = ['step', 'slap', 'peel', 'duff']; // sound-settings UI (Jens t900u: Steps first, then Slap, Peel, Landing/duff; Effects still city-driven, not a tab)
+export const SOUND_TABS = ['step', 'slap', 'peel', 'duff', 'fx']; // sound-settings UI (Jens t900u: Steps first, then Slap, Peel, Landing/duff; t954u: Effects tab is back – city place-FX were removed in t857u, so the listener FX are how you turn reverb, delay, crush, distortion and the filter on again)
 export const WAVES = ['sine', 'square', 'sawtooth', 'triangle'];
 export const NOISES = ['white', 'pink'];
 export const FILTERS = ['lowpass', 'highpass', 'bandpass'];
@@ -143,7 +143,8 @@ export function cleanLayerSeq(q) {
 export const snapFreq = (hz) => (isNum(hz) && hz > 0 ? Number((440 * Math.pow(2, Math.round(12 * Math.log2(hz / 440)) / 12)).toFixed(2)) : hz);
 // A sampler layer's playback rate (pitch ratio): note vs root, times any retune carried in freq.
 export function samplerRate(l) {
-  return Math.pow(2, ((l.note ?? 60) - (l.root ?? 60)) / 12) * ((l.freq || SYNTH.samplerRef) / SYNTH.samplerRef);
+  const f = (isNum(l.freq) && l.freq > 0) ? l.freq : SYNTH.samplerRef;
+  return Math.pow(2, ((l.note ?? 60) - (l.root ?? 60)) / 12) * (f / SYNTH.samplerRef);
 }
 // How long a sampler layer's gate is held (s): the whole (pitched) sample, or the envelope as usual.
 export function samplerGate(l) {
@@ -161,7 +162,7 @@ export function cleanPatch(p) {
   if (p.fx) { const fx = cleanFx(p.fx); if (fx) out.fx = fx; } // this sound's own effects (else the player's)
   if (p.mods) { const mods = cleanMods(p.mods, layers); if (mods.length) out.mods = mods; } // LFOs (shared/lfo.mjs)
   if (p.seq && typeof p.seq === 'object') out.seq = cleanStepSeq(p.seq, layers); // the Steps sequencer (t889u)
-  if (JSON.stringify(out).length > SYNTH.maxPatchBytes && out.seq) out.seq = { ...out.seq, steps: out.seq.steps.map(({ on, vol }) => ({ on, vol })) }; // too big: the locks go, the sound stays
+  if (JSON.stringify(out).length > SYNTH.maxPatchBytes && out.seq) out.seq = { ...out.seq, steps: out.seq.steps.map(({ on, vol, cond, ratchet }) => { const s = { on, vol }; if (cond > 1) s.cond = cond; if (ratchet > 1) s.ratchet = ratchet; return s; }) }; // too big: the locks go, the sound (and condition / ratchet) stays
   return JSON.stringify(out).length <= SYNTH.maxPatchBytes ? out : null;
 }
 // ---------- The Steps sequencer (Jens t889u): one sequencer for the WHOLE Steps sound ----------
@@ -189,7 +190,7 @@ export function cleanLocks(locks, layers) {
   }
   return n ? out : null;
 }
-// { len, loop, steps: [{ on, vol, locks? }] × len }. layers: the patch's layers (locks on a missing layer drop).
+// { len, loop, steps: [{ on, vol, locks?, cond?, ratchet? }] × len }. layers: the patch's layers (locks on a missing layer drop).
 export function cleanStepSeq(q, layers = null) {
   if (!q || typeof q !== 'object') return defaultStepSeq();
   const len = Math.min(SYNTH.seqMax, Math.max(1, Math.round(isNum(q.len) ? q.len : STEP_SEQ_DEFAULT.len)));
@@ -200,6 +201,11 @@ export function cleanStepSeq(q, layers = null) {
     const st = { on: x ? x.on === true : i === 0, vol: x && isNum(x.vol) ? Math.round(Math.min(100, Math.max(0, x.vol))) : 100 };
     const lk = x && layers ? cleanLocks(x.locks, layers) : null;
     if (lk) st.locks = lk;
+    // condition (1:N) and ratchet (repeats) – stored only when not the default, like locks
+    const cond = x && isNum(x.cond) ? Math.min(8, Math.max(1, Math.round(x.cond))) : 1;
+    const ratchet = x && isNum(x.ratchet) ? Math.min(128, Math.max(1, Math.round(x.ratchet))) : 1;
+    if (cond > 1) st.cond = cond;
+    if (ratchet > 1) st.ratchet = ratchet;
     return st;
   });
   return { len, loop, steps };
@@ -360,7 +366,12 @@ export function slapScale(sizeOrArea, asArea = false) {
 // Scale a patch's pitch (and filter) by rate – used for duff and the small per-play wobble.
 export function retune(patch, rate) {
   if (!patch || rate === 1) return patch;
-  return { ...patch, layers: patch.layers.map((l) => ({ ...l, freq: Math.min(8000, l.freq * rate), cutoff: Math.min(18000, l.cutoff * rate) })) };
+  return { ...patch, layers: patch.layers.map((l) => {
+    // Sampler pitch lives in playbackRate via freq/440 (samplerRate). A missing or non-positive freq
+    // used to become NaN here, then cleanPatch reset it to 440 – run / crouch pitch correction was lost.
+    const base = (isNum(l.freq) && l.freq > 0) ? l.freq : (l.kind === 'sampler' ? SYNTH.samplerRef : l.freq);
+    return { ...l, freq: Math.min(8000, base * rate), cutoff: Math.min(18000, (isNum(l.cutoff) ? l.cutoff : 18000) * rate) };
+  }) };
 }
 
 // ---------- Free version: automatic room acoustics from the room's materials ----------
