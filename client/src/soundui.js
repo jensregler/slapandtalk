@@ -10,14 +10,14 @@
 // 'klibb.soundSeed'.
 import { SOUNDS, SOUND_TABS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, DEFAULT_PATCHES, FX_DEFAULTS,
   cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx, noteName, diffPatch, snapFreq, retune as retuneP, defaultStepSeq } from '../../shared/synth.mjs';
-import { lockedPatch, setLock, getLock, clearLock, clearLocks, lockCount, stepsLocking, removeLayerLocks, resizeSeq, lockKey, cleanCond, cleanRatchet, nextRatchet, stepTriggers, STEP_RATCHET } from '../../shared/stepseq.mjs';
+import { lockedPatch, setLock, getLock, clearLock, clearLocks, lockCount, stepsLocking, removeLayerLocks, resizeSeq, lockKey, cleanCond, cleanRatchet, nextRatchet, stepTriggers, STEP_RATCHET, patternLen, seqLoop, normalizeSeq, cleanRatchetProb, nextRatchetProb } from '../../shared/stepseq.mjs';
 import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseTarget, modOrder, snapRate, selfLoop, targetSpec, LAYER_TARGETS, PATCH_TARGETS, MOD_TARGETS } from '../../shared/lfo.mjs';
 import { loadSampleFile, clearSamples, pruneSamples, ensureSamples, loadBuiltinSample, BUILTIN_SAMPLES } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
 import { soundTheme } from './soundtheme.js';
 import { themeWalkBpm } from '../../shared/soundtheme.mjs';
-import { attachStepLamps, reportStepLamp, tickStepLamps, resetStepLamps } from './steplamps.js';
+import { attachStepLamps, reportStepLamp, tickStepLamps, tickStepLampKinds, resetStepLamps } from './steplamps.js';
 import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, cleanCrouchTempo, cleanCrouchPitch, pitchMin, pitchMax, runRate, crouchRate, pitchRatio, pitchLabel, tempoLabel, crouchTempoLabel, cleanWalkBpm, snapWalkBpm, stepWalkBpm, TEMPO_PAGE, WALK_KNOB_STEPS, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../../shared/runmode.mjs';
 import { TEMPO_BPMS, meetBars } from '../../shared/tempogrid.mjs';
 
@@ -544,11 +544,11 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   const loopLabel = (v) => `${v === 0.25 ? '¼' : v === 0.5 ? '½' : v} footstep${v === 1 || v < 1 ? '' : 's'}`;
   function selectStep(j) { st.sel = st.sel === j ? null : j; render(); }
   function stepSeqBlock(p, k) {
-    const q = p.seq;
+    const q = normalizeSeq(p.seq);
     const box = el('fieldset', 'snd-stepseq'); box.id = 'snd-stepseq';
     box.dataset.sel = st.sel == null ? '' : String(st.sel);
     box.appendChild(el('legend', null, '▦ Sequencer – the whole Steps sound'));
-    box.appendChild(el('p', 'hint', 'One sequencer plays every layer. Walk, run, sneak and dance run it at their own tempo; step 1 is the footstep. Click a number to turn a step on or off. Press ✎ (or hold the number) to pick a step – then every slider you move is locked to that step only. Under the lock: Condition (1:N = once every N loops) and Ratchet (repeats inside the step).'));
+    box.appendChild(el('p', 'hint', 'One sequencer plays every layer. Walk, run, sneak and dance run it at their own tempo; step 1 is the footstep. The playhead always runs through every step of the set length – empty steps still take time. Click a number to turn a step on or off. Press ✎ (or hold the number) to pick a step – then every slider you move is locked to that step only. Under the lock: Condition (1:N), Ratchet (repeats), and Ratchet % (chance the repeats fire). Lamps flash yellow when a step sounds, white when the playhead passes a silent one.'));
     const row = el('div', 'snd-sel');
     // The old "Steps" dropdown (1–16) is gone (Jens t952u crossed it out): the number buttons already pick the length.
     row.append(el('span', 'snd-seq-lab', 'Steps'));
@@ -558,8 +558,10 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     row.append(quick);
     row.append(el('span', 'snd-seq-lab', 'Loop'), select('Loop', SYNTH.stepLoops.map(String), String(q.loop), (v) => { q.loop = Number(v); edited(k, true); }, Object.fromEntries(SYNTH.stepLoops.map((b) => [String(b), loopLabel(b)]))));
     box.appendChild(row);
-    const grid = el('div', 'ss-grid'); grid.style.gridTemplateColumns = `repeat(${Math.min(8, q.len)}, 1fr)`;
-    q.steps.forEach((stp, j) => {
+    const len = q.len;
+    const grid = el('div', 'ss-grid'); grid.id = 'ss-grid'; grid.style.gridTemplateColumns = `repeat(${Math.min(8, len)}, 1fr)`;
+    for (let j = 0; j < len; j++) {
+      const stp = q.steps[j] || (q.steps[j] = { on: false, vol: 100 });
       const cell = el('div', 'ss-cell' + (stp.on ? ' on' : '') + (st.sel === j ? ' sel' : '') + (stp.locks ? ' has-locks' : '')); cell.dataset.step = j;
       const lamp = el('span', 'ss-lamp'); lamp.dataset.step = j; lamp.setAttribute('aria-hidden', 'true'); lamp.title = `Step ${j + 1} lamp`;
       const pad = el('button', 'ss-pad', String(j + 1)); pad.type = 'button'; pad.dataset.step = j; pad.setAttribute('aria-pressed', String(stp.on));
@@ -587,11 +589,19 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       rat.addEventListener('wheel', (e) => { e.preventDefault(); e.stopPropagation(); const dir = e.deltaY > 0 || e.deltaX > 0 ? -1 : 1; const n = Math.min(128, Math.max(1, cleanRatchet(stp.ratchet) + dir)); if (n <= 1) delete stp.ratchet; else stp.ratchet = n; edited(k, true); }, { passive: false });
       rat.addEventListener('contextmenu', (e) => e.preventDefault());
       rat.onclick = () => { if (rheld) { rheld = false; return; } const n = nextRatchet(stp.ratchet); if (n <= 1) delete stp.ratchet; else stp.ratchet = n; edited(k, true); };
-      cell.append(lamp, pad, pick, cond, rat);
+      const pr = cleanRatchetProb(stp.ratchetProb);
+      const rprob = el('button', 'ss-rprob' + (pr < 100 ? ' on' : ''), `${pr}%`); rprob.type = 'button'; rprob.dataset.step = j; rprob.dataset.rprob = String(pr);
+      rprob.setAttribute('aria-label', `Step ${j + 1} ratchet probability ${pr} percent`);
+      rprob.title = r <= 1
+        ? 'Ratchet probability (used when ratchet is on): chance the repeats fire; otherwise a single hit. Click 100/75/50/25/12 %, scroll for 1–100 %.'
+        : `Ratchet probability: ${pr}%. Click to cycle 100/75/50/25/12 %, scroll for 1–100 %. If it misses, this step plays once.`;
+      rprob.addEventListener('wheel', (e) => { e.preventDefault(); e.stopPropagation(); const dir = e.deltaY > 0 || e.deltaX > 0 ? -1 : 1; const n = Math.min(100, Math.max(1, cleanRatchetProb(stp.ratchetProb) + dir)); if (n >= 100) delete stp.ratchetProb; else stp.ratchetProb = n; edited(k, true); }, { passive: false });
+      rprob.onclick = () => { const n = nextRatchetProb(stp.ratchetProb); if (n >= 100) delete stp.ratchetProb; else stp.ratchetProb = n; edited(k, true); };
+      cell.append(lamp, pad, pick, cond, rat, rprob);
       const n = lockCount(q, j);
       if (n) { const lb = el('span', 'ss-locks', `🔒 ${n}`); lb.title = `${n} lock${n === 1 ? '' : 's'} on step ${j + 1}`; cell.appendChild(lb); }
       grid.appendChild(cell);
-    });
+    }
     box.appendChild(grid);
     tickStepLamps(); // re-apply any flash still in flight after a re-render
     const bar = el('div', 'ss-bar');
@@ -895,12 +905,13 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const bar = 120 / cleanWalkBpm(st.run.walkBpm), walkPulse = bar / 4, crouch = gait === 'crouch', rr = crouch ? crouchRate(st.run) : runRate(st.run), tune = pitchRatio(crouch ? cleanCrouchPitch(st.run.crouchPitch) : st.run.pitch);
     const t0 = ctx.currentTime + 0.08;
     // the Steps sequencer (t889u): len steps per `loop` footsteps, each step with its locks
-    const q = p.seq || defaultStepSeq(), per = q.len / q.loop;
+    const q = p.seq || defaultStepSeq(), len = patternLen(q), per = len / seqLoop(q);
     const run = (start, pulse, tn) => {
       const sp = pulse / per;
       for (let m = 0, played = 0; m * sp < bar - 1e-6 && played < 48; m++) {
-        const i = m % q.len, stp = q.steps[i];
-        const hits = stepTriggers(stp, { t: start + m * sp, m, len: q.len, stepMs: sp * 1000 });
+        const i = m % len, stp = q.steps[i] || { on: false, vol: 100 };
+        const hits = stepTriggers(stp, { t: start + m * sp, m, len, stepMs: sp * 1000 });
+        if (!hits.length) { reportStepLamp(i, start + m * sp, 'white'); continue; } // playhead passed, no sound (unmarked or 1:N skip) → white (Jens t960u)
         for (const ht of hits) {
           if (played >= 48) break;
           played++; const foot = Math.floor(m / per + 1e-9);
@@ -971,7 +982,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   { const w = $('snd-wild'); if (w) w.dataset.title = w.title || ''; } themeChanged();
   $('snd-reset').onclick = reset; $('snd-save').onclick = save;
   // runDraft: the run/walk/crouch settings being edited while the panel is open (main.js hears them live).
-  return { open, close, isOpen: () => st.open, state: () => st, themeChanged, runDraft: () => (st.open && st.run ? st.run : null), liveCount: () => st.liveN || 0, preview, render, reportStepLamp, tickStepLamps, resetStepLamps };
+  return { open, close, isOpen: () => st.open, state: () => st, themeChanged, runDraft: () => (st.open && st.run ? st.run : null), liveCount: () => st.liveN || 0, preview, render, reportStepLamp, tickStepLamps, tickStepLampKinds, resetStepLamps };
 }
 
 // The sample's waveform (min/max per pixel column) with start/end and loop markers.

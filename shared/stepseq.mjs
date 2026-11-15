@@ -14,7 +14,7 @@
 //     wobble and left/right foot in client/src/sound.js / groove.js) still rides on top.
 // Pure maths, no audio – client/src/groove.js schedules it, client/src/soundui.js edits it, tests/stepseq.test.mjs.
 import { runEventsBetween } from './groove.mjs';
-import { stepSeqOf, lockRange, clampTo, SYNTH, STEP_SEQ_DEFAULT } from './synth.mjs';
+import { stepSeqOf, lockRange, clampTo, SYNTH, STEP_SEQ_DEFAULT, defaultStepSeq } from './synth.mjs';
 
 export { stepSeqOf };
 // Faster than this per step: the sub-steps are not scheduled (only the footsteps, step 1's sound) – a flood guard.
@@ -22,7 +22,30 @@ export const STEP_SEQ = Object.freeze({ minStepMs: 12 });
 
 const mod = (a, n) => ((a % n) + n) % n;
 // Steps per footstep (may be fractional: 3 steps over 2 footsteps = 1.5).
-export const stepsPerFoot = (seq) => { const q = seq && Array.isArray(seq.steps) && seq.steps.length ? seq : STEP_SEQ_DEFAULT; return q.len / q.loop; };
+// Pattern length the playhead cycles through: the set Steps value (`len`), never a span of
+// marked (on) steps. Empty leading / trailing steps still take time (Jens t961u, t962u).
+export function patternLen(seq) {
+  const q = seq && typeof seq === 'object' ? seq : STEP_SEQ_DEFAULT;
+  const n = Math.round(Number(q.len));
+  if (Number.isFinite(n) && n >= 1) return Math.min(SYNTH.seqMax, Math.max(1, n));
+  const raw = Array.isArray(q.steps) ? q.steps.length : 0;
+  return raw > 0 ? Math.min(SYNTH.seqMax, raw) : STEP_SEQ_DEFAULT.len;
+}
+export const seqLoop = (seq) => (seq && SYNTH.stepLoops.includes(seq.loop) ? seq.loop : STEP_SEQ_DEFAULT.loop);
+export const stepsPerFoot = (seq) => patternLen(seq) / seqLoop(seq);
+// Keep steps[] exactly `len` long (pad off, do not trim to first–last marked). Mutates; returns seq.
+export function normalizeSeq(seq) {
+  if (!seq || typeof seq !== 'object') return defaultStepSeq();
+  const len = patternLen(seq), loop = seqLoop(seq);
+  const frozen = Object.isFrozen(seq) || (seq.steps && Object.isFrozen(seq.steps));
+  if (frozen) {
+    if (Array.isArray(seq.steps) && seq.steps.length === len && seq.len === len && seq.loop === loop) return seq;
+    return { len, loop, steps: Array.from({ length: len }, (_, i) => (seq.steps && seq.steps[i] ? { ...seq.steps[i] } : { on: false, vol: 100 })) };
+  }
+  if (!Array.isArray(seq.steps) || seq.steps.length !== len || seq.len !== len) resizeSeq(seq, len);
+  seq.loop = loop;
+  return seq;
+}
 
 // The sequencer steps of one walker with from ≤ t < to (ms) on their footstep grid.
 // g = their groove ({ scale, at, phase }), slot = their polyrhythm slot, rate = the gait rate (1 = walking),
@@ -30,11 +53,10 @@ export const stepsPerFoot = (seq) => { const q = seq && Array.isArray(seq.steps)
 // → [{ t, m (absolute grid step), i (pattern step 0…len-1), n (footstep number, for left/right), foot (true =
 //     the step falls on a footstep), tick, slot }]
 export function stepSeqBetween(g, slot, from, to, { rate = 1, bpm, seq = null, max = 512 } = {}) {
-  const q = seq && Array.isArray(seq.steps) && seq.steps.length ? seq : STEP_SEQ_DEFAULT;
-  const per = q.len / q.loop;
+  const len = patternLen(seq), per = len / seqLoop(seq);
   return runEventsBetween(g, slot, from, to, rate * per, { max, bpm }).map((e) => {
     const f = e.n / per, n = Math.floor(f + 1e-9);
-    return { t: e.t, m: e.n, i: mod(e.n, q.len), n, foot: Math.abs(f - Math.round(f)) < 1e-9, tick: e.tick, slot: e.slot };
+    return { t: e.t, m: e.n, i: mod(e.n, len), n, foot: Math.abs(f - Math.round(f)) < 1e-9, tick: e.tick, slot: e.slot };
   });
 }
 
@@ -42,7 +64,7 @@ export function stepSeqBetween(g, slot, from, to, { rate = 1, bpm, seq = null, m
 // Never mutates; no locks → the same object.
 export function lockedPatch(patch, i) {
   const seq = patch && patch.seq; if (!seq || !Array.isArray(seq.steps)) return patch;
-  const st = seq.steps[mod(Math.round(i) || 0, seq.steps.length)];
+  const st = seq.steps[mod(Math.round(i) || 0, patternLen(seq))];
   const locks = st && st.locks; if (!locks) return patch;
   let gain = patch.gain; const layers = patch.layers.map((l) => l);
   for (const [k, v] of Object.entries(locks)) {
@@ -96,6 +118,9 @@ export function resizeSeq(seq, len) {
 // Ratchet: on a trigger, repeat the step 2–128 times, evenly subdividing that step's duration. 1 = off (default).
 export const STEP_COND = Object.freeze({ min: 1, max: 8 });
 export const STEP_RATCHET = Object.freeze({ min: 1, max: 128, common: Object.freeze([1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 64, 128]) });
+// Ratchet probability (Jens t961u): when ratchet > 1, this % chance the repeats fire; otherwise a single hit.
+// 100 = always (default, omitted when saved). Cycle 100/75/50/25/12; scroll any 1–100.
+export const STEP_RPROB = Object.freeze({ min: 1, max: 100, def: 100, common: Object.freeze([100, 75, 50, 25, 12]) });
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 export function cleanCond(v) {
   if (!isNum(v)) return 1;
@@ -104,6 +129,10 @@ export function cleanCond(v) {
 export function cleanRatchet(v) {
   if (!isNum(v)) return 1;
   return Math.min(STEP_RATCHET.max, Math.max(STEP_RATCHET.min, Math.round(v)));
+}
+export function cleanRatchetProb(v) {
+  if (!isNum(v)) return STEP_RPROB.def;
+  return Math.min(STEP_RPROB.max, Math.max(STEP_RPROB.min, Math.round(v)));
 }
 // How many times the pattern has fully looped when absolute step m (0-based) plays. Pass 0 is the first loop.
 export const stepPass = (m, len) => Math.floor((Number.isFinite(+m) ? +m : 0) / Math.max(1, len || 1));
@@ -122,11 +151,16 @@ export function ratchetCount(st, stepMs) {
 }
 // Times at which this step should sound (empty if it is off, silent, or its condition misses this pass).
 // t and stepMs are in the same unit; each ratchet is spaced by stepMs / count.
-export function stepTriggers(st, { t, m, len, stepMs } = {}) {
+export function stepTriggers(st, { t, m, len, stepMs, rand } = {}) {
   if (!st || st.on !== true || !(st.vol > 0)) return [];
   if (!stepFires(st, stepPass(m, len))) return [];
   const n = ratchetCount(st, stepMs);
   if (n <= 1) return [t];
+  const p = cleanRatchetProb(st.ratchetProb);
+  if (p < 100) {
+    const roll = typeof rand === 'function' ? rand() : Math.random();
+    if (!(roll < p / 100)) return [t]; // missed: a single hit
+  }
   const dt = stepMs / n;
   return Array.from({ length: n }, (_, k) => t + k * dt);
 }
@@ -136,4 +170,13 @@ export function nextRatchet(cur) {
   const list = STEP_RATCHET.common;
   const i = list.findIndex((x) => x > r);
   return i < 0 ? 1 : list[i];
+}
+// Cycle 100 → 75 → 50 → 25 → 12 → 100. A value not on the list jumps to the next smaller one (or 100).
+export function nextRatchetProb(cur) {
+  const p = cleanRatchetProb(cur);
+  const list = STEP_RPROB.common;
+  const at = list.indexOf(p);
+  if (at >= 0) return list[(at + 1) % list.length];
+  const j = list.findIndex((x) => x < p);
+  return j < 0 ? list[0] : list[j];
 }

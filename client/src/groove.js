@@ -12,7 +12,7 @@ import { cleanPlayerTempo } from '../../shared/playertempo.mjs';
 import { snapWalkBpm } from '../../shared/runmode.mjs';
 import { entryMs } from '../../shared/tempogrid.mjs';
 import { patchLength, retune } from '../../shared/synth.mjs';
-import { stepSeqBetween, stepSeqOf, STEP_SEQ, stepTriggers, stepFires, stepPass } from '../../shared/stepseq.mjs';
+import { stepSeqBetween, stepSeqOf, STEP_SEQ, stepTriggers, stepFires, stepPass, patternLen, seqLoop } from '../../shared/stepseq.mjs';
 import { THEMES, themeSlot, themeScale, themeFootTune, themeStepPatch, themeRemoteTempo } from '../../shared/soundtheme.mjs';
 import { reportStepLamp } from './steplamps.js';
 
@@ -136,7 +136,7 @@ export class GrooveSteps {
       // The Steps sequencer (Jens t889u, shared/stepseq.mjs): ONE sequencer plays the whole Steps sound on this
       // footstep grid – len steps per `loop` footsteps (default 4 steps a footstep, step 1 on = one hit per footstep,
       // as before). Each step may carry parameter locks. Too fast to schedule step by step → footsteps only.
-      const seq = this.seqOf(voice), per = seq.len / seq.loop, seqPeriod = period / per;
+      const seq = this.seqOf(voice), len = patternLen(seq), per = len / seqLoop(seq), seqPeriod = period / per;
       const useSeq = seqPeriod >= STEP_SEQ.minStepMs;
       // Entering in time (Jens t883u): starting to walk / dance, or a new gait / tempo, does not start the steps at the
       // key press: the first step waits for the next beat of my tempo × gait rate on the shared clock (shared/tempogrid.mjs
@@ -163,27 +163,36 @@ export class GrooveSteps {
       t.until = evs.length >= MAXEV && evs.length ? evs[evs.length - 1].t + 0.001 : horizon;
       for (const e of evs) {
         const st = seq.steps[e.i] || seq.steps[0];
-        if (useSeq && !(st && st.on && st.vol > 0)) continue; // an empty step
+        const silent = useSeq && !(st && st.on && st.vol > 0); // an empty (unmarked) step
         // Condition (1:N) + ratchet (repeats inside the step). The gap guard applies to the step itself,
         // not to the repeats – otherwise a 3× ratchet would swallow hits 2 and 3.
-        const hits = useSeq
-          ? stepTriggers(st, { t: e.t, m: e.m, len: seq.len, stepMs: seqPeriod })
-          : ((st && st.on && st.vol > 0 && stepFires(st, stepPass(e.m, seq.len))) ? [e.t] : []);
-        if (!hits.length) continue;
-        if (t.last != null && e.t > t.last - 0.5 && e.t - t.last < (e.foot ? period : seqPeriod) * 0.45) continue;
+        const hits = silent ? [] : useSeq
+          ? stepTriggers(st, { t: e.t, m: e.m, len, stepMs: seqPeriod })
+          : ((st && st.on && st.vol > 0 && stepFires(st, stepPass(e.m, len))) ? [e.t] : []);
+        const close = t.last != null && e.t > t.last - 0.5 && e.t - t.last < (e.foot ? period : seqPeriod) * 0.45;
+        // Silent playhead pass (Jens t960u): unmarked, or on but skipped by its 1:N condition → white lamp.
+        // Do not spend the sound budget or move t.last, so scheduling of real hits is unchanged.
+        if (!hits.length) {
+          if (useSeq && w.id === 'me' && !close) {
+            const time = this.audioTime(e.t);
+            if (time != null && !(time < (this.sound.ctx.currentTime - 0.03))) reportStepLamp(e.i, time, 'white');
+          }
+          continue;
+        }
+        if (close) continue;
         for (let h = 0; h < hits.length; h++) {
           const ht = hits[h];
           if (budget <= 0) { t.until = Math.min(t.until, ht - 0.001); break; }
           t.last = ht;
           budget--;
           this.events++;
-          this.log.push({ id: w.id, slot, t: Math.round(ht * 10) / 10, tick: e.tick, n: e.n, i: e.i, scale: G.groove.scale, bpm: G.bpm, ...(seq.len !== 4 || seq.loop !== 1 ? { m: e.m, foot: e.foot } : {}), ...(e.entry ? { entry: true, from: Math.round(t.enterFrom * 10) / 10 } : {}), ...(run ? { run: +rate.toFixed(4), tune: +run.tune.toFixed(4) } : {}), ...(h ? { ratchet: h + 1, ratchets: hits.length } : (hits.length > 1 ? { ratchets: hits.length } : {})), ...(st && st.cond > 1 ? { cond: st.cond } : {}) });
+          this.log.push({ id: w.id, slot, t: Math.round(ht * 10) / 10, tick: e.tick, n: e.n, i: e.i, scale: G.groove.scale, bpm: G.bpm, ...(len !== 4 || seqLoop(seq) !== 1 ? { m: e.m, foot: e.foot } : {}), ...(e.entry ? { entry: true, from: Math.round(t.enterFrom * 10) / 10 } : {}), ...(run ? { run: +rate.toFixed(4), tune: +run.tune.toFixed(4) } : {}), ...(h ? { ratchet: h + 1, ratchets: hits.length } : (hits.length > 1 ? { ratchets: hits.length } : {})), ...(st && st.cond > 1 ? { cond: st.cond } : {}) });
           if (this.log.length > 200) this.log.splice(0, this.log.length - 200);
           const time = this.audioTime(ht);
           if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up
           // left/right foot: a hair lower on every other footstep (the walking randomness stays – sound.js adds the wobble)
           this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: themeFootTune(this.theme, e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v, seqStep: useSeq ? e.i : 0, volume: useSeq && st ? st.vol / 100 : 1, lines: w.id === 'me' }); // lines: the dance lines' hold / drive on MY steps (t888u), on top of the step's locks
-          if (w.id === 'me' && time != null) reportStepLamp(useSeq ? e.i : 0, time); // lamp above this step (Jens t956u); conditions / ratchets already decided the hits
+          if (w.id === 'me' && time != null) reportStepLamp(useSeq ? e.i : 0, time); // yellow lamp: this step sounded (Jens t956u); ratchets already decided the hits
         }
       }
       if (budget <= 0) break;

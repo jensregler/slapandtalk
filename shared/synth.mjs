@@ -32,10 +32,10 @@ import { cleanSeq, visibleSteps } from './autoslap.mjs';
 //   layer with seq does not play on the one-shot trigger: it RUNS on my own Tempo (shared/runmode.mjs
 //   walkBpm, default 90 BPM; no shared clock since t846u) while my radio is on – layers with different lengths make the polyrhythm.
 // Steps sequencer (Jens t889u, 13 Nov 2026): the Steps (walk) sound has ONE sequencer for the whole sound –
-//   patch.seq: { len 1–16, loop (footsteps per loop), steps: [{ on, vol 0–100, locks?, cond?, ratchet? }] } (step patches only;
+//   patch.seq: { len 1–16, loop (footsteps per loop), steps: [{ on, vol 0–100, locks?, cond?, ratchet?, ratchetProb? }] } (step patches only;
 //   shared/stepseq.mjs plays it, client/src/groove.js schedules it on the footstep grid). Default: 4 steps per
-//   footstep, step 1 on – exactly the old one-hit-per-footstep. locks = parameter locks for that step
-//   ({ 'L0.cutoff': 800, 'G.gain': 0.7 } – the LFO target names, clamped to the same ranges). cond 2–8 = fire once every N loops (1:N); ratchet 2–128 = that many evenly spaced repeats inside the step (t952u). Old Steps patches
+//   footstep, step 1 on – exactly the old one-hit-per-footstep. The playhead always cycles all `len` steps (empty ones still take time; t961u). locks = parameter locks for that step
+//   ({ 'L0.cutoff': 800, 'G.gain': 0.7 } – the LFO target names, clamped to the same ranges). cond 2–8 = fire once every N loops (1:N); ratchet 2–128 = that many evenly spaced repeats inside the step (t952u); ratchetProb 1–100 = % chance those repeats fire, else a single hit (t961u, default / omitted = 100). Old Steps patches
 //   with per-layer seq are migrated (migrateStepSeq) – the per-layer sequencer stays for Slap/Peel/Landing.
 // Pitch grid: the pitch controls (osc Pitch, sampler Note/Root) move in equal-tempered semitones
 //   (A4 = 440 Hz); a morph lands on the grid too (snapFreq). LFOs and the per-play wobble still bend
@@ -141,7 +141,9 @@ export function cleanLayerSeq(q) {
 }
 // The semitone grid (A4 = 440 Hz).
 export const snapFreq = (hz) => (isNum(hz) && hz > 0 ? Number((440 * Math.pow(2, Math.round(12 * Math.log2(hz / 440)) / 12)).toFixed(2)) : hz);
-// A sampler layer's playback rate (pitch ratio): note vs root, times any retune carried in freq.
+// A sampler layer's playback rate (pitch ratio): 2^((note − root)/12) (default C4/C4 = unshifted),
+// times any retune carried in freq (run / crouch pitch correction, wobble, size). Changing Note
+// transposes the sample; corrections multiply on top, same as a synth layer's freq × tune (t963u).
 export function samplerRate(l) {
   const f = (isNum(l.freq) && l.freq > 0) ? l.freq : SYNTH.samplerRef;
   return Math.pow(2, ((l.note ?? 60) - (l.root ?? 60)) / 12) * (f / SYNTH.samplerRef);
@@ -162,7 +164,7 @@ export function cleanPatch(p) {
   if (p.fx) { const fx = cleanFx(p.fx); if (fx) out.fx = fx; } // this sound's own effects (else the player's)
   if (p.mods) { const mods = cleanMods(p.mods, layers); if (mods.length) out.mods = mods; } // LFOs (shared/lfo.mjs)
   if (p.seq && typeof p.seq === 'object') out.seq = cleanStepSeq(p.seq, layers); // the Steps sequencer (t889u)
-  if (JSON.stringify(out).length > SYNTH.maxPatchBytes && out.seq) out.seq = { ...out.seq, steps: out.seq.steps.map(({ on, vol, cond, ratchet }) => { const s = { on, vol }; if (cond > 1) s.cond = cond; if (ratchet > 1) s.ratchet = ratchet; return s; }) }; // too big: the locks go, the sound (and condition / ratchet) stays
+  if (JSON.stringify(out).length > SYNTH.maxPatchBytes && out.seq) out.seq = { ...out.seq, steps: out.seq.steps.map(({ on, vol, cond, ratchet, ratchetProb }) => { const s = { on, vol }; if (cond > 1) s.cond = cond; if (ratchet > 1) s.ratchet = ratchet; if (ratchetProb > 0 && ratchetProb < 100) s.ratchetProb = ratchetProb; return s; }) }; // too big: the locks go, the sound (and condition / ratchet / ratchet prob) stays
   return JSON.stringify(out).length <= SYNTH.maxPatchBytes ? out : null;
 }
 // ---------- The Steps sequencer (Jens t889u): one sequencer for the WHOLE Steps sound ----------
@@ -190,7 +192,8 @@ export function cleanLocks(locks, layers) {
   }
   return n ? out : null;
 }
-// { len, loop, steps: [{ on, vol, locks?, cond?, ratchet? }] × len }. layers: the patch's layers (locks on a missing layer drop).
+// { len, loop, steps: [{ on, vol, locks?, cond?, ratchet?, ratchetProb? }] × len }. layers: the patch's layers (locks on a missing layer drop).
+// `len` is always the cycle length (Steps button); off steps are kept so trailing / leading empties still take time (t961u, t962u).
 export function cleanStepSeq(q, layers = null) {
   if (!q || typeof q !== 'object') return defaultStepSeq();
   const len = Math.min(SYNTH.seqMax, Math.max(1, Math.round(isNum(q.len) ? q.len : STEP_SEQ_DEFAULT.len)));
@@ -201,11 +204,13 @@ export function cleanStepSeq(q, layers = null) {
     const st = { on: x ? x.on === true : i === 0, vol: x && isNum(x.vol) ? Math.round(Math.min(100, Math.max(0, x.vol))) : 100 };
     const lk = x && layers ? cleanLocks(x.locks, layers) : null;
     if (lk) st.locks = lk;
-    // condition (1:N) and ratchet (repeats) – stored only when not the default, like locks
+    // condition (1:N), ratchet (repeats), ratchetProb – stored only when not the default, like locks
     const cond = x && isNum(x.cond) ? Math.min(8, Math.max(1, Math.round(x.cond))) : 1;
     const ratchet = x && isNum(x.ratchet) ? Math.min(128, Math.max(1, Math.round(x.ratchet))) : 1;
+    const rprob = x && isNum(x.ratchetProb) ? Math.min(100, Math.max(1, Math.round(x.ratchetProb))) : 100;
     if (cond > 1) st.cond = cond;
     if (ratchet > 1) st.ratchet = ratchet;
+    if (rprob < 100) st.ratchetProb = rprob;
     return st;
   });
   return { len, loop, steps };

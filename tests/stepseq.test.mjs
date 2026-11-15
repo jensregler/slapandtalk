@@ -3,7 +3,7 @@
 // Pure maths + GrooveSteps / Sounds with fakes (no browser). Run: node tests/stepseq.test.mjs (in npm test)
 import assert from 'node:assert/strict';
 import { DEFAULT_PATCHES, SYNTH, cleanPatch, cleanSound, migrateStepSeq, cleanStepSeq, STEP_SEQ_DEFAULT, stepSeqOf, morphPatch, variant, colourPatch, diffPatch, retune } from '../shared/synth.mjs';
-import { stepSeqBetween, lockedPatch, setLock, getLock, clearLock, clearLocks, lockCount, stepsLocking, removeLayerLocks, resizeSeq, stepsPerFoot, cleanCond, cleanRatchet, stepPass, stepFires, ratchetCount, stepTriggers, nextRatchet, STEP_SEQ, STEP_RATCHET } from '../shared/stepseq.mjs';
+import { stepSeqBetween, lockedPatch, setLock, getLock, clearLock, clearLocks, lockCount, stepsLocking, removeLayerLocks, resizeSeq, stepsPerFoot, cleanCond, cleanRatchet, stepPass, stepFires, ratchetCount, stepTriggers, nextRatchet, STEP_SEQ, STEP_RATCHET, patternLen, seqLoop, normalizeSeq, cleanRatchetProb, nextRatchetProb, STEP_RPROB } from '../shared/stepseq.mjs';
 import { eventsBetween, runEventsBetween, pulseMs } from '../shared/groove.mjs';
 import { GrooveSteps } from '../client/src/groove.js';
 
@@ -224,6 +224,111 @@ await ok('ratchet 2–128: repeats subdivide the step evenly; 1 = off; capped so
   const big = { v: 1, gain: 1, layers: [0, 1, 2, 3].map(() => ({ kind: 'osc' })), seq: { len: 16, loop: 1, steps: Array.from({ length: 16 }, () => ({ on: true, vol: 100, cond: 3, ratchet: 8, locks: Object.fromEntries(Object.keys(SYNTH.layer).slice(0, 24).map((k, j) => [`L${j % 4}.${k}`, SYNTH.layer[k][0]])) })) } };
   const d = cleanPatch(big);
   assert.ok(d, 'the patch survives'); assert.ok(d.seq.steps.every((x) => !x.locks && x.cond === 3 && x.ratchet === 8));
+});
+
+
+await ok('the playhead always cycles every step of the set length, including empty ones; Steps / pads / cycle agree for each length (t961u, t962u)', () => {
+  for (const len of SYNTH.seqLens) {
+    // only first and (if len>2) third step marked – must still visit 0..len-1, equally spaced
+    const steps = Array.from({ length: len }, (_, i) => ({ on: i === 0 || i === 2, vol: 100 }));
+    const q = { len, loop: 1, steps };
+    assert.equal(patternLen(q), len);
+    assert.equal(normalizeSeq({ ...q, steps: steps.slice() }).steps.length, len);
+    const ev = stepSeqBetween(G, 0, T0, T0 + 8000, { bpm: 90, seq: q });
+    assert.ok(ev.length >= len * 2, `len ${len} produced ${ev.length} events`);
+    const at0 = ev.findIndex((e) => e.i === 0); assert.ok(at0 >= 0);
+    const first = ev.slice(at0, at0 + len);
+    assert.deepEqual(first.map((e) => e.i), [...Array(len).keys()], `cycle for Steps=${len} is 0..${len - 1}`);
+    const P = pulseMs(1, 0, 90), stepMs = P / (len / 1);
+    for (let k = 1; k < first.length; k++) assert.ok(near(first[k].t - first[k - 1].t, stepMs, 1e-3), `even spacing at ${len}`);
+    // Loop = 2 footsteps does not change the cycle length, only the duration of one pass
+    const q2 = { len, loop: 2, steps };
+    assert.equal(patternLen(q2), len); assert.equal(seqLoop(q2), 2);
+    const ev2 = stepSeqBetween(G, 0, T0, T0 + 8000, { bpm: 90, seq: q2 });
+    const at02 = ev2.findIndex((e) => e.i === 0);
+    assert.deepEqual(ev2.slice(at02, at02 + len).map((e) => e.i), [...Array(len).keys()]);
+    const stepMs2 = (P * 2) / len;
+    for (let k = 1; k < len; k++) assert.ok(near(ev2[k].t - ev2[k - 1].t, stepMs2, 1e-3), `loop=2 spacing at ${len}`);
+    // clean / resize keep pads === len, and do not shrink to the marked span
+    const c = cleanStepSeq(q);
+    assert.equal(c.len, len); assert.equal(c.steps.length, len);
+    assert.equal(c.steps.filter((s) => s.on).length, len > 2 ? 2 : 1);
+  }
+  // a short steps[] with a longer declared len still cycles `len` (trailing empties count as time)
+  const short = { len: 8, loop: 1, steps: [{ on: true, vol: 100 }, { on: true, vol: 100 }] };
+  assert.equal(patternLen(short), 8);
+  const evS = stepSeqBetween(G, 0, T0, T0 + 4000, { bpm: 90, seq: short });
+  const atS = evS.findIndex((e) => e.i === 0);
+  assert.deepEqual(evS.slice(atS, atS + 8).map((e) => e.i), [0, 1, 2, 3, 4, 5, 6, 7]);
+  const n = normalizeSeq({ len: 8, loop: 1, steps: [{ on: true, vol: 100 }] });
+  assert.equal(n.len, 8); assert.equal(n.steps.length, 8); assert.equal(n.steps[0].on, true); assert.ok(n.steps.slice(1).every((s) => !s.on));
+});
+
+await ok('walk / run / sneak rates and a loop of 2 footsteps still cycle the set length (t961u, t962u)', () => {
+  const q = { len: 8, loop: 2, steps: Array.from({ length: 8 }, (_, i) => ({ on: i === 0 || i === 3, vol: 100 })) };
+  for (const rate of [1, 2, 0.5]) { // walk, run (~2×), sneak / half
+    const ev = stepSeqBetween(G, 0, T0, T0 + 6000, { rate, bpm: 90, seq: q });
+    const at = ev.findIndex((e) => e.i === 0);
+    assert.deepEqual(ev.slice(at, at + 8).map((e) => e.i), [0, 1, 2, 3, 4, 5, 6, 7], `rate ${rate}`);
+    const sounded = ev.filter((e) => q.steps[e.i].on);
+    assert.ok(sounded.every((e) => e.i === 0 || e.i === 3));
+    assert.ok(ev.length > sounded.length, 'empty steps are still in the cycle');
+  }
+  // GrooveSteps at walk and run: sounded hits stay on the marked steps; spacing includes the empty ones
+  const p = step(); p.seq = q;
+  const ctx = { state: 'running', currentTime: 10 };
+  const played = [];
+  const s = { played, ctx, mine: { colour: 0 }, muted: false, engine: null, play: (k, at, o) => played.push({ k, ...o }), patchFor: () => ({ patch: cleanPatch(p) }) };
+  const g = new GrooveSteps(s, { now: () => 0 }); clearInterval(g.watch); g.setBpm(90);
+  const walk = (ms, t, rate = null) => {
+    if (rate) g.setRun({ rate, tune: 1 });
+    g.update([{ id: 'me', x: 0, z: 0, at: null }], t);
+    let x = 0; for (let i = 0; i < ms / 16; i++) { t += 16; x += 0.04; g.update([{ id: 'me', x, z: 0, at: null }], t); }
+  };
+  walk(3000, Math.floor(T0 / 1000) * 1000 + 137);
+  assert.ok(played.length >= 2);
+  assert.ok(played.every((e) => e.seqStep === 0 || e.seqStep === 3), 'only marked steps sound at walk');
+  // two marked steps per 8-step loop over 2 footsteps: the time from step 0 to the next step 0 is 2 footsteps, not 2 marked steps
+  const a = played.filter((e) => e.seqStep === 0).map((e) => e.time).sort((x, y) => x - y);
+  assert.ok(a.length >= 3, 'enough step-0 hits to see the loop');
+  const foot = pulseMs(1, 0, 90) / 1000;
+  // first gap may be the entry step (always step 1 on the beat); the following gaps are one full 8-step / 2-footstep loop
+  const gaps = a.slice(2).map((t, i) => t - a[i + 1]);
+  assert.ok(gaps.every((d) => Math.abs(d - 2 * foot) < 0.05), `step 0 again after 2 footsteps (loop=2), gaps ${gaps} vs ${2 * foot}`);
+  played.length = 0;
+  walk(3000, Math.floor(T0 / 1000) * 1000 + 137, 2);
+  assert.ok(played.length >= 2);
+  assert.ok(played.every((e) => e.seqStep === 0 || e.seqStep === 3), 'only marked steps sound at run');
+});
+
+await ok('ratchet probability: 100% (default / omitted) always repeats; a miss plays a single hit; saved when not 100; bad values clamped', () => {
+  assert.equal(cleanRatchetProb(undefined), 100); assert.equal(cleanRatchetProb(50), 50);
+  assert.equal(cleanRatchetProb(1), 1); assert.equal(cleanRatchetProb(100), 100);
+  assert.equal(cleanRatchetProb(0), 1); assert.equal(cleanRatchetProb(140), 100); assert.equal(cleanRatchetProb('x'), 100);
+  assert.equal(nextRatchetProb(100), 75); assert.equal(nextRatchetProb(75), 50); assert.equal(nextRatchetProb(50), 25);
+  assert.equal(nextRatchetProb(25), 12); assert.equal(nextRatchetProb(12), 100);
+  assert.equal(nextRatchetProb(80), 75, 'off-list jumps to the next smaller common');
+  assert.equal(nextRatchetProb(5), 100);
+  const st = { on: true, vol: 100, ratchet: 4, ratchetProb: 50 };
+  assert.deepEqual(stepTriggers(st, { t: 1000, m: 0, len: 4, stepMs: 400, rand: () => 0 }), [1000, 1100, 1200, 1300], 'roll 0 < 50% → ratchet');
+  assert.deepEqual(stepTriggers(st, { t: 1000, m: 0, len: 4, stepMs: 400, rand: () => 0.49 }), [1000, 1100, 1200, 1300]);
+  assert.deepEqual(stepTriggers(st, { t: 1000, m: 0, len: 4, stepMs: 400, rand: () => 0.5 }), [1000], 'roll 0.5 is not < 50% → single hit');
+  assert.deepEqual(stepTriggers(st, { t: 1000, m: 0, len: 4, stepMs: 400, rand: () => 0.99 }), [1000]);
+  // 100% never rolls (deterministic, backward compatible)
+  assert.deepEqual(stepTriggers({ on: true, vol: 100, ratchet: 4 }, { t: 0, m: 0, len: 4, stepMs: 400, rand: () => 1 }), [0, 100, 200, 300]);
+  assert.deepEqual(stepTriggers({ on: true, vol: 100, ratchet: 4, ratchetProb: 100 }, { t: 0, m: 0, len: 4, stepMs: 400, rand: () => 1 }), [0, 100, 200, 300]);
+  // off / condition miss still silent, regardless of prob
+  assert.deepEqual(stepTriggers({ on: false, vol: 100, ratchet: 4, ratchetProb: 100 }, { t: 0, m: 0, len: 4, stepMs: 400, rand: () => 0 }), []);
+  const p = step(); p.seq.steps[0].ratchet = 8; p.seq.steps[0].ratchetProb = 50; p.seq.steps[1].ratchetProb = 100;
+  const c = cleanPatch(p);
+  assert.equal(c.seq.steps[0].ratchet, 8); assert.equal(c.seq.steps[0].ratchetProb, 50);
+  assert.equal(c.seq.steps[1].ratchetProb, undefined, '100% is omitted');
+  const s = cleanSound({ seed: 'abcd', patches: { step: c } }, { custom: true });
+  assert.equal(s.patches.step.seq.steps[0].ratchetProb, 50);
+  // too big: locks go, condition + ratchet + ratchetProb stay
+  const big = { v: 1, gain: 1, layers: [0, 1, 2, 3].map(() => ({ kind: 'osc' })), seq: { len: 16, loop: 1, steps: Array.from({ length: 16 }, () => ({ on: true, vol: 100, cond: 3, ratchet: 8, ratchetProb: 25, locks: Object.fromEntries(Object.keys(SYNTH.layer).slice(0, 24).map((k, j) => [`L${j % 4}.${k}`, SYNTH.layer[k][0]])) })) } };
+  const d = cleanPatch(big);
+  assert.ok(d, 'the patch survives'); assert.ok(d.seq.steps.every((x) => !x.locks && x.cond === 3 && x.ratchet === 8 && x.ratchetProb === 25));
 });
 
 console.log(`stepseq: ${n} checks ok`);

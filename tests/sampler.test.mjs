@@ -2,6 +2,7 @@
 // master clock + room offsets, radio presets, decimation, bird – the shared maths (Jens, 5 Nov 2026).
 import assert from 'assert/strict';
 import { SYNTH, SOUND_TABS, FX_DEFAULTS, DEFAULT_PATCHES, SOUNDS, cleanPatch, cleanLayer, samplerRate, samplerGate, patchLength, morphPatch, diffPatch, snapFreq, noteName, retune, variant, cleanFx } from '../shared/synth.mjs';
+import { lockedPatch, setLock } from '../shared/stepseq.mjs';
 import { gaitStep, RUN_DEFAULTS, pitchRatio } from '../shared/runmode.mjs';
 import { newFollower, selfLoop, MOD as MOD2 } from '../shared/lfo.mjs';
 import { MOD, cleanMods, modOrder, canAddMod, newMod, removeMod, removeLayerMods, evalMods, compileMods, modRunner, snapRate, parseTarget } from '../shared/lfo.mjs';
@@ -276,4 +277,34 @@ ok('SOUND_TABS lists the Effects tab again (t954u): reverb, delay, crush, dist a
   assert.equal(FX_DEFAULTS.reverb.wet, 0); // Wet 0 = off, as the tab says
 });
 void variant;
+
+ok('sampler Note (vs Root, default C4) sets playbackRate; run/crouch correction and per-step note locks multiply on top (t963u)', () => {
+  // Default C4/C4 = unshifted. Changing Note transposes the sample, same interval as an osc would move.
+  const c4 = cleanLayer({ kind: 'sampler', note: 60, root: 60 });
+  assert.ok(near(samplerRate(c4), 1), 'C4 / root C4 = the recorded pitch');
+  assert.ok(near(samplerRate(cleanLayer({ kind: 'sampler' })), 1), 'clean sampler defaults to C4 / C4');
+  assert.ok(near(samplerRate(cleanLayer({ kind: 'sampler', note: 72, root: 60 })), 2), 'C5 = one octave up');
+  assert.ok(near(samplerRate(cleanLayer({ kind: 'sampler', note: 48, root: 60 })), 0.5), 'C3 = one octave down');
+  assert.ok(near(samplerRate(cleanLayer({ kind: 'sampler', note: 67, root: 60 })), Math.pow(2, 7 / 12)), 'G4');
+  // The live path used by sound.play / engine.play: lockedPatch → retune(tune) → cleanPatch → samplerRate
+  const base = cleanPatch({ v: 1, gain: 1, layers: [{ kind: 'sampler', note: 60, root: 60, sample: 'a'.repeat(64), name: 'kick', len: 0.2 }], seq: { len: 4, loop: 1, steps: [{ on: true, vol: 100 }, { on: true, vol: 100 }, { on: false, vol: 100 }, { on: false, vol: 100 }] } });
+  const playedRate = (patch, step, tune) => samplerRate(cleanPatch(retune(lockedPatch(patch, step), tune)).layers[0]);
+  const run = gaitStep('run', { ...RUN_DEFAULTS, pitch: 4 });
+  const crouch = gaitStep('crouch', RUN_DEFAULTS);
+  assert.ok(near(playedRate(base, 0, 1), 1), 'no lock, no tune: unshifted');
+  assert.ok(near(playedRate(base, 0, run.tune) / 1, run.tune, 1e-4), 'run pitch correction multiplies the C4 rate');
+  assert.ok(near(playedRate(base, 0, crouch.tune) / 1, crouch.tune, 1e-4), 'crouch pitch correction multiplies the C4 rate');
+  // Lock step 2 to G4 (note 67) – that step is a fifth up; correction still multiplies
+  assert.ok(setLock(base.seq, 1, 'L0.note', 67));
+  const g4 = Math.pow(2, 7 / 12);
+  assert.ok(near(playedRate(base, 1, 1), g4, 1e-4), 'per-step Note lock transposes that step');
+  assert.ok(near(playedRate(base, 0, 1), 1, 1e-4), 'other steps keep the base Note');
+  assert.ok(near(playedRate(base, 1, run.tune), g4 * run.tune, 1e-4), 'run correction applies on top of the locked Note');
+  assert.ok(near(playedRate(base, 1, crouch.tune), g4 * crouch.tune, 1e-4), 'crouch correction applies on top of the locked Note');
+  // Same tune ratio as a synth layer (retune multiplies oscillator freq the same way)
+  const osc = cleanPatch({ layers: [{ kind: 'osc', freq: 440 }] });
+  assert.ok(near(retune(osc, run.tune).layers[0].freq / 440, run.tune, 1e-6));
+  assert.ok(near(playedRate(base, 1, run.tune) / g4, run.tune, 1e-4), 'sampler follows the same tune ratio as a synth layer');
+});
+
 console.log(`sampler/LFO/radio: ${n} checks ok`);
