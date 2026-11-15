@@ -44,7 +44,7 @@ const isPenta = (hz) => { const m = 12 * Math.log2(hz / 440), r = Math.round(m);
     await P.click('#esc-menu [data-esc="theme"]', { timeout: 5000 });
     await sleep(700);
     const sub = await P.evaluate(() => window.klibb.escMenu().info());
-    check('THEME opens THEME A / THEME B', sub.view === 'theme' && sub.buttons.join() === 'themeA,themeB', sub);
+    check('THEME opens THEME A / THEME B / THEME C', sub.view === 'theme' && sub.buttons.join() === 'themeA,themeB,themeC', sub);
     await P.screenshot({ path: path.join(SHOTS, 'theme-menu-A.png') });
     await P.click('#esc-menu [data-esc="themeB"]', { timeout: 5000 });
     await P.waitForFunction(() => window.klibb.soundTheme() === 'B', null, { timeout: 5000 }).catch(() => {});
@@ -87,6 +87,28 @@ const isPenta = (hz) => { const m = 12 * Math.log2(hz / 440), r = Math.round(m);
     const N = await open('N');
     await N.waitForFunction(() => window.klibb.soundTheme() === 'B', null, { timeout: 5000 }).catch(() => {});
     check('a brand-new visitor comes in on Theme B', (await th(N)) === 'B');
+
+    // ---------- Theme C: the new visitor picks it in the menu; everybody follows ----------
+    await N.evaluate(() => window.klibb.escMenu().open()); await sleep(600);
+    await N.click('#esc-menu [data-esc="theme"]', { timeout: 5000 }); await sleep(600);
+    await N.click('#esc-menu [data-esc="themeC"]', { timeout: 5000 });
+    const toC = await Promise.all([N, P, Q].map((X) => X.waitForFunction(() => window.klibb.soundTheme() === 'C', null, { timeout: 5000 }).then(() => true).catch(() => false)));
+    await sleep(300);
+    await N.screenshot({ path: path.join(SHOTS, 'theme-menu-C.png') });
+    await N.evaluate(() => window.klibb.escMenu().close());
+    const cb = await Promise.all([P, Q, N].map((X) => X.evaluate(() => window.klibb.radio().walkBpm)));
+    check(`N picks THEME C: all three on it, the room keeps it, Tempo ${cb.join(' / ')} BPM (90 or 120)`, toC.every(Boolean) && (await roomTheme()) === 'C' && cb.every((b) => [90, 120].includes(b)), { toC, cb });
+    await P.evaluate(() => { window.klibb.startDance(); }); await sleep(800);
+    await P.evaluate(() => { window.klibb.soundObj().stepLog.length = 0; window.klibb.soundObj().play('slap', null, { size: 0.37 }); window.klibb.soundObj().play('peel', null, { size: 1.3 }); });
+    await Q.evaluate(() => { window.klibb.soundObj().stepLog.length = 0; });
+    await sleep(2500);
+    const cSteps = await P.evaluate(() => window.klibb.soundObj().stepLog.filter((s) => !s.remote));
+    const cLog = await P.evaluate(() => window.klibb.soundObj().log.slice(-2));
+    const cHeard = await Q.evaluate(() => window.klibb.soundObj().stepLog.filter((s) => s.remote).slice(-6));
+    check(`Theme C: ${cSteps.length} steps in key (${[...new Set(cSteps.map((s) => s.hz.join('/')))].join(', ')}), no wobble`, cSteps.length >= 3 && cSteps.every((s) => s.theme === 'C' && s.rate === 1 && s.hz.every(isPenta)), cSteps.slice(0, 3));
+    check(`Theme C: slap + peel in key (${cLog.map((e) => e.kind + ' ' + (e.hz || []).join('/')).join(', ')})`, cLog.length === 2 && cLog.every((e) => e.theme === 'C' && e.hz.every(isPenta)), cLog);
+    check(`Theme C: Q hears P's steps in key (${cHeard.length} heard)`, cHeard.length >= 1 && cHeard.every((s) => s.theme === 'C' && s.hz.every(isPenta)), cHeard.slice(0, 3));
+    await P.evaluate(() => window.klibb.cancelDance && window.klibb.cancelDance());
 
     // ---------- back to A (Q picks it; everybody follows) ----------
     await Q.evaluate(() => window.klibb.soundTheme('A'));

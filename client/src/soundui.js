@@ -755,7 +755,9 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     // notch each; Theme A is the whole grid exactly as before.
     const th = soundTheme(), tempi = th.tempi;
     if (tempi) {
-      const note = el('p', 'hint snd-theme-note', `${th.label} is on (Esc → THEME): Tempo ${tempi.join(' · ')} BPM only, run / crouch snap to those, no pitch correction or wobble.`);
+      const note = el('p', 'hint snd-theme-note', th.gaitPct
+        ? `${th.label} is on (Esc → THEME): Tempo ${tempi.join(' or ')} BPM only, run / crouch tempo ${th.gaitPct.filter((p) => p).map((p) => (p > 0 ? '+' : '') + p + ' %').join(' / ')} (nearest), everything you hear on A minor pentatonic, no wobble.`
+        : `${th.label} is on (Esc → THEME): Tempo ${tempi.join(' · ')} BPM only, run / crouch snap to those, no pitch correction or wobble.`);
       note.id = 'snd-theme-note'; box.appendChild(note);
     } // (my saved Tempo is not rewritten: the slider shows it as Theme B plays it, a move sets one of the four)
     const ix = (b) => Math.max(0, tempi ? tempi.indexOf(themeWalkBpm(b, th)) : 0);

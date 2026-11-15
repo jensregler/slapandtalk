@@ -68,7 +68,7 @@ export class GrooveSteps {
   // A walker's grid: mine, or theirs from the tempo they sent (bpm, Groove scale, run / crouch rate + pitch).
   gridOf(w) {
     if (w.id === 'me') return { groove: this.theme.octaveScale ? { ...this.groove, scale: themeScale(this.groove.scale, this.theme) } : this.groove, bpm: this.bpm, run: this.run }; // (Theme B: my Groove on octaves)
-    const t = this.theme.conformRemote ? themeRemoteTempo(cleanPlayerTempo(w.tempo), this.theme) : cleanPlayerTempo(w.tempo); // (Theme B: others / NPCs on the same rules as me)
+    const t = this.theme.conformRemote ? themeRemoteTempo(cleanPlayerTempo(w.tempo), this.theme) : cleanPlayerTempo(w.tempo); // (Theme B / C: others / NPCs on the same rules as me)
     const run = t.rate !== 1 || t.tune !== 1 ? { rate: t.rate, tune: t.tune } : null;
     return { groove: { scale: t.scale, at: 0, phase: 0 }, bpm: t.bpm, run };
   }

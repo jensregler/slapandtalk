@@ -17,7 +17,7 @@ import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
 import { peelStepParams } from '../../shared/peelstep.mjs';
 import { ensureSamples } from './samples.js';
 import { knobToMorph } from '../../shared/radio.mjs';
-import { THEMES, themeWobble, themeStepPatch } from '../../shared/soundtheme.mjs';
+import { THEMES, themeWobble, themeStepPatch, themeAnyPatch, themeScalePatch } from '../../shared/soundtheme.mjs';
 
 const MUTE_KEY = 'klibb.muted';
 const VOL_KEY = 'klibb.musicVol';
@@ -186,7 +186,8 @@ export class Sounds {
       if (this.stepLog.length > 40) this.stepLog.shift();
       if (npc) { this.npcHeard ||= {}; const h = this.npcHeard[npc] ||= { n: 0 }; h.n++; h.gain = +heard.toFixed(3); h.distance = +distance.toFixed(2); h.t = Date.now(); } // (tests: the last step of each NPC)
     } else { this.log.push(entry); if (this.log.length > 50) this.log.shift(); }
-    const played = kind === 'step' ? themeStepPatch(retune(patch, rate), this.theme) : retune(patch, rate); // (Theme B: the step's pitch on A minor pentatonic, no sweep / LFO; A: unchanged)
+    const played = this.theme.allKinds ? themeAnyPatch(retune(patch, rate), kind, this.theme) : kind === 'step' ? themeStepPatch(retune(patch, rate), this.theme) : retune(patch, rate); // (Theme B: the step's pitch on A minor pentatonic, no sweep / LFO; Theme C: every sound in key; A: unchanged)
+    if (kind !== 'step' && this.theme.allKinds) { entry.theme = this.theme.id; entry.hz = (played?.layers || []).map((l) => +(+l.freq || 0).toFixed(2)); } // (tests: Theme C slaps / peels in key)
     if (kind === 'step' && this.theme.id !== 'A' && this.stepLog.length) { const last = this.stepLog[this.stepLog.length - 1]; last.theme = this.theme.id; last.hz = (played?.layers || []).map((l) => +(+l.freq || 0).toFixed(2)); last.rate = +rate.toFixed(4); } // (tests: what a themed step really played)
     if (this.muted) return entry;
     if (!this.ensure()) return entry;
@@ -200,7 +201,7 @@ export class Sounds {
   // The radio's loops (radio.js): a patch (or one layer of it) at an AudioContext time, with my effects.
   playPatch(patch, { time = null, layer = null, gain = 1, gate = null, length = null } = {}) {
     if (this.muted || !this.engine || !patch) return false;
-    return this.engine.play(patch, { gain: gain * this.volumeOf(), time, layer, gate, length, pool: 'seq' });
+    return this.engine.play(this.theme.allKinds ? themeScalePatch(patch) : patch, { gain: gain * this.volumeOf(), time, layer, gate, length, pool: 'seq' }); // (Theme C: my loops in key too)
   }
   volumeOf() { return 1; }
   // Preview a patch (the Sound settings editor), dry, at my position.
