@@ -205,7 +205,11 @@ export class Sounds {
   }
   volumeOf() { return 1; }
   // Preview a patch (the Sound settings editor), dry, at my position.
-  preview(patch, fx = null) {
+  // kind 'step' (Jens t959u "lfo funkar icke"): the Steps preview plays like a real footstep – the 'step' pool with
+  // MY free-running LFO clock (lfoId 'me', shared with walking and the Walk → run preview). Before, every preview
+  // (▶ Preview, every slider move, ▶ Hear step N) started the layer LFOs and mods at phase 0, so each audition was
+  // the very same point of the cycle: a slow LFO (e.g. 0.4 Hz on Cutoff) never audibly moved between clicks.
+  preview(patch, fx = null, { kind = null } = {}) {
     if (!this.ensure()) return Promise.resolve(false);
     return this.ready.then(async (eng) => {
       if (!eng) return false;
@@ -213,7 +217,7 @@ export class Sounds {
       // Preview uses the listener chain; if the editor passes a draft fx, apply it for the preview.
       if (fx) eng.setListenerFx(fx);
       else eng.setListenerFx(this.mine && this.mine.fx ? cleanFx(this.mine.fx) : null);
-      return eng.play(patch, {});
+      return eng.play(patch, kind === 'step' ? { pool: 'step', lfoId: 'me' } : {});
     });
   }
   get maxVoices() { return MAX_VOICES; }

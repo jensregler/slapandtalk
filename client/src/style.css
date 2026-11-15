@@ -1131,6 +1131,7 @@ body.touch #props-panel { right: 8px; left: 8px; width: auto; top: 8px; transfor
 }
 .snd-lfo-under-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; }
 .snd-lfo-under-head small { font-size: 15px; font-weight: 700; color: #7fd1ff; }
+.snd-lfo-theme-off { display: block; font-size: 15px; font-weight: 700; color: #ffcc66; margin: 2px 0 6px; }
 .snd-lfo-under-head select { font-size: 16px; min-height: 40px; }
 .snd-lfo-off {
   margin-left: auto; min-width: 48px; min-height: 48px !important; font-size: 22px !important;

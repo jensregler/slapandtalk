@@ -410,6 +410,12 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     off.onclick = () => { l.lfo = 'none'; edited(k, true); };
     head.appendChild(off);
     wrap.appendChild(head);
+    // t959u: say it when the room's theme silences this LFO on the walk (Theme B: no LFOs on Steps; Theme C: no pitch LFO)
+    const th = soundTheme();
+    if (k === 'step' && (th.stepPitch === 'pentatonic' || (th.stepPitch === 'scale' && l.lfo === 'pitch'))) {
+      const note = el('small', 'snd-lfo-theme-off', `⚠ Off while walking in ${th.label} (Esc → THEME → Theme A turns it on)`); note.id = `lfo-theme-off-${i}`;
+      wrap.appendChild(note);
+    }
     for (const key of ['lfoRate', 'lfoDepth']) wrap.appendChild(layerSlider(p, i, k, key));
     g.appendChild(wrap);
   }
@@ -593,7 +599,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       const ed = el('div', 'ss-editing'); ed.id = 'ss-editing';
       ed.textContent = `✎ Editing step ${st.sel + 1}${q.steps[st.sel].on ? '' : ' (off – turn it on to hear it)'} – the sliders below now lock to this step`;
       bar.appendChild(ed);
-      const pv = el('button', 'snd-add', `▶ Hear step ${st.sel + 1}`); pv.type = 'button'; pv.id = 'ss-hear'; pv.onclick = () => sound.preview(cleanPatch(lockedPatch(cleanPatch(p) || p, st.sel)) || p, p.fx ? null : st.fx);
+      const pv = el('button', 'snd-add', `▶ Hear step ${st.sel + 1}`); pv.type = 'button'; pv.id = 'ss-hear'; pv.onclick = () => sound.preview(cleanPatch(lockedPatch(cleanPatch(p) || p, st.sel)) || p, p.fx ? null : st.fx, { kind: 'step' });
       const cl = el('button', 'snd-add ss-clear', `✕ Clear step ${st.sel + 1} locks`); cl.type = 'button'; cl.id = 'ss-clear-step'; cl.disabled = !lockCount(q, st.sel);
       cl.onclick = () => { clearLocks(q, st.sel); edited(k, true); };
       const done = el('button', 'primary ss-done', '✓ Done – edit the base sound'); done.type = 'button'; done.id = 'ss-done'; done.onclick = () => { st.sel = null; render(); };
@@ -910,7 +916,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const k = st.tab === 'fx' ? 'slap' : st.tab;
     let p = cleanPatch(st.patches[k]);
     if (k === 'step' && st.sel != null && p) p = cleanPatch(lockedPatch(p, st.sel)) || p; // the selected step, with its locks (t889u)
-    return sound.preview(p, p.fx ? null : st.fx);
+    return sound.preview(p, p.fx ? null : st.fx, { kind: k });
   }
   function randomize(wild) {
     st.rolls++; st.sel = null;

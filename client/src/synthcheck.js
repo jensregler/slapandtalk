@@ -49,3 +49,24 @@ export async function renderSteps(specs) {
   return out;
 }
 export { duffScale };
+// LFO check (Jens t959u "lfo funkar icke"): `hits` short hits of one patch, `gap` s apart, rendered offline the way
+// the game plays them (pool 'step' + lfoId 'me' = free-running LFO; any other pool = retrig at every hit).
+// Returns per hit the share of its energy above ~1 kHz (a one-pole high-pass) – "brightness": with an LFO on
+// Cutoff it must rise and fall over the hits; with the LFO off it stays flat. (Hits are scheduled ahead, so keep
+// hits ≤ the pool's voice cap: step 10, main 12.)
+export async function renderLfoHits({ patch, hits = 8, gap = 0.3, pool = 'step', win = 0.12 } = {}) {
+  const Tone = await loadTone(), SR = 44100;
+  const p = cleanPatch(patch); if (!p) return null;
+  const buf = await Tone.Offline(async () => {
+    const eng = new SynthEngine(Tone); await eng.ready;
+    for (let i = 0; i < hits; i++) eng.play(p, { time: 0.02 + i * gap, keep: true, pool, lfoId: 'me' });
+  }, hits * gap + 0.3, 1, SR);
+  const d = buf.getChannelData(0), k = Math.exp(-2 * Math.PI * 1000 / SR), out = [];
+  for (let i = 0; i < hits; i++) {
+    const a = Math.floor((0.02 + i * gap) * SR), b = Math.min(d.length, a + Math.floor(win * SR));
+    let hp = 0, prev = 0, eh = 0, e = 0;
+    for (let j = a; j < b; j++) { const x = d[j]; hp = k * (hp + x - prev); prev = x; eh += hp * hp; e += x * x; }
+    out.push(e > 1e-9 ? +(eh / e).toFixed(4) : null);
+  }
+  return out;
+}

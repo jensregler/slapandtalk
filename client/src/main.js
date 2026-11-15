@@ -4014,6 +4014,7 @@ window.klibb = {
   autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundTheme: (id) => (id ? requestSoundTheme(id) : soundTheme().id), soundMine: () => sound.mine, prepareSoundForPlace, resetPersonalSound, voiceOf: (id) => together.voiceOf(id),
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
+  renderLfoHits: async (spec) => { const { renderLfoHits } = await import('./synthcheck.js'); return renderLfoHits(spec); }, // t959u (tests)
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,
   ready: false, room: ROOM, state, stamps, camera, controls, preview, renderer, scene,
   nameTag: nameTagState, openNameTag, door: doorState, menuAction: (k) => menuActions[k]?.(),
