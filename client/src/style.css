@@ -1412,6 +1412,9 @@ body.touch #esc-menu .esc-cat-back { white-space: nowrap; padding: 6px 14px; min
 .ss-grid { display: grid; gap: 8px; margin: 10px 0; }
 .ss-cell { position: relative; display: flex; flex-direction: column; gap: 4px; border-radius: 12px; padding: 4px; border: 3px solid transparent; }
 .ss-cell.sel { border-color: #ffd23f; background: rgba(255, 210, 63, 0.18); box-shadow: 0 0 0 3px rgba(255, 210, 63, 0.35); }
+/* Step trigger lamps above each pad (Jens t956u). Round, big, bright when the step actually sounds. */
+.ss-lamp { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; margin: 2px auto 2px; display: block; background: #1a1a1e; border: 3px solid #4a4a52; box-shadow: inset 0 2px 6px #000; pointer-events: none; }
+.ss-lamp.on { background: #ffe14a; border-color: #fff6b0; box-shadow: 0 0 14px 5px rgba(255, 210, 63, 0.95), 0 0 4px #fff, inset 0 0 6px #fff6b0; }
 .ss-pad { min-height: 64px !important; font-size: 26px !important; font-weight: 800; border-radius: 10px; background: #222; border: 3px solid #666; color: #bbb; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .ss-cell.on .ss-pad { background: #a27de8; color: #000; border-color: #e3d4ff; }
 .ss-cell.sel .ss-pad { border-color: #ffd23f; }

@@ -17,6 +17,7 @@ import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
 import { soundTheme } from './soundtheme.js';
 import { themeWalkBpm } from '../../shared/soundtheme.mjs';
+import { attachStepLamps, reportStepLamp, tickStepLamps, resetStepLamps } from './steplamps.js';
 import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, cleanCrouchTempo, cleanCrouchPitch, pitchMin, pitchMax, runRate, crouchRate, pitchRatio, pitchLabel, tempoLabel, crouchTempoLabel, cleanWalkBpm, snapWalkBpm, stepWalkBpm, TEMPO_PAGE, WALK_KNOB_STEPS, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../../shared/runmode.mjs';
 import { TEMPO_BPMS, meetBars } from '../../shared/tempogrid.mjs';
 
@@ -199,6 +200,7 @@ const TAB_NAMES = { slap: 'Slap', peel: 'Peel', step: 'Steps', duff: 'Landing', 
 // radioBlock: () => Master section (the one Volume). radio: Radio instance (my Tempo on Steps).
 export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, onLive = () => {}, musicVol = null, radioBlock = null, radio = null }) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  attachStepLamps({ getNow: () => (sound.ctx ? sound.ctx.currentTime : null) });
   const st = { open: false, tab: 'step', patches: {}, fx: null, rolls: 0, sel: null }; // opens on Steps (t900u); sel: the Steps-sequencer step being locked (t889u), null = editing the base sound
   const base = (k) => variant(DEFAULT_PATCHES[k], mySeed(), k); // my default (what free me sounds like)
 
@@ -553,6 +555,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     const grid = el('div', 'ss-grid'); grid.style.gridTemplateColumns = `repeat(${Math.min(8, q.len)}, 1fr)`;
     q.steps.forEach((stp, j) => {
       const cell = el('div', 'ss-cell' + (stp.on ? ' on' : '') + (st.sel === j ? ' sel' : '') + (stp.locks ? ' has-locks' : '')); cell.dataset.step = j;
+      const lamp = el('span', 'ss-lamp'); lamp.dataset.step = j; lamp.setAttribute('aria-hidden', 'true'); lamp.title = `Step ${j + 1} lamp`;
       const pad = el('button', 'ss-pad', String(j + 1)); pad.type = 'button'; pad.dataset.step = j; pad.setAttribute('aria-pressed', String(stp.on));
       pad.setAttribute('aria-label', `Step ${j + 1} ${stp.on ? 'on' : 'off'}`);
       let lp = 0, long = false;
@@ -578,12 +581,13 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       rat.addEventListener('wheel', (e) => { e.preventDefault(); e.stopPropagation(); const dir = e.deltaY > 0 || e.deltaX > 0 ? -1 : 1; const n = Math.min(128, Math.max(1, cleanRatchet(stp.ratchet) + dir)); if (n <= 1) delete stp.ratchet; else stp.ratchet = n; edited(k, true); }, { passive: false });
       rat.addEventListener('contextmenu', (e) => e.preventDefault());
       rat.onclick = () => { if (rheld) { rheld = false; return; } const n = nextRatchet(stp.ratchet); if (n <= 1) delete stp.ratchet; else stp.ratchet = n; edited(k, true); };
-      cell.append(pad, pick, cond, rat);
+      cell.append(lamp, pad, pick, cond, rat);
       const n = lockCount(q, j);
       if (n) { const lb = el('span', 'ss-locks', `🔒 ${n}`); lb.title = `${n} lock${n === 1 ? '' : 's'} on step ${j + 1}`; cell.appendChild(lb); }
       grid.appendChild(cell);
     });
     box.appendChild(grid);
+    tickStepLamps(); // re-apply any flash still in flight after a re-render
     const bar = el('div', 'ss-bar');
     if (st.sel != null) {
       const ed = el('div', 'ss-editing'); ed.id = 'ss-editing';
@@ -895,6 +899,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
           if (played >= 48) break;
           played++; const foot = Math.floor(m / per + 1e-9);
           eng.play(retuneP(lockedPatch(p, i), (foot % 2 ? 0.97 : 1.02) * tn), { gain: stp.vol / 100, fx, time: ht, pool: 'step', lfoId: 'me' });
+          reportStepLamp(i, ht);
         }
       }
     };
@@ -960,7 +965,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   { const w = $('snd-wild'); if (w) w.dataset.title = w.title || ''; } themeChanged();
   $('snd-reset').onclick = reset; $('snd-save').onclick = save;
   // runDraft: the run/walk/crouch settings being edited while the panel is open (main.js hears them live).
-  return { open, close, isOpen: () => st.open, state: () => st, themeChanged, runDraft: () => (st.open && st.run ? st.run : null), liveCount: () => st.liveN || 0, preview, render };
+  return { open, close, isOpen: () => st.open, state: () => st, themeChanged, runDraft: () => (st.open && st.run ? st.run : null), liveCount: () => st.liveN || 0, preview, render, reportStepLamp, tickStepLamps, resetStepLamps };
 }
 
 // The sample's waveform (min/max per pixel column) with start/end and loop markers.

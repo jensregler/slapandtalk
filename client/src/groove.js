@@ -14,6 +14,7 @@ import { entryMs } from '../../shared/tempogrid.mjs';
 import { patchLength, retune } from '../../shared/synth.mjs';
 import { stepSeqBetween, stepSeqOf, STEP_SEQ, stepTriggers, stepFires, stepPass } from '../../shared/stepseq.mjs';
 import { THEMES, themeSlot, themeScale, themeFootTune, themeStepPatch, themeRemoteTempo } from '../../shared/soundtheme.mjs';
+import { reportStepLamp } from './steplamps.js';
 
 const WALK = { speed: 0.35, holdMs: 140, jump: 0.8, jumpSpeed: 9, maxPerFrame: 48, buzzGain: 0.45, maxAheadMs: 400 };
 
@@ -182,6 +183,7 @@ export class GrooveSteps {
           if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up
           // left/right foot: a hair lower on every other footstep (the walking randomness stays – sound.js adds the wobble)
           this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: themeFootTune(this.theme, e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v, seqStep: useSeq ? e.i : 0, volume: useSeq && st ? st.vol / 100 : 1, lines: w.id === 'me' }); // lines: the dance lines' hold / drive on MY steps (t888u), on top of the step's locks
+          if (w.id === 'me' && time != null) reportStepLamp(useSeq ? e.i : 0, time); // lamp above this step (Jens t956u); conditions / ratchets already decided the hits
         }
       }
       if (budget <= 0) break;
