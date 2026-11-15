@@ -390,7 +390,7 @@ export class SynthEngine {
     let samplerSrc = null;
     let poly = null;
     if (l.kind === 'sampler') {
-      const raw0 = l.sample && SAMPLE_BUFFERS.get(l.sample); if (!raw0) return null;
+      const raw0 = (l.sample && SAMPLE_BUFFERS.get(l.sample)) || (l.library && SAMPLE_BUFFERS.get('lib:' + l.library)); if (!raw0) return null;
       const { buf, start, end: endPt, loopStart, loopEnd } = this.samplerBuffer(ctx, raw0, l);
       const ratio = samplerRate(l) * rate, dur = buf.duration;
       const gate = l.whole && !l.loop ? Math.min(SYNTH.maxSampleSeconds, ((endPt - start) * dur) / ratio) : null;

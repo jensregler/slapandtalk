@@ -1,8 +1,9 @@
-// Sampler layers' audio (Jens, 5 Nov 2026). Sound settings are personal and never sent to anyone
-// (soundui.js), so the samples stay on this device too: a loaded file is decoded, mixed to mono,
+// Sampler layers' audio (Jens, 5 Nov 2026 + t964u library). A loaded file is decoded, mixed to mono,
 // cut to SYNTH.maxSampleSeconds, stored as a 16-bit WAV in IndexedDB ('klibb-samples') under its
-// sha-256, and the patch only keeps that hash (+ name and length). Decoded buffers go into
-// SAMPLE_BUFFERS (synth.js), which the engine plays from. "Exit to menu" clears them all
+// sha-256, and the patch only keeps that hash (+ name and length). User uploads stay on this device:
+// other players would hear silence for those. Library samples (public/sample-lib, a `library` id on
+// the layer) are fetched by URL and cached, so room presets and other players can hear the same file.
+// Decoded buffers go into SAMPLE_BUFFERS (synth.js). "Exit to menu" clears them all
 // (resetPersonalSound → clearSamples); samples no saved patch uses are pruned after 2 days.
 import { SAMPLE_BUFFERS } from './synth.js';
 import { SYNTH } from '../../shared/synth.mjs';
@@ -63,14 +64,26 @@ export async function loadSampleFile(file, ctx) {
 // Make sure every sample these patches use is decoded (from IndexedDB). Resolves when done.
 export async function ensureSamples(patches, ctx) {
   const want = new Set();
-  for (const p of Object.values(patches || {})) for (const l of p?.layers || []) if (l.kind === 'sampler' && l.sample && !SAMPLE_BUFFERS.has(l.sample)) want.add(l.sample);
-  if (!want.size || !ctx) return;
+  const libs = new Set();
+  for (const p of Object.values(patches || {})) for (const l of p?.layers || []) {
+    if (l.kind !== 'sampler') continue;
+    if (l.library && !sampleBuffer(l)) libs.add(l.library);
+    else if (l.sample && !SAMPLE_BUFFERS.has(l.sample)) want.add(l.sample);
+  }
+  if (!ctx) return;
+  if (libs.size) await Promise.all([...libs].map((id) => loadLibrarySample(id, ctx).catch(() => null)));
+  if (!want.size) return;
   await Promise.all([...want].map(async (hash) => {
+    if (SAMPLE_BUFFERS.has(hash)) return;
     const rec = await tx('readonly', (s) => s.get(hash));
     if (rec?.wav) { try { SAMPLE_BUFFERS.set(hash, await decode(ctx, rec.wav.slice(0))); } catch { /* broken: stays silent */ } return; }
     // not on this device: maybe it is one of the built-in one-shots (same hash every time)
     await ensureBuiltinSamples(ctx);
   }));
+}
+export function sampleBuffer(l) {
+  if (!l) return null;
+  return (l.sample && SAMPLE_BUFFERS.get(l.sample)) || (l.library && SAMPLE_BUFFERS.get(libKey(l.library))) || null;
 }
 export async function clearSamples() { SAMPLE_BUFFERS.clear(); await tx('readwrite', (s) => s.clear()); }
 // Drop stored samples that no saved patch uses and that are older than 2 days.
@@ -138,4 +151,90 @@ export async function ensureBuiltinSamples(ctx) {
   for (const s of BUILTIN_SAMPLES) {
     try { await loadBuiltinSample(s.id, ctx); } catch { /* ok */ }
   }
+}
+
+// ---------- Site sample library (Jens t964u) ----------
+// Static files + manifest at /sample-lib/. The patch stores `library` (e.g. 'bass-3'); everyone
+// fetches the same URL and we cache the decoded buffer (and the WAV in IndexedDB) under both the
+// sha-256 and 'lib:<id>'.
+export const SAMPLE_LIB_BASE = '/sample-lib/';
+const libKey = (id) => 'lib:' + id;
+let manifestP = null;
+
+export async function loadSampleLibManifest() {
+  return (manifestP ||= fetch(SAMPLE_LIB_BASE + 'manifest.json', { cache: 'no-cache' }).then(async (r) => {
+    if (!r.ok) throw new Error('Could not load the sample list');
+    const m = await r.json();
+    if (!m || !Array.isArray(m.groups)) throw new Error('Could not load the sample list');
+    return m;
+  }).catch((e) => { manifestP = null; throw e; }));
+}
+export async function listLibrarySamples() {
+  const m = await loadSampleLibManifest();
+  const out = [];
+  for (const g of m.groups || []) {
+    for (const s of g.samples || []) {
+      if (!s?.id || !s?.file) continue;
+      out.push({ id: s.id, name: s.name || s.id, file: s.file, len: +s.len || 0, bytes: +s.bytes || 0, group: g.id, groupName: g.name || g.id });
+    }
+  }
+  return out;
+}
+export function libraryUrl(entry) {
+  const file = typeof entry === 'string' ? entry : entry?.file;
+  if (!file || file.includes('..') || file.includes('/') || file.includes('\\')) return '';
+  return SAMPLE_LIB_BASE + file;
+}
+
+async function findStoredLibrary(id) {
+  const all = (await tx('readonly', (s) => s.getAll())) || [];
+  return all.find((r) => r.library === id) || null;
+}
+
+// Load a library sample into SAMPLE_BUFFERS (and IndexedDB) by its id. Same return shape as loadSampleFile, plus library.
+export async function loadLibrarySample(id, ctx) {
+  const sid = String(id || '').trim().toLowerCase();
+  if (!sid) throw new Error('Unknown sample');
+  if (!ctx) throw new Error('Sound is not available in this browser');
+  if (SAMPLE_BUFFERS.has(libKey(sid))) {
+    const buf = SAMPLE_BUFFERS.get(libKey(sid));
+    const rec = await findStoredLibrary(sid);
+    return { hash: rec?.hash || '', name: rec?.name || sid, len: rec ? +(buf.duration).toFixed(3) : +(buf.duration).toFixed(3), truncated: false, library: sid };
+  }
+  const stored = await findStoredLibrary(sid);
+  if (stored?.wav) {
+    try {
+      const audio = await decode(ctx, stored.wav.slice(0));
+      SAMPLE_BUFFERS.set(stored.hash, audio);
+      SAMPLE_BUFFERS.set(libKey(sid), audio);
+      return { hash: stored.hash, name: stored.name || sid, len: +(audio.duration).toFixed(3), truncated: false, library: sid };
+    } catch { /* fall through to the network */ }
+  }
+  const list = await listLibrarySamples();
+  const entry = list.find((s) => s.id === sid);
+  if (!entry) throw new Error('Unknown sample');
+  const url = libraryUrl(entry);
+  if (!url) throw new Error('Unknown sample');
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Could not load that sample');
+  const ab = await res.arrayBuffer();
+  let audio;
+  try { audio = await decode(ctx, ab); } catch { throw new Error('Could not read that audio file'); }
+  const rate = audio.sampleRate, n = Math.min(audio.length, Math.round(SAMPLE_LIMITS.maxSeconds * rate));
+  if (n < 16) throw new Error('The sound is empty');
+  const mono = new Float32Array(n);
+  for (let c = 0; c < audio.numberOfChannels; c++) { const d = audio.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += d[i] / audio.numberOfChannels; }
+  const wav = encodeWav(mono, rate), hash = await sha256(wav);
+  const name = String(entry.name || sid).slice(0, 40);
+  await tx('readwrite', (s) => s.put({ hash, name, wav, at: Date.now(), library: sid }));
+  const buf = ctx.createBuffer(1, n, rate); buf.getChannelData(0).set(mono);
+  SAMPLE_BUFFERS.set(hash, buf);
+  SAMPLE_BUFFERS.set(libKey(sid), buf);
+  return { hash, name, len: +(n / rate).toFixed(3), truncated: audio.length > n, library: sid };
+}
+
+export async function ensureLibraryIds(ids, ctx) {
+  if (!ctx) return;
+  const want = [...new Set((ids || []).filter(Boolean))];
+  await Promise.all(want.map((id) => loadLibrarySample(id, ctx).catch(() => null)));
 }

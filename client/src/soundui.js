@@ -12,7 +12,7 @@ import { SOUNDS, SOUND_TABS, SYNTH, WAVES, NOISES, FILTERS, LFO_TARGETS, SYNCS, 
   cleanPatch, cleanFx, cleanSound, variant, randomPatch, randomFx, noteName, diffPatch, snapFreq, retune as retuneP, defaultStepSeq } from '../../shared/synth.mjs';
 import { lockedPatch, setLock, getLock, clearLock, clearLocks, lockCount, stepsLocking, removeLayerLocks, resizeSeq, lockKey, cleanCond, cleanRatchet, nextRatchet, stepTriggers, STEP_RATCHET, patternLen, seqLoop, normalizeSeq, cleanRatchetProb, nextRatchetProb } from '../../shared/stepseq.mjs';
 import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseTarget, modOrder, snapRate, selfLoop, targetSpec, LAYER_TARGETS, PATCH_TARGETS, MOD_TARGETS } from '../../shared/lfo.mjs';
-import { loadSampleFile, clearSamples, pruneSamples, ensureSamples, loadBuiltinSample, BUILTIN_SAMPLES } from './samples.js';
+import { loadSampleFile, clearSamples, pruneSamples, ensureSamples, loadBuiltinSample, BUILTIN_SAMPLES, listLibrarySamples, loadLibrarySample, sampleBuffer } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
 import { soundTheme } from './soundtheme.js';
@@ -621,8 +621,103 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     box.appendChild(bar);
     return box;
   }
+  // Large, clear sample-library picker (Jens t964u). Preview on click; Use this sample assigns it.
+  // "Upload your own" keeps the existing file-picker / drop behaviour.
+  function openSampleLibrary(l, k, info, fileInput) {
+    document.getElementById('smp-lib')?.remove();
+    const pop = el('div', 'smp-lib'); pop.id = 'smp-lib'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'Load sample');
+    const head = el('div', 'smp-lib-head');
+    head.appendChild(el('h2', 'smp-lib-title', 'Load sample'));
+    const close = el('button', 'smp-lib-close', '✕ Close'); close.type = 'button';
+    const dismiss = () => pop.remove();
+    close.onclick = dismiss;
+    head.appendChild(close);
+    const hint = el('p', 'smp-lib-hint', 'Tap a sample to hear it. Then press Use this sample. Upload your own stays on this device – others cannot hear it.');
+    const body = el('div', 'smp-lib-body');
+    const status = el('p', 'smp-lib-status', 'Loading the list…');
+    body.appendChild(status);
+    pop.append(head, hint, body);
+    // On the body so #sound-panel typography (16px h2, 40px buttons) cannot shrink the list.
+    document.body.appendChild(pop);
+    let chosen = l.library || null;
+    const apply = async (entry, isBuiltin) => {
+      info.textContent = 'Loading …';
+      try {
+        const ctx = sound.ensure();
+        const r = isBuiltin ? await loadBuiltinSample(entry.id, ctx) : await loadLibrarySample(entry.id, ctx);
+        Object.assign(l, { sample: r.hash, name: r.name, len: r.len, start: 0, end: 1, loopStart: 0, loopEnd: 1 });
+        if (r.library) l.library = r.library; else delete l.library;
+        edited(k, true);
+        toast(`Loaded ${r.name}`, 1600);
+        preview();
+        dismiss();
+      } catch (e) { status.textContent = e.message || 'Could not load that sample'; toast(e.message || 'Could not load that sample', 2600); }
+    };
+    const previewOne = async (entry, isBuiltin) => {
+      try {
+        const ctx = sound.ensure();
+        const r = isBuiltin ? await loadBuiltinSample(entry.id, ctx) : await loadLibrarySample(entry.id, ctx);
+        const patch = cleanPatch({ layers: [{ kind: 'sampler', sample: r.hash, library: r.library, name: r.name, len: r.len, level: 0.85, a: 0.003, d: 0.15, s: 0, r: 0.06, whole: true }] });
+        if (patch) sound.preview(patch);
+      } catch (e) { status.textContent = e.message || 'Could not play that sample'; }
+    };
+    const row = (entry, { builtin = false, selected = false } = {}) => {
+      const b = el('button', 'smp-lib-item' + (selected ? ' sel' : ''), '');
+      b.type = 'button'; b.dataset.id = entry.id; if (builtin) b.dataset.builtin = '1';
+      const name = el('span', 'smp-lib-name', entry.name);
+      const meta = el('span', 'smp-lib-meta', builtin ? 'Built-in' : (entry.len ? entry.len.toFixed(2) + ' s' : ''));
+      b.append(name, meta);
+      b.onclick = () => {
+        chosen = entry.id;
+        body.querySelectorAll('.smp-lib-item.sel').forEach((x) => x.classList.remove('sel'));
+        b.classList.add('sel');
+        previewOne(entry, builtin);
+      };
+      b.ondblclick = (e) => { e.preventDefault(); apply(entry, builtin); };
+      return b;
+    };
+    const use = el('button', 'primary smp-lib-use', 'Use this sample'); use.type = 'button';
+    use.onclick = () => {
+      const sel = body.querySelector('.smp-lib-item.sel');
+      if (!sel) { status.textContent = 'Pick a sample first, then press Use this sample.'; return; }
+      const entry = { id: sel.dataset.id, name: sel.querySelector('.smp-lib-name')?.textContent || sel.dataset.id };
+      apply(entry, sel.dataset.builtin === '1');
+    };
+    const upload = el('button', 'smp-lib-upload', 'Upload your own'); upload.type = 'button';
+    upload.onclick = () => { dismiss(); fileInput?.click(); };
+    (async () => {
+      try {
+        const list = await listLibrarySamples();
+        status.remove();
+        const built = el('div', 'smp-lib-group');
+        built.appendChild(el('h3', 'smp-lib-group-title', 'Built-in'));
+        const brow = el('div', 'smp-lib-rows');
+        for (const s of BUILTIN_SAMPLES) brow.appendChild(row(s, { builtin: true, selected: l.name === s.name && l.sample && !l.library }));
+        built.appendChild(brow); body.appendChild(built);
+        let last = '';
+        let groupEl, rows;
+        for (const s of list) {
+          if (s.group !== last) {
+            last = s.group;
+            groupEl = el('div', 'smp-lib-group'); groupEl.dataset.group = s.group;
+            groupEl.appendChild(el('h3', 'smp-lib-group-title', s.groupName || s.group));
+            rows = el('div', 'smp-lib-rows'); groupEl.appendChild(rows); body.appendChild(groupEl);
+          }
+          rows.appendChild(row(s, { selected: l.library === s.id }));
+        }
+        const foot = el('div', 'smp-lib-foot');
+        foot.append(use, upload);
+        pop.appendChild(foot);
+      } catch (e) {
+        status.textContent = e.message || 'Could not load the sample list';
+        const foot = el('div', 'smp-lib-foot'); foot.appendChild(upload); pop.appendChild(foot);
+      }
+    })();
+  }
+
   // ---------- The sampler layer ----------
   function samplerBlock(p, i, k) {
+
     const l = p.layers[i];
     const box = el('fieldset', 'snd-layer snd-sampler'); box.dataset.layer = i; box.dataset.kind = 'sampler';
     box.appendChild(el('legend', null, `Layer ${i + 1} · 🎵 Sampler`));
@@ -635,16 +730,18 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     // file: drag-and-drop (desktop) or the picker (iPhone: Files, Voice Memos via Files, iCloud …)
     const drop = el('div', 'smp-drop'); drop.dataset.drop = 'sampler';
     const file = el('input'); file.type = 'file'; file.accept = 'audio/*,.wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.flac,.aif,.aiff,.caf'; file.hidden = true; file.className = 'smp-file';
-    const pick = el('button', 'smp-pick', '📂 Choose audio file'); pick.type = 'button'; pick.onclick = () => file.click();
-    const info = el('div', 'smp-info', l.sample ? `${l.name || 'sample'} · ${l.len.toFixed(2)} s` : 'No sample yet – drop an audio file here, or choose one');
-    if (l.sample && !SAMPLE_BUFFERS.has(l.sample)) info.textContent += ' (not on this device)';
+    const pick = el('button', 'smp-pick', 'Upload your own'); pick.type = 'button'; pick.id = 'smp-upload'; pick.onclick = () => file.click();
+    const loadBtn = el('button', 'smp-load', 'Load sample'); loadBtn.type = 'button'; loadBtn.id = 'smp-load';
+    loadBtn.onclick = () => openSampleLibrary(l, k, info, file);
+    const info = el('div', 'smp-info', l.sample || l.library ? `${l.name || l.library || 'sample'}${l.len ? ' · ' + l.len.toFixed(2) + ' s' : ''}` : 'No sample yet – Load sample, or upload your own');
+    if ((l.sample || l.library) && !sampleBuffer(l)) info.textContent += l.library ? ' (loading…)' : ' (not on this device)';
     const load = async (f) => {
       if (!f) return;
       info.textContent = 'Loading …';
       try {
         const ctx = sound.ensure();
         const r = await loadSampleFile(f, ctx);
-        Object.assign(l, { sample: r.hash, name: r.name, len: r.len, start: 0, end: 1, loopStart: 0, loopEnd: 1 });
+        Object.assign(l, { sample: r.hash, name: r.name, len: r.len, start: 0, end: 1, loopStart: 0, loopEnd: 1 }); delete l.library;
         edited(k, true);
         toast(r.truncated ? `Loaded – cut to the first ${SYNTH.maxSampleSeconds} s` : `Loaded ${r.name}`, 2200);
         preview();
@@ -664,7 +761,7 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
         try {
           const ctx = sound.ensure();
           const r = await loadBuiltinSample(s.id, ctx);
-          Object.assign(l, { sample: r.hash, name: r.name, len: r.len, start: 0, end: 1, loopStart: 0, loopEnd: 1 });
+          Object.assign(l, { sample: r.hash, name: r.name, len: r.len, start: 0, end: 1, loopStart: 0, loopEnd: 1 }); delete l.library;
           edited(k, true);
           toast(`Loaded ${r.name}`, 1600);
           preview();
@@ -672,13 +769,13 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
       };
       builtins.appendChild(b);
     }
-    drop.append(el('div', 'smp-drop-text', '⬇ Drop an audio file here'), pick, file, builtins, info);
+    drop.append(el('div', 'smp-drop-text', '⬇ Drop an audio file here, or'), loadBtn, pick, file, builtins, info);
     box.appendChild(drop);
     // waveform with the start/end (green/red) and loop (yellow) points
     const cv = el('canvas', 'smp-wave'); cv.width = 960; cv.height = 200;
     const draw = () => drawWave(cv, l);
     box.appendChild(cv); draw();
-    if (l.sample && !SAMPLE_BUFFERS.has(l.sample)) ensureSamples({ p }, sound.ensure()).then(() => { draw(); if (SAMPLE_BUFFERS.has(l.sample)) info.textContent = `${l.name || 'sample'} · ${l.len.toFixed(2)} s`; });
+    if ((l.sample || l.library) && !sampleBuffer(l)) ensureSamples({ p }, sound.ensure()).then(() => { draw(); if (sampleBuffer(l)) info.textContent = `${l.name || l.library || 'sample'}${l.len ? ' · ' + l.len.toFixed(2) + ' s' : ''}`; });
     // switches
     const sw = el('div', 'smp-switches');
     for (const [key, label] of [['whole', 'One-shot (whole sample)'], ['loop', 'Loop'], ['reverse', 'Reverse']]) {

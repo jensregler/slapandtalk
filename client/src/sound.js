@@ -15,7 +15,8 @@ import { withLines } from '../../shared/dancelines.mjs';
 import { DEFAULT_PATCHES, variant, morphPatch, cleanPatch, cleanFx, duffScale, slapScale, sizeRate, retune, roomAcoustics, colourPatch, migrateStepSeq } from '../../shared/synth.mjs';
 import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
 import { peelStepParams } from '../../shared/peelstep.mjs';
-import { ensureSamples } from './samples.js';
+import { ensureSamples, ensureLibraryIds } from './samples.js';
+import { LIBRARY_IDS } from '../../shared/samplelib.mjs';
 import { knobToMorph } from '../../shared/radio.mjs';
 import { THEMES, themeWobble, themeStepPatch, themeAnyPatch, themeScalePatch } from '../../shared/soundtheme.mjs';
 
@@ -81,6 +82,8 @@ export class Sounds {
     }).catch((e) => { console.warn('synth', e); return null; });
     return this.ctx;
   }
+  preloadLibrary(ids) { if (this.ensure() && ids && ids.length) ensureLibraryIds(ids, this.ctx); }
+  preloadNpcs(list) { if (list && list.length) this.preloadLibrary(LIBRARY_IDS); }
   setVolume(v) {
     this.volume = Math.min(1, Math.max(0, Number(v) || 0)); try { sessionStorage.setItem(VOL_KEY, String(this.volume)); } catch { /* private */ }
     if (this.engine) this.engine.out.gain.value = 0.9 * this.volume;
@@ -91,7 +94,10 @@ export class Sounds {
   async useMic() { this.ensure(); await this.ready; return this.engine ? this.engine.useMic() : false; }
   setMine(sound) {
     this.mine = sound || null; this.mineV = (this.mineV || 0) + 1; // mineV: groove.js rebuilds a running buzz on a change (t869u)
-    if (sound?.patches && this.ensure()) ensureSamples(sound.patches, this.ctx); // (sampler layers' audio from this device)
+    if (this.ensure()) {
+      if (sound?.patches) ensureSamples(sound.patches, this.ctx);
+      if (sound?.sampleLib) ensureLibraryIds(Object.values(sound.sampleLib).flat(), this.ctx);
+    }
     // Listener FX: apply MY fx locally to everything reaching my ears (t588u).
     // (only when the fx really changed: live edits of a patch call this ~every frame while a slider moves, t869u)
     const fxKey = sound && sound.fx ? JSON.stringify(sound.fx) : '';
@@ -191,6 +197,7 @@ export class Sounds {
     if (kind === 'step' && this.theme.id !== 'A' && this.stepLog.length) { const last = this.stepLog[this.stepLog.length - 1]; last.theme = this.theme.id; last.hz = (played?.layers || []).map((l) => +(+l.freq || 0).toFixed(2)); last.rate = +rate.toFixed(4); } // (tests: what a themed step really played)
     if (this.muted) return entry;
     if (!this.ensure()) return entry;
+    if (patch) ensureSamples({ p: patch }, this.ctx);
     // FX is on the listener chain (setMine → setListenerFx), not per voice.
     const lfoId = kind === 'step' ? (npc ? 'npc:' + npc : (remote ? 'p:' + (who?.seed || 'r') : 'me')) : null;
     const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(played, { gain, pos: remote ? at : null, time, pool: pool || (kind === 'step' ? 'step' : 'main'), paper, ...(lfoId ? { lfoId } : {}) })) { entry.skipped = true; if (kind === 'step') this.stepsSkipped = (this.stepsSkipped || 0) + 1; } };

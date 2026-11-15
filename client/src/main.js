@@ -2594,7 +2594,7 @@ const together = initTogether({
   ready: DEMO ? null : () => Promise.race([Promise.all([roomInfoLoaded, entitlementsReady]), new Promise((r) => setTimeout(r, 3000))]),
   room: ROOM, scene, camera, controls, isTouch, toast, artist: () => state.artist,
   onEvent: onRoomEvent, onReconnect: resyncRoom,
-  onWelcome: (m) => { if (groove && Number.isFinite(m.now)) groove.setServerClock(m.now); (npcs || (npcs = new Npcs(scene))).set(m.npcs || []); setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }); if (DEMO) demoWelcome(m); if (voice) voice.reset(); },
+  onWelcome: (m) => { if (groove && Number.isFinite(m.now)) groove.setServerClock(m.now); (npcs || (npcs = new Npcs(scene))).set(m.npcs || []); if (m.npcs && m.npcs.length) sound.preloadNpcs(m.npcs); setRec(m.rec || null, { announce: m.rec && !rec ? 'joined' : null }); if (DEMO) demoWelcome(m); if (voice) voice.reset(); },
   onSound: (s) => sound.setMine(s),
   pass: () => (DEMO ? demo.passFor(ROOM) : null),
   onDenied: (m) => { if (m.code === 'house-full' && IN_CITY) { houseFullBack(); return; } if (DEMO && m.code === 'gone') demo.forgetRoom(ROOM); if (DEMO) demoClosed(demo.deniedText(m.code), m.code === 'gone' ? S.closedTitle : ' '); },

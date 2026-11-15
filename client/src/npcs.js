@@ -71,7 +71,9 @@ export class Npcs {
       if (!(pl.ear < NPC.audibleM)) continue;
       const wild = this.theme.npcWild !== false;
       const wildK = wild ? npcWildIndex(n, t) : null;
-      if (pl.wildK !== wildK) { pl.wildK = wildK; pl.wildStep = wild ? npcStepPatchAt(n, t) : (n.sound.patches && n.sound.patches.step) || null; }
+      // Recompute every time: cutoff drifts smoothly between Wild / seq windows (t967u).
+      pl.wildK = wildK;
+      pl.wildStep = npcStepPatchAt(n, t, { wild });
       const voice = { ...n.sound, patches: { ...n.sound.patches, step: pl.wildStep } };
       out.push({ id: n.id, x: n.x, z: n.z, at: [n.x, 0.05, n.z], voice, onPeel: false, dancing: true, tempo: pl.tempo, npc: true, ear: pl.ear, wildK });
     }
@@ -85,9 +87,9 @@ export class Npcs {
       npcs: [...this.players.map.values()].map((pl) => ({ id: pl.id, name: pl.npc?.name, label: pl.name, tag: pl.avatar?.name || null, x: pl.npc?.x, z: pl.npc?.z, plaza: !!pl.npc?.plaza,
         built: !!pl.avatar, danceAt: pl.avatar?.danceAt ?? null, visible: !!pl.avatar?.root.visible, dancing: !!pl.avatar?.dancing, danceTime: pl.avatar ? +pl.avatar.danceTime.toFixed(2) : 0, danceBpm: pl.avatar?.danceGrid?.bpm ?? null,
         dist: Number.isFinite(pl.dist) ? +pl.dist.toFixed(2) : null, ear: Number.isFinite(pl.ear) ? +pl.ear.toFixed(2) : null, audible: pl.ear < NPC.audibleM, gait: pl.gait || null, tempo: pl.tempo ? { ...pl.tempo } : null, walkBpm: pl.npc?.walkBpm, scale: pl.npc?.scale, slot: pl.npc?.slot, run: pl.npc?.run,
-        step: pl.npc?.sound?.patches?.step?.layers?.map((l) => ({ kind: l.kind, wave: l.kind === 'osc' ? l.wave : l.noise, freq: l.freq, cutoff: l.cutoff, d: l.d, level: l.level })),
+        step: pl.npc?.sound?.patches?.step?.layers?.map((l) => ({ kind: l.kind, library: l.library || null, note: l.note, cutoff: l.cutoff, d: l.d, level: l.level, name: l.name })),
         wildK: pl.wildK ?? (pl.npc && this.nowMs ? npcWildIndex(pl.npc, this.nowMs) : null),
-        wildStep: (pl.wildStep || (pl.npc && this.nowMs ? npcStepPatchAt(pl.npc, this.nowMs) : null))?.layers?.map((l) => ({ kind: l.kind, wave: l.kind === 'osc' ? l.wave : l.noise, freq: l.freq, cutoff: l.cutoff, d: l.d, level: l.level })) || null })) };
+        wildStep: (pl.wildStep || (pl.npc && this.nowMs ? npcStepPatchAt(pl.npc, this.nowMs, { wild: this.theme.npcWild !== false }) : null))?.layers?.map((l) => ({ kind: l.kind, library: l.library || null, note: l.note, cutoff: l.cutoff, d: l.d, level: l.level, name: l.name })) || null })) };
   }
   // Every NPC's gait at one server time (tests: two screens agree).
   gaitsAt(nowMs) { return this.list.map((n) => npcGaitAt(n, nowMs)); }

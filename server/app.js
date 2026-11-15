@@ -1581,6 +1581,8 @@ app.use(express.static(DIST, {
     if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     // the noise room's music (scripts/noise-speakers.mjs): the names carry the content's hash → cache for good (Render bandwidth)
     else if (/[\\/]noise-speakers[\\/][^\\/]+\.(mp3|m4a|ogg|opus|webm)$/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    else if (/[\\/]sample-lib[\\/]manifest\.json$/.test(file)) res.setHeader('Cache-Control', 'public, max-age=60');
+    else if (/[\\/]sample-lib[\\/][^\\/]+\.(wav|mp3|ogg|opus)$/.test(file)) res.setHeader('Cache-Control', 'public, max-age=86400');
     else noCache(res);
   },
 }));

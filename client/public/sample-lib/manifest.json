@@ -1,0 +1,360 @@
+{
+  "version": 1,
+  "format": "wav",
+  "base": "/sample-lib/",
+  "made": "2026-11-15T23:36:58Z",
+  "source": "/Jens Regler/Ulla/SlapSamples",
+  "groups": [
+    {
+      "id": "bass",
+      "name": "Bass",
+      "samples": [
+        {
+          "id": "bass-1",
+          "name": "Bass 1",
+          "file": "bass-1.wav",
+          "len": 0.253,
+          "bytes": 24444,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-2",
+          "name": "Bass 2",
+          "file": "bass-2.wav",
+          "len": 0.27,
+          "bytes": 26124,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-3",
+          "name": "Bass 3",
+          "file": "bass-3.wav",
+          "len": 0.192,
+          "bytes": 18588,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-4",
+          "name": "Bass 4",
+          "file": "bass-4.wav",
+          "len": 0.272,
+          "bytes": 26320,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-5",
+          "name": "Bass 5",
+          "file": "bass-5.wav",
+          "len": 0.188,
+          "bytes": 18230,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-6",
+          "name": "Bass 6",
+          "file": "bass-6.wav",
+          "len": 0.345,
+          "bytes": 33300,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-7",
+          "name": "Bass 7",
+          "file": "bass-7.wav",
+          "len": 0.448,
+          "bytes": 43148,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-8",
+          "name": "Bass 8",
+          "file": "bass-8.wav",
+          "len": 0.334,
+          "bytes": 32252,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-9",
+          "name": "Bass 9",
+          "file": "bass-9.wav",
+          "len": 0.315,
+          "bytes": 30414,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-10",
+          "name": "Bass 10",
+          "file": "bass-10.wav",
+          "len": 0.148,
+          "bytes": 14406,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-11",
+          "name": "Bass 11",
+          "file": "bass-11.wav",
+          "len": 0.374,
+          "bytes": 36084,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-12",
+          "name": "Bass 12",
+          "file": "bass-12.wav",
+          "len": 0.614,
+          "bytes": 59140,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-13",
+          "name": "Bass 13",
+          "file": "bass-13.wav",
+          "len": 0.635,
+          "bytes": 61150,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-14",
+          "name": "Bass 14",
+          "file": "bass-14.wav",
+          "len": 0.675,
+          "bytes": 65000,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-15",
+          "name": "Bass 15",
+          "file": "bass-15.wav",
+          "len": 0.129,
+          "bytes": 12572,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "bass-16",
+          "name": "Bass 16",
+          "file": "bass-16.wav",
+          "len": 0.447,
+          "bytes": 43120,
+          "rate": 48000,
+          "channels": 1
+        }
+      ]
+    },
+    {
+      "id": "hatsnare",
+      "name": "Hat / snare",
+      "samples": [
+        {
+          "id": "hat-1",
+          "name": "Hat 1",
+          "file": "hat-1.wav",
+          "len": 0.203,
+          "bytes": 19618,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "hat-2",
+          "name": "Hat 2",
+          "file": "hat-2.wav",
+          "len": 0.078,
+          "bytes": 7656,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "hat-3",
+          "name": "Hat 3",
+          "file": "hat-3.wav",
+          "len": 0.262,
+          "bytes": 25316,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "hat-4",
+          "name": "Hat 4",
+          "file": "hat-4.wav",
+          "len": 0.247,
+          "bytes": 23840,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "hat-5",
+          "name": "Hat 5",
+          "file": "hat-5.wav",
+          "len": 0.196,
+          "bytes": 19034,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "hat-6",
+          "name": "Hat 6",
+          "file": "hat-6.wav",
+          "len": 0.33,
+          "bytes": 31896,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "hat-7",
+          "name": "Hat 7",
+          "file": "hat-7.wav",
+          "len": 0.073,
+          "bytes": 7164,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "hat-8",
+          "name": "Hat 8",
+          "file": "hat-8.wav",
+          "len": 0.288,
+          "bytes": 27852,
+          "rate": 48000,
+          "channels": 1
+        }
+      ]
+    },
+    {
+      "id": "other",
+      "name": "Other",
+      "samples": [
+        {
+          "id": "other-1",
+          "name": "Other 1",
+          "file": "other-1.wav",
+          "len": 0.339,
+          "bytes": 32740,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-2",
+          "name": "Other 2",
+          "file": "other-2.wav",
+          "len": 0.359,
+          "bytes": 34666,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-3",
+          "name": "Other 3",
+          "file": "other-3.wav",
+          "len": 0.355,
+          "bytes": 34228,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-4",
+          "name": "Other 4",
+          "file": "other-4.wav",
+          "len": 0.521,
+          "bytes": 50180,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-5",
+          "name": "Other 5",
+          "file": "other-5.wav",
+          "len": 0.342,
+          "bytes": 33014,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-6",
+          "name": "Other 6",
+          "file": "other-6.wav",
+          "len": 0.257,
+          "bytes": 24838,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-7",
+          "name": "Other 7",
+          "file": "other-7.wav",
+          "len": 0.301,
+          "bytes": 29068,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-8",
+          "name": "Other 8",
+          "file": "other-8.wav",
+          "len": 0.399,
+          "bytes": 38444,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-9",
+          "name": "Other 9",
+          "file": "other-9.wav",
+          "len": 0.127,
+          "bytes": 12368,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-10",
+          "name": "Other 10",
+          "file": "other-10.wav",
+          "len": 0.67,
+          "bytes": 64460,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-11",
+          "name": "Other 11",
+          "file": "other-11.wav",
+          "len": 0.538,
+          "bytes": 51838,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-12",
+          "name": "Other 12",
+          "file": "other-12.wav",
+          "len": 0.467,
+          "bytes": 44980,
+          "rate": 48000,
+          "channels": 1
+        },
+        {
+          "id": "other-13",
+          "name": "Other 13",
+          "file": "other-13.wav",
+          "len": 0.447,
+          "bytes": 43120,
+          "rate": 48000,
+          "channels": 1
+        }
+      ]
+    }
+  ]
+}

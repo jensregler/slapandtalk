@@ -24,6 +24,8 @@ import { cleanSeq, visibleSteps } from './autoslap.mjs';
 //   whole (true = one-shot: the gate lasts the whole sample (start→end); false = gate: the envelope decides)
 //   start, end (0–1 of the sample)  reverse  loop + loopStart, loopEnd (0–1) + xfade (s, crossfaded loop seam)
 //   pan (−1…1)  poly (how many of this sample may ring at once; the oldest is cut)
+//   library (optional id, e.g. bass-3): a site sample from /sample-lib/ (Jens t964u). Other players
+//   and room presets fetch that file by URL; a user-uploaded file still stays on this device (hash only).
 // Decimation on ANY layer (sample-and-hold downsampler, client/src/decimator.js – an AudioWorklet):
 //   decim (hold every input sample for N samples, 1 = off) + crush (bits, 0 = off). Like the sampler
 //   keys these only appear when used, so an old patch's JSON is exactly what it was.
@@ -40,7 +42,8 @@ import { cleanSeq, visibleSteps } from './autoslap.mjs';
 // Pitch grid: the pitch controls (osc Pitch, sampler Note/Root) move in equal-tempered semitones
 //   (A4 = 440 Hz); a morph lands on the grid too (snapFreq). LFOs and the per-play wobble still bend
 //   between grid points (vibrato stays natural). Saved values are never moved by loading.
-// The audio itself never goes in the patch: it is kept on this device (client/src/samples.js).
+// The audio itself never goes in the patch: user uploads stay on this device (client/src/samples.js);
+// library samples are public files at /sample-lib/ and are loaded from the id in `library`.
 // A patch may also carry mods (shared/lfo.mjs: up to 16 nested LFOs) and morph (0–1, see morphPatch).
 
 export const SOUNDS = ['slap', 'peel', 'step', 'duff']; // duff = peel landing thud (+ four voices Low)
@@ -108,6 +111,40 @@ export function clampTo(v, [min, max, step], fallback) {
   return Number(Math.min(max, Math.max(min, n)).toFixed(4));
 }
 
+// Site sample-library id (public/sample-lib, Jens t964u): 'bass-1', 'hat-8', 'other-13'.
+export const LIBRARY_ID = /^[a-z]+-[1-9][0-9]*$/;
+export function cleanLibraryId(id) {
+  if (typeof id !== 'string') return '';
+  const s = id.trim().toLowerCase();
+  return LIBRARY_ID.test(s) ? s : '';
+}
+// Compact list of library ids used by a player's patches, one list per sound kind – small enough to
+// send with the look so others can fetch the same files (patches themselves stay personal).
+export function sampleLibFromPatches(patches) {
+  if (!patches || typeof patches !== 'object') return null;
+  const out = {};
+  for (const k of SOUNDS) {
+    const ids = [];
+    for (const l of patches[k]?.layers || []) {
+      const id = l && l.kind === 'sampler' ? cleanLibraryId(l.library) : '';
+      if (id) ids.push(id);
+    }
+    if (ids.length) out[k] = ids;
+  }
+  return Object.keys(out).length ? out : null;
+}
+export function cleanSampleLib(x) {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
+  const out = {};
+  for (const k of SOUNDS) {
+    const v = x[k];
+    const raw = Array.isArray(v) ? v : (v != null ? [v] : []);
+    const ids = raw.map(cleanLibraryId).filter(Boolean).slice(0, SYNTH.maxLayers);
+    if (ids.length) out[k] = ids;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 export function cleanLayer(l) {
   if (!l || typeof l !== 'object' || Array.isArray(l)) return null;
   const out = {};
@@ -118,6 +155,7 @@ export function cleanLayer(l) {
     out.len = clampTo(l.len, SYNTH.sampler.len, 0);
     out.sample = typeof l.sample === 'string' && /^[a-f0-9]{64}$/.test(l.sample) ? l.sample : '';
     out.name = typeof l.name === 'string' ? l.name.replace(/[\u0000-\u001f<>]/g, '').slice(0, 40) : '';
+    const lib = cleanLibraryId(l.library); if (lib) out.library = lib;
     out.whole = l.whole !== false;
     const S2 = SYNTH.sampler;
     out.start = clampTo(l.start, S2.start, 0); out.end = clampTo(l.end, S2.end, 1);
@@ -253,6 +291,8 @@ export function cleanSound(s, { custom = false } = {}) {
   if (!s || typeof s !== 'object') return null;
   const out = {};
   if (typeof s.seed === 'string' && /^[A-Za-z0-9_-]{4,24}$/.test(s.seed)) out.seed = s.seed;
+  const sampleLib = cleanSampleLib(s.sampleLib) || (custom ? sampleLibFromPatches(s.patches) : null);
+  if (sampleLib) out.sampleLib = sampleLib;
   if (custom) {
     const patches = {};
     if (s.patches && typeof s.patches === 'object') for (const k of SOUNDS) { const p = cleanPatch(k === 'step' ? migrateStepSeq(s.patches[k]) : s.patches[k]); if (p) patches[k] = p; }
@@ -291,6 +331,37 @@ export const DEFAULT_PATCHES = {
     L({ kind: 'osc', wave: 'sine', freq: 62, pitchAmt: 6, pitchTime: 0.06, a: 0.003, d: 0.11, level: 0.26 }),
   ] },
 };
+
+// Put their library samples onto (a copy of) my patches so I hear the same files they picked.
+// Existing sampler layers are re-pointed in order; leftover ids add a sampler layer (so a default
+// oscillator walk still lets their sample be heard).
+export function applySampleLib(sound, sampleLib) {
+  const lib = cleanSampleLib(sampleLib);
+  if (!lib || !sound) return sound;
+  const patches = { ...(sound.patches || {}) };
+  let changed = false;
+  for (const [kind, ids] of Object.entries(lib)) {
+    const src = patches[kind] || DEFAULT_PATCHES[kind];
+    const p = src ? cleanPatch(kind === 'step' ? migrateStepSeq(src) : src) : cleanPatch({ layers: [{ kind: 'sampler' }] });
+    if (!p) continue;
+    let si = 0;
+    const layers = p.layers.map((l) => {
+      if (l.kind === 'sampler' && ids[si]) {
+        const id = ids[si++];
+        changed = true;
+        return { ...l, library: id, name: (l.library === id && l.name) ? l.name : id };
+      }
+      return l;
+    });
+    while (si < ids.length && layers.length < SYNTH.maxLayers) {
+      const id = ids[si++];
+      const add = cleanLayer({ kind: 'sampler', library: id, name: id, level: 0.7, a: 0.003, d: 0.2, s: 1, r: 0.08, whole: true });
+      if (add) { layers.push(add); changed = true; }
+    }
+    patches[kind] = { ...p, layers };
+  }
+  return changed ? { ...sound, patches } : sound;
+}
 
 // ---------- Deterministic per-player variation ----------
 export function hashSeed(str) { // FNV-1a → uint32
@@ -489,10 +560,10 @@ export function morphPatch(a0, b0, t) {
       if (x.freq !== y.freq) l.freq = snapFreq(l.freq);                 // pitch lands on the grid
       if (l.note != null && x.note !== y.note) l.note = Math.round(l.note);
       // kind flips at the middle: keep the sampler keys of whichever side is playing
-      const SK = ['note', 'root', 'len', 'sample', 'name', 'whole', 'start', 'end', 'reverse', 'loop', 'loopStart', 'loopEnd', 'xfade', 'pan', 'poly'];
+      const SK = ['note', 'root', 'len', 'sample', 'name', 'library', 'whole', 'start', 'end', 'reverse', 'loop', 'loopStart', 'loopEnd', 'xfade', 'pan', 'poly'];
       if (l.kind !== 'sampler') for (const k of SK) delete l[k];
       else if (x.kind !== y.kind) { const s = y.kind === 'sampler' ? y : x; for (const k of SK) l[k] = s[k]; }
-      else if (x.sample !== y.sample) { const s = t < 0.5 ? x : y; for (const k of ['sample', 'name', 'len']) l[k] = s[k]; }
+      else if (x.sample !== y.sample || x.library !== y.library) { const s = t < 0.5 ? x : y; for (const k of ['sample', 'name', 'len', 'library']) { if (s[k] != null) l[k] = s[k]; else delete l[k]; } }
       // decimation: a side without it counts as off (decim 1, crush 0)
       if (x.decim || y.decim) l.decim = lerp('decim', x.decim || 1, y.decim || 1, t);
       if (x.crush || y.crush) l.crush = t < 0.5 ? (x.crush || 0) : (y.crush || 0);

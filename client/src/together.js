@@ -8,7 +8,7 @@ import { initFabricUI, addRecent } from './fabricui.js';
 import { fabricStats } from './fabrics.js';
 import { has, credentials } from './entitlements.js';
 import { loadSoundLook } from './soundui.js';
-import { cleanSound } from '../../shared/synth.mjs';
+import { cleanSound, sampleLibFromPatches, applySampleLib } from '../../shared/synth.mjs';
 import { SHOW, showTurn } from './avatarview.js';
 import { cleanPlayerTempo, sameTempo, PLAYER_TEMPO } from '../../shared/playertempo.mjs';
 
@@ -29,12 +29,12 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
   // Sound: my seed (= my own variation of the default sounds) always; custom patches/FX only
   // with soundDesign (the server drops them otherwise).
   // liveSound (t869u): the Sound settings draft while the panel is open – heard at once, not saved, never sent.
-  let liveSound = null;
+  let liveSound = null, lastLibSent = '';
   const shownSound = () => { const s = loadSoundLook(); if (liveSound) { delete s.patches; delete s.fx; if (liveSound.patches) s.patches = liveSound.patches; if (liveSound.fx) s.fx = liveSound.fx; } if (!has('soundDesign')) { delete s.patches; delete s.fx; } s.colour = mySlot; return s; };
   // Personal sound (Jens, 2 Nov 2026): others get only my seed (the default sounds' variation), never
   // my settings; and everyone else's slaps / steps play for me with MY settings (+ their seed and colour).
-  const sentSound = () => { const s = shownSound(); delete s.patches; delete s.fx; return s; };
-  const heardAs = (theirs, slot) => { const m = shownSound(); const o = { seed: theirs?.seed, colour: slot || 0 }; if (m.patches) o.patches = m.patches; if (m.fx) o.fx = m.fx; return o; };
+  const sentSound = () => { const s = shownSound(); const lib = sampleLibFromPatches(s.patches); delete s.patches; delete s.fx; if (lib) s.sampleLib = lib; return s; };
+  const heardAs = (theirs, slot) => { const m = shownSound(); const o = { seed: theirs?.seed, colour: slot || 0 }; if (m.patches) o.patches = m.patches; if (m.fx) o.fx = m.fx; return theirs?.sampleLib ? applySampleLib(o, theirs.sampleLib) : o; };
   // roomLook: the room's own character for me (a preset room, free version – main.js, shared/randomlook.mjs).
   // It replaces my look for others, recordings and my own avatar there; my own look stays saved for other rooms.
   let roomLook = null;
@@ -405,7 +405,13 @@ export function initTogether({ room, scene, camera, controls, isTouch, toast, ar
     },
     talking: () => [...talking],
     // Sound settings saved: tell everyone (they play my patches; no other network cost).
-    soundChanged() { onSound(shownSound()); }, // personal: nothing is sent
+    soundChanged() {
+      onSound(shownSound());
+      // Personal patches stay local, but a library-sample choice is sent (just the id) so others can
+      // fetch the same public file (Jens t964u). Only when the set of ids actually changes.
+      const lib = JSON.stringify(sampleLibFromPatches(shownSound().patches) || {});
+      if (lib !== lastLibSent && net.status === 'online') { lastLibSent = lib; net.sendLook(myName(), shownLook()); }
+    },
     setLiveSound(d) { liveSound = d && typeof d === 'object' ? (cleanSound({ seed: loadSoundLook().seed, patches: d.patches, fx: d.fx }, { custom: true }) || {}) : null; onSound(shownSound()); }, // t869u: the draft, heard live
     shownSound,
     // A key was added/forgotten in this tab ("I have a key"): tell the server before the next look.
