@@ -1,0 +1,131 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Asset ghost vs surface texture</title>
+<style>
+  html, body { margin: 0; background: #111; }
+  canvas { display: block; width: 960px; height: 720px; }
+</style>
+<canvas id="c" width="960" height="720"></canvas>
+<script type="importmap">
+{ "imports": {
+    "three": "/node_modules/three/build/three.module.js",
+    "./assetghost.js": "/client/src/assetghost.js"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { applyAssetGhostStyle, ASSET_GHOST_OPACITY } from './assetghost.js';
+
+const bug = new URLSearchParams(location.search).has('bug');
+const canvas = document.querySelector('#c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(960, 720, false);
+renderer.setClearColor(0x9ec8ea, 1);
+renderer.sortObjects = true;
+
+const scene = new THREE.Scene();
+scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+const sun = new THREE.DirectionalLight(0xffffff, 0.7);
+sun.position.set(-4, 8, 3);
+scene.add(sun);
+
+const camera = new THREE.PerspectiveCamera(55, 960 / 720, 0.05, 80);
+// Looking down at the ghost, similar to Jens's shot (t947u).
+camera.position.set(0.15, 2.15, 3.15);
+camera.lookAt(0, 0.45, 0.15);
+
+// Beige ground (the unpainted city floor).
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(18, 18),
+  new THREE.MeshStandardMaterial({ color: 0xc9bfb0, roughness: 0.95, depthWrite: true }),
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Brick surface-texture sheet: same flags as client/src/surfacetex.js
+// (RENDER_ORDER 8, depthWrite false, lift 0.6 mm, polygonOffset -3).
+const brick = document.createElement('canvas');
+brick.width = 512; brick.height = 512;
+{
+  const ctx = brick.getContext('2d');
+  ctx.fillStyle = '#6a3a32';
+  ctx.fillRect(0, 0, 512, 512);
+  const colors = ['#7a4238', '#8b4d40', '#5c322c', '#9a5a4c', '#6e3d35', '#4f2a26'];
+  const bw = 64, bh = 28, gap = 5;
+  let row = 0;
+  for (let y = 0; y < 512; y += bh + gap, row++) {
+    const ox = row % 2 ? bw / 2 : 0;
+    for (let x = -bw; x < 512; x += bw + gap) {
+      ctx.fillStyle = colors[(row * 7 + ((x + 512) / 10 | 0)) % colors.length];
+      ctx.fillRect(x + ox, y, bw, bh);
+    }
+  }
+}
+const tex = new THREE.CanvasTexture(brick);
+tex.colorSpace = THREE.SRGBColorSpace;
+tex.anisotropy = 8;
+tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+const sheet = new THREE.Mesh(
+  new THREE.PlaneGeometry(3.4, 2.6),
+  new THREE.MeshStandardMaterial({
+    map: tex, transparent: true, alphaTest: 0.02, depthWrite: false, roughness: 0.75,
+    polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
+  }),
+);
+sheet.rotation.x = -Math.PI / 2;
+sheet.position.set(0.05, 0.0006, -0.15); // SHEET_LIFT
+sheet.renderOrder = 8;
+sheet.name = 'tex-golv-patch';
+scene.add(sheet);
+
+// A wall behind, so we can confirm the ghost is still hidden by real geometry.
+const wall = new THREE.Mesh(
+  new THREE.BoxGeometry(6, 3.2, 0.25),
+  new THREE.MeshStandardMaterial({ color: 0xb9a58a, roughness: 0.9, depthWrite: true }),
+);
+wall.position.set(0, 1.6, -2.15);
+scene.add(wall);
+
+function makeDumpster() {
+  // Same nesting as makeProp(): an outer Group and an inner Group around the meshes.
+  // three.js resets groupOrder at each Group, which is what made the old "root.renderOrder = 50" a no-op.
+  const model = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3d7a3a, roughness: 0.7, depthWrite: true });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.55, 1.05, 0.95), bodyMat);
+  body.position.y = 0.525;
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.1, 1.02), bodyMat.clone());
+  lid.position.set(0, 1.1, 0.02);
+  const lip = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.22, 0.12), bodyMat.clone());
+  lip.position.set(0, 0.72, 0.52);
+  model.add(body, lid, lip);
+  const root = new THREE.Group();
+  root.add(model);
+  return root;
+}
+
+const ghost = makeDumpster();
+if (bug) {
+  // The old bug: only the Group's renderOrder was set; child meshes stayed at 0.
+  ghost.traverse((m) => {
+    if (!m.isMesh) return;
+    m.raycast = () => {};
+    const see = (x) => { const c = x.clone(); c.transparent = true; c.opacity = ASSET_GHOST_OPACITY; c.depthWrite = false; return c; };
+    m.material = Array.isArray(m.material) ? m.material.map(see) : see(m.material);
+  });
+  ghost.renderOrder = 50;
+} else {
+  applyAssetGhostStyle(ghost, ASSET_GHOST_OPACITY);
+}
+ghost.position.set(0, 0, 0.35);
+ghost.rotation.y = 0.35;
+scene.add(ghost);
+
+renderer.render(scene, camera);
+window.__shot = {
+  bug,
+  ready: true,
+  // A pixel in the overlap of dumpster lid and brick patch, in the middle of the frame.
+  sample: { x: 480, y: 340 },
+};
+</script>

@@ -4,7 +4,7 @@
 //
 // SurfaceTexLayer does two things:
 //   1. SHOWS the room's tiles: one thin, lit, transparent sheet per tile over its surface – after the walls and a
-//      house's preset sheets (renderOrder 5), before every live sticker (10 + its number). Nothing can aim at,
+//      house's preset sheets (renderOrder 5), before every live sticker (10 + its number) and before placement ghosts (1e6). Nothing can aim at,
 //      pick or peel them. The stickers in them are not loaded as records at all.
 //   2. BAKES when the server hands this browser a job: the stickers are folded exactly as they are drawn
 //      (fold.js), each piece is drawn into the tiles it touches on top of the tile's previous picture (2D canvas,
@@ -17,7 +17,7 @@ import {
 } from '../../shared/surfacetex.mjs';
 
 const SHEET_LIFT = 0.0006; // m off the surface; the live stickers sit at ~0.8 mm with polygonOffset -4 (this one -3), and draw after it
-const RENDER_ORDER = 8;
+export const RENDER_ORDER = 8;
 const coarse = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 const dims = (image, size) => { const a = (image.width || 1) / (image.height || 1); return a >= 1 ? [size, size / a] : [size * a, size]; }; // = StampLayer.dims
 

@@ -23,6 +23,7 @@ import { createPropCollider, cuboidBoxes } from '../../shared/propcollide.mjs';
 import { facesFromSurfaces } from './fold.js';
 import { bindHoldRepeat } from './holdrepeat.js';
 import { PROP_KINDS, KIND_IDS, cleanProp, newPropId, seatOf, nearestSeat, PROP_SCALE, BOX_LIMITS, BOX_COLOURS, MAX_PROPS } from '../../shared/props.mjs';
+import { applyAssetGhostStyle, ASSET_GHOST_OPACITY, ASSET_ROW_GHOST_OPACITY } from './assetghost.js';
 
 const SNAP = Math.PI / 12; // Q/E turn 15°
 const INK_FAR = { room: 40, city: 45 }, HIDE_FAR = 150;
@@ -207,8 +208,8 @@ export function initProps(o) {
     const obj = await makeProp(cleanProp({ ...p, x: 0, z: 0 }, bounds) || p);
     if (ghostKey !== key || !active) return;
     if (ghost) group.remove(ghost);
-    obj.traverse((m) => { if (m.isMesh) { m.raycast = () => {}; if (!m.userData.ink) { const see = (x) => { const c = x.clone(); c.transparent = true; c.opacity = 0.55; c.depthWrite = false; return c; }; m.material = Array.isArray(m.material) ? m.material.map(see) : see(m.material); } } });
-    ghost = obj; ghost.renderOrder = 50; group.add(ghost);
+    applyAssetGhostStyle(obj, ASSET_GHOST_OPACITY);
+    ghost = obj; group.add(ghost);
   }
   // where a prop goes: a floor-like surface I aim at (the ground, a floor, a cuboid's top)
   function aimAt(ndc) {
@@ -314,7 +315,7 @@ export function initProps(o) {
     const mine = row;
     makeProp(cleanProp({ ...rec, x: 0, z: 0, yaw: 0 }, bounds) || rec).then((obj) => {
       if (row !== mine) return;
-      obj.traverse((m) => { if (m.isMesh) { m.raycast = () => {}; if (!m.userData.ink) { const see = (x) => { const c = x.clone(); c.transparent = true; c.opacity = 0.45; c.depthWrite = false; return c; }; m.material = Array.isArray(m.material) ? m.material.map(see) : see(m.material); } } });
+      applyAssetGhostStyle(obj, ASSET_ROW_GHOST_OPACITY);
       obj.scale.setScalar(1); obj.updateMatrixWorld(true);
       const b = new THREE.Box3().setFromObject(obj), sz = b.getSize(new THREE.Vector3());
       // the kind's own scale (s) is applied per copy; a cuboid is already its real size
@@ -339,7 +340,7 @@ export function initProps(o) {
       }
     }
     // the ghosts: one see-through copy per planned spot
-    while (r.ghosts.length < r.plan.length && r.tpl) { const g = r.tpl.clone(); g.renderOrder = 50; group.add(g); r.ghosts.push(g); }
+    while (r.ghosts.length < r.plan.length && r.tpl) { const g = r.tpl.clone(); g.renderOrder = r.tpl.renderOrder; group.add(g); r.ghosts.push(g); }
     r.ghosts.forEach((g, i) => {
       const at = r.plan[i];
       g.visible = !!at;
