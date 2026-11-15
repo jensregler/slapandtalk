@@ -13,6 +13,7 @@ import { snapWalkBpm } from '../../shared/runmode.mjs';
 import { entryMs } from '../../shared/tempogrid.mjs';
 import { patchLength, retune } from '../../shared/synth.mjs';
 import { stepSeqBetween, stepSeqOf, STEP_SEQ } from '../../shared/stepseq.mjs';
+import { THEMES, themeSlot, themeScale, themeFootTune, themeStepPatch } from '../../shared/soundtheme.mjs';
 
 const WALK = { speed: 0.35, holdMs: 140, jump: 0.8, jumpSpeed: 9, maxPerFrame: 48, buzzGain: 0.45, maxAheadMs: 400 };
 
@@ -29,6 +30,8 @@ export class GrooveSteps {
     // Run mode (shared/runmode.mjs, Jens t544u): while I hold Shift and move, MY steps use
     // { rate (× the walk pulse rate, on the same grid), tune (pitch ratio) }; null = walking.
     this.run = null;
+    // My sound theme (shared/soundtheme.mjs; main.js setTheme): Theme A = everything exactly as before.
+    this.theme = THEMES.A;
     // Watchdog: no frames (a hidden tab, a stall) = nobody is walking as far as we know: the buzz
     // must not loop on by itself.
     this.watch = setInterval(() => { if (this.lastFrame && this.now() - this.lastFrame > WALK.maxAheadMs) { this.stopAll(); for (const t of this.track.values()) { t.walkUntil = 0; t.moveUntil = 0; } this.buzzing = 0; } }, 250);
@@ -54,9 +57,17 @@ export class GrooveSteps {
     const me = this.track.get('me'); if (me) { me.until = Math.min(me.until, this.now()); me.reenter = true; this.stopBuzz(me); }
     return true;
   }
+  // Sound theme (Esc → THEME): every walker is re-planned from now, entering on the next beat.
+  setTheme(theme) {
+    if (!theme || theme === this.theme) return false;
+    this.theme = theme;
+    const now = this.now();
+    for (const t of this.track.values()) { t.until = Math.min(t.until, now); t.reenter = true; this.stopBuzz(t); }
+    return true;
+  }
   // A walker's grid: mine, or theirs from the tempo they sent (bpm, Groove scale, run / crouch rate + pitch).
   gridOf(w) {
-    if (w.id === 'me') return { groove: this.groove, bpm: this.bpm, run: this.run };
+    if (w.id === 'me') return { groove: this.theme.octaveScale ? { ...this.groove, scale: themeScale(this.groove.scale, this.theme) } : this.groove, bpm: this.bpm, run: this.run }; // (Theme B: my Groove on octaves)
     const t = cleanPlayerTempo(w.tempo);
     const run = t.rate !== 1 || t.tune !== 1 ? { rate: t.rate, tune: t.tune } : null;
     return { groove: { scale: t.scale, at: 0, phase: 0 }, bpm: t.bpm, run };
@@ -113,7 +124,7 @@ export class GrooveSteps {
       if (w.dancing) t.walkUntil = Math.max(t.walkUntil, hold);
       const walking = nowMs < t.walkUntil;
       const voice = w.voice === undefined ? this.sound.mine : w.voice;
-      const slot = voice && Number.isInteger(voice.colour) ? voice.colour : 0;
+      const slot = themeSlot(voice && Number.isInteger(voice.colour) ? voice.colour : 0, this.theme); // (Theme B: 4- or 3-pulse patterns only)
       if (!walking) { t.until = nowMs; t.walking = false; t.enterAt = null; this.stopBuzz(t); continue; }
       const G = this.gridOf(w), run = G.run; // mine: my run / crouch; theirs: as they sent it
       // their tempo changed: re-plan them from now (mine re-plans in setBpm / setGroove / setRun)
@@ -163,7 +174,7 @@ export class GrooveSteps {
         const time = this.audioTime(e.t);
         if (time !== null && time < (this.sound.ctx.currentTime - 0.03)) continue; // too late (a hiccup): skip, don't pile up
         // left/right foot: a hair lower on every other footstep (the walking randomness stays – sound.js adds the wobble)
-        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: (e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v, seqStep: useSeq ? e.i : 0, volume: useSeq && st ? st.vol / 100 : 1, lines: w.id === 'me' }); // lines: the dance lines' hold / drive on MY steps (t888u), on top of the step's locks
+        this.sound.play('step', w.at || null, { ...(w.voice === undefined ? {} : { sound: w.voice }), ...(w.npc ? { pool: 'npc', npc: w.id } : {}), time, tune: themeFootTune(this.theme, e.n % 2 ? 0.97 : 1.02) * (run ? run.tune : 1), onPeel: !!w.onPeel, speed: t.v, seqStep: useSeq ? e.i : 0, volume: useSeq && st ? st.vol / 100 : 1, lines: w.id === 'me' }); // lines: the dance lines' hold / drive on MY steps (t888u), on top of the step's locks
       }
       if (budget <= 0) break;
     }
@@ -177,13 +188,14 @@ export class GrooveSteps {
     if (!eng || this.sound.muted) { this.stopBuzz(t); return; }
     const g = G.groove, bpm = G.bpm;
     // mineV (t869u): my Sound settings changed (live while editing, or saved) – everyone's steps use my patches
-    const key = `${g.scale}:${g.at}:${bpm}:${slot}:${voice?.seed || ''}:${voice?.patches?.step ? 'c' : ''}:${run ? run.rate + '/' + run.tune : ''}:${this.sound.mineV || 0}`;
+    const key = `${g.scale}:${g.at}:${bpm}:${slot}:${voice?.seed || ''}:${voice?.patches?.step ? 'c' : ''}:${run ? run.rate + '/' + run.tune : ''}:${this.sound.mineV || 0}:${this.theme.id}`;
     if (t.buzz && t.buzzKey === key) { if (w.at) t.buzz.setPos(w.at); return; }
     this.stopBuzz(t);
     const period = pulseMs(g.scale, slot, bpm) / (run ? run.rate : 1) / 1000;
     let { patch } = this.sound.patchFor('step', voice);
     if (run && run.tune !== 1) patch = retune(patch, run.tune);
-    const buf = grainBuffer(this.sound.ctx, patch, period);
+    patch = themeStepPatch(patch, this.theme); // (Theme B: one fixed pentatonic pitch; A: the same patch)
+    const buf = grainBuffer(this.sound.ctx, patch, period, this.theme.footTune);
     // start on a pulse of the shared grid, so the buzz has the groove's phase
     const bar = barMs(g.scale, bpm) + 1;
     const next = (run ? runEventsBetween(g, slot, nowMs + 20, nowMs + 20 + bar, run.rate, { max: 2, bpm }) : eventsBetween(g, slot, nowMs + 20, nowMs + 20 + bar, { max: 2, bpm })).find((e) => e.n % 2 === 0); // (the buffer starts with the left foot)
@@ -200,12 +212,12 @@ export class GrooveSteps {
 // looping buffer: noise and oscillator layers with their decay, pitch sweep and a one-pole
 // filter. Cheap (a few hundred samples), not a perfect copy of the Web Audio voice; at this
 // speed you hear the timbre of the buzz, not single steps.
-export function grainBuffer(ctx, patch, period) {
+export function grainBuffer(ctx, patch, period, footTune = true) {
   const sr = ctx.sampleRate, n = Math.max(16, Math.round(period * sr));
   const buf = ctx.createBuffer(1, n * 2, sr), d = buf.getChannelData(0);
   const len = Math.min(period, patchLength(patch));
   for (let foot = 0; foot < 2; foot++) {
-    const tune = foot ? 0.97 : 1.02, base = foot * n;
+    const tune = !footTune ? 1 : foot ? 0.97 : 1.02, base = foot * n; // (Theme B: both feet the same pitch)
     for (const l of patch.layers) {
       const tau = Math.max(0.002, l.d / 9.2), a = Math.max(0.0005, l.a);
       const cutoff = Math.min(18000, l.cutoff * tune), rc = 1 - Math.exp(-2 * Math.PI * cutoff / sr);

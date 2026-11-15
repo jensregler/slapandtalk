@@ -17,6 +17,7 @@ import { loadTone, SynthEngine, MAX_VOICES } from './synth.js';
 import { peelStepParams } from '../../shared/peelstep.mjs';
 import { ensureSamples } from './samples.js';
 import { knobToMorph } from '../../shared/radio.mjs';
+import { THEMES, themeWobble, themeStepPatch } from '../../shared/soundtheme.mjs';
 
 const MUTE_KEY = 'klibb.muted';
 const VOL_KEY = 'klibb.musicVol';
@@ -50,6 +51,7 @@ export class Sounds {
     this.room = roomAcoustics(null);
     this.listener = { p: [0, 1.6, 0], f: [0, 0, -1] };
     this.cache = new Map(); // seed+kind -> varied patch
+    this.theme = THEMES.A;  // my sound theme (shared/soundtheme.mjs; main.js sets it): A = exactly as before
     // Browsers only allow audio after the user has clicked/tapped/typed: start then.
     // Music vol (Jens, 31 Oct 2026; Sound settings): how loud everything the room plays is for me, 0…1 (this device).
     // Personal, this visit only (sessionStorage; reset on Exit-to-menu or a new room – soundui.js).
@@ -156,7 +158,7 @@ export class Sounds {
   play(kind, at = null, { sound, area, size, volume = 1, time = null, tune = 1, onPeel = false, speed = 0, exact = false, hold = null, pool = null, npc = null, seqStep = null, lines = false } = {}) {
     const remote = !!at;
     const who = sound === undefined ? this.mine : sound;
-    const wobble = exact ? 1 : kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06; // tiny per-play life
+    const wobble = exact ? 1 : themeWobble(this.theme, kind === 'step' ? 0.94 + Math.random() * 0.12 : 0.97 + Math.random() * 0.06); // tiny per-play life (Theme B: none)
     let rate = wobble * tune, gain = volume * (VOLUME[kind] || [1, 1])[remote ? 1 : 0];
     if (kind === 'duff') { const s = duffScale(area, size); gain *= s.gain; rate *= s.rate; }
     if (kind === 'slap' && (area != null || size != null)) {
@@ -171,7 +173,7 @@ export class Sounds {
     const { patch: base0, custom } = this.patchFor(kind, who);
     const base = kind === 'step' && seqStep != null ? lockedPatch(base0, seqStep) : base0; // the step's locks (t889u)
     let patch = hold != null ? withHold(base, hold) : base;
-    if (lines && kind === 'step' && this.stepMod) patch = withLines(patch, this.stepMod); // t888u: dance lines (my own steps only) – on top of the step's locks
+    if (lines && kind === 'step' && this.stepMod && this.theme.danceLines) patch = withLines(patch, this.stepMod); // t888u: dance lines (my own steps only) – on top of the step's locks (off in Theme B)
     const entry = { kind, remote, distance: +distance.toFixed(2), gain: +heard.toFixed(3), level: +gain.toFixed(3), rate: +rate.toFixed(3),
       seed: who?.seed || null, colour: who && Number.isInteger(who.colour) ? who.colour : 0, custom, muted: this.muted, time: Date.now(), ...(hold != null ? { hold: +(+hold).toFixed(3) } : {}),
       ...((kind === 'duff' || kind === 'slap') && area != null ? { area: +(+area || 0).toFixed(4) } : {}),
@@ -184,11 +186,13 @@ export class Sounds {
       if (this.stepLog.length > 40) this.stepLog.shift();
       if (npc) { this.npcHeard ||= {}; const h = this.npcHeard[npc] ||= { n: 0 }; h.n++; h.gain = +heard.toFixed(3); h.distance = +distance.toFixed(2); h.t = Date.now(); } // (tests: the last step of each NPC)
     } else { this.log.push(entry); if (this.log.length > 50) this.log.shift(); }
+    const played = kind === 'step' ? themeStepPatch(retune(patch, rate), this.theme) : retune(patch, rate); // (Theme B: the step's pitch on A minor pentatonic, no sweep / LFO; A: unchanged)
+    if (kind === 'step' && this.theme.id !== 'A' && this.stepLog.length) { const last = this.stepLog[this.stepLog.length - 1]; last.theme = this.theme.id; last.hz = (played?.layers || []).map((l) => +(+l.freq || 0).toFixed(2)); last.rate = +rate.toFixed(4); } // (tests: what a themed step really played)
     if (this.muted) return entry;
     if (!this.ensure()) return entry;
     // FX is on the listener chain (setMine → setListenerFx), not per voice.
     const lfoId = kind === 'step' ? (npc ? 'npc:' + npc : (remote ? 'p:' + (who?.seed || 'r') : 'me')) : null;
-    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(retune(patch, rate), { gain, pos: remote ? at : null, time, pool: pool || (kind === 'step' ? 'step' : 'main'), paper, ...(lfoId ? { lfoId } : {}) })) { entry.skipped = true; if (kind === 'step') this.stepsSkipped = (this.stepsSkipped || 0) + 1; } };
+    const go = (eng) => { if (!eng || this.muted) return; if (!eng.play(played, { gain, pos: remote ? at : null, time, pool: pool || (kind === 'step' ? 'step' : 'main'), paper, ...(lfoId ? { lfoId } : {}) })) { entry.skipped = true; if (kind === 'step') this.stepsSkipped = (this.stepsSkipped || 0) + 1; } };
     if (this.engine) go(this.engine);
     else if (time == null) { const t = Date.now(); this.ready.then((eng) => { if (Date.now() - t < 400) go(eng); }); } // the very first sound waits for Tone.js
     return entry;

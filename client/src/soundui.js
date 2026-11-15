@@ -15,6 +15,8 @@ import { MOD, canAddMod, newMod, newFollower, removeMod, removeLayerMods, parseT
 import { loadSampleFile, clearSamples, pruneSamples, ensureSamples } from './samples.js';
 import { SAMPLE_BUFFERS } from './synth.js';
 import { S } from './strings.js';
+import { soundTheme } from './soundtheme.js';
+import { themeWalkBpm } from '../../shared/soundtheme.mjs';
 import { RUN, RUN_DEFAULTS, cleanRun, cleanTempo, cleanPitch, cleanCrouchTempo, cleanCrouchPitch, pitchMin, pitchMax, runRate, crouchRate, pitchRatio, pitchLabel, tempoLabel, crouchTempoLabel, cleanWalkBpm, snapWalkBpm, stepWalkBpm, TEMPO_PAGE, WALK_KNOB_STEPS, walkBpmToKnob, knobToWalkBpm, walkBpmLabel } from '../../shared/runmode.mjs';
 import { TEMPO_BPMS, meetBars } from '../../shared/tempogrid.mjs';
 
@@ -749,16 +751,30 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
     r.walkBpm = snapWalkBpm(r.walkBpm);
     const knobOf = (b) => String(Math.round(walkBpmToKnob(b) * WALK_KNOB_STEPS));
     const meetText = (b) => { const m = meetBars(b); return snapWalkBpm(b) === 120 ? (S.tempoMeetSame || 'The base tempo: everyone else lines up with you') : S.tempoMeet ? S.tempoMeet(m) : `Meets 120 BPM on the bar line every ${m === 1 ? 'bar' : m + ' bars'}`; };
-    const walkRow = row('walk-tempo', S.walkTempo || 'Tempo', S.walkTempoTitle || 'Your own tempo on the 120 BPM grid (default 90 · 3:4)',
+    // Sound theme (Esc → THEME, shared/soundtheme.mjs): Theme B offers only its tempi (60 · 90 · 120 · 180 BPM) – one
+    // notch each; Theme A is the whole grid exactly as before.
+    const th = soundTheme(), tempi = th.tempi;
+    if (tempi) {
+      const note = el('p', 'hint snd-theme-note', `${th.label} is on (Esc → THEME): Tempo ${tempi.join(' · ')} BPM only, run / crouch snap to those, no pitch correction or wobble.`);
+      note.id = 'snd-theme-note'; box.appendChild(note);
+    } // (my saved Tempo is not rewritten: the slider shows it as Theme B plays it, a move sets one of the four)
+    const ix = (b) => Math.max(0, tempi ? tempi.indexOf(themeWalkBpm(b, th)) : 0);
+    const walkRow = tempi
+      ? row('walk-tempo', S.walkTempo || 'Tempo', `${th.label}: ${tempi.join(' · ')} BPM`, 0, tempi.length - 1, 1, String(ix(r.walkBpm)),
+        () => `${walkBpmLabel(themeWalkBpm(r.walkBpm, th))} · ${th.label}`,
+        (v) => { r.walkBpm = tempi[Math.min(tempi.length - 1, Math.max(0, Math.round(v)))]; if (radio) radio.setWalkBpm(r.walkBpm); if (meet) meet.textContent = meetText(r.walkBpm); })
+      : row('walk-tempo', S.walkTempo || 'Tempo', S.walkTempoTitle || 'Your own tempo on the 120 BPM grid (default 90 · 3:4)',
       0, WALK_KNOB_STEPS, 1, knobOf(r.walkBpm),
       () => walkBpmLabel(r.walkBpm),
       (v) => { r.walkBpm = knobToWalkBpm(v / WALK_KNOB_STEPS); if (radio) radio.setWalkBpm(r.walkBpm); if (wIn) wIn.value = knobOf(r.walkBpm); if (meet) meet.textContent = meetText(r.walkBpm); });
     walkRow.classList.add('tempo-grid');
     const wIn = walkRow.querySelector('input');
-    wIn.dataset.min = String(TEMPO_BPMS[0]); wIn.dataset.max = String(TEMPO_BPMS[TEMPO_BPMS.length - 1]); wIn.dataset.grid = String(TEMPO_BPMS.length);
-    wIn.setAttribute('aria-valuetext', walkBpmLabel(r.walkBpm));
-    wIn.addEventListener('input', () => wIn.setAttribute('aria-valuetext', walkBpmLabel(r.walkBpm)));
+    if (tempi) { wIn.dataset.min = String(tempi[0]); wIn.dataset.max = String(tempi[tempi.length - 1]); wIn.dataset.grid = String(tempi.length); wIn.dataset.theme = th.id; }
+    else { wIn.dataset.min = String(TEMPO_BPMS[0]); wIn.dataset.max = String(TEMPO_BPMS[TEMPO_BPMS.length - 1]); wIn.dataset.grid = String(TEMPO_BPMS.length); }
+    wIn.setAttribute('aria-valuetext', walkBpmLabel(themeWalkBpm(r.walkBpm, th)));
+    wIn.addEventListener('input', () => wIn.setAttribute('aria-valuetext', walkBpmLabel(themeWalkBpm(r.walkBpm, th))));
     wIn.addEventListener('keydown', (e) => {
+      if (tempi) return; // (Theme B: the native range keys step its four tempi)
       const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: TEMPO_PAGE, PageDown: -TEMPO_PAGE }[e.key];
       const to = e.key === 'Home' ? TEMPO_BPMS[0] : e.key === 'End' ? TEMPO_BPMS[TEMPO_BPMS.length - 1] : d ? stepWalkBpm(r.walkBpm, d) : null;
       if (to == null) return;
@@ -850,10 +866,16 @@ export function initSoundUI({ $, sound, toast, onSave, onOpenChange = () => {}, 
   }
   for (const ev of ['input', 'change', 'click']) $('sound-panel').addEventListener(ev, liveSoon, true);
   $('snd-close').onclick = () => close(); $('snd-cancel').onclick = () => close();
-  $('snd-preview').onclick = preview; $('snd-random').onclick = () => randomize(false); $('snd-wild').onclick = () => randomize(true);
+  $('snd-preview').onclick = preview; $('snd-random').onclick = () => randomize(false); $('snd-wild').onclick = () => { if (soundTheme().wildButton === false) return; randomize(true); };
+  // Sound theme (Esc → THEME): Theme B has no Wild (the button is greyed out); the open panel is redrawn.
+  function themeChanged(th = soundTheme()) {
+    const w = $('snd-wild'); if (w) { const off = th.wildButton === false; w.disabled = off; w.title = off ? `Wild is off in ${th.label}` : (w.dataset.title || w.title); }
+    if (st.open) { try { render(); } catch (e) { console.warn('sound theme', e); } }
+  }
+  { const w = $('snd-wild'); if (w) w.dataset.title = w.title || ''; } themeChanged();
   $('snd-reset').onclick = reset; $('snd-save').onclick = save;
   // runDraft: the run/walk/crouch settings being edited while the panel is open (main.js hears them live).
-  return { open, close, isOpen: () => st.open, state: () => st, runDraft: () => (st.open && st.run ? st.run : null), liveCount: () => st.liveN || 0, preview, render };
+  return { open, close, isOpen: () => st.open, state: () => st, themeChanged, runDraft: () => (st.open && st.run ? st.run : null), liveCount: () => st.liveN || 0, preview, render };
 }
 
 // The sample's waveform (min/max per pixel column) with start/end and loop markers.

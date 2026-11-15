@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { Players } from './avatars.js';
 import { NPC, cleanNpcs, npcDance, npcTempoAt, npcGaitAt, npcStepPatchAt, npcWildIndex } from '../../shared/npcs.mjs';
+import { THEMES } from '../../shared/soundtheme.mjs';
 
 // The NPC name tag: bigger than a player's and yellow, so they read as NPCs from across the plaza.
 const NPC_TAG = Object.freeze({ opts: { size: 52, bg: 'rgba(255,200,0,.92)', color: '#111', font: 800, pad: 20 }, mpp: 0.0032 });
@@ -17,6 +18,7 @@ const NPC_TAG = Object.freeze({ opts: { size: 52, bg: 'rgba(255,200,0,.92)', col
 export class Npcs {
   constructor(scene) {
     this.scene = scene; this.players = new Players(scene); this.list = [];
+    this.theme = THEMES.A; // my sound theme (main.js): Theme B = no Wild presses (their own Steps sound throughout)
     this.shown = 0; this.animated = 0; this.heard = 0; this.frames = 0; this.nowMs = 0;
     this.frustum = new THREE.Frustum(); this.pm = new THREE.Matrix4(); this.sphere = new THREE.Sphere(new THREE.Vector3(), 1.3);
   }
@@ -67,8 +69,9 @@ export class Npcs {
       const n = pl.npc; if (!n) continue;
       pl.ear = ear ? Math.hypot(n.x - ear[0], n.z - ear[2]) : pl.dist;
       if (!(pl.ear < NPC.audibleM)) continue;
-      const wildK = npcWildIndex(n, t);
-      if (pl.wildK !== wildK) { pl.wildK = wildK; pl.wildStep = npcStepPatchAt(n, t); }
+      const wild = this.theme.npcWild !== false;
+      const wildK = wild ? npcWildIndex(n, t) : null;
+      if (pl.wildK !== wildK) { pl.wildK = wildK; pl.wildStep = wild ? npcStepPatchAt(n, t) : (n.sound.patches && n.sound.patches.step) || null; }
       const voice = { ...n.sound, patches: { ...n.sound.patches, step: pl.wildStep } };
       out.push({ id: n.id, x: n.x, z: n.z, at: [n.x, 0.05, n.z], voice, onPeel: false, dancing: true, tempo: pl.tempo, npc: true, ear: pl.ear, wildK });
     }

@@ -29,8 +29,8 @@ ok('smoothing: exponential toward the target, no jump, first value taken as is',
 });
 ok('wired into sneak only, the Steps patch is never written (only the played tune changes)', () => {
   const m = fs.readFileSync(new URL('../client/src/main.js', import.meta.url), 'utf8');
-  assert.match(m, /const step = sightStep\(gaitStep\(myGait, liveRunMode\(\)\)\);/);
-  assert.match(m, /if \(myGait !== 'crouch' \|\| !controls\.crouching\) \{ if \(sightOn\) \{ sightOn = false; sightHz = null; sightline\.reset\(\); \} return step; \}/);
+  assert.match(m, /const step = sightStep\(themeGaitStep\(gaitStep\(myGait, liveRunMode\(\)\), radio\.walkBpm, theme\)\);/); // (sound theme layer: identity in Theme A)
+  assert.match(m, /if \(myGait !== 'crouch' \|\| !controls\.crouching \|\| !soundTheme\(\)\.sightPitch\) \{ if \(sightOn\) \{ sightOn = false; sightHz = null; sightline\.reset\(\); \} return step; \}/);
   const fn = m.slice(m.indexOf('function sightStep('), m.indexOf('// Dance lines (Jens t888u'));
   assert.doesNotMatch(fn, /\.freq\s*=|patches\.step\s*=|setPatch|save/);
   const c = fs.readFileSync(new URL('../client/src/sightline.js', import.meta.url), 'utf8');

@@ -13,6 +13,7 @@ import { SOUNDS, retune } from '../../shared/synth.mjs';
 import { planWalkSeq, newWalkSeq } from '../../shared/walkseq.mjs';
 import { withLines } from '../../shared/dancelines.mjs';
 import { RUN, cleanWalkBpm, snapWalkBpm } from '../../shared/runmode.mjs';
+import { THEMES, themeWalkBpm, themeStepPatch } from '../../shared/soundtheme.mjs';
 import { Ambient } from './ambient.js';
 
 const OWNER_KEY = 'klibb.soundOwner';
@@ -44,11 +45,14 @@ export class Radio {
     // Walk-sound sequencer (shared/walkseq.mjs, Jens t783u): only while I walk, run mode applies.
     this.walk = { until: 0, run: null }; this.walkSeq = new Map(); // key -> newWalkSeq()
     this.walkBpm = RUN.walkDef; // MY Tempo (per player; main.js / soundui.js set it from my run mode)
+    this.walkBpmSet = RUN.walkDef; // …as set (before the sound theme): Theme B plays it on 60 · 90 · 120 · 180 BPM
+    this.theme = THEMES.A;      // my sound theme (shared/soundtheme.mjs; main.js setTheme)
   }
   // My Tempo, 30…2880 BPM on the 120-BPM grid (shared/runmode.mjs cleanWalkBpm). Every loop of mine reads it (tempo()).
   // (What is already planned – ≤ 150 ms ahead – plays out; the new grid takes over from there, no doubles.
   // main.js walkSounds reads walkBpm every frame for my footsteps, dance, voice echo, delay and the room.)
-  setWalkBpm(bpm) { this.walkBpm = snapWalkBpm(bpm); return this.walkBpm; } // on the 120-BPM grid (t881u; was 5 BPM steps, t868u)
+  setWalkBpm(bpm) { this.walkBpmSet = snapWalkBpm(bpm); this.walkBpm = themeWalkBpm(this.walkBpmSet, this.theme); return this.walkBpm; } // on the 120-BPM grid (t881u; was 5 BPM steps, t868u); the theme's tempi (Theme A: the same)
+  setTheme(theme) { if (!theme) return; this.theme = theme; this.setWalkBpm(this.walkBpmSet); }
   walkTempo() { return playerTempo(this.walkBpm); }
   // main.js walkSounds, every frame: until = wall ms I count as walking until (the footstep groove's
   // own walk detection, 0 = standing); run = { rate, tune } while Shift-running (groove.run) or null.
@@ -121,8 +125,8 @@ export class Radio {
   walkLoop(lp, { now, ahead, tempo, barS, at, walk }) {
     let st = this.walkSeq.get(lp.key); if (!st) { st = newWalkSeq(); this.walkSeq.set(lp.key, st); }
     const run = walk.run, rate = run ? run.rate : 1, tune = run ? run.tune : 1;
-    const lpf = this.sound.stepMod ? withLines(lp.pf, this.sound.stepMod) : lp.pf; // the dance lines' hold / drive (t888u, main.js)
-    const pf = tune !== 1 ? retune(lpf, tune) : lpf;
+    const lpf = this.sound.stepMod && this.theme.danceLines ? withLines(lp.pf, this.sound.stepMod) : lp.pf; // the dance lines' hold / drive (t888u, main.js; off in Theme B)
+    const pf = themeStepPatch(tune !== 1 ? retune(lpf, tune) : lpf, this.theme); // (Theme B: fixed pentatonic pitch)
     if (!(Math.min(ahead, walk.until) > now)) { this.toneUntil.delete(lp.key); return 0; } // standing: silent, position kept
     if (lp.steps * rate / (lp.bars * barS) <= RADIO.fastSteps) {
       this.toneUntil.delete(lp.key);

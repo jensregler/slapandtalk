@@ -84,10 +84,15 @@ export function cleanRun(r) {
 // grid anchored at server time 0 (~1.8e12 ms) that rounding alone would put their steps off the beat, so it is
 // snapped back to the exact ratio before it is used.
 export { RATE_GRID };
+// Sound Theme B (shared/soundtheme.mjs) snaps the run / crouch tempo to 60 · 90 · 120 · 180 BPM, which needs 3:4 and
+// 4:3 too (90 ↔ 120) – not on the notch grid. They are added here so a Theme B runner's rate also comes back exact
+// from the network; every notch rate is still its own nearest value (Theme A unchanged).
+export const THEME_EXTRA_RATES = Object.freeze([3 / 4, 4 / 3]);
+const SNAP_RATES = Object.freeze([...RATE_GRID, ...THEME_EXTRA_RATES].sort((a, b) => a - b));
 export function snapRate(r) {
   if (!isNum(r) || r <= 0) return 1;
   const l = Math.log(r); let best = 1, bd = Infinity;
-  for (const v of RATE_GRID) { const e = Math.abs(Math.log(v) - l); if (e < bd - 1e-12) { bd = e; best = v; } }
+  for (const v of SNAP_RATES) { const e = Math.abs(Math.log(v) - l); if (e < bd - 1e-12) { bd = e; best = v; } }
   return best;
 }
 // Tempo slider % → raw step-rate factor (before lock-to-clock).

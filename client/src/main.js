@@ -40,6 +40,8 @@ import { GROOVE, cleanGroove, retime, sliderToScale, scaleToSlider, stepScale, g
 import { loadSoundLook, initSoundUI, resetPersonalSound, prepareSoundForPlace, personalGet, personalSet, setSoundRoom, soundKey, loadRunMode, VOICE_FX_KEY, VOICE_MON_KEY, VOICE_MIC_KEY } from './soundui.js';
 import { gaitOf, gaitStep } from '../../shared/runmode.mjs';
 import { myPlayerTempo, danceBpmOf } from '../../shared/playertempo.mjs';
+import { themeGaitStep, themeScale, THEME_IDS } from '../../shared/soundtheme.mjs';
+import { soundTheme, setSoundTheme, onSoundTheme } from './soundtheme.js';
 import { setDanceClock } from './avatars.js';
 import { Radio, radioBlock, fetchRoomPreset, putRoomPreset } from './radio.js';
 import * as synthShared from '../../shared/synth.mjs';
@@ -2716,6 +2718,15 @@ function saveRoomPreset() {
 }
 const radio = new Radio({ sound, room: ROOM, clock: () => (groove ? groove.now() : Date.now()), onChange: () => { filmLog?.add('radio', { what: 'dial' }); saveRoomPreset(); } });
 radio.setWalkBpm(loadRunMode().walkBpm); // MY Tempo (per player, run mode; not the room preset – no room clock, t846u)
+// Sound theme (Jens, 15 Nov 2026; shared/soundtheme.mjs): Theme A = the sound as it always was, Theme B = tight pitch
+// and timing. Esc → THEME picks it (per player, this browser). It only changes how things are PLAYED – my saved
+// patches and run mode are never rewritten – so switching back to A gives exactly the old sound.
+function applySoundTheme(th = soundTheme()) {
+  sound.theme = th; if (groove) groove.setTheme(th); radio.setTheme(th); radio.setWalkBpm(liveRunMode().walkBpm); if (npcs) npcs.theme = th;
+  try { soundUi?.themeChanged?.(th); } catch { /* the panel is not up */ }
+}
+applySoundTheme();
+onSoundTheme((th) => { applySoundTheme(th); toast(`🎚 ${th.label}`, 1600); });
 // meWalking (e2e hook only, Jens t814u): really moving = groove track 'me'.moveUntil. Dancing counts as walking
 // for the steps and the walk sequencers (walkUntil) but not as moving.
 const meWalking = () => { const me = groove?.track?.get('me'); return !!(me && !camView && (me.moveUntil || 0) > groove.now()); };
@@ -2997,6 +3008,8 @@ escMenu = initEscMenu({
   // CREATE / STICKERS / STICKER PACK available in the city again (same as the room).
   onSound: () => menuActions.radio(),
   onLights: () => lightsUi?.open(),
+  onTheme: (id) => setSoundTheme(id), // THEME → THEME A / THEME B (shared/soundtheme.mjs)
+  theme: () => soundTheme().id,
   onAvatar: () => menuActions.character(),
   onRoom: () => menuActions.room(),
   // CITY opens Create new city / Join existing submenu (handled inside escmenu.js).
@@ -3505,7 +3518,7 @@ function stepOscHz() { // my Steps patch's oscillator pitch (its first osc layer
   try { const p = sound.patchFor('step', sound.mine).patch, l = p.layers.find((x) => x.kind === 'osc') || p.layers[0]; return l && l.freq > 0 ? l.freq : null; } catch { return null; }
 }
 function sightStep(step) {
-  if (myGait !== 'crouch' || !controls.crouching) { if (sightOn) { sightOn = false; sightHz = null; sightline.reset(); } return step; }
+  if (myGait !== 'crouch' || !controls.crouching || !soundTheme().sightPitch) { if (sightOn) { sightOn = false; sightHz = null; sightline.reset(); } return step; }
   sightOn = true;
   sightline.update(performance.now());
   const base = stepOscHz(); if (!base) return step;
@@ -3566,15 +3579,16 @@ function walkSounds() {
   // While Sound settings is open the draft is heard at once (the sliders are live, Save keeps them).
   const dancingMe = !camView && together.dancing();
   myGait = camView ? 'walk' : gaitOf({ moving: controls.moving && !dancingMe, dancing: dancingMe, shift: controls.shiftHeld(), ctrl: controls.ctrlHeld() });
-  const step = sightStep(gaitStep(myGait, liveRunMode()));
-  danceLinesStep(dancingMe); // t888u: Highline → hold, Widthline → drive on my Steps while I dance
+  const theme = soundTheme(); if (npcs) npcs.theme = theme;
+  const step = sightStep(themeGaitStep(gaitStep(myGait, liveRunMode()), radio.walkBpm, theme)); // (Theme B: run / crouch on 60…180 BPM, no pitch correction; A: unchanged)
+  danceLinesStep(dancingMe && theme.danceLines); // t888u: Highline → hold, Widthline → drive on my Steps while I dance (off in Theme B)
   // My own tempo (Jens t846u: "ta bort den globala klockan … alla har sin egen bpm"): my Tempo (radio.walkBpm –
   // the Steps slider, live while Sound settings is open) drives my footsteps, sequencers + four voices
   // (radio.tick), the synced delay, my voice echo and my dance; the room gets it so they hear / see me at it.
   const bpm = radio.walkBpm;
   if (groove.setBpm(bpm)) updateGrooveUi();
   groove.setRun(step);
-  myTempoNow = myPlayerTempo(bpm, groove.scale, step);
+  myTempoNow = myPlayerTempo(bpm, theme.octaveScale ? themeScale(groove.scale, theme) : groove.scale, step);
   together.setTempo(myTempoNow);
   if (dancingMe) together.retimeDance({ bpm: danceBpmOf(myTempoNow) }); // Tempo / Shift / Ctrl mid-dance: the dance follows
   try { sound.engine?.setSyncBpm?.(bpm); } catch { /* no audio yet */ }
@@ -3980,7 +3994,7 @@ window.klibb = {
   soundUi: () => soundUi, resuming: () => resuming, escGate, openStylePanel: (m = 'edit') => openStylePanel(m), styleOpen: () => sp.open, synthShared: () => synthShared, soundSteps: () => groove.events, peelSteps: () => ({ steps: sound.steps, peelSteps: sound.peelSteps, log: sound.stepLog.slice(), under: peelLayer.under(camera.position.x, camera.position.z) }), renderPeelSteps: async (specs) => { const { renderSteps } = await import('./synthcheck.js'); return renderSteps(specs); },
   groove: () => ({ ...groove.groove, offset: groove.offset, now: groove.now(), events: groove.events, buzzing: groove.buzzing, log: groove.log.slice(), tracks: [...groove.track].map(([id, t]) => ({ id, v: +t.v.toFixed(3), walking: t.walkUntil > groove.now(), moving: (t.moveUntil || 0) > groove.now(), buzz: !!t.buzz })), canChange: canGroove(), ui: { hidden: $('groove-box').hidden, slider: +$('groove-scale').value, value: $('groove-val').textContent, chip: $('groove-chip').hidden ? '' : $('groove-chip').textContent } }),
   setGrooveScale, grooveObj: () => groove,
-  autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundMine: () => sound.mine, prepareSoundForPlace, resetPersonalSound, voiceOf: (id) => together.voiceOf(id),
+  autoSlap: () => null, autoSlapObj: () => null, radio: () => radio, radioReady: () => radioReady, soundObj: () => sound, soundTheme: (id) => (id ? setSoundTheme(id) : soundTheme()).id, soundMine: () => sound.mine, prepareSoundForPlace, resetPersonalSound, voiceOf: (id) => together.voiceOf(id),
   // Render every sound offline (Tone.Offline) and report peak/RMS – the "non-silent, no clipping" check.
   synthCheck: async (patches) => { const { offlineCheck } = await import('./synthcheck.js'); return offlineCheck(patches); },
   entitlements: () => JSON.parse(JSON.stringify(entitlements)), entitlementsReady: () => entitlementsReady,

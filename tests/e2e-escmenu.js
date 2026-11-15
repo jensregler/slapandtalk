@@ -42,8 +42,8 @@ const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ✓ ' + 
     await sleep(400);
     const open1 = await P.evaluate(() => window.klibb.escMenu().info());
     // the six first, then the catalogs (STICKERS / NATURE; ASSETS only for the build phase's builders) and HELP (Jens t792u/t797u)
-    check('Esc menu opens with SOUND / AVATAR / ROOM / CITY / EXIT / CREATE, then STICKERS / NATURE / HELP', open1.open && open1.buttons.slice(0, 6).join() === 'sound,avatar,room,city,exit,create'
-      && open1.buttons.slice(6).join() === 'catstickers,catnature,help', open1);
+    check('Esc menu opens with SOUND / AVATAR / ROOM / CITY / EXIT / CREATE, then STICKERS / NATURE / HELP / THEME', open1.open && open1.buttons.slice(0, 6).join() === 'sound,avatar,room,city,exit,create'
+      && open1.buttons.slice(6).join() === 'catstickers,catnature,help,theme', open1);
     const modes = await P.evaluate(() => document.querySelectorAll('#mode-switch button').length);
     check('no wheel mode switch in the side panel any more (t793u)', modes === 0, modes);
     await P.screenshot({ path: path.join(SHOTS, '01-esc-menu.png') });

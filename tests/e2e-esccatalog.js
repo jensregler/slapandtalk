@@ -50,7 +50,7 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
       const st = (key) => { const c = getComputedStyle(document.querySelector(`#esc-menu [data-esc="${key}"]`)); return [c.borderTopWidth, c.borderTopColor, c.borderTopLeftRadius, c.backgroundColor].join(' '); };
       return { info: window.klibb.escMenu().info(), six: ['sound', 'avatar', 'room', 'city', 'exit', 'create'].map(r), cat: ['catstickers', 'catnature', 'catassets'].map(r), help: r('help'), styleSix: st('sound'), styleCat: st('catstickers'), styleHelp: st('help') };
     });
-    check('main Esc: SOUND AVATAR ROOM CITY EXIT CREATE, then STICKERS NATURE ASSETS, then HELP', main.info.buttons.join() === 'sound,avatar,room,city,exit,create,catstickers,catnature,catassets,help', main.info.buttons);
+    check('main Esc: SOUND AVATAR ROOM CITY EXIT CREATE, then STICKERS NATURE ASSETS, then HELP, THEME', main.info.buttons.join() === 'sound,avatar,room,city,exit,create,catstickers,catnature,catassets,help,theme', main.info.buttons);
     const sixBottom = Math.max(...main.six.map((b) => b.bottom)), catBottom = Math.max(...main.cat.map((b) => b.bottom));
     check('the three catalog buttons sit in a row under the six', main.cat.every((b) => b.top >= sixBottom - 1) && new Set(main.cat.map((b) => Math.round(b.top))).size === 1, { sixBottom, cat: main.cat });
     check('HELP sits under the catalog row', main.help.top >= catBottom - 1, { catBottom, help: main.help });

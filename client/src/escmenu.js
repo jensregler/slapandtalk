@@ -9,6 +9,9 @@ const $ = (id) => document.getElementById(id);
 export function initEscMenu({
   onSound, onAvatar, onRoom, onCity, onExit, onCreate,
   onLights = null, // LIGHTS (Jens t892u): the noise room's light settings
+  // THEME (Jens, 15 Nov 2026): the sound theme – THEME → THEME A / THEME B (shared/soundtheme.mjs). theme() = the
+  // current id, onTheme(id) picks one (the menu stays open on the THEME page so you see the tick move).
+  onTheme = null, theme = () => 'A',
   onStickers, onStickerPack,
   onCreateCity, onPickCity,
   // DAY / NIGHT (Jens t864u): flips the city's look, returns the new time ('day' | 'night'); the menu stays open.
@@ -68,7 +71,7 @@ export function initEscMenu({
     root.classList.toggle('esc-cityjoin', view === 'cityjoin');
     root.classList.toggle('esc-catalog-view', view === 'catalog' || view === 'help');
     if (view !== 'catalog') catKind = null;
-    paintDayNight();
+    paintDayNight(); paintTheme();
     root.dataset.catalog = catKind || '';
     for (const btn of root.querySelectorAll('[data-esc]')) {
       const g = btn.dataset.escGroup || 'main';
@@ -77,6 +80,7 @@ export function initEscMenu({
       if (view === 'main') btn.hidden = g !== 'main' || !shown || (key === 'create' && !!hideCreate) || (key === 'catassets' && !showCatalog('assets'));
       else if (view === 'create') btn.hidden = g !== 'create' || !shown;
       else if (view === 'city') btn.hidden = g !== 'city' || !shown;
+      else if (view === 'theme') btn.hidden = g !== 'theme' || !shown;
       else btn.hidden = true; // cityjoin: buttons hidden, list shown
     }
     const list = $('esc-city-list');
@@ -126,6 +130,16 @@ export function initEscMenu({
     if (ico) ico.textContent = t === 'night' ? '🌙' : '☀️';
     if (lab) lab.textContent = t === 'night' ? (labels.night || 'NIGHT') : (labels.day || 'DAY');
     b.setAttribute('aria-pressed', String(t === 'night'));
+  }
+  // THEME: the main button says which theme is on (THEME A / THEME B, big); on the THEME page the chosen one is ticked.
+  function paintTheme() {
+    let cur = 'A'; try { cur = String(theme() || 'A'); } catch { /* A */ }
+    root.dataset.theme = cur;
+    const main = root.querySelector('[data-esc="theme"] .esc-lab'); if (main) main.textContent = `${labels.theme || 'THEME'} ${cur}`;
+    for (const b of root.querySelectorAll('[data-esc-group="theme"]')) {
+      const on = b.dataset.theme === cur; b.classList.toggle('sel', on); b.setAttribute('aria-pressed', String(on));
+      const tick = b.querySelector('.esc-tick'); if (tick) tick.textContent = on ? '✓ ON' : '';
+    }
   }
   function closeSubmenu() {
     if (view === 'cityjoin') setView('city');
@@ -242,6 +256,8 @@ export function initEscMenu({
         if (hideCreate) return;
         setView('create'); try { mainActions.create?.(); } catch (err) { console.warn('esc-menu', key, err); } return;
       }
+      if (key === 'theme') { setView('theme'); return; }
+      if (btn.dataset.escGroup === 'theme') { try { onTheme?.(btn.dataset.theme); } catch (err) { console.warn('esc-menu', key, err); } paintTheme(); return; }
       if (key === 'city') { setView('city'); try { mainActions.city?.(); } catch (err) { console.warn('esc-menu', key, err); } return; }
       if (key === 'joincity') { showJoinList(); return; }
       if (key === 'createcity') {
@@ -306,6 +322,8 @@ export function initEscMenu({
       touch: !!isTouch,
       hideCreate: !!hideCreate,
       time: (() => { try { return dayNight(); } catch { return null; } })(),
+      theme: (() => { try { return theme(); } catch { return null; } })(),
+      themeLabel: root.querySelector('[data-esc="theme"]')?.textContent?.trim() || null,
       dayNightLabel: root.querySelector('[data-esc="daynight"]')?.textContent?.trim() || null,
       buttons: [...root.querySelectorAll('[data-esc]:not([hidden])')].map((b) => b.dataset.esc),
       catalog: view === 'catalog' ? {
