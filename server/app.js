@@ -7,6 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
+const { maintenance } = require('./maintenance'); // "Under construction" on the public site (Jens t982u) – revert to turn off
 const sharp = require('sharp');
 const { contentId } = require('./store');
 const { broadcast: broadcastRaw, cleanName, playerPosition, roomSeat, cleanFabrics, activeRooms } = require('./realtime');
@@ -1576,6 +1577,7 @@ const DIST = path.join(__dirname, '..', 'dist');
 // index.html, sw.js och manifestet får aldrig cachas, så en ny version syns direkt efter
 // en uppdatering. Filerna i assets/ har ett unikt namn per version och får cachas länge.
 const noCache = (res) => res.setHeader('Cache-Control', 'no-cache');
+app.use(maintenance); // Under construction (server/maintenance.js): only HTML pages, only on Render
 app.use(express.static(DIST, {
   setHeaders: (res, file) => {
     if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
